@@ -132,6 +132,18 @@ pub struct Connection {
     pub port: Option<u16>,
     /// Credential override; `None` inherits from the folder chain.
     pub credential: Option<CredentialId>,
+    /// Replaces the effective credential's username / user for this connection (ADR-0009 §3).
+    #[serde(default)]
+    pub username_override: Option<String>,
+    /// Replaces the effective credential's domain for this connection.
+    #[serde(default)]
+    pub domain_override: Option<String>,
+    /// RD Gateway credential (per connection; `None` = same as the session credential).
+    #[serde(default)]
+    pub gateway_credential: Option<CredentialId>,
+    /// `sudo_become` credential (per connection).
+    #[serde(default)]
+    pub become_credential: Option<CredentialId>,
     /// Free-form tags for search and grouping.
     pub tags: Vec<String>,
     /// Creation time.
@@ -239,6 +251,10 @@ impl Connection {
             host,
             port: None,
             credential: None,
+            username_override: None,
+            domain_override: None,
+            gateway_credential: None,
+            become_credential: None,
             tags: Vec::new(),
             created_at: OffsetDateTime::now_utc(),
         })

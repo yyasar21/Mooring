@@ -105,6 +105,12 @@ impl Store {
         if let Some(c) = parse_opt_id(own.as_deref())? {
             return Ok(Some(c));
         }
+        self.folder_default_chain(parse_id(&folder)?)
+    }
+
+    /// Nearest `default_credential` on the folder chain starting at `folder` (inclusive).
+    pub(crate) fn folder_default_chain(&self, folder: FolderId) -> Result<Option<CredentialId>> {
+        let folder = folder.to_string();
         // Walk the parent chain; depth bounded by the folder count so a corrupt (cyclic)
         // chain cannot loop forever.
         let (cred, depth, total): (Option<String>, i64, i64) = self.conn.query_row(

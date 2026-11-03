@@ -5,7 +5,7 @@ mod common;
 
 use common::{conn, lab, password, vault};
 use mooring_core::{Connection, FolderId, Protocol};
-use mooring_store::{SecretField, Store, StoreError};
+use mooring_store::{SecretName, Store, StoreError};
 
 #[test]
 fn moving_a_folder_changes_what_it_inherits() {
@@ -63,7 +63,7 @@ fn deleting_a_shared_default_credential_nulls_every_reference() {
     assert_eq!(s.get_connection(c.id).expect("conn").credential, None);
     assert_eq!(s.effective_credential(c.id).expect("eff"), Some(root_c.id), "falls back to root");
     assert!(matches!(
-        s.open_credential_secret(&v, shared.id, SecretField::Secret),
+        s.open_secret(&v, shared.id, SecretName::Password),
         Err(StoreError::NotFound { .. })
     ));
     assert!(matches!(s.delete_credential(shared.id), Err(StoreError::NotFound { .. })));
@@ -86,7 +86,7 @@ fn folder_delete_cascade_keeps_credentials() {
     assert_eq!(s.list_credentials().expect("list").len(), 2);
     for id in [folder_c.id, own_c.id] {
         assert_eq!(
-            s.open_credential_secret(&v, id, SecretField::Secret).expect("open").as_slice(),
+            s.open_secret(&v, id, SecretName::Password).expect("open").as_slice(),
             b"test-secret"
         );
     }
@@ -193,7 +193,7 @@ fn data_survives_file_reopen() {
     assert_eq!(s.get_connection(cid).expect("conn").tags, vec!["t".to_owned()]);
     assert_eq!(s.effective_credential(cid).expect("eff"), Some(credid));
     assert_eq!(
-        s.open_credential_secret(&v, credid, SecretField::Secret).expect("open").as_slice(),
+        s.open_secret(&v, credid, SecretName::Password).expect("open").as_slice(),
         b"test-secret"
     );
 }

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use mooring_core::{Connection, ConnectionId, FolderId};
+use mooring_core::{Connection, ConnectionId, FolderId, Role};
 use rusqlite::{params, OptionalExtension, Row};
 
 use crate::error::{invalid, not_found, Result};
@@ -10,12 +10,35 @@ use crate::folders::folder_exists;
 use crate::util::{check_name, fmt_ts, now, parse_id, parse_opt_id, parse_ts, protocol_from_str};
 use crate::{Store, MAX_TAGS};
 
-const CONN_COLS: &str = "id, folder_id, name, protocol, host, port, credential_id, created_at";
+const CONN_COLS: &str = "id, folder_id, name, protocol, host, port, credential_id, created_at, \
+                         username_override, domain_override";
 
-type RawConn = (String, String, String, String, String, Option<u16>, Option<String>, String);
+struct RawConn {
+    id: String,
+    folder: String,
+    name: String,
+    protocol: String,
+    host: String,
+    port: Option<u16>,
+    credential: Option<String>,
+    created: String,
+    username_override: Option<String>,
+    domain_override: Option<String>,
+}
 
 fn row_to_raw(r: &Row<'_>) -> rusqlite::Result<RawConn> {
-    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
+    Ok(RawConn {
+        id: r.get(0)?,
+        folder: r.get(1)?,
+        name: r.get(2)?,
+        protocol: r.get(3)?,
+        host: r.get(4)?,
+        port: r.get(5)?,
+        credential: r.get(6)?,
+        created: r.get(7)?,
+        username_override: r.get(8)?,
+        domain_override: r.get(9)?,
+    })
 }
 
 /// Host rules from [`mooring_core::validate_host`].
@@ -39,17 +62,37 @@ struct Validated {
     name: String,
     host: String,
     tags: Vec<String>,
+    username_override: Option<String>,
+    domain_override: Option<String>,
 }
 
 fn validate(c: &Connection) -> Result<Validated> {
     if c.port == Some(0) {
         return Err(invalid("port", "must be 1..=65535"));
     }
+    let (username_override, domain_override) = crate::roles::check_overrides(c)?;
     Ok(Validated {
         name: check_name("name", &c.name)?,
         host: check_host(&c.host)?,
         tags: normalise_tags(&c.tags)?,
+        username_override,
+        domain_override,
     })
+}
+
+impl Store {
+    /// Checks shared by create and update: folder exists, linked credentials exist and fit
+    /// the protocol and role, overrides fit the effective credential.
+    fn check_links(&self, c: &Connection, v: &Validated) -> Result<()> {
+        if !folder_exists(&self.conn, c.folder)? {
+            return Err(not_found("folder", &c.folder));
+        }
+        self.ensure_role_credentials(c)?;
+        let mut normalised = c.clone();
+        normalised.username_override.clone_from(&v.username_override);
+        normalised.domain_override.clone_from(&v.domain_override);
+        self.check_override_fit(&normalised)
+    }
 }
 
 impl Store {
@@ -57,18 +100,13 @@ impl Store {
     /// Returns the stored form (trimmed name/host, normalised tags).
     pub fn create_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
+        self.check_links(c, &v)?;
         let tx = self.conn.unchecked_transaction()?;
-        if !folder_exists(&tx, c.folder)? {
-            return Err(not_found("folder", &c.folder));
-        }
-        if let Some(cred) = c.credential {
-            crate::credentials::ensure_credential(&tx, cred)?;
-        }
         let created = fmt_ts(c.created_at)?;
         tx.execute(
             "INSERT INTO connection (id, folder_id, name, protocol, host, port, credential_id,
-                                     created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                                     created_at, updated_at, username_override, domain_override)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 c.id.to_string(),
                 c.folder.to_string(),
@@ -79,9 +117,12 @@ impl Store {
                 c.credential.map(|x| x.to_string()),
                 created,
                 fmt_ts(now())?,
+                v.username_override,
+                v.domain_override,
             ],
         )?;
         write_tags(&tx, c.id, &v.tags)?;
+        Self::write_roles(&tx, c)?;
         tx.commit()?;
         self.get_connection(c.id)
     }
@@ -89,16 +130,12 @@ impl Store {
     /// Replace every mutable field of an existing connection, including its tags.
     pub fn update_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
+        self.check_links(c, &v)?;
         let tx = self.conn.unchecked_transaction()?;
-        if !folder_exists(&tx, c.folder)? {
-            return Err(not_found("folder", &c.folder));
-        }
-        if let Some(cred) = c.credential {
-            crate::credentials::ensure_credential(&tx, cred)?;
-        }
         let n = tx.execute(
             "UPDATE connection SET folder_id = ?2, name = ?3, protocol = ?4, host = ?5, port = ?6,
-                                   credential_id = ?7, updated_at = ?8
+                                   credential_id = ?7, updated_at = ?8, username_override = ?9,
+                                   domain_override = ?10
              WHERE id = ?1",
             params![
                 c.id.to_string(),
@@ -109,12 +146,15 @@ impl Store {
                 c.port,
                 c.credential.map(|x| x.to_string()),
                 fmt_ts(now())?,
+                v.username_override,
+                v.domain_override,
             ],
         )?;
         if n == 0 {
             return Err(not_found("connection", &c.id));
         }
         write_tags(&tx, c.id, &v.tags)?;
+        Self::write_roles(&tx, c)?;
         tx.commit()?;
         self.get_connection(c.id)
     }
@@ -173,18 +213,21 @@ impl Store {
     }
 
     fn decode(&self, raw: RawConn) -> Result<Connection> {
-        let (id, folder, name, protocol, host, port, cred, created) = raw;
-        let tags = self.tags_of(&id)?;
+        let tags = self.tags_of(&raw.id)?;
         Ok(Connection {
-            id: parse_id(&id)?,
-            folder: parse_id(&folder)?,
-            name,
-            protocol: protocol_from_str(&protocol)?,
-            host,
-            port,
-            credential: parse_opt_id(cred.as_deref())?,
+            id: parse_id(&raw.id)?,
+            folder: parse_id(&raw.folder)?,
+            name: raw.name,
+            protocol: protocol_from_str(&raw.protocol)?,
+            host: raw.host,
+            port: raw.port,
+            credential: parse_opt_id(raw.credential.as_deref())?,
+            username_override: raw.username_override,
+            domain_override: raw.domain_override,
+            gateway_credential: self.role_credential(&raw.id, Role::Gateway)?,
+            become_credential: self.role_credential(&raw.id, Role::Become)?,
             tags,
-            created_at: parse_ts(&created)?,
+            created_at: parse_ts(&raw.created)?,
         })
     }
 }

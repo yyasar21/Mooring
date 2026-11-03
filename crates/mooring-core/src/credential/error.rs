@@ -32,7 +32,8 @@ pub enum CredentialError {
 }
 
 impl CredentialError {
-    pub(crate) fn invalid(field: &'static str, reason: impl Into<String>) -> Self {
+    /// `Invalid` for `field` with a value-free `reason`.
+    pub fn invalid(field: &'static str, reason: impl Into<String>) -> Self {
         Self::Invalid { field, reason: reason.into() }
     }
 }
