@@ -1,0 +1,82 @@
+# Roadmap
+
+Mooring is built in phases. Phase A delivers a full remote-access manager; Phase B adds
+Mooring's own remote-desktop agent and relay. Each phase ends with exit criteria, a written
+security review and an updated threat model. Dates are not promised; order is.
+
+Legend: ✅ done · 🚧 in progress · 🗓 planned
+
+## A0 — Foundation ✅
+
+Cargo workspace and crates, Tauri 2 shell with strict CSP and minimal capabilities, React UI
+shell, vault cryptography, hash-chained audit log, `make check`, CI on three operating systems,
+security workflow, ADR-0001 to ADR-0004, threat model v0.
+
+## A1 — Vault, connection tree and SSH 🚧
+
+| Item | Status |
+| --- | --- |
+| Vault: create, unlock, lock, change password, Argon2id calibration | ✅ |
+| Vault: auto-lock wired to idle and OS signals | 🚧 policy done |
+| Vault: opt-in Touch ID / Windows Hello unlock | 🚧 held until each platform has a biometric ACL |
+| Vault: `age` export and import in the app | 🚧 library done, vectors verified with the `age` CLI |
+| Data model: folders, connections, tags, credentials, inheritance, overrides, search | ✅ |
+| Typed credential model, 15 kinds ([ADR-0009](adr/0009-credential-model.md)) | 🗓 next |
+| SSH: TOFU + `known_hosts`, password, key, keyboard-interactive, agent, strict algorithms | ✅ |
+| SSH: terminal with WebGL, streaming | ✅ |
+| SSH: port forwarding (L/R/D) in the app | 🚧 core done and reviewed |
+| SSH: SFTP panel with progress and drag-and-drop | 🚧 core done and reviewed |
+| UI: three panes, palette, tabs, inspector, copy password, themes, keyboard-first | ✅ |
+| Audit log viewer | ✅ |
+| Syslog mirror | 🗓 |
+| Fuzz targets with a nightly job; Playwright E2E through `tauri-driver` | 🗓 |
+
+## A2 — RDP, VNC and web sessions 🗓
+
+- **RDP** via IronRDP: NLA/CredSSP, TLS with system and custom CA roots, certificate TOFU with
+  explicit approval, dynamic resolution, text clipboard both ways, keyboard layouts, audio off
+  by default, efficient frame path (target 30 fps at 1080p).
+- **VNC**: RFB 3.8, Tight/ZRLE/Raw, VeNCrypt TLS, password and no-auth, view-only toggle.
+- **Web sessions**: an isolated WebView per connection with its own capability set and
+  partitioned storage, for admin consoles such as vCenter, Grafana, OPNsense, Rancher and Argo
+  CD.
+- **Shared**: reconnect with backoff, metadata-only session recording in the audit log,
+  screenshot to clipboard, fullscreen, detach tab to window, per-connection legacy SSH
+  algorithms (audited).
+- Security focus: parser hardening and fuzzing, WebView isolation, clipboard leakage,
+  certificate handling.
+
+## A3 — Infrastructure integrations 🗓
+
+- **vSphere**: import datacenters, clusters, hosts and VMs into a synced folder; VM console;
+  power state; scheduled refresh.
+- **Kubernetes**: contexts from kubeconfig, namespaces and pods, `exec` shells,
+  port-forward, logs — read-only, never mutates the cluster.
+- **External secrets**: credentials resolved at connect time from HashiCorp Vault / OpenBao
+  (KV v2) with short-lived tokens; nothing cached on disk.
+- **Optional sign-in** with Active Directory (LDAPS) and FIDO2 `hmac-secret` as a vault second
+  factor.
+- **Vault sync**: client-side encrypted blob to S3-compatible storage with conflict detection.
+- **Network tools** in the inspector: ping, TCP port check, traceroute, WireGuard status.
+- Security focus: token lifetimes, LDAP injection, sync integrity (AEAD with version counters).
+
+## A4 — Release v0.1.0 🗓
+
+- Signed bundles: macOS universal `.dmg`/`.pkg` with notarization; Windows `.exe`/`.msi` with
+  Authenticode; Linux `.deb`, `.rpm`, AppImage with minisign-signed checksums; signed updater
+  manifests. Homebrew tap, winget later.
+- CycloneDX SBOMs, SLSA provenance, reproducible-build check.
+- Full security pass: zero critical/high findings; mediums documented.
+- Onboarding and importers: Royal TS, Termius, mRemoteNG, PuTTY sessions. No telemetry.
+- Exit: clean installs on fresh macOS, Windows 11 and Fedora machines.
+
+## B — Mooring agent and relay 🗓
+
+Mooring's own remote-desktop agent and relay service, so machines without SSH, RDP or VNC
+exposure can be reached through an end-to-end encrypted relay. Scope and design will start
+with a dedicated ADR after v0.1.0.
+
+## Influencing the roadmap
+
+Open a feature request or start a discussion. Security-relevant features land only with an
+ADR and a review.
