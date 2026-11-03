@@ -45,12 +45,12 @@ on its own and needs no new step. A1-QA-3 is fixed on main: all four workflows p
 | 3e | SFTP panel (browse, up/down with progress, drag-drop) | PARTIAL | Crate level PASS (`tests/sftp.rs`, 7). **No Tauri command and no panel** |
 | 3f | xterm.js + WebGL, streaming over Tauri channels | PASS (Linux, no display) | `xterm.ts` loads `WebglAddon` with a DOM fallback. Channel streaming is covered by `e2e_flow` and the session tests. WebGL rendering was never run on a real GPU |
 | 4 | **UI** | **PARTIAL** | three-pane, command palette, inspector with credential reference, copy-password with 30 s clear + audit, dark/light: Vitest 41 + Rust `credentials::tests::copy_*`. **Detach-to-window is deferred to A2** (`window_detach` → `ipc.unknown`, ADR-0008). Real clipboard never exercised on a display |
-| 5 | **Audit viewer; syslog mirror (xlog01)** | **PARTIAL** | Viewer + `audit_tail` / `audit_verify` PASS. **The syslog mirror does not exist**: there is no code and no setting |
+| 5 | **Audit viewer; syslog mirror to a syslog server** | **PARTIAL** | Viewer + `audit_tail` / `audit_verify` PASS. **The syslog mirror does not exist**: there is no code and no setting |
 | 6 | **Tests** | **PARTIAL** | |
 | 6a | proptest vault round trip + tamper | PASS | `proptest_round_trip.rs`, store and core proptests |
 | 6b | cargo-fuzz: vault header, SSH packets, 1 h nightly | FAIL | No `fuzz/` directory or targets and no nightly job. Proptest stand-ins only (`known_hosts`, `socks`, `export`). The nightly toolchain is not available here |
 | 6c | Vitest for stores | PASS | `stores/{credentials,ui,sessions,tree}.test.ts` + `lib/ipc.test.ts` |
-| 6d | Playwright E2E via tauri-driver to xinfra01 | PARTIAL | The same flow runs at IPC level against a loopback server (`e2e_flow`, PASS). The real Playwright + tauri-driver run is a TODO: there is no `tests/e2e` scaffold to update (`make e2e` points at a missing path). Selectors for it are below. The lab leg (`proto-ssh/tests/lab.rs`, `MOORING_LAB=1`) has never been run |
+| 6d | Playwright E2E via tauri-driver to `<lab-host>` | PARTIAL | The same flow runs at IPC level against a loopback server (`e2e_flow`, PASS). The real Playwright + tauri-driver run is a TODO: there is no `tests/e2e` scaffold to update (`make e2e` points at a missing path). Selectors for it are below. The lab leg (`proto-ssh/tests/lab.rs`, `MOORING_LAB_HOST`) has never been run |
 | X | All green on 3 OSes | UNKNOWN | Linux green (below). `ci.yml` now parses, but no 3-OS CI run has been observed |
 | X | `docs/security/a1-review.md` sign-off | PARTIAL | `APPROVE WITH NITS` covers **items 1–2 only**. SSH, Tauri commands, `arboard` and the `age` git pin have not been reviewed |
 | X | threat model updated | FAIL | `threat-model.md` "Last change: A1 items 1–2"; SSH/IPC/clipboard not reflected |
@@ -108,7 +108,7 @@ tauri-driver), the scenario should be, with v2 accessible names:
 2. Palette (`role=combobox`), then option `"New folder"`, then the dialog `"New folder in All connections"` with `getByLabel("Name")`, then submit.
 3. Button `"New connection"`, then the dialog `"New connection"` with `Name`, `Host`, `Port`, then the credential via the dialog `"Credentials"`, `"New credential"`, `Username`, `Password` and `"Create credential"`, then `"Create connection"`.
 4. Open the `treeitem` and the `tab` named after the connection. On the TOFU prompt choose `"Trust and connect"`.
-5. Type `uname -a⏎` into the xterm. Assert `Linux` in `role=tabpanel`. Lab only: `xinfra01.homelab.xyz`, read-only, `.env` account.
+5. Type `uname -a⏎` into the xterm. Assert `Linux` in `role=tabpanel`. Lab only: `<lab-host>`, read-only, `.env` account.
 6. Button `"Lock"`, then the `"Unlock"` gate is visible.
 
 ## Must run on macOS / Windows
@@ -120,7 +120,7 @@ tauri-driver), the scenario should be, with v2 accessible names:
 3. Keyring and Touch ID / Windows Hello once wired. Calibration on Apple Silicon (pass 1, item 3).
 4. ssh-agent auth against a real agent (macOS launchd agent, Windows OpenSSH agent pipe).
 5. `cargo deny check`, `cargo audit`, `gitleaks detect --no-banner --redact` (any OS that has them).
-6. Lab: `MOORING_LAB=1 … cargo test -p mooring-proto-ssh --test lab -- --ignored` (read-only).
+6. Lab: `MOORING_LAB_HOST=<lab-host> … cargo test -p mooring-proto-ssh --test lab -- --ignored` (read-only).
 
 ## Decision needed
 

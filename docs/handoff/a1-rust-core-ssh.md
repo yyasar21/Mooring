@@ -126,7 +126,7 @@ cargo test -p mooring-proto-ssh -p mooring-core
   tests/trust.rs                    5 passed  (TOFU accept hashed, TOFU decline nothing written,
                                                known host silent, mismatch hard stop unchanged,
                                                close during TOFU prompt)
-  tests/lab.rs                      1 ignored (MOORING_LAB=1 xinfra01 uname; never run here)
+  tests/lab.rs                      1 ignored (MOORING_LAB_HOST <lab-host> uname; never run here)
 5 consecutive runs: all green, under 3 s per run after the build.
 cargo build --workspace --exclude mooring-app   FAILS in ml-kem 0.2.1 (see BLOCKER)
 ```

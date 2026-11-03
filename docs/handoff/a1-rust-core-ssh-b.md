@@ -74,7 +74,7 @@ Scope: `crates/mooring-proto-ssh/**` only. No manifest, lockfile or `src-tauri` 
 - Windows: `LocalPath` symlink tests are `cfg(unix)`; junction escapes on Windows rely on
   `canonicalize` and were not exercised here.
 - Disk: the shared `/` volume hit 100 % at the start of this task; builds were done with
-  `CARGO_TARGET_DIR=/home/claude/nexus/target` (identical `Cargo.lock`), the worktree's own
+  `CARGO_TARGET_DIR=<repo>/target` (identical `Cargo.lock`), the worktree's own
   `target/` was removed. Old scratchpad build dirs (`deptest`, `probe`, `kemcheck`,
   `kscheck`, ~2.5 GB) could not be cleaned by this agent.
 
