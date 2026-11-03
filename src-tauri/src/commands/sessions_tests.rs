@@ -189,6 +189,29 @@ async fn host_key_mismatch_is_a_hard_stop_and_audited() {
     assert!(log.contains(&format!("\"fingerprint\":\"{presented}\"")), "{log}");
 }
 
+/// N-3: when `known_hosts` cannot be written, the key is trusted for this session only and
+/// the audit log says so instead of `accepted`.
+#[tokio::test]
+async fn unstored_tofu_accept_is_audited_as_session_only() {
+    let srv = server::start(205).await;
+    let (f, conn) = ssh_fixture(srv.port, "ssh");
+    // A file over the line cap loads (truncated) but is never rewritten, so the save fails.
+    let line = "#".repeat(mooring_proto_ssh::known_hosts::MAX_LINE + 1);
+    std::fs::write(f.state.known_hosts_path(), format!("{line}\n")).expect("oversized kh");
+    let (sink, mut rx) = sink();
+    let opened = open(&f.state, &conn, SIZE, sink).await.expect("open");
+    let prompt = next(&mut rx).await;
+    let id = u32::try_from(prompt["id"].as_u64().expect("id")).expect("u32");
+    let yes = WireInput::Answer { id, text: SecretString::from("yes") };
+    send(&f.state, &opened.session_id, yes).await.expect("answer");
+    assert_eq!(next(&mut rx).await["kind"], "connected");
+    close(&f.state, &opened.session_id).await.expect("close");
+    while next(&mut rx).await["kind"] != "closed" {}
+    let log = audit_log(&f);
+    assert!(log.contains("\"decision\":\"accepted_session_only\""), "{log}");
+    assert!(!log.contains("\"decision\":\"accepted\""), "{log}");
+}
+
 #[tokio::test]
 async fn open_validation_and_protocol_gate() {
     let (f, conn) = ssh_fixture(9, "rdp");

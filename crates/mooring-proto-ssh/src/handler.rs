@@ -106,14 +106,16 @@ impl ClientHandler {
         let saved =
             tokio::task::spawn_blocking(move || KnownHosts::add_and_save(&path, &host, port, &k))
                 .await;
-        if !matches!(saved, Ok(Ok(()))) {
-            tracing::warn!("host key trusted for this session but could not be stored");
+        let stored = matches!(saved, Ok(Ok(())));
+        if !stored {
+            tracing::warn!("host key trusted for this session only: known_hosts not updated");
         }
         self.shared.audit.push(TrustEvent::HostKeyAdded {
             host: self.host.clone(),
             port: self.port,
             key_type: key.algorithm().as_str().to_owned(),
             fingerprint: fingerprint(key),
+            stored,
         });
         self.accepted = Some(key.clone());
         true

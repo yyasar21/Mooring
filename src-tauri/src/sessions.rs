@@ -202,8 +202,10 @@ pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcRes
 fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
     for e in events {
         let (host, fingerprint, decision, expected) = match e {
-            TrustEvent::HostKeyAdded { host, port, fingerprint, .. } => {
-                (format!("{host}:{port}"), fingerprint, "accepted", None)
+            TrustEvent::HostKeyAdded { host, port, fingerprint, stored, .. } => {
+                // N-3: a key that could not be written is trusted for this session only.
+                let decision = if stored { "accepted" } else { "accepted_session_only" };
+                (format!("{host}:{port}"), fingerprint, decision, None)
             }
             TrustEvent::HostKeyRejected { host, port, fingerprint } => {
                 (format!("{host}:{port}"), fingerprint, "rejected", None)
