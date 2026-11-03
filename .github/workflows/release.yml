@@ -11,6 +11,18 @@
 # Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
 # APPLE_CERTIFICATE as "sign with this" and fails. Nothing here echoes a secret.
 # No build cache on purpose: release builds must not consume caches written by PR runs.
+#
+# Jobs are split by privilege (security review 3, M-7). Third-party code (npm and cargo build
+# scripts, tauri-action, cargo-cyclonedx, syft) only ever runs with `contents: read`:
+#   create-release  contents: write   creates the draft; runs no project or third-party code
+#   build           contents: read    builds and uploads workflow artifacts only
+#   sbom            contents: read    cargo-cyclonedx + syft, pinned; no id-token
+#   publish         contents: write   uploads the build artifacts to the draft; no checkout
+#   finalize        contents: write + id-token: write + attestations: write
+#                   no checkout, no cargo install; only cosign-installer (pinned cosign release,
+#                   checksum-verified by the installer) and attest-build-provenance. It hashes the
+#                   workflow artifacts (not the draft), signs, attests, uploads, then fails if the
+#                   draft holds any file that SHA256SUMS does not cover.
 name: release
 
 on:
@@ -92,7 +104,7 @@ jobs:
     needs: create-release
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write # upload assets to the draft release
+      contents: read # artifacts go to the workflow; `publish` uploads them to the draft
     strategy:
       fail-fast: false
       matrix:
@@ -236,25 +248,20 @@ jobs:
           with open(env("GITHUB_OUTPUT"), "a") as out:
               out.write(f"path={path.as_posix()}\n")
 
-      - name: Build and upload with tauri-action
+      # Build only: no releaseId/tagName and no token, so tauri-action cannot touch the release.
+      # (latest.json is therefore not produced; it was unused, and enabling the updater needs its
+      # own security review.)
+      - name: Build with tauri-action
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          releaseDraft: true
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ steps.cfg.outputs.path }}
-          uploadUpdaterJson: ${{ steps.secrets.outputs.updater }}
-          uploadUpdaterSignatures: ${{ steps.secrets.outputs.updater }}
-          updaterJsonPreferNsis: true
           retryAttempts: 1
 
       - name: Build .pkg from the .app
         if: runner.os == 'macOS'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.create-release.outputs.version }}
           APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
           APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
@@ -264,7 +271,35 @@ jobs:
           app="target/${{ matrix.target }}/release/bundle/macos/Mooring.app"
           pkg="$RUNNER_TEMP/Mooring_${VERSION}_${{ matrix.arch }}.pkg"
           scripts/release/macos-pkg.sh "$app" "$VERSION" "$pkg"
-          gh release upload "$TAG" "$pkg" --clobber --repo "$GITHUB_REPOSITORY"
+          echo "PKG_PATH=$pkg" >> "$GITHUB_ENV"
+
+      - name: Collect release files
+        shell: bash
+        env:
+          PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"; mkdir -p "$out"
+          mapfile -t files < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
+          [[ -n "${PKG_PATH:-}" ]] && files+=("$PKG_PATH")
+          for f in "${files[@]}"; do
+            [[ -f "$f" ]] || continue # .app bundles are directories; the .dmg / .app.tar.gz carry them
+            name=$(basename "$f")
+            # updater archives share a name across macOS targets: add the arch, as tauri-action did
+            case "$name" in *.app.tar.gz|*.app.tar.gz.sig) name="${name%%.app.tar.gz*}_${ARCH}.app.tar.gz${name##*.app.tar.gz}" ;; esac
+            [[ ! -e "$out/$name" ]] || { echo "::error::duplicate release file $name"; exit 1; }
+            cp -- "$f" "$out/$name"
+          done
+          ls -la "$out"
+          (( $(find "$out" -type f | wc -l) > 0 )) || { echo "::error::no release files"; exit 1; }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-${{ matrix.name }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Summary
         if: always()
@@ -278,17 +313,14 @@ jobs:
             echo '```'; echo "$PATHS" | tr ',' '\n' | sed 's/[][]//g;s/"//g'; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  finalize:
-    name: checksums, signature, SBOM, provenance
-    needs: [create-release, build]
+  sbom:
+    name: SBOMs (CycloneDX)
+    needs: create-release
     runs-on: ubuntu-22.04
     permissions:
-      contents: write # upload SHA256SUMS, bundle and SBOMs
-      id-token: write # Sigstore keyless signing + attestations
-      attestations: write
+      contents: read # no id-token: these tools never run next to the signing identity
     env:
       VERSION: ${{ needs.create-release.outputs.version }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -299,23 +331,14 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Download every release asset
-        run: |
-          set -euo pipefail
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
-          # A re-run must not checksum the previous run's outputs.
-          rm -f dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json
-          ls -la dist
-
       - name: Rust SBOM (CycloneDX, cargo-cyclonedx)
         run: |
           set -euo pipefail
-          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          mkdir -p sbom
+          cargo install cargo-cyclonedx --version =0.5.9 --locked
           cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --spec-version 1.5 \
             --target all --override-filename mooring-app.cdx
-          mv src-tauri/mooring-app.cdx.json "dist/mooring-${VERSION}-cargo.cdx.json"
+          mv src-tauri/mooring-app.cdx.json "sbom/mooring-${VERSION}-cargo.cdx.json"
           rm -f crates/*/mooring-app.cdx.json # cargo-cyclonedx also writes one per workspace member
 
       - name: Source SBOM incl. npm (CycloneDX, syft)
@@ -323,9 +346,77 @@ jobs:
         with:
           path: .
           format: cyclonedx-json
-          output-file: dist/mooring-${{ env.VERSION }}-source.cdx.json
+          output-file: sbom/mooring-${{ env.VERSION }}-source.cdx.json
+          syft-version: v1.55.0
           upload-artifact: false
           upload-release-assets: false
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: upload installers to the draft
+    needs: [create-release, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # the only job besides create-release/finalize that writes the release
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # No checkout: nothing from the repository or a dependency runs while this token can write.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bundles-*
+          path: dist
+          merge-multiple: false
+
+      - name: Upload installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find dist -type f | LC_ALL=C sort)
+          dupes=$(printf '%s\n' "${files[@]##*/}" | sort | uniq -d)
+          [[ -z "$dupes" ]] || { echo "::error::same file name from two builds: $dupes"; exit 1; }
+          gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" "${files[@]}"
+
+  finalize:
+    name: checksums, signature, provenance
+    needs: [create-release, build, sbom, publish]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # upload SHA256SUMS, bundle and SBOMs
+      id-token: write # Sigstore keyless signing + attestations
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # No checkout and no cargo/npm install: with id-token the job runs only these pinned
+      # actions. cosign-installer verifies the cosign release it downloads (pinned below).
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+
+      - name: Workflow artifacts (not the draft) are what gets signed
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Flatten
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir dist
+          while IFS= read -r -d '' f; do
+            name=${f##*/}
+            [[ ! -e "dist/$name" ]] || { echo "::error::duplicate file $name"; exit 1; }
+            cp -- "$f" "dist/$name"
+          done < <(find artifacts -type f -print0)
+          ls -la dist
 
       - name: SHA256SUMS + cosign keyless signature
         working-directory: dist
@@ -341,10 +432,24 @@ jobs:
           subject-checksums: dist/SHA256SUMS
 
       - name: Upload checksums, signature and SBOMs
+        shell: bash
         run: |
           set -euo pipefail
           gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" \
             dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json
+
+      - name: The draft holds exactly the signed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
+            | LC_ALL=C sort > draft.txt
+          { awk '{sub(/^\*/,"",$2); print $2}' dist/SHA256SUMS; echo SHA256SUMS; echo SHA256SUMS.sigstore.json; } \
+            | LC_ALL=C sort > signed.txt
+          if ! diff -u signed.txt draft.txt; then
+            echo "::error::draft assets differ from the signed set (stale files from an earlier run? delete them and re-run)"
+            exit 1
+          fi
           url=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
           {
             echo "### Draft ready: $url"
