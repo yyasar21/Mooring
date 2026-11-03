@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipc, type SessionEvent, type Size } from "../lib/ipc";
+import { ipc, type PromptPurpose, type SessionEvent, type Size } from "../lib/ipc";
 import { errorText } from "./errors";
 
 export type TabState = "connecting" | "connected" | "closed";
@@ -8,6 +8,7 @@ export interface PendingPrompt {
   id: number;
   message: string;
   secret: boolean;
+  purpose: PromptPurpose;
 }
 
 export interface Tab {
@@ -92,7 +93,7 @@ export const useSessions = create<SessionState>((set, get) => {
         pushOutput(tabId, ev.data);
         break;
       case "prompt":
-        patch(tabId, { prompt: { id: ev.id, message: ev.message, secret: ev.secret } });
+        patch(tabId, { prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose } });
         break;
       case "closed":
         patch(tabId, { state: "closed", reason: ev.reason, prompt: null, sessionId: null });

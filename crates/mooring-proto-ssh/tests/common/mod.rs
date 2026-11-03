@@ -51,6 +51,10 @@ pub struct ServerSpec {
     pub kbd_two_step: bool,
     /// Root of the SFTP subsystem; `None` refuses the subsystem.
     pub sftp_root: Option<PathBuf>,
+    /// Advertise `limits@openssh.com` with this max read/write length.
+    pub sftp_limits: Option<u64>,
+    /// Request counters of the SFTP subsystem.
+    pub sftp_stats: Arc<Mutex<sftp_server::SftpStats>>,
 }
 
 impl ServerSpec {
@@ -62,6 +66,8 @@ impl ServerSpec {
             authorized_key: None,
             kbd_two_step: true,
             sftp_root: None,
+            sftp_limits: None,
+            sftp_stats: Arc::default(),
         }
     }
 }
@@ -76,6 +82,9 @@ pub struct Seen {
     pub direct: Vec<(String, u32)>,
     /// `cancel-tcpip-forward` requests honoured.
     pub cancelled_forwards: Vec<(String, u32)>,
+    /// Server-side handle of the last connection, so a test can open channels toward the
+    /// client (x11, agent, session ...).
+    pub handle: Option<server::Handle>,
 }
 
 pub struct TestServer {
@@ -222,8 +231,9 @@ impl server::Handler for Handler {
         &mut self,
         channel: Channel<Msg>,
         reply: server::ChannelOpenHandle,
-        _session: &mut ServerSession,
+        session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
+        self.seen.lock().expect("lock").handle = Some(session.handle());
         self.sessions.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
@@ -239,7 +249,9 @@ impl server::Handler for Handler {
         match (name, root, self.sessions.remove(&channel)) {
             ("sftp", Some(root), Some(ch)) => {
                 session.channel_success(channel)?;
-                russh_sftp::server::run(ch.into_stream(), sftp_server::SftpFs::new(root)).await;
+                let stats = Arc::clone(&self.spec.sftp_stats);
+                let fs = sftp_server::SftpFs::new(root, self.spec.sftp_limits, stats);
+                russh_sftp::server::run(ch.into_stream(), fs).await;
                 Ok(())
             }
             _ => session.channel_failure(channel),
@@ -391,8 +403,9 @@ pub async fn answer(s: &mut SshSession, id: u32, text: &str) {
 /// Answer the TOFU prompt with "yes" and return its message.
 pub async fn accept_tofu(s: &mut SshSession) -> String {
     match next(s).await {
-        SessionEvent::Prompt { id, message, secret } => {
+        SessionEvent::Prompt { id, message, secret, purpose } => {
             assert!(!secret);
+            assert_eq!(purpose, mooring_core::PromptPurpose::HostKeyTrust);
             answer(s, id, "yes").await;
             message
         }

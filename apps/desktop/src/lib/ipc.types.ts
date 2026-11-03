@@ -85,11 +85,14 @@ export interface Size {
   height: number;
 }
 
+/** Why a prompt was raised; set by Rust, never derived from server text (review 2, L-2). */
+export type PromptPurpose = "host_key_trust" | "keyboard_interactive" | "other";
+
 export type SessionEvent =
   | { kind: "connected"; protocol: Protocol; peerIdentity: string | null }
   | { kind: "bytes"; data: Uint8Array }
   | { kind: "frame"; x: number; y: number; width: number; height: number; rgba: Uint8Array }
-  | { kind: "prompt"; id: number; message: string; secret: boolean }
+  | { kind: "prompt"; id: number; message: string; secret: boolean; purpose: PromptPurpose }
   | { kind: "closed"; reason: string };
 
 export type SessionInput =

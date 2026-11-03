@@ -102,8 +102,10 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
     Ok(VaultStatus::Unlocked)
 }
 
-/// Wipe the key from memory. Open sessions survive (ADR-0006).
+/// Wipe the key from memory and clear a copied password still on the clipboard (review 2,
+/// M-1). Open sessions survive (ADR-0006).
 pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
+    state.clear_pending_clipboard();
     // Unknown or missing reasons from the WebView are recorded as a user lock.
     let reason = reason.and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard = state.vault()?;

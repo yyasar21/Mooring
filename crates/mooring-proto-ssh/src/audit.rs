@@ -33,7 +33,7 @@ impl AuthMethod {
 /// One audit-worthy event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrustEvent {
-    /// The user trusted a new host key (TOFU "yes"); it was stored.
+    /// The user trusted a new host key (TOFU "yes").
     HostKeyAdded {
         /// Host as given.
         host: String,
@@ -43,6 +43,9 @@ pub enum TrustEvent {
         key_type: String,
         /// `SHA256:<base64>`.
         fingerprint: String,
+        /// Whether it was written to `known_hosts`; `false` means trusted for this session
+        /// only (full disk, file over the caps; review 2 ruling D4 / N-3).
+        stored: bool,
     },
     /// The user declined a new host key.
     HostKeyRejected {
@@ -81,6 +84,8 @@ pub enum TrustEvent {
         bind: String,
         /// Where connections go (`host:port`, or `socks5` for dynamic).
         target: String,
+        /// `loopback` or `external` (security review 2 M-2).
+        exposure: &'static str,
     },
     /// A port forward stopped (by the user or because the session ended).
     ForwardClosed {

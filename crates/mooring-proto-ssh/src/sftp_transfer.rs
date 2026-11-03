@@ -14,7 +14,13 @@ use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 use tokio::task::JoinSet;
 
 use crate::local_path::LocalPath;
-use crate::sftp::{check_remote, sftp_err, SftpClient, TRANSFER_BLOCK};
+use crate::sftp::{check_remote, sftp_err, SftpClient, MAX_IN_FLIGHT, TRANSFER_BLOCK};
+
+/// Bytes moved per block for a wire chunk of `chunk` bytes: at most [`MAX_IN_FLIGHT`]
+/// requests, never more than [`TRANSFER_BLOCK`].
+pub(crate) fn block_len(chunk: u32) -> usize {
+    TRANSFER_BLOCK.min(MAX_IN_FLIGHT.saturating_mul((chunk as usize).max(1)))
+}
 
 /// Largest file size accepted from a server's `stat` for progress (sanity bound only).
 const MAX_REPORTED_SIZE: u64 = 1 << 50;
@@ -73,8 +79,9 @@ impl SftpClient {
     /// ends the block early; the caller continues from the returned length.
     async fn read_block(&self, handle: &str, offset: u64) -> Result<Block, SftpError> {
         let chunk = self.read_chunk as usize;
+        let block = block_len(self.read_chunk);
         let mut set = JoinSet::new();
-        for i in 0..TRANSFER_BLOCK.div_ceil(chunk) {
+        for i in 0..block.div_ceil(chunk) {
             let raw = std::sync::Arc::clone(&self.raw);
             let (handle, at) = (handle.to_owned(), offset + (i * chunk) as u64);
             let len = self.read_chunk;
@@ -90,7 +97,7 @@ impl SftpClient {
                 *slot = Some(result.map(|d| d.data));
             }
         }
-        let mut data = Vec::with_capacity(TRANSFER_BLOCK);
+        let mut data = Vec::with_capacity(block);
         for part in parts {
             match part {
                 Some(Ok(bytes)) => {
@@ -214,12 +221,13 @@ impl SftpClient {
         let mut src = Some(src);
         let mut done = 0u64;
         progress(0, Some(total));
+        let len = block_len(self.write_chunk);
         loop {
             let file = src.take().ok_or_else(|| local_io(std::io::ErrorKind::Other.into()))?;
             let (file, block) = blocking(move || {
                 let mut file = file;
-                let mut block = Vec::with_capacity(TRANSFER_BLOCK);
-                (&mut file).take(TRANSFER_BLOCK as u64).read_to_end(&mut block)?;
+                let mut block = Vec::with_capacity(len);
+                (&mut file).take(len as u64).read_to_end(&mut block)?;
                 Ok((file, block))
             })
             .await?;
@@ -250,5 +258,22 @@ impl SftpClient {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_is_bounded_by_in_flight_requests() {
+        assert_eq!(block_len(1), MAX_IN_FLIGHT);
+        assert_eq!(block_len(0), MAX_IN_FLIGHT, "a zero chunk never divides by zero");
+        assert_eq!(block_len(1024), MAX_IN_FLIGHT * 1024);
+        assert_eq!(block_len(32 * 1024), TRANSFER_BLOCK);
+        assert_eq!(block_len(u32::MAX), TRANSFER_BLOCK);
+        for chunk in [1u32, 7, 1000, 32 * 1024] {
+            assert!(block_len(chunk).div_ceil(chunk as usize) <= MAX_IN_FLIGHT);
+        }
     }
 }

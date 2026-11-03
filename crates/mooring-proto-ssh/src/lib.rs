@@ -20,6 +20,7 @@ pub mod audit;
 mod auth;
 mod channel;
 mod driver;
+mod exposure;
 pub mod forward;
 mod forward_io;
 mod handler;
@@ -33,7 +34,7 @@ pub mod socks;
 
 pub use audit::{AuthMethod, TrustEvent};
 pub use channel::{MAX_CHUNK, TERM};
-pub use forward::{ForwardId, ForwardInfo, ForwardKind};
+pub use forward::{Exposure, ForwardId, ForwardInfo, ForwardKind};
 pub use handler::ClientHandler;
 pub use known_hosts::{KnownHosts, TrustDecision};
 pub use local_path::{LocalPath, MAX_LOCAL_PATH};

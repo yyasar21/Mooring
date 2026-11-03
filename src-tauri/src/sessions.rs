@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use mooring_audit::{AuditEvent, AuditLog};
-use mooring_core::session::{Session, SessionEvent, SessionInput};
+use mooring_core::session::{PromptPurpose, Session, SessionEvent, SessionInput};
 use mooring_core::Protocol;
 use mooring_proto_ssh::{SshSession, TrustEvent};
 use serde::Serialize;
@@ -58,6 +58,8 @@ pub enum WireEvent {
         message: String,
         /// Hide the answer.
         secret: bool,
+        /// `host_key_trust`, `keyboard_interactive` or `other` (L-2).
+        purpose: PromptPurpose,
     },
     /// Session ended (always last).
     Closed {
@@ -77,7 +79,9 @@ impl From<SessionEvent> for WireEvent {
             SessionEvent::Frame { x, y, width, height, rgba } => {
                 Self::Frame { x, y, width, height, rgba: b64(&rgba) }
             }
-            SessionEvent::Prompt { id, message, secret } => Self::Prompt { id, message, secret },
+            SessionEvent::Prompt { id, message, secret, purpose } => {
+                Self::Prompt { id, message, secret, purpose }
+            }
             SessionEvent::Closed { reason } => Self::Closed { reason },
         }
     }
@@ -172,6 +176,15 @@ pub struct TaskContext {
     pub registry: SessionRegistry,
 }
 
+impl std::fmt::Debug for TaskContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskContext")
+            .field("session_id", &self.session_id)
+            .field("connection_id", &self.connection_id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Register `session` and start its task. Must be called inside a Tokio runtime.
 pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcResult<()> {
     let (tx, rx) = mpsc::channel(COMMAND_CAPACITY);
@@ -197,15 +210,17 @@ pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcRes
 
 fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
     for e in events {
-        let (host, fingerprint, decision) = match e {
-            TrustEvent::HostKeyAdded { host, port, fingerprint, .. } => {
-                (format!("{host}:{port}"), fingerprint, "accepted")
+        let (host, fingerprint, decision, expected) = match e {
+            TrustEvent::HostKeyAdded { host, port, fingerprint, stored, .. } => {
+                // N-3: a key that could not be written is trusted for this session only.
+                let decision = if stored { "accepted" } else { "accepted_session_only" };
+                (format!("{host}:{port}"), fingerprint, decision, None)
             }
             TrustEvent::HostKeyRejected { host, port, fingerprint } => {
-                (format!("{host}:{port}"), fingerprint, "rejected")
+                (format!("{host}:{port}"), fingerprint, "rejected", None)
             }
-            TrustEvent::HostKeyMismatch { host, port, presented, .. } => {
-                (format!("{host}:{port}"), presented, "changed")
+            TrustEvent::HostKeyMismatch { host, port, presented, expected } => {
+                (format!("{host}:{port}"), presented, "changed", Some(expected))
             }
             TrustEvent::AuthSucceeded { method } => {
                 tracing::info!(method = method.as_str(), "ssh authentication succeeded");
@@ -217,15 +232,23 @@ fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
             }
             // Forwards are not exposed over IPC yet; `mooring-audit` gains dedicated
             // variants when they are (A1 follow-up). Until then they are traced.
-            TrustEvent::ForwardOpened { id, kind, bind, target }
-            | TrustEvent::ForwardClosed { id, kind, bind, target } => {
-                tracing::info!(id, kind, bind, target, "ssh forward state changed");
+            TrustEvent::ForwardOpened { id, kind, bind, target, exposure } => {
+                tracing::info!(id, kind, bind, target, exposure, "ssh forward opened");
+                continue;
+            }
+            TrustEvent::ForwardClosed { id, kind, bind, target } => {
+                tracing::info!(id, kind, bind, target, "ssh forward closed");
                 continue;
             }
         };
         record_audit(
             audit,
-            AuditEvent::TrustDecision { host, fingerprint, decision: decision.to_owned() },
+            AuditEvent::TrustDecision {
+                host,
+                fingerprint,
+                decision: decision.to_owned(),
+                expected,
+            },
         );
     }
 }

@@ -117,3 +117,29 @@ async fn refused_tcp_is_a_transport_error() {
             .expect_err("refused");
     assert!(matches!(err, mooring_core::MooringError::Transport(_)));
 }
+
+/// Security review 2 L-1: channels the server opens toward the client that we never asked
+/// for (`session`, `x11`, `auth-agent@openssh.com`, `direct-tcpip`, `direct-streamlocal`,
+/// `forwarded-streamlocal`) are refused; the shell keeps working.
+#[tokio::test]
+async fn server_opened_channels_are_rejected() {
+    let (mut s, srv, _d) = shell().await;
+    let h = srv.seen.lock().expect("lock").handle.clone().expect("server handle");
+    let t = std::time::Duration::from_secs(10);
+    let x11 = tokio::time::timeout(t, h.channel_open_x11("127.0.0.1", 6010)).await;
+    assert!(x11.expect("in time").is_err(), "x11");
+    let agent = tokio::time::timeout(t, h.channel_open_agent()).await;
+    assert!(agent.expect("in time").is_err(), "agent");
+    let session = tokio::time::timeout(t, h.channel_open_session()).await;
+    assert!(session.expect("in time").is_err(), "session");
+    let direct = h.channel_open_direct_tcpip("127.0.0.1", 22, "127.0.0.1", 1);
+    assert!(tokio::time::timeout(t, direct).await.expect("in time").is_err(), "direct-tcpip");
+    let sl = h.channel_open_direct_streamlocal("/tmp/agent.sock");
+    assert!(tokio::time::timeout(t, sl).await.expect("in time").is_err(), "direct-streamlocal");
+    let fsl = h.channel_open_forwarded_streamlocal("/tmp/agent.sock");
+    assert!(tokio::time::timeout(t, fsl).await.expect("in time").is_err(), "fwd-streamlocal");
+
+    s.send(SessionInput::Bytes { data: b"still-alive\r".to_vec() }).await.expect("send");
+    read_until(&mut s, "still-alive").await;
+    s.close().await.expect("close");
+}

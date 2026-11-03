@@ -112,22 +112,21 @@ impl Clipboard for SystemClipboard {
 }
 
 /// In-memory clipboard for tests.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 #[derive(Debug, Default)]
 pub struct MemoryClipboard {
     value: Mutex<Option<Zeroizing<String>>>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 impl MemoryClipboard {
     /// What is on the clipboard (tests only).
-    #[cfg(test)]
     pub fn peek(&self) -> Option<String> {
         self.value.lock().ok().and_then(|v| v.as_ref().map(|s| s.to_string()))
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 impl Clipboard for MemoryClipboard {
     fn set(&self, text: &str) -> Result<(), ClipboardError> {
         *self.value.lock().map_err(|_| ClipboardError)? = Some(Zeroizing::new(text.to_owned()));

@@ -2,7 +2,9 @@
 //!
 //! The relative part may only contain normal components (no `..`, no root, no drive prefix),
 //! and the resolved path must stay under the canonical base after following symlinks.
-//! Errors never contain local paths.
+//! On every platform a component may not contain `:` (a Windows alternate data stream) or be
+//! a reserved DOS device name (`CON`, `NUL`, `COM1`, ...), so a path accepted on one OS is
+//! safe on all of them (security review 2, L-7). Errors never contain local paths.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -29,6 +31,37 @@ fn invalid(reason: &str) -> MooringError {
     MooringError::Invalid { field: "local path", reason: reason.to_owned() }
 }
 
+/// Reserved DOS device names; Windows maps them to devices with any extension.
+const RESERVED: [&str; 8] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$", "COM0"];
+
+/// Whether `name` is a Windows device name: [`RESERVED`], `COM1`..`COM9`, `LPT0`..`LPT9`
+/// (also with superscript digits), compared case-insensitively on the stem before the first
+/// `.`, with trailing spaces ignored as Windows does.
+fn is_reserved_device(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end_matches(' ').to_ascii_uppercase();
+    if RESERVED.contains(&stem.as_str()) || stem == "LPT0" {
+        return true;
+    }
+    let (prefix, digit) = (stem.get(..3), stem.get(3..));
+    matches!(prefix, Some("COM" | "LPT"))
+        && matches!(
+            digit,
+            Some("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³")
+        )
+}
+
+/// Component rules beyond the lexical ones: no stream separator, no device name.
+fn check_component(part: &std::ffi::OsStr) -> Result<(), MooringError> {
+    let text = part.to_string_lossy();
+    if text.contains(':') {
+        return Err(invalid("must not contain ':' (alternate data stream)"));
+    }
+    if is_reserved_device(&text) {
+        return Err(invalid("must not be a reserved device name"));
+    }
+    Ok(())
+}
+
 impl LocalPath {
     /// Validate the relative part lexically. Symlinks are checked when the path is used.
     pub fn new(base: impl Into<PathBuf>, relative: impl AsRef<Path>) -> Result<Self, MooringError> {
@@ -39,7 +72,10 @@ impl LocalPath {
         let mut clean = PathBuf::new();
         for component in relative.components() {
             match component {
-                Component::Normal(part) => clean.push(part),
+                Component::Normal(part) => {
+                    check_component(part)?;
+                    clean.push(part);
+                }
                 Component::CurDir => {}
                 Component::ParentDir => return Err(invalid("must not contain '..'")),
                 Component::RootDir | Component::Prefix(_) => {
@@ -116,6 +152,39 @@ mod tests {
             assert!(LocalPath::new("/b", bad).is_err(), "{bad:?} accepted");
         }
         assert!(LocalPath::new("/b", "x".repeat(MAX_LOCAL_PATH + 1)).is_err());
+    }
+
+    #[test]
+    fn alternate_data_streams_are_rejected() {
+        for bad in ["file.txt:stream", "a/b:$DATA", "x::$INDEX_ALLOCATION", "dir:s/f"] {
+            assert!(LocalPath::new("/b", bad).is_err(), "{bad:?} accepted");
+        }
+    }
+
+    #[test]
+    fn reserved_device_names_are_rejected() {
+        for bad in [
+            "CON",
+            "con",
+            "Prn.txt",
+            "aux.tar.gz",
+            "NUL",
+            "nul ",
+            "COM1",
+            "com9.log",
+            "LPT1",
+            "lpt9",
+            "COM\u{b9}",
+            "conin$",
+            "CONOUT$.x",
+            "a/NUL/b",
+            "sub/com3.txt",
+        ] {
+            assert!(LocalPath::new("/b", bad).is_err(), "{bad:?} accepted");
+        }
+        for ok in ["CONSOLE", "com", "COM10", "LPT", "nul_file", "aux-backup", "x.con", "COMA"] {
+            assert!(LocalPath::new("/b", ok).is_ok(), "{ok:?} refused");
+        }
     }
 
     #[test]

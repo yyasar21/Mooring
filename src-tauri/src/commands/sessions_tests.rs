@@ -90,6 +90,7 @@ async fn tofu_connect_echo_close_and_audit() {
 
     let prompt = next(&mut rx).await;
     assert_eq!(prompt["kind"], "prompt", "{prompt}");
+    assert_eq!(prompt["purpose"], "host_key_trust", "{prompt}");
     assert!(prompt["message"].as_str().expect("msg").ends_with("trust this host?"));
     let id = u32::try_from(prompt["id"].as_u64().expect("id")).expect("u32");
     // Wrong prompt id is refused and the prompt stays open.
@@ -179,7 +180,36 @@ async fn host_key_mismatch_is_a_hard_stop_and_audited() {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(audit_log(&f).contains("\"decision\":\"changed\""));
+    let log = audit_log(&f);
+    assert!(log.contains("\"decision\":\"changed\""));
+    // L-6: the investigator gets the stored fingerprint as well as the presented one.
+    let stored = mooring_proto_ssh::known_hosts::fingerprint(&other.host_public);
+    let presented = mooring_proto_ssh::known_hosts::fingerprint(&srv.host_public);
+    assert!(log.contains(&format!("\"expected\":\"{stored}\"")), "{log}");
+    assert!(log.contains(&format!("\"fingerprint\":\"{presented}\"")), "{log}");
+}
+
+/// N-3: when `known_hosts` cannot be written, the key is trusted for this session only and
+/// the audit log says so instead of `accepted`.
+#[tokio::test]
+async fn unstored_tofu_accept_is_audited_as_session_only() {
+    let srv = server::start(205).await;
+    let (f, conn) = ssh_fixture(srv.port, "ssh");
+    // A file over the line cap loads (truncated) but is never rewritten, so the save fails.
+    let line = "#".repeat(mooring_proto_ssh::known_hosts::MAX_LINE + 1);
+    std::fs::write(f.state.known_hosts_path(), format!("{line}\n")).expect("oversized kh");
+    let (sink, mut rx) = sink();
+    let opened = open(&f.state, &conn, SIZE, sink).await.expect("open");
+    let prompt = next(&mut rx).await;
+    let id = u32::try_from(prompt["id"].as_u64().expect("id")).expect("u32");
+    let yes = WireInput::Answer { id, text: SecretString::from("yes") };
+    send(&f.state, &opened.session_id, yes).await.expect("answer");
+    assert_eq!(next(&mut rx).await["kind"], "connected");
+    close(&f.state, &opened.session_id).await.expect("close");
+    while next(&mut rx).await["kind"] != "closed" {}
+    let log = audit_log(&f);
+    assert!(log.contains("\"decision\":\"accepted_session_only\""), "{log}");
+    assert!(!log.contains("\"decision\":\"accepted\""), "{log}");
 }
 
 #[tokio::test]

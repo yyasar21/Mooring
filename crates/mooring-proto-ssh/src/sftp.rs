@@ -25,8 +25,13 @@ pub const MAX_REMOTE_PATH: usize = 4096;
 pub const MAX_LIST_ENTRIES: usize = 10_000;
 /// Longest entry name kept in a listing, in bytes.
 const MAX_NAME: usize = 1024;
-/// Transfers move data in blocks of this size (several wire requests in flight).
+/// Transfers move data in blocks of at most this size (several wire requests in flight).
 pub const TRANSFER_BLOCK: usize = 256 * 1024;
+/// Most SFTP read or write requests in flight at once. A block is
+/// `min(TRANSFER_BLOCK, MAX_IN_FLIGHT * chunk)`, so a server advertising tiny
+/// `limits@openssh.com` values cannot make one block fan out into thousands of requests
+/// (security review 2, M-3).
+pub const MAX_IN_FLIGHT: usize = 8;
 /// Largest single SFTP read/write request (OpenSSH-compatible).
 pub(crate) const WIRE_CHUNK: u32 = 32 * 1024;
 /// Time allowed for the subsystem to start.

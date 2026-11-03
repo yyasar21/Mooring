@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use mooring_core::session::ConnectSecret;
+use mooring_core::session::{ConnectSecret, PromptPurpose};
 use russh::client::{AuthResult, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::{decode_secret_key, HashAlg, PrivateKeyWithHashAlg};
 use russh::{MethodKind, MethodSet};
@@ -232,7 +232,7 @@ async fn keyboard_interactive(
             let message = if header.is_empty() { text } else { format!("{header}: {text}") };
             let answer = shared
                 .broker
-                .ask(&shared.events, message, !prompt.echo)
+                .ask(&shared.events, message, !prompt.echo, PromptPurpose::KeyboardInteractive)
                 .await
                 .ok_or(AuthError::Cancelled)?;
             answers.push(answer.expose_secret().to_owned());

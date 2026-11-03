@@ -11,6 +11,11 @@ authors.workspace = true
 name = "mooring_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Exposes the command layer, `state::testing` fixtures and the in-process SSH test server to
+# integration tests (src-tauri/tests/e2e_flow). Never enabled in a release build.
+test-util = ["dep:tempfile", "dep:russh"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -35,8 +40,13 @@ tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
 keyring = { workspace = true }
 zeroize = { workspace = true }
+tempfile = { workspace = true, optional = true } # test-util: fixture data dirs
+russh = { workspace = true, optional = true }    # test-util: in-process SSH server
 
 [dev-dependencies]
+# Turns on `test-util` for this package's own tests, so `cargo test --workspace` builds
+# e2e_flow against `mooring_app_lib::...` without extra flags.
+mooring-app = { path = ".", features = ["test-util"] }
 tempfile = { workspace = true }
 russh = { workspace = true }   # in-process SSH server for session_open tests (already a workspace dep)
 

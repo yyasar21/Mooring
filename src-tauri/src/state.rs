@@ -15,7 +15,7 @@ use mooring_audit::{AuditError, AuditEvent, AuditLog};
 use mooring_store::{Store, StoreError};
 use mooring_vault::{Header, KdfParams, Uuid, Vault, VaultError, VaultState};
 
-use crate::clipboard::{Clipboard, SystemClipboard};
+use crate::clipboard::{self, Clipboard, SystemClipboard, ValueDigest};
 use crate::error::{IpcError, IpcResult};
 use crate::sessions::SessionHandle;
 
@@ -25,7 +25,7 @@ pub enum KdfChoice {
     /// Measure Argon2id on this host (production).
     Calibrate,
     /// Fixed parameters (tests).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-util"))]
     Fixed(KdfParams),
 }
 
@@ -39,7 +39,7 @@ impl KdfChoice {
             Self::Calibrate => {
                 KdfParams::calibrate(mooring_vault::CALIBRATION_TARGET, Self::MAX_M_KIB)
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-util"))]
             Self::Fixed(p) => p,
         }
     }
@@ -106,6 +106,10 @@ pub struct AppState {
     pub sessions: SessionRegistry,
     /// Test/production knobs.
     pub settings: Settings,
+    /// Digest of the password `credential_copy_password` last put on the clipboard and has not
+    /// cleared yet. Taken by the 30 s timer, by [`AppState::shutdown`] and by `vault_lock`, so
+    /// the clear also happens when the process exits before the timer fires (review 2, M-1).
+    pub pending_clipboard: Arc<Mutex<Option<ValueDigest>>>,
 }
 
 /// Errors while loading state at startup.
@@ -161,6 +165,7 @@ impl AppState {
             audit: Arc::new(Mutex::new(audit)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             settings,
+            pending_clipboard: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -235,9 +240,28 @@ impl AppState {
         record_audit(&self.audit, event);
     }
 
-    /// Close the store explicitly (checkpoint + FTS purge, review condition 1) and drop the
-    /// live sessions. Called from `RunEvent::Exit`.
+    /// Synchronously clear a copied password that is still pending, if the clipboard still
+    /// holds it (a value the user copied since is left alone). Returns whether it cleared.
+    pub fn clear_pending_clipboard(&self) -> bool {
+        let pending = self.pending_clipboard.lock().ok().and_then(|mut p| p.take());
+        let Some(expected) = pending else {
+            return false;
+        };
+        let Ok(cleared) = clipboard::clear_if_unchanged(&*self.settings.clipboard, &expected)
+        else {
+            tracing::warn!("could not clear the clipboard");
+            return false;
+        };
+        if cleared {
+            tracing::info!("copied password cleared from the clipboard");
+        }
+        cleared
+    }
+
+    /// Clear a pending copied password (M-1), close the store explicitly (checkpoint + FTS
+    /// purge, review condition 1) and drop the live sessions. Called from `RunEvent::Exit`.
     pub fn shutdown(&self) {
+        self.clear_pending_clipboard();
         if let Ok(mut sessions) = self.sessions.lock() {
             for (_, handle) in sessions.drain() {
                 handle.abort();
@@ -289,18 +313,23 @@ fn sync_dir(dir: &Path) {
     let _ = dir;
 }
 
-#[cfg(test)]
-pub(crate) mod testing {
-    //! Fixtures shared by the command tests: a temp data dir, `KdfParams::TEST`, no agent, an
-    //! in-memory clipboard and a short clear delay.
+/// Fixtures shared by the command tests and, with `test-util`, the integration tests: a temp
+/// data dir, `KdfParams::TEST`, no agent, an in-memory clipboard and a short clear delay.
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing {
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    use super::*;
+    use mooring_vault::KdfParams;
+
+    use super::{AppState, KdfChoice, Settings};
     use crate::clipboard::MemoryClipboard;
     use secrecy::SecretString;
 
     /// Test-only master password (synthetic).
     pub const MASTER: &str = "test-only master pw";
 
+    #[derive(Debug)]
     pub struct Fixture {
         pub dir: tempfile::TempDir,
         pub state: AppState,

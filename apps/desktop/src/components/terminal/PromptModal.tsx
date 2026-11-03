@@ -5,13 +5,14 @@ import { useSessions } from "../../stores/sessions";
 /**
  * Inline modal over the terminal for a session `Prompt` (TOFU host key, keyboard-interactive).
  * Trust questions get Trust / Reject buttons; other prompts get a text field (hidden when `secret`).
+ * The dialog is chosen by the typed `purpose` from Rust, never by the server-controlled text.
  * The typed answer lives only in this component and is cleared as soon as it is sent.
  */
 export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
   const answer = useSessions((s) => s.answer);
   const [text, setText] = useState("");
   const firstRef = useRef<HTMLInputElement & HTMLButtonElement>(null);
-  const isTrust = /trust|authenticity|fingerprint/i.test(prompt.message) && !prompt.secret;
+  const isTrust = prompt.purpose === "host_key_trust" && !prompt.secret;
   const headingId = `prompt-h-${tabId}`;
   const bodyId = `prompt-b-${tabId}`;
 

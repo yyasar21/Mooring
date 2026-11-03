@@ -4,7 +4,7 @@
 // session events/inputs use the mooring_core serde shapes (snake_case fields, `kind` tag) with
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AuditEntry, Ipc, Protocol, SessionEvent, SessionInput } from "./ipc.types";
+import type { AuditEntry, Ipc, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockTransport } from "./ipc.mock";
 
@@ -75,12 +75,23 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
         rgba: base64ToBytes(str(w.rgba)),
       };
     case "prompt":
-      return { kind: "prompt", id: num(w.id), message: str(w.message), secret: w.secret === true };
+      return {
+        kind: "prompt",
+        id: num(w.id),
+        message: str(w.message),
+        secret: w.secret === true,
+        purpose: promptPurpose(w.purpose),
+      };
     case "closed":
       return { kind: "closed", reason: str(w.reason) };
     default:
       return { kind: "closed", reason: "unrecognised session event" };
   }
+}
+
+/** Unknown or missing purposes fall back to "other": never the trust dialog. */
+function promptPurpose(v: unknown): PromptPurpose {
+  return v === "host_key_trust" || v === "keyboard_interactive" ? v : "other";
 }
 
 export function encodeSessionInput(input: SessionInput): WireRecord {

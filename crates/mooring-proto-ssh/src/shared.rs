@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mooring_core::session::SessionEvent;
+use mooring_core::session::{PromptPurpose, SessionEvent};
 use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 
@@ -53,6 +53,7 @@ impl PromptBroker {
         events: &mpsc::Sender<SessionEvent>,
         message: String,
         secret: bool,
+        purpose: PromptPurpose,
     ) -> Option<SecretString> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         let (tx, rx) = oneshot::channel();
@@ -63,7 +64,7 @@ impl PromptBroker {
             }
             *slot = Some((id, tx));
         }
-        events.send(SessionEvent::Prompt { id, message, secret }).await.ok()?;
+        events.send(SessionEvent::Prompt { id, message, secret, purpose }).await.ok()?;
         rx.await.ok()
     }
 
@@ -168,11 +169,13 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(4);
         let broker = PromptBroker::default();
         let b2 = broker.clone();
-        let task = tokio::spawn(async move { b2.ask(&tx, "q".into(), true).await });
-        let Some(SessionEvent::Prompt { id, secret, .. }) = rx.recv().await else {
+        let kbd = PromptPurpose::KeyboardInteractive;
+        let task = tokio::spawn(async move { b2.ask(&tx, "q".into(), true, kbd).await });
+        let Some(SessionEvent::Prompt { id, secret, purpose, .. }) = rx.recv().await else {
             panic!("expected prompt");
         };
         assert!(secret);
+        assert_eq!(purpose, kbd);
         assert!(!broker.answer(id + 1, SecretString::from("no")));
         assert!(broker.answer(id, SecretString::from("yes")));
         let got = task.await.expect("join").expect("answered");
@@ -186,10 +189,11 @@ mod tests {
         let broker = PromptBroker::default();
         let b2 = broker.clone();
         let tx2 = tx.clone();
-        let task = tokio::spawn(async move { b2.ask(&tx2, "q".into(), false).await });
+        let other = PromptPurpose::Other;
+        let task = tokio::spawn(async move { b2.ask(&tx2, "q".into(), false, other).await });
         let _ = rx.recv().await;
         broker.shutdown();
         assert!(task.await.expect("join").is_none());
-        assert!(broker.ask(&tx, "q2".into(), false).await.is_none());
+        assert!(broker.ask(&tx, "q2".into(), false, other).await.is_none());
     }
 }

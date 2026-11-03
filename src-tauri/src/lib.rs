@@ -6,17 +6,25 @@
 
 #![forbid(unsafe_code)]
 
-mod clipboard;
-mod commands;
-mod dto;
-mod error;
+/// The command layer and its state are private to the app; the `test-util` feature makes them
+/// public so integration tests (`tests/e2e_flow`) call the same plain functions as the UI.
+macro_rules! test_util_pub {
+    ($($m:ident),* $(,)?) => {$(
+        #[cfg(feature = "test-util")]
+        pub mod $m;
+        #[cfg(not(feature = "test-util"))]
+        mod $m;
+    )*};
+}
+
+test_util_pub!(clipboard, commands, dto, error, sessions, state);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 #[allow(dead_code)]
 mod keyring_store;
-mod sessions;
-mod state;
-#[cfg(test)]
-mod test_ssh_server;
+mod navigation;
+/// In-process russh server for the session tests (loopback only).
+#[cfg(any(test, feature = "test-util"))]
+pub mod test_ssh_server;
 
 use tauri::Manager;
 
@@ -34,6 +42,9 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;
             app.manage(AppState::new(data_dir, Settings::production())?);
+            // `"create": false` in tauri.conf.json: the main window is built here so it gets
+            // the navigation and new-window guard (security review 2, M-4).
+            navigation::create_main_window(app)?;
             tracing::info!("mooring started");
             Ok(())
         })

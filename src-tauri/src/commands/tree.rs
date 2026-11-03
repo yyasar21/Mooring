@@ -174,7 +174,7 @@ pub fn search(state: &AppState, query: &str, limit: u32) -> IpcResult<Vec<HitDto
 }
 
 /// Root folder id (tests and first-start helpers).
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 pub fn root_id(store: &mooring_store::Store) -> mooring_core::FolderId {
     store.root_folder().expect("query").expect("root").id
 }
