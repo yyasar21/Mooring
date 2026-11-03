@@ -18,12 +18,28 @@
 
 #![forbid(unsafe_code)]
 
+pub mod autolock;
+mod crypto;
 mod error;
+mod export;
 mod format;
 mod kdf;
+mod keyring;
 mod vault;
+#[cfg(test)]
+mod vectors;
 
+pub use autolock::{AutoLockClock, AutoLockPolicy, LockEvent, LockReason};
 pub use error::VaultError;
-pub use format::{Header, Sealed, FORMAT_VERSION, MAGIC};
-pub use kdf::KdfParams;
+pub use export::{
+    export_age, import_age, ExportDocument, ExportedRecord, MAX_EXPORT_BYTES,
+    MAX_IMPORT_SCRYPT_LOG_N, MIN_EXPORT_PASSPHRASE_CHARS,
+};
+pub use format::{Header, Sealed, FORMAT_VERSION, MAGIC, MAX_HEADER_BYTES, MIN_FORMAT_VERSION};
+pub use kdf::{
+    calibrate_with, HostLimits, KdfParams, CALIBRATION_CANDIDATES_MIB, CALIBRATION_T,
+    CALIBRATION_TARGET,
+};
+pub use keyring::{MemoryWrapKeyStore, WrapKeyStore};
+pub use uuid::Uuid;
 pub use vault::{Vault, VaultState};

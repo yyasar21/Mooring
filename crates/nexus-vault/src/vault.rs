@@ -1,13 +1,13 @@
 //! The vault: create, unlock, seal/open fields, change password, lock.
 
-use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use rand_core::{OsRng, RngCore};
 use secrecy::{ExposeSecret, SecretString};
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use crate::autolock::LockReason;
+use crate::crypto::{field_aad, open_key, open_with, random, seal_with};
 use crate::error::VaultError;
-use crate::format::{Header, Sealed, FORMAT_VERSION, MAGIC, NONCE_LEN};
+use crate::format::{Header, Sealed, FORMAT_VERSION, MAGIC};
 use crate::kdf::{derive_kek, KdfParams, KEY_LEN, SALT_LEN};
 
 /// Minimum master-password length (characters). Length is the only rule.
@@ -24,8 +24,8 @@ pub enum VaultState {
 
 /// An encrypted vault. See the crate docs for the key hierarchy.
 pub struct Vault {
-    header: Header,
-    dek: Option<Zeroizing<[u8; KEY_LEN]>>,
+    pub(crate) header: Header,
+    pub(crate) dek: Option<Zeroizing<[u8; KEY_LEN]>>,
 }
 
 // Hand-written so the DEK can never be printed.
@@ -33,59 +33,28 @@ impl std::fmt::Debug for Vault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Vault")
             .field("version", &self.header.version)
+            .field("vault_id", &self.header.vault_id)
             .field("kdf_params", &self.header.kdf_params)
+            .field("keyring", &self.header.keyring_enabled())
             .field("state", &self.state())
             .finish_non_exhaustive()
     }
 }
 
-fn random<const N: usize>() -> [u8; N] {
-    let mut b = [0u8; N];
-    OsRng.fill_bytes(&mut b);
-    b
-}
-
-fn seal_with(key: &[u8; KEY_LEN], aad: &[u8], plaintext: &[u8]) -> Sealed {
-    let cipher = XChaCha20Poly1305::new(key.into());
-    let nonce = random::<NONCE_LEN>();
-    let ciphertext = cipher
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plaintext, aad })
-        .unwrap_or_default(); // only fails on absurd lengths (> 2^64); treated as empty, which fails to open
-    Sealed { nonce: nonce.to_vec(), ciphertext }
-}
-
-fn open_with(
-    key: &[u8; KEY_LEN],
-    aad: &[u8],
-    sealed: &Sealed,
-) -> Result<Zeroizing<Vec<u8>>, VaultError> {
-    if sealed.nonce.len() != NONCE_LEN {
-        return Err(VaultError::Tampered);
-    }
-    let cipher = XChaCha20Poly1305::new(key.into());
-    cipher
-        .decrypt(XNonce::from_slice(&sealed.nonce), Payload { msg: &sealed.ciphertext, aad })
-        .map(Zeroizing::new)
-        .map_err(|_| VaultError::Tampered)
-}
-
-fn field_aad(record_id: &str, field: &str) -> Vec<u8> {
-    let mut v = Vec::with_capacity(record_id.len() + field.len() + 1);
-    v.extend_from_slice(record_id.as_bytes());
-    v.push(0x1f);
-    v.extend_from_slice(field.as_bytes());
-    v
-}
-
-fn check_password(password: &SecretString) -> Result<(), VaultError> {
+pub(crate) fn check_password(password: &SecretString) -> Result<(), VaultError> {
     if password.expose_secret().chars().count() < MIN_PASSWORD_CHARS {
         return Err(VaultError::WeakPassword { min: MIN_PASSWORD_CHARS });
     }
     Ok(())
 }
 
+/// Re-seal the DEK under the KEK with the header's current AAD (fresh nonce).
+pub(crate) fn rewrap_password(header: &mut Header, kek: &[u8; KEY_LEN], dek: &[u8; KEY_LEN]) {
+    header.wrapped_dek = seal_with(kek, &header.aad(), dek);
+}
+
 impl Vault {
-    /// Create a new vault with a fresh DEK. Returns it unlocked.
+    /// Create a new vault with a fresh DEK and a fresh `vault_id`. Returns it unlocked.
     pub fn create(password: &SecretString, params: KdfParams) -> Result<Self, VaultError> {
         check_password(password)?;
         params.validate()?;
@@ -94,13 +63,15 @@ impl Vault {
         let mut header = Header {
             magic: MAGIC.to_owned(),
             version: FORMAT_VERSION,
+            vault_id: Uuid::new_v4(),
             kdf: "argon2id".to_owned(),
             kdf_params: params,
             salt: salt.to_vec(),
             wrapped_dek: Sealed { nonce: Vec::new(), ciphertext: Vec::new() },
+            keyring_wrap: None,
         };
         let kek = derive_kek(password.expose_secret().as_bytes(), &salt, params)?;
-        header.wrapped_dek = seal_with(&kek, &header.aad(), dek.as_ref());
+        rewrap_password(&mut header, &kek, &dek);
         tracing::info!(m_kib = params.m_kib, t = params.t, p = params.p, "vault created");
         Ok(Self { header, dek: Some(dek) })
     }
@@ -121,6 +92,12 @@ impl Vault {
         &self.header
     }
 
+    /// Stable vault identity (nil only for a v1 header that has not been unlocked yet).
+    #[must_use]
+    pub fn vault_id(&self) -> Uuid {
+        self.header.vault_id
+    }
+
     /// Current state.
     #[must_use]
     pub fn state(&self) -> VaultState {
@@ -132,17 +109,37 @@ impl Vault {
     }
 
     /// Derive the KEK and unwrap the DEK. Wrong password and tampering are indistinguishable.
+    ///
+    /// A v1 header is upgraded to v2 in memory on success (new `vault_id`, DEK re-wrapped with
+    /// the v2 AAD). Check [`Header::needs_upgrade`] before calling and persist
+    /// [`Vault::header`] afterwards when it was true.
     pub fn unlock(&mut self, password: &SecretString) -> Result<(), VaultError> {
+        self.unlock_with_kek(password).map(drop)
+    }
+
+    /// [`Vault::unlock`] that also hands back the KEK for callers that must re-wrap.
+    pub(crate) fn unlock_with_kek(
+        &mut self,
+        password: &SecretString,
+    ) -> Result<Zeroizing<[u8; KEY_LEN]>, VaultError> {
         let salt: [u8; SALT_LEN] =
             self.header.salt.as_slice().try_into().map_err(|_| VaultError::Unlock)?;
         let kek = derive_kek(password.expose_secret().as_bytes(), &salt, self.header.kdf_params)
             .map_err(|_| VaultError::Unlock)?;
-        let dek_bytes = open_with(&kek, &self.header.aad(), &self.header.wrapped_dek)
+        let dek = open_key(&kek, &self.header.aad(), &self.header.wrapped_dek)
             .map_err(|_| VaultError::Unlock)?;
-        let dek: [u8; KEY_LEN] = dek_bytes.as_slice().try_into().map_err(|_| VaultError::Unlock)?;
-        self.dek = Some(Zeroizing::new(dek));
+        if self.header.needs_upgrade() {
+            let mut header = self.header.clone();
+            header.version = FORMAT_VERSION;
+            header.vault_id = Uuid::new_v4();
+            header.keyring_wrap = None;
+            rewrap_password(&mut header, &kek, &dek);
+            self.header = header;
+            tracing::info!(version = FORMAT_VERSION, "vault header upgraded");
+        }
+        self.dek = Some(dek);
         tracing::info!("vault unlocked");
-        Ok(())
+        Ok(kek)
     }
 
     /// Wipe the DEK from memory.
@@ -151,7 +148,18 @@ impl Vault {
         tracing::info!("vault locked");
     }
 
+    /// Lock and hand the reason back so the caller can write the `vault.lock` audit entry
+    /// (this crate deliberately does not depend on `nexus-audit`).
+    pub fn lock_with_reason(&mut self, reason: LockReason) -> LockReason {
+        self.dek = None;
+        tracing::info!(reason = reason.as_str(), "vault locked");
+        reason
+    }
+
     /// Re-wrap the DEK under a new password (new salt, new nonce). Records are untouched.
+    ///
+    /// The keyring wrap is bound to the old salt and KDF parameters, so it is cleared here:
+    /// keyring unlock must be re-enabled afterwards (and the stale keyring item deleted).
     pub fn change_password(
         &mut self,
         current: &SecretString,
@@ -166,8 +174,11 @@ impl Vault {
         let mut header = self.header.clone();
         header.kdf_params = params;
         header.salt = salt.to_vec();
+        if header.keyring_wrap.take().is_some() {
+            tracing::info!("keyring unlock disabled by password change");
+        }
         let kek = derive_kek(new.expose_secret().as_bytes(), &salt, params)?;
-        header.wrapped_dek = seal_with(&kek, &header.aad(), dek.as_ref());
+        rewrap_password(&mut header, &kek, dek);
         self.header = header;
         tracing::info!("vault password changed");
         Ok(())
@@ -205,9 +216,13 @@ mod tests {
         SecretString::from(s.to_owned())
     }
 
+    const PW: &str = "correct horse battery";
+
     #[test]
     fn create_seal_open_round_trip_and_lock() {
-        let v = Vault::create(&pw("correct horse battery"), KdfParams::TEST).expect("create");
+        let v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        assert_eq!(v.header().version, 2);
+        assert!(!v.vault_id().is_nil());
         let s = v.seal("conn-1", "password", b"hunter2").expect("seal");
         assert_eq!(v.open("conn-1", "password", &s).expect("open").as_slice(), b"hunter2");
 
@@ -230,53 +245,110 @@ mod tests {
     }
 
     #[test]
+    fn lock_with_reason_returns_reason_and_wipes() {
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        assert_eq!(v.lock_with_reason(LockReason::Idle), LockReason::Idle);
+        assert_eq!(v.state(), VaultState::Locked);
+    }
+
+    #[test]
     fn header_round_trip_unlock_and_wrong_password() {
-        let v = Vault::create(&pw("correct horse battery"), KdfParams::TEST).expect("create");
+        let v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
         let s = v.seal("r", "f", b"secret").expect("seal");
         let bytes = v.header().to_bytes().expect("bytes");
 
         let mut again = Vault::from_header_bytes(&bytes).expect("parse");
         assert_eq!(again.unlock(&pw("wrong password!!")), Err(VaultError::Unlock));
-        again.unlock(&pw("correct horse battery")).expect("unlock");
+        again.unlock(&pw(PW)).expect("unlock");
+        assert_eq!(again.header(), v.header(), "v2 unlock must not rewrite the header");
         assert_eq!(again.open("r", "f", &s).expect("open").as_slice(), b"secret");
     }
 
     #[test]
     fn header_tampering_breaks_unlock_not_just_parsing() {
-        let v = Vault::create(&pw("correct horse battery"), KdfParams::TEST).expect("create");
-        let mut h = v.header().clone();
-        h.kdf_params.t += 1; // attacker edits a cost parameter
-        let mut again = Vault::from_header(h);
-        assert_eq!(again.unlock(&pw("correct horse battery")), Err(VaultError::Unlock));
-
-        let mut h = v.header().clone();
-        h.wrapped_dek.ciphertext[3] ^= 0x80;
-        let mut again = Vault::from_header(h);
-        assert_eq!(again.unlock(&pw("correct horse battery")), Err(VaultError::Unlock));
+        let v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        let tamper: [fn(&mut Header); 4] = [
+            |h| h.kdf_params.t += 1,
+            |h| h.wrapped_dek.ciphertext[3] ^= 0x80,
+            |h| h.vault_id = Uuid::new_v4(),
+            |h| {
+                h.keyring_wrap = Some(Sealed { nonce: vec![0; 24], ciphertext: vec![0; 48] });
+            },
+        ];
+        for (i, f) in tamper.iter().enumerate() {
+            let mut h = v.header().clone();
+            f(&mut h);
+            let mut again = Vault::from_header(h);
+            assert_eq!(again.unlock(&pw(PW)), Err(VaultError::Unlock), "tamper {i}");
+        }
     }
 
     #[test]
     fn downgraded_kdf_floor_is_refused_before_deriving() {
-        let v = Vault::create(&pw("correct horse battery"), KdfParams::TEST).expect("create");
+        let v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
         let mut h = v.header().clone();
         h.kdf_params.m_kib = 64;
         let bytes = h.to_bytes().expect("bytes");
         assert!(matches!(Vault::from_header_bytes(&bytes), Err(VaultError::KdfParams(_))));
     }
 
+    /// Build a v1 header exactly as the A0 code did (legacy AAD, no v2 fields).
+    fn v1_vault(password: &str) -> (Header, Zeroizing<[u8; KEY_LEN]>) {
+        let salt = random::<SALT_LEN>();
+        let dek = Zeroizing::new(random::<KEY_LEN>());
+        let mut header = Header {
+            magic: MAGIC.to_owned(),
+            version: 1,
+            vault_id: Uuid::nil(),
+            kdf: "argon2id".to_owned(),
+            kdf_params: KdfParams::TEST,
+            salt: salt.to_vec(),
+            wrapped_dek: Sealed { nonce: Vec::new(), ciphertext: Vec::new() },
+            keyring_wrap: None,
+        };
+        let kek = derive_kek(password.as_bytes(), &salt, KdfParams::TEST).expect("kdf");
+        rewrap_password(&mut header, &kek, &dek);
+        (header, dek)
+    }
+
+    #[test]
+    fn v1_header_unlocks_and_upgrades_to_v2() {
+        let (h1, dek) = v1_vault(PW);
+        let bytes = h1.to_bytes().expect("bytes");
+        assert!(!String::from_utf8_lossy(&bytes).contains("vault_id"), "v1 shape on disk");
+        let mut v = Vault::from_header_bytes(&bytes).expect("v1 parses");
+        assert!(v.header().needs_upgrade());
+        let s = crate::crypto::seal_with(&dek, &field_aad("r", "f"), b"legacy");
+
+        v.unlock(&pw(PW)).expect("unlock v1");
+        assert!(!v.header().needs_upgrade());
+        assert_eq!(v.header().version, FORMAT_VERSION);
+        assert!(!v.vault_id().is_nil());
+        assert_eq!(v.open("r", "f", &s).expect("open").as_slice(), b"legacy");
+
+        // the upgraded header round-trips and unlocks on its own
+        let mut again = Vault::from_header_bytes(&v.header().to_bytes().expect("b")).expect("p");
+        again.unlock(&pw(PW)).expect("unlock v2");
+        assert_eq!(again.header(), v.header());
+        assert_eq!(again.open("r", "f", &s).expect("open").as_slice(), b"legacy");
+
+        // a v1 header relabelled as v2 (version bump only) is rejected
+        let mut forged = h1.clone();
+        forged.version = 2;
+        forged.vault_id = Uuid::new_v4();
+        assert_eq!(Vault::from_header(forged).unlock(&pw(PW)), Err(VaultError::Unlock));
+    }
+
     #[test]
     fn change_password_keeps_records() {
-        let mut v = Vault::create(&pw("correct horse battery"), KdfParams::TEST).expect("create");
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        let id = v.vault_id();
         let s = v.seal("r", "f", b"keep me").expect("seal");
-        v.change_password(
-            &pw("correct horse battery"),
-            &pw("new longer password"),
-            KdfParams::TEST,
-        )
-        .expect("change");
+        v.change_password(&pw(PW), &pw("new longer password"), KdfParams::TEST).expect("change");
+        assert_eq!(v.vault_id(), id);
         let bytes = v.header().to_bytes().expect("bytes");
         let mut again = Vault::from_header_bytes(&bytes).expect("parse");
-        assert_eq!(again.unlock(&pw("correct horse battery")), Err(VaultError::Unlock));
+        assert_eq!(again.unlock(&pw(PW)), Err(VaultError::Unlock));
         again.unlock(&pw("new longer password")).expect("unlock");
         assert_eq!(again.open("r", "f", &s).expect("open").as_slice(), b"keep me");
     }
@@ -287,7 +359,7 @@ mod tests {
             Vault::create(&pw("short"), KdfParams::TEST).err(),
             Some(VaultError::WeakPassword { min: MIN_PASSWORD_CHARS })
         );
-        let v = Vault::create(&pw("correct horse battery"), KdfParams::TEST).expect("create");
+        let v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
         let shown = format!("{v:?}");
         assert!(shown.contains("Unlocked"));
         assert!(!shown.contains("dek"));

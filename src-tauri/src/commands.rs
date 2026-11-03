@@ -1,7 +1,7 @@
 //! IPC commands. Every function here is an attack surface: validate, never leak.
 
 use nexus_audit::AuditEvent;
-use nexus_vault::{KdfParams, Vault, VaultState};
+use nexus_vault::{KdfParams, LockReason, Vault, VaultState};
 use secrecy::SecretString;
 use serde::Serialize;
 use tauri::State;
@@ -32,6 +32,9 @@ impl From<nexus_vault::VaultError> for IpcError {
             V::Format(_) => "vault.format",
             V::KdfParams(_) => "vault.kdf",
             V::WeakPassword { .. } => "vault.weak_password",
+            V::KeyringUnavailable => "vault.keyring_unavailable",
+            V::Keyring(_) => "vault.keyring",
+            V::Export(_) => "vault.export",
         };
         Self::new(code, e.to_string())
     }
@@ -123,7 +126,12 @@ pub fn vault_unlock(state: State<'_, AppState>, password: String) -> IpcResult<V
     let mut guard =
         state.vault.lock().map_err(|_| IpcError::new("state.poisoned", "internal error"))?;
     let vault = guard.as_mut().ok_or_else(|| IpcError::new("vault.missing", "no vault yet"))?;
+    let upgrade = vault.header().needs_upgrade();
     vault.unlock(&password)?;
+    if upgrade {
+        // v1 -> v2 happened in memory during unlock (ADR-0006); persist it now.
+        state.save_header(vault)?;
+    }
     audit(&state, AuditEvent::VaultUnlocked);
     Ok(VaultStatus::Unlocked)
 }
@@ -131,15 +139,13 @@ pub fn vault_unlock(state: State<'_, AppState>, password: String) -> IpcResult<V
 /// Wipe the key from memory.
 #[tauri::command]
 pub fn vault_lock(state: State<'_, AppState>, reason: Option<String>) -> IpcResult<VaultStatus> {
-    let reason = match reason.as_deref() {
-        Some(r @ ("user" | "idle" | "screen_lock" | "sleep")) => r.to_owned(),
-        _ => "user".to_owned(),
-    };
+    // Unknown or missing reasons from the WebView are recorded as a user lock.
+    let reason = reason.as_deref().and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard =
         state.vault.lock().map_err(|_| IpcError::new("state.poisoned", "internal error"))?;
     if let Some(v) = guard.as_mut() {
-        v.lock();
-        audit(&state, AuditEvent::VaultLocked { reason });
+        let reason = v.lock_with_reason(reason);
+        audit(&state, AuditEvent::VaultLocked { reason: reason.as_str().to_owned() });
         Ok(VaultStatus::Locked)
     } else {
         Ok(VaultStatus::Missing)
