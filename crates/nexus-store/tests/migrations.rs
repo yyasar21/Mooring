@@ -52,6 +52,33 @@ fn deleted_rows_do_not_linger_after_close() {
     assert_eq!(s.get_connection(keep.id).expect("kept").name, "keepme");
 }
 
+/// Review M2: the database and its WAL/SHM files are owner-only, whatever the umask, and an
+/// existing file with loose permissions is tightened on open.
+#[cfg(unix)]
+#[test]
+fn database_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode =
+        |p: &std::path::Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("nexus.db");
+    let s = Store::open(&path).expect("open");
+    let root = s.create_folder(None, "root").expect("root");
+    common::conn(&s, &root, "c", "h.example.test", &[]);
+    assert_eq!(mode(&path), 0o600);
+    for ext in ["db-wal", "db-shm"] {
+        let side = path.with_extension(ext);
+        if side.exists() {
+            assert_eq!(mode(&side) & 0o077, 0, "{ext} readable by others");
+        }
+    }
+    drop(s);
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("loosen");
+    drop(Store::open(&path).expect("reopen"));
+    assert_eq!(mode(&path), 0o600, "existing file tightened");
+}
+
 #[test]
 fn file_store_uses_wal() {
     let dir = tempfile::tempdir().expect("tempdir");

@@ -25,7 +25,7 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
+            create_private_dir(&data_dir)?;
             app.manage(AppState::new(data_dir)?);
             tracing::info!("nexus started");
             Ok(())
@@ -39,6 +39,22 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Tauri application");
+}
+
+/// Create the app data dir owner-only on unix (review M2): it holds the vault header, the audit
+/// log and `nexus.db` (whose own mode is set to 0600 by `nexus_store::Store::open`). An existing
+/// directory is tightened too. Windows relies on the per-user AppData ACL.
+fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
 }
 
 fn init_tracing() {

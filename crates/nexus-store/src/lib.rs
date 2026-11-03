@@ -51,8 +51,13 @@ impl std::fmt::Debug for Store {
 
 impl Store {
     /// Open (or create) a file-backed store: WAL, foreign keys, secure delete, migrations.
+    ///
+    /// On unix the database file is created (or reset) to mode `0600` before `SQLite` opens
+    /// it; `SQLite` copies that mode to `-wal` and `-shm`, so the plaintext inventory is not
+    /// readable by other local accounts whatever the umask (review M2).
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
+        restrict_db_file(&path)?;
         let conn = Connection::open(&path)?;
         Self::init(conn, Some(path))
     }
@@ -120,6 +125,28 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Create the database file owner-only (unix), or tighten an existing one.
+#[cfg(unix)]
+fn restrict_db_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let io = |_: std::io::Error| error::invalid("path", "cannot create the database file");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(path)
+        .map_err(io)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(io)
+}
+
+/// Windows: the per-user AppData ACL already restricts access (review M2).
+#[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
+fn restrict_db_file(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 impl Drop for Store {
