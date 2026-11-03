@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mooring placeholder app icon: a mooring bollard with a line made fast around its neck.
+     Original artwork for this project (MIT, see LICENSE). Monochrome: one ink on one ground.
+     Regenerate platform icons with scripts/release/gen-icons.sh. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Mooring</title>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="#0f1720"/>
+  <g fill="none" stroke="#e6edf3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- mooring line running in from the left, wrapped once around the neck -->
+    <path d="M150 600 C 260 600, 330 560, 400 520" stroke-width="44"/>
+    <path d="M400 520 C 470 480, 560 470, 610 500 C 650 524, 640 560, 590 572
+             C 520 588, 430 572, 400 548" stroke-width="44"/>
+  </g>
+  <g fill="#e6edf3">
+    <!-- cap -->
+    <rect x="322" y="282" width="380" height="96" rx="48"/>
+    <!-- neck -->
+    <rect x="432" y="360" width="160" height="330"/>
+    <!-- base plate -->
+    <rect x="292" y="676" width="440" height="72" rx="20"/>
+  </g>
+  <!-- ground-coloured gap so the line reads as passing in front of the neck -->
+  <path d="M400 520 C 470 480, 560 470, 610 500" fill="none" stroke="#0f1720" stroke-width="76"
+        stroke-linecap="butt"/>
+  <path d="M400 520 C 470 480, 560 470, 610 500" fill="none" stroke="#e6edf3" stroke-width="44"
+        stroke-linecap="round"/>
+</svg>
