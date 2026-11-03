@@ -33,11 +33,49 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Yunus Yaşar",
+    "copyright": "Copyright © 2026 Yunus Yaşar. Released under the MIT License.",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "homepage": "https://github.com/yyasar21/Mooring",
     "category": "DeveloperTool",
     "shortDescription": "Security-first remote access manager",
+    "longDescription": "Mooring keeps SSH, RDP and VNC connections, credentials and sessions in one place. Credentials live in a local Argon2id + XChaCha20-Poly1305 vault that never leaves the Rust core, and every action lands in a tamper-evident audit log. No telemetry.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "12.0" },
-    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } },
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": true,
+      "entitlements": "../packaging/macos/entitlements.plist"
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "allowDowngrades": false,
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "wix": {
+        "language": "en-US",
+        "upgradeCode": "1f940c60-f3be-5e3f-81de-92ee690e0b6d"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "linux": {
+      "deb": {
+        "section": "net",
+        "priority": "optional",
+        "recommends": ["gnome-keyring"],
+        "desktopTemplate": "../packaging/linux/mooring.desktop"
+      },
+      "rpm": {
+        "release": "1",
+        "recommends": ["gnome-keyring"],
+        "desktopTemplate": "../packaging/linux/mooring.desktop"
+      },
+      "appimage": { "bundleMediaFramework": false }
+    }
   }
 }
