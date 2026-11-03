@@ -74,6 +74,7 @@ tempfile = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+unknown_lints = "allow" # lint names below span clippy 1.95–1.99; older toolchains must not warn on the newer ones
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
