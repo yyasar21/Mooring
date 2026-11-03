@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { useApp } from "../stores/app";
 
-/** Onboarding (no vault yet) and unlock (vault locked). Both are one field: the master password. */
+/**
+ * The airlock: onboarding (no vault yet) and unlock (vault locked). Both are one field, the master
+ * password. Visual drama lives in CSS (`airlock.css`): one sweep on arrival, a pressure bar while
+ * the key is derived, nothing looping at rest.
+ */
 export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   const createVault = useApp((s) => s.createVault);
   const unlock = useApp((s) => s.unlock);
@@ -24,35 +28,45 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   }
 
   return (
-    <main className="h-full grid place-items-center bg-bg-sunken">
-      <form onSubmit={(e) => {
+    <main className="airlock">
+      <Rings />
+      <div aria-hidden className="airlock-sweep" />
+      <form
+        onSubmit={(e) => {
           e.preventDefault();
           void submit();
-        }} className="w-[380px] rounded-[var(--radius-m)] border border-line bg-surface p-7">
-        <h1 className="text-[length:var(--fs-xl)] font-semibold tracking-tight">
-          {mode === "create" ? "Create your vault" : "Unlock Mooring"}
-        </h1>
-        <p className="mt-1 text-text-muted">
+        }}
+        className="airlock-hatch m-hud"
+        data-active
+      >
+        <div className="airlock-kicker">
+          <span className="m-micro">Mooring vault</span>
+          <span className="m-micro">{mode === "create" ? "Not initialised" : "Sealed"}</span>
+        </div>
+        <h1 className="airlock-title">{mode === "create" ? "Create your vault" : "Unlock Mooring"}</h1>
+        <p className="airlock-copy">
           {mode === "create"
             ? "Everything you save is encrypted with this password. It is never stored and cannot be recovered."
             : "Your connections and credentials stay encrypted until you unlock."}
         </p>
 
-        <label className="block mt-6 text-[length:var(--fs-s)] text-text-muted" htmlFor="pw">
-          Master password
-        </label>
-        <input
-          id="pw"
-          type="password"
-          autoFocus
-          autoComplete={mode === "create" ? "new-password" : "current-password"}
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); }}
-          className="mt-1 w-full rounded-[var(--radius-s)] border border-line-strong bg-bg px-3 py-2 font-mono text-text"
-        />
+        <div className="airlock-field">
+          <label className="field-label" htmlFor="pw">
+            Master password
+          </label>
+          <input
+            id="pw"
+            type="password"
+            autoFocus
+            autoComplete={mode === "create" ? "new-password" : "current-password"}
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); }}
+            className="airlock-input"
+          />
+        </div>
         {mode === "create" && (
-          <>
-            <label className="block mt-4 text-[length:var(--fs-s)] text-text-muted" htmlFor="pw2">
+          <div className="airlock-field" style={{ marginTop: 14 }}>
+            <label className="field-label" htmlFor="pw2">
               Repeat password
             </label>
             <input
@@ -61,25 +75,51 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
               autoComplete="new-password"
               value={confirm}
               onChange={(e) => { setConfirm(e.target.value); }}
-              className="mt-1 w-full rounded-[var(--radius-s)] border border-line-strong bg-bg px-3 py-2 font-mono text-text"
+              className="airlock-input"
             />
-          </>
+          </div>
         )}
 
-        <p className="mt-3 min-h-5 text-[length:var(--fs-s)] text-danger" role="alert">
+        <p className="airlock-error" role="alert">
           {tooShort && "Use at least 12 characters. Length matters more than symbols."}
           {mismatch && "The two passwords differ."}
           {!tooShort && !mismatch && lastError}
         </p>
 
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          className="btn btn-primary mt-2 h-9 w-full justify-center"
-        >
+        <button type="submit" disabled={!canSubmit} className="airlock-submit" data-busy={busy || undefined}>
           {busy ? "Deriving key…" : mode === "create" ? "Create vault" : "Unlock"}
         </button>
+
+        <div className="airlock-foot">
+          <span className="m-micro">Argon2id · XChaCha20-Poly1305</span>
+          <span className="m-micro">Local only</span>
+        </div>
       </form>
     </main>
+  );
+}
+
+/** Static range rings and bearing ticks behind the hatch. Drawn once; never animated. */
+function Rings() {
+  const ticks = Array.from({ length: 72 }, (_, i) => i * 5);
+  return (
+    <svg className="airlock-rings" viewBox="-410 -410 820 820" aria-hidden fill="none" stroke="currentColor">
+      <circle r="400" strokeWidth="1" />
+      <circle r="330" strokeWidth="1" strokeDasharray="2 6" />
+      <circle r="260" strokeWidth="1" />
+      {ticks.map((a) => (
+        <line
+          key={a}
+          className={a % 45 === 0 ? "tick" : undefined}
+          x1="0"
+          y1={a % 45 === 0 ? -372 : -388}
+          x2="0"
+          y2="-400"
+          strokeWidth={a % 45 === 0 ? 2 : 1}
+          transform={`rotate(${a})`}
+        />
+      ))}
+      <path d="M-410 0h140M270 0h140M0 -410v140M0 270v140" strokeWidth="1" strokeDasharray="1 4" />
+    </svg>
   );
 }
