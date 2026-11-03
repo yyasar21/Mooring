@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipc, type PromptPurpose, type SessionEvent, type Size } from "../lib/ipc";
+import { ipc, type PromptAccount, type PromptPurpose, type SessionEvent, type SessionInput, type Size } from "../lib/ipc";
 import { errorText } from "./errors";
 
 export type TabState = "connecting" | "connected" | "closed";
@@ -9,6 +9,14 @@ export interface PendingPrompt {
   message: string;
   secret: boolean;
   purpose: PromptPurpose;
+  /** Only for `purpose: "credential"`: what to ask and the pre-fills. */
+  account?: PromptAccount | null;
+}
+
+export interface CredentialAnswer {
+  username: string;
+  domain: string | null;
+  password: string;
 }
 
 export interface Tab {
@@ -72,6 +80,8 @@ interface SessionState {
   send: (tabId: string, data: Uint8Array) => Promise<void>;
   resize: (tabId: string, size: Size) => Promise<void>;
   answer: (tabId: string, text: string) => Promise<boolean>;
+  /** Answer a `credential` prompt. The caller drops its copy of the password once this settles. */
+  answerCredential: (tabId: string, a: CredentialAnswer) => Promise<boolean>;
   reconnect: (tabId: string) => Promise<void>;
   reset: () => void;
 }
@@ -93,7 +103,7 @@ export const useSessions = create<SessionState>((set, get) => {
         pushOutput(tabId, ev.data);
         break;
       case "prompt":
-        patch(tabId, { prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose } });
+        patch(tabId, { prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account } });
         break;
       case "closed":
         patch(tabId, { state: "closed", reason: ev.reason, prompt: null, sessionId: null });
@@ -102,6 +112,21 @@ export const useSessions = create<SessionState>((set, get) => {
       case "frame":
         // Graphical protocols render frames in A2; nothing to draw for terminal tabs.
         break;
+    }
+  };
+
+  /** Send an answer to the pending prompt; the prompt is dropped first so it cannot be sent twice. */
+  const reply = async (tabId: string, build: (id: number) => SessionInput): Promise<boolean> => {
+    const tab = get().tabs.find((t) => t.id === tabId);
+    if (!tab?.sessionId || !tab.prompt) return false;
+    const input = build(tab.prompt.id);
+    patch(tabId, { prompt: null });
+    try {
+      await ipc.sessionSend({ sessionId: tab.sessionId, input });
+      return true;
+    } catch (e: unknown) {
+      patch(tabId, { state: "closed", reason: errorText(e) });
+      return false;
     }
   };
 
@@ -199,19 +224,10 @@ export const useSessions = create<SessionState>((set, get) => {
       }
     },
 
-    answer: async (tabId, text) => {
-      const tab = get().tabs.find((t) => t.id === tabId);
-      if (!tab?.sessionId || !tab.prompt) return false;
-      const { id } = tab.prompt;
-      patch(tabId, { prompt: null });
-      try {
-        await ipc.sessionSend({ sessionId: tab.sessionId, input: { kind: "answer", id, text } });
-        return true;
-      } catch (e: unknown) {
-        patch(tabId, { state: "closed", reason: errorText(e) });
-        return false;
-      }
-    },
+    answer: (tabId, text) => reply(tabId, (id) => ({ kind: "answer", id, text })),
+
+    answerCredential: (tabId, a) =>
+      reply(tabId, (id) => ({ kind: "credential_answer", id, username: a.username, domain: a.domain, password: a.password })),
 
     reconnect: async (tabId) => {
       const tab = get().tabs.find((t) => t.id === tabId);

@@ -1,6 +1,6 @@
 //! OS keyring adapter for the vault's keyring wrap (ADR-0006).
 //!
-//! Service `xyz.homelab.mooring`, account = vault id. macOS Keychain, Windows Credential
+//! Service `io.github.yyasar21.mooring`, account = vault id. macOS Keychain, Windows Credential
 //! Manager, Secret Service on Linux — chosen by the `keyring` crate. The wrap key is never
 //! logged; keyring errors are mapped to fixed strings so no platform detail that might echo
 //! the secret reaches the `WebView`.
@@ -9,7 +9,7 @@ use mooring_vault::{Uuid, VaultError, WrapKeyStore};
 use zeroize::Zeroizing;
 
 /// Keyring service name for every Mooring item.
-pub const SERVICE: &str = "xyz.homelab.mooring";
+pub const SERVICE: &str = "io.github.yyasar21.mooring";
 
 const KEY_LEN: usize = 32;
 

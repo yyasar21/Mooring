@@ -14,3 +14,48 @@ description = "mooring-vault public test vectors (ADR-0006)"
 paths = [
   '''^crates/mooring-vault/tests/vectors/''',
 ]
+
+# Generic infrastructure-leak guard (not a secret rule): a private IPv4 address (RFC 1918) in
+# code or docs usually means a real host slipped in. Tests and examples use RFC 5737
+# documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) and RFC 2606/6761
+# names (`*.example.test`); real lab values belong only in the local, gitignored `.env`
+# (see `.env.example`). Tests are scanned too (review 3, N-9): they use RFC 5737 addresses.
+[[rules]]
+id = "private-ipv4-outside-tests"
+description = "Private (RFC 1918) IPv4 address outside tests; use RFC 5737 ranges or MOORING_LAB_* env vars"
+regex = '''\b(10\.(?:25[0-5]|2[0-4]\d|1?\d?\d)|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\b'''
+keywords = ["10.", "172.", "192.168."]
+tags = ["infrastructure", "privacy"]
+
+# Only lockfiles (version strings such as 10.0.0.1 in package metadata) are path-exempt, plus
+# the one generic address 10.0.0.1 anywhere. No test path is exempt.
+[rules.allowlist]
+description = "lockfiles and the generic 10.0.0.1"
+paths = [
+  '''(^|/)Cargo\.lock$''',
+  '''(^|/)pnpm-lock\.yaml$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^10\.0\.0\.1$''',
+]
+
+# CGNAT (RFC 6598, 100.64.0.0/10) and IPv6 ULA (fc00::/7, in practice fd00::/8) are private too.
+[[rules]]
+id = "private-cgnat-or-ula-address"
+description = "CGNAT (100.64.0.0/10) or IPv6 ULA (fd00::/8) address; use RFC 5737 / RFC 3849 ranges"
+regex = '''\b(100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)|fd[0-9a-f]{2}:[0-9a-f]{0,4}:[0-9a-f:]*)\b'''
+keywords = ["100.", "fd"]
+tags = ["infrastructure", "privacy"]
+
+[rules.allowlist]
+description = "lockfiles, and the range names themselves (100.64.0.0, fd00::) in docs"
+paths = [
+  '''(^|/)Cargo\.lock$''',
+  '''(^|/)pnpm-lock\.yaml$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^100\.64\.0\.0$''',
+  '''^fd00::$''',
+]

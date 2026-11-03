@@ -11,11 +11,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod connect;
+pub mod credential;
 pub mod error;
 pub mod model;
 pub mod session;
 pub mod tree;
 
+pub use credential::{CredentialFields, CredentialKind, Role, SecretName};
 pub use error::MooringError;
 pub use model::{
     is_bidi_or_invisible, validate_host, validate_name, validate_tag, Connection, ConnectionId,

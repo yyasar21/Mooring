@@ -4,7 +4,7 @@
 #![allow(dead_code)]
 
 use mooring_core::{Connection, Folder, Protocol};
-use mooring_store::{CredentialKind, CredentialMeta, Store};
+use mooring_store::{CredentialKind, CredentialMeta, SecretName, Secrets, Store};
 use mooring_vault::{KdfParams, Vault};
 use secrecy::SecretString;
 
@@ -17,16 +17,16 @@ pub struct Lab {
     pub store: Store,
     pub root: Folder,
     pub servers: Folder,
-    pub okd: Folder,
+    pub kube: Folder,
 }
 
-/// root ─ servers ─ okd
+/// root ─ servers ─ kube
 pub fn lab() -> Lab {
     let store = Store::open_in_memory().expect("open");
     let root = store.create_folder(None, "Home lab").expect("root");
     let servers = store.create_folder(Some(root.id), "servers").expect("servers");
-    let okd = store.create_folder(Some(servers.id), "okd").expect("okd");
-    Lab { store, root, servers, okd }
+    let kube = store.create_folder(Some(servers.id), "kube").expect("kube");
+    Lab { store, root, servers, kube }
 }
 
 pub fn conn(store: &Store, folder: &Folder, name: &str, host: &str, tags: &[&str]) -> Connection {
@@ -36,6 +36,29 @@ pub fn conn(store: &Store, folder: &Folder, name: &str, host: &str, tags: &[&str
 }
 
 pub fn password(store: &Store, vault: &Vault, name: &str) -> CredentialMeta {
-    let meta = CredentialMeta::new(name, CredentialKind::Password, Some("ops")).expect("meta");
-    store.create_credential(vault, &meta, b"test-secret", None).expect("insert credential")
+    let fields = serde_json::json!({ "username": "ops" });
+    let secrets = secrets(&[(SecretName::Password, b"test-secret")]);
+    store
+        .create_credential(vault, name, CredentialKind::UserPassword, &fields, &secrets)
+        .expect("insert credential")
+}
+
+/// An `ssh_key` credential with a placeholder (PEM-shaped) private key and a passphrase.
+pub fn ssh_key(
+    store: &Store,
+    vault: &Vault,
+    name: &str,
+    passphrase: &[u8],
+) -> (CredentialMeta, String) {
+    let pem = mooring_core::credential::testdata::placeholder_key_pem();
+    let fields = serde_json::json!({ "username": "root" });
+    let mut s = secrets(&[(SecretName::PrivateKey, pem.as_bytes())]);
+    s.insert(SecretName::Passphrase, passphrase);
+    let m =
+        store.create_credential(vault, name, CredentialKind::SshKey, &fields, &s).expect("ssh key");
+    (m, pem)
+}
+
+pub fn secrets<'a>(pairs: &[(SecretName, &'a [u8])]) -> Secrets<'a> {
+    pairs.iter().copied().collect()
 }

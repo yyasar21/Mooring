@@ -1,9 +1,11 @@
-//! Read-only lab check (ADR-0004 test plan): connect to xinfra01, run `uname -a`, close.
+//! Read-only lab check (ADR-0004 test plan): connect to `MOORING_LAB_HOST`, run `uname -a`, close.
 //!
-//! Skipped by default. Run on a machine in the home lab with:
-//! `MOORING_LAB=1 MOORING_LAB_USER=<user> cargo test -p mooring-proto-ssh --test lab -- --ignored`
-//! Auth uses the ssh-agent; the host key must already be in `MOORING_LAB_KNOWN_HOSTS`
-//! (default `~/.ssh/known_hosts`, read-only here: a TOFU prompt fails the test).
+//! Skipped by default. Run against an SSH server you control with:
+//! `MOORING_LAB_HOST=<lab-host> MOORING_LAB_USER=<user> cargo test -p mooring-proto-ssh --test lab -- --ignored`
+//! (`MOORING_LAB_PORT` defaults to 22; see `.env.example`). With `MOORING_LAB_HOST` unset the
+//! test prints why and returns. Auth uses the ssh-agent; the host key must already be in
+//! `MOORING_LAB_KNOWN_HOSTS` (default `~/.ssh/known_hosts`, read-only here: a TOFU prompt fails
+//! the test). Real hosts never go in the repository.
 
 use std::time::Duration;
 
@@ -13,19 +15,27 @@ use mooring_core::session::{
 use mooring_proto_ssh::{SshOptions, SshSession};
 
 #[tokio::test]
-#[ignore = "needs the home lab: MOORING_LAB=1"]
-async fn xinfra01_uname() {
-    if std::env::var("MOORING_LAB").as_deref() != Ok("1") {
+#[ignore = "needs a lab SSH server: set MOORING_LAB_HOST / MOORING_LAB_USER"]
+async fn lab_host_uname() {
+    let (Some(host), Some(user)) = (lab_var("MOORING_LAB_HOST"), lab_var("MOORING_LAB_USER"))
+    else {
+        // The skip reason must be visible in `--nocapture` output; this is a test, not app logging.
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!("skipping lab test: MOORING_LAB_HOST and MOORING_LAB_USER must be set (see .env.example)");
+        }
         return;
-    }
-    let user = std::env::var("MOORING_LAB_USER").expect("MOORING_LAB_USER");
+    };
+    let port = lab_var("MOORING_LAB_PORT")
+        .map_or(22, |p| p.parse::<u16>().expect("MOORING_LAB_PORT must be a port number"));
     let kh = std::env::var("MOORING_LAB_KNOWN_HOSTS")
         .unwrap_or_else(|_| format!("{}/.ssh/known_hosts", std::env::var("HOME").expect("HOME")));
     let params = ConnectParams {
-        host: "xinfra01.homelab.xyz".into(),
-        port: 22,
+        host,
+        port,
         username: Some(user),
         secret: ConnectSecret::None,
+        r#become: None,
         size: Size { width: 120, height: 40 },
     };
     let mut s = SshSession::connect(params, SshOptions::new(kh)).await.expect("tcp");
@@ -52,4 +62,8 @@ async fn xinfra01_uname() {
         }
     }
     s.close().await.expect("close");
+}
+
+fn lab_var(name: &str) -> Option<String> {
+    std::env::var(name).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }

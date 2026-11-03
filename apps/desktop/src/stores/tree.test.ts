@@ -52,11 +52,31 @@ describe("tree store", () => {
       host: "web03.example.test",
       port: null,
       credentialId: null,
+      usernameOverride: "root",
+      domainOverride: null,
+      gatewayCredentialId: null,
+      becomeCredentialId: "cr-sudo",
       tags: [],
     });
     expect(c?.effectiveCredentialId).toBe("cr-ops");
     expect(await useTree.getState().renameConnection(c?.id ?? "", "web03-new")).toBe(true);
-    expect(useTree.getState().connections.find((x) => x.id === c?.id)?.name).toBe("web03-new");
+    const renamed = useTree.getState().connections.find((x) => x.id === c?.id);
+    expect(renamed).toMatchObject({ name: "web03-new", usernameOverride: "root", becomeCredentialId: "cr-sudo" });
+  });
+
+  it("refuses an incompatible credential with credential.incompatible", async () => {
+    await useTree.getState().load();
+    const base = useTree.getState().connections.find((x) => x.id === "c-dc");
+    expect(base).toBeDefined();
+    if (!base) return;
+    const ok = await useTree.getState().updateConnection("c-dc", { ...base, credentialId: "cr-ops" });
+    expect(ok).toBeNull();
+    expect(useTree.getState().error).toMatch(/SSH key is for SSH/);
+    // a domain override on an SSH key is not applicable
+    const web = useTree.getState().connections.find((x) => x.id === "c-web01");
+    if (!web) return;
+    expect(await useTree.getState().updateConnection("c-web01", { ...web, domainOverride: "CORP" })).toBeNull();
+    expect(useTree.getState().error).toMatch(/no domain to override/);
   });
 
   it("searches through connection_search", async () => {

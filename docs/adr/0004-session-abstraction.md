@@ -35,4 +35,4 @@ Protocol crates never receive the vault; the Tauri layer resolves credentials.
 
 ## Test plan
 Stub crates compile against the trait (A0). A1 adds an SSH integration test against
-xinfra01 behind `MOORING_LAB=1`.
+`<lab-host>` (`MOORING_LAB_HOST`), `#[ignore]`d by default.

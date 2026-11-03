@@ -38,9 +38,22 @@
 - Gate (cloud Linux): 290 Rust tests / 0 failed / 3 intentionally ignored, clippy + fmt clean,
   46 UI tests, build clean, vectors verified with the `age` CLI.
 
+## Round 3 (same day)
+- ADR-0009 typed credential model (15 kinds, protocol matrix, roles, overrides, TOTP) — core,
+  store migration 0003/0004 with reseal on unlock, SSH connect secrets + `become`, Tauri
+  commands, schema-driven UI (109 vitest tests).
+- Public launch prep: private-infrastructure scrub (tree clean; history needs a squash — see
+  public-scrub.md), README/guides/community files, release pipeline (macOS dmg/pkg + Homebrew
+  tap, Windows exe/msi, Linux deb/rpm/AppImage, cosign keyless SHA256SUMS, SBOM, provenance),
+  icons regenerated from `packaging/icon.svg`.
+- Security review 3: BLOCKER B-3 (private key could land in plaintext `cert_pem`) + M-5..M-7
+  fixed in fix round 3; actions pinned by SHA; release workflow split by privilege.
+- Gate (cloud Linux): 390 Rust tests / 0 failed / 3 ignored; clippy + fmt clean; 109 UI tests;
+  build clean; vectors verified; `verify-release.test.sh` 10/10.
+
 ## Left open
 - `make dev` on macOS/Windows: manual checks owed — clipboard clear + history exclusion, OSC 8
-  link guard, real ssh-agent, lab SSH (`MOORING_LAB=1`), keyring round trip.
+  link guard, real ssh-agent, lab SSH (`MOORING_LAB_HOST`), keyring round trip.
 - Not wired yet: `src-tauri/src/autolock.rs` (5 s tick + OS signals), keyring/export IPC
   commands (held by security until biometric ACL exists), `vault_create` still uses
   `KdfParams::DEFAULT` instead of calibrating.
@@ -50,9 +63,18 @@
   biometric ACL), forwarding + SFTP IPC and UI, syslog mirror (item 5), cargo-fuzz targets and
   nightly job, Playwright/tauri-driver E2E, 3-OS CI run after push, review-2 lows L-3/L-4/N-*.
 
+## Before going public
+- Publish from a single squashed commit into a fresh repository (security ruling G-1); never make
+  the current private history public.
+- GitHub settings per `docs/github-setup.md`; secrets per `docs/release.md`; create the
+  `homebrew-mooring` tap repo; enable private vulnerability reporting.
+- First CI run on 3 OSes; `cargo deny`, `cargo audit`, gitleaks, actionlint must pass in
+  `security.yml` (not runnable in the cloud workspace); pin the semgrep container by digest.
+- Kubeconfig fuzz target before any Kubernetes consumer; updater plugin needs its own review.
+
 ## Decision needed
 - GitHub repository (CI assumes Actions; `repository` in Cargo.toml points at
-  `yunusyasar/mooring-remote`).
+  a placeholder repository; now `yyasar21/Mooring`).
 - Keyring unlock on Linux: off by default with explicit opt-in warning (reviewer's ruling) — confirm.
 
 ## Test evidence

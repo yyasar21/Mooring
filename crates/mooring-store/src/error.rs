@@ -3,6 +3,7 @@
 //! Rule (CLAUDE.md): `Display` never contains secret material. Variants carry ids, field
 //! names and short static reasons; plaintext and sealed bytes are never formatted.
 
+use mooring_core::credential::CredentialError;
 use mooring_core::MooringError;
 use thiserror::Error;
 
@@ -54,6 +55,11 @@ pub enum StoreError {
     #[error("store already belongs to another vault")]
     VaultIdMismatch,
 
+    /// A credential rule refused the operation (kubeconfig rejected, incompatible kind, kind
+    /// unsupported, secret missing). Messages are safe to show and never carry values.
+    #[error("{0}")]
+    Credential(CredentialError),
+
     /// A stored value could not be decoded (bad UUID, timestamp, enum or sealed JSON).
     #[error("corrupt {what} in database")]
     Corrupt {
@@ -69,6 +75,15 @@ impl From<MooringError> for StoreError {
             MooringError::NotFound { kind, id } => Self::NotFound { kind, id },
             MooringError::Tree(r) => Self::Tree(r),
             other => Self::Invalid { field: "input", reason: other.to_string() },
+        }
+    }
+}
+
+impl From<CredentialError> for StoreError {
+    fn from(e: CredentialError) -> Self {
+        match e {
+            CredentialError::Invalid { field, reason } => Self::Invalid { field, reason },
+            other => Self::Credential(other),
         }
     }
 }

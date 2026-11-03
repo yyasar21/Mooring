@@ -54,7 +54,7 @@ mod tests {
         for h in ["localhost", "LOCALHOST", "127.0.0.1", "::1"] {
             assert!(is_loopback_host(h), "{h}");
         }
-        for h in ["0.0.0.0", "*", "::", "", "10.10.0.1", "localhost.evil", "127.0.0.2"] {
+        for h in ["0.0.0.0", "*", "::", "", "192.0.2.1", "localhost.evil", "127.0.0.2"] {
             assert!(!is_loopback_host(h), "{h}");
         }
         assert_eq!(Exposure::default(), Exposure::Loopback);

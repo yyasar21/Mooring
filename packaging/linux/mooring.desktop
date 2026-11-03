@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=Remote Access Manager
+Comment=Security-first manager for SSH, RDP and VNC connections
+Exec={{exec}}
+TryExec={{exec}}
+Icon={{icon}}
+StartupWMClass={{exec}}
+Terminal=false
+Categories=Network;RemoteAccess;Development;
+Keywords=ssh;rdp;vnc;remote;terminal;sftp;
+StartupNotify=true

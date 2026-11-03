@@ -4,6 +4,12 @@
 //! pending scripts run in one `IMMEDIATE` transaction and `schema_version` is written last, so
 //! a crash mid-migration leaves the previous version intact. A database whose version is newer
 //! than [`LATEST`] is refused (no silent downgrade).
+//!
+//! A script whose first line is [`FK_OFF_DIRECTIVE`] needs foreign keys off (a table rebuild
+//! that would otherwise fire `ON DELETE` actions). The runner then sets `foreign_keys = OFF`
+//! before `BEGIN` (the pragma is a no-op inside a transaction), requires `PRAGMA
+//! foreign_key_check` to be empty before `COMMIT`, and turns foreign keys back on afterwards,
+//! whatever the outcome.
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
@@ -13,13 +19,19 @@ use crate::error::{Result, StoreError};
 const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("../migrations/0001_init.sql")),
     (2, include_str!("../migrations/0002_fts_secure_delete.sql")),
+    (3, include_str!("../migrations/0003_typed_credentials.sql")),
+    (4, include_str!("../migrations/0004_migrated_username.sql")),
 ];
 
 /// Highest schema version this build understands.
-pub const LATEST: u32 = 2;
+pub const LATEST: u32 = 4;
+
+/// First line of a migration that must run with foreign keys off.
+pub const FK_OFF_DIRECTIVE: &str = "-- mooring:foreign_keys=off";
 
 pub(crate) const KEY_SCHEMA_VERSION: &str = "schema_version";
 pub(crate) const KEY_VAULT_ID: &str = "vault_id";
+pub(crate) const KEY_RESEAL_PENDING: &str = "credential_reseal_pending";
 
 /// Busy timeout for concurrent writers (WAL readers never block).
 const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -63,8 +75,25 @@ pub(crate) fn current_version(conn: &Connection) -> Result<u32> {
     }
 }
 
+fn needs_fk_off(sql: &str) -> bool {
+    sql.lines().next().is_some_and(|l| l.trim() == FK_OFF_DIRECTIVE)
+}
+
 /// Apply every pending migration in one transaction, then rebuild the search index.
 pub(crate) fn migrate(conn: &mut Connection) -> Result<u32> {
+    let found = current_version(conn)?;
+    let fk_off = MIGRATIONS.iter().any(|(v, sql)| *v > found && needs_fk_off(sql));
+    if fk_off {
+        conn.pragma_update(None, "foreign_keys", false)?;
+    }
+    let result = migrate_in_tx(conn, fk_off);
+    if fk_off {
+        conn.pragma_update(None, "foreign_keys", true)?;
+    }
+    result
+}
+
+fn migrate_in_tx(conn: &mut Connection, check_fks: bool) -> Result<u32> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let found = current_version(&tx)?;
     if found > LATEST {
@@ -73,6 +102,13 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<u32> {
     for (version, sql) in MIGRATIONS.iter().filter(|(v, _)| *v > found) {
         tx.execute_batch(sql)?;
         tracing::info!(version, "applied store migration");
+    }
+    if check_fks {
+        let violations: i64 =
+            tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))?;
+        if violations != 0 {
+            return Err(StoreError::Corrupt { what: "foreign keys after migration" });
+        }
     }
     if found < LATEST {
         tx.execute(
@@ -171,6 +207,17 @@ mod tests {
             .query_row("SELECT v FROM search_config WHERE k = 'secure-delete'", [], |r| r.get(0))
             .expect("secure-delete config row");
         assert_eq!(v, 1);
+    }
+
+    #[test]
+    fn fk_off_directive_is_detected_and_fks_come_back_on() {
+        assert!(needs_fk_off(MIGRATIONS[2].1));
+        assert!(!needs_fk_off(MIGRATIONS[0].1));
+        let mut conn = Connection::open_in_memory().expect("open");
+        configure(&conn, false).expect("pragmas");
+        migrate(&mut conn).expect("migrate");
+        let fk: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).expect("fk");
+        assert!(fk, "foreign keys are back on after an fk-off migration");
     }
 
     #[test]

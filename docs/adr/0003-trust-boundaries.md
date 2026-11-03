@@ -4,7 +4,7 @@ Status: Accepted · 2026-11-03
 
 ## Context
 The WebView runs JavaScript from our bundle today and, in A2, renders remote web pages
-(vCenter, Grafana...). Any of it may be compromised by a malicious page, an XSS in a dependency
+(hypervisor consoles, dashboards...). Any of it may be compromised by a malicious page, an XSS in a dependency
 or a supply-chain change.
 
 ## Decision

@@ -24,8 +24,11 @@ describe("ui store", () => {
 
   it("opening a dialog closes the palette; switching view closes it too", () => {
     useUi.getState().setPalette(true);
-    useUi.getState().openDialog({ kind: "credential" });
+    useUi.getState().openDialog({ kind: "folder", parentId: "f-root" });
     expect(useUi.getState().paletteOpen).toBe(false);
+    useUi.getState().setPalette(true);
+    useUi.getState().showCredentials({ mode: "new" });
+    expect(useUi.getState()).toMatchObject({ view: "credentials", paletteOpen: false, dialog: null, credentialPane: { mode: "new" } });
     useUi.getState().setPalette(true);
     useUi.getState().setView("audit");
     expect(useUi.getState()).toMatchObject({ view: "audit", paletteOpen: false });

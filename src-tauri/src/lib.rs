@@ -28,7 +28,7 @@ pub mod test_ssh_server;
 
 use tauri::Manager;
 
-use crate::commands::{audit, credentials, sessions as session_cmds, tree, vault};
+use crate::commands::{audit, credential_copy, credentials, sessions as session_cmds, tree, vault};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -66,12 +66,16 @@ pub fn run() {
             tree::connection_move,
             tree::connection_delete,
             tree::connection_search,
+            tree::connection_set_role_credential,
+            credentials::credential_kinds,
             credentials::credential_list,
             credentials::credential_create,
-            credentials::credential_update_meta,
-            credentials::credential_replace_secret,
+            credentials::credential_update_fields,
+            credentials::credential_replace_secrets,
             credentials::credential_delete,
-            credentials::credential_copy_password,
+            credentials::credential_parse_account,
+            credential_copy::credential_copy_secret,
+            credential_copy::credential_copy_otp,
             session_cmds::session_open,
             session_cmds::session_send,
             session_cmds::session_close,

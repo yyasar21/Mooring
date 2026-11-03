@@ -105,6 +105,12 @@ impl Store {
         if let Some(c) = parse_opt_id(own.as_deref())? {
             return Ok(Some(c));
         }
+        self.folder_default_chain(parse_id(&folder)?)
+    }
+
+    /// Nearest `default_credential` on the folder chain starting at `folder` (inclusive).
+    pub(crate) fn folder_default_chain(&self, folder: FolderId) -> Result<Option<CredentialId>> {
+        let folder = folder.to_string();
         // Walk the parent chain; depth bounded by the folder count so a corrupt (cyclic)
         // chain cannot loop forever.
         let (cred, depth, total): (Option<String>, i64, i64) = self.conn.query_row(
@@ -136,7 +142,7 @@ mod tests {
 
     #[test]
     fn query_tokens_are_quoted_prefix_terms() {
-        assert_eq!(fts_query("xinfra 10.10").as_deref(), Some("\"xinfra\"* \"10.10\"*"));
+        assert_eq!(fts_query("web01 192.0").as_deref(), Some("\"web01\"* \"192.0\"*"));
         assert_eq!(fts_query("a\"b").as_deref(), Some("\"a\"\"b\"*"));
         assert_eq!(fts_query("NEAR( x OR y").as_deref(), Some("\"NEAR(\"* \"x\"* \"OR\"* \"y\"*"));
         assert_eq!(fts_query("  * - \" ()  "), None);

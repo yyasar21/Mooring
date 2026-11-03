@@ -11,7 +11,8 @@ use std::panic::AssertUnwindSafe;
 use mooring_core::session::Size;
 use secrecy::SecretString;
 
-use crate::commands::credentials::{self, NewCredential};
+use crate::commands::credential_copy;
+use crate::commands::credentials::{self, NewCredential, WireSecrets};
 use crate::commands::sessions::{self as sess, WireInput};
 use crate::commands::tree::{self, ConnectionFields};
 use crate::commands::{audit, vault};
@@ -34,6 +35,11 @@ pub const KNOWN_CODES: &[&str] = &[
     "tree.invalid",
     "input.invalid",
     "credential.not_found",
+    "credential.incompatible",
+    "credential.kind_unsupported",
+    "credential.secret_missing",
+    "credential.kubeconfig_rejected",
+    "store.corrupt",
     "session.not_found",
     "session.failed",
     "store.io",
@@ -194,20 +200,11 @@ pub fn fields(
     host: &str,
     port: Option<u32>,
 ) -> ConnectionFields {
-    ConnectionFields {
-        folder_id: folder.to_owned(),
-        name: name.to_owned(),
-        protocol: protocol.to_owned(),
-        host: host.to_owned(),
-        port,
-        credential_id: None,
-        tags: vec![],
-    }
+    ConnectionFields { port, ..ConnectionFields::basic(folder, name, protocol, host) }
 }
 
 /// Every string-taking command with `s` in each string position.
 fn hit_all_string_args(st: &AppState, ids: &Ids, s: &str) {
-    let secret = || SecretString::from(s.to_owned());
     catch("folder_create.parentId", s, || tree::create_folder(st, s, "x"));
     catch("folder_create.name", s, || tree::create_folder(st, &ids.folder, s));
     catch("folder_rename.id", s, || tree::rename_folder(st, s, "x"));
@@ -235,6 +232,36 @@ fn hit_all_string_args(st: &AppState, ids: &Ids, s: &str) {
             "tags",
             ConnectionFields { tags: vec![s.into()], ..fields(&ids.folder, "n", "ssh", "h", None) },
         ),
+        (
+            "usernameOverride",
+            ConnectionFields {
+                credential_id: Some(ids.cred.clone()),
+                username_override: Some(s.into()),
+                ..fields(&ids.folder, "n", "ssh", "h", None)
+            },
+        ),
+        (
+            "domainOverride",
+            ConnectionFields {
+                credential_id: Some(ids.cred.clone()),
+                domain_override: Some(s.into()),
+                ..fields(&ids.folder, "n", "ssh", "h", None)
+            },
+        ),
+        (
+            "gatewayCredentialId",
+            ConnectionFields {
+                gateway_credential_id: Some(s.into()),
+                ..fields(&ids.folder, "n", "rdp", "h", None)
+            },
+        ),
+        (
+            "becomeCredentialId",
+            ConnectionFields {
+                become_credential_id: Some(s.into()),
+                ..fields(&ids.folder, "n", "ssh", "h", None)
+            },
+        ),
     ] {
         catch(&format!("connection_create.{pos}"), s, || tree::create_connection(st, f.clone()));
         catch(&format!("connection_update.{pos}"), s, || tree::update_connection(st, &ids.conn, f));
@@ -246,32 +273,7 @@ fn hit_all_string_args(st: &AppState, ids: &Ids, s: &str) {
     catch("connection_move.folderId", s, || tree::move_connection(st, &ids.conn, s));
     catch("connection_delete.id", s, || tree::delete_connection(st, s));
     catch("connection_search.query", s, || tree::search(st, s, 10));
-    for (pos, c) in [
-        ("name", NewCredential { name: s.into(), ..NewCredential::password_for_tests("x") }),
-        ("kind", NewCredential { kind: s.into(), ..NewCredential::password_for_tests("x") }),
-        (
-            "username",
-            NewCredential { username: s.into(), ..NewCredential::password_for_tests("x") },
-        ),
-        ("secret", NewCredential { secret: secret(), ..NewCredential::password_for_tests("x") }),
-        (
-            "secret2",
-            NewCredential { secret2: Some(secret()), ..NewCredential::password_for_tests("x") },
-        ),
-    ] {
-        catch(&format!("credential_create.{pos}"), s, || credentials::create(st, c));
-    }
-    catch("credential_update_meta.id", s, || credentials::update_meta(st, s, "x", "y"));
-    catch("credential_update_meta.name", s, || credentials::update_meta(st, &ids.cred, s, "y"));
-    catch("credential_update_meta.username", s, || credentials::update_meta(st, &ids.cred, "x", s));
-    catch("credential_replace_secret.id", s, || {
-        credentials::replace_secret(st, s, &SecretString::from("x".to_owned()), None)
-    });
-    catch("credential_replace_secret.secret", s, || {
-        credentials::replace_secret(st, &ids.cred, &secret(), Some(&secret()))
-    });
-    catch("credential_delete.id", s, || credentials::delete(st, s));
-    catch("credential_copy_password.id", s, || credentials::copy_password(st, s));
+    hit_credential_args(st, ids, s);
     catch("vault_lock.reason", s, || vault::lock(st, Some(s)));
     catch("vault_unlock.password", s, || {
         vault::password_from_ipc(s.to_owned()).and_then(|p| vault::unlock(st, p))
@@ -283,6 +285,77 @@ fn hit_all_string_args(st: &AppState, ids: &Ids, s: &str) {
     });
     // Keep the vault unlocked for the next position (vault_lock above locked it).
     vault::unlock(st, SecretString::from(testing::MASTER.to_owned())).expect("re-unlock");
+}
+
+/// The ADR-0009 credential commands with `s` in each string position.
+fn hit_credential_args(st: &AppState, ids: &Ids, s: &str) {
+    let pw = NewCredential::password_for_tests;
+    let field = |k: &str| serde_json::json!({ "username": "u", k: s });
+    for (pos, c) in [
+        ("name", NewCredential { name: s.into(), ..pw("x") }),
+        ("kind", NewCredential { kind: s.into(), ..pw("x") }),
+        (
+            "fields.username",
+            NewCredential { fields: serde_json::json!({"username": s}), ..pw("x") },
+        ),
+        ("fields.domain", NewCredential { fields: field("domain"), ..pw("x") }),
+        ("fields.<key>", NewCredential { fields: serde_json::json!({ s: "x" }), ..pw("x") }),
+        (
+            "secrets.password",
+            NewCredential { secrets: WireSecrets::of(&[("password", s)]), ..pw("x") },
+        ),
+        (
+            "secrets.otp_seed",
+            NewCredential {
+                secrets: WireSecrets::of(&[("password", "p"), ("otp_seed", s)]),
+                ..pw("x")
+            },
+        ),
+        ("secrets.<name>", NewCredential { secrets: WireSecrets::of(&[(s, "p")]), ..pw("x") }),
+        (
+            "kubeconfig_yaml",
+            NewCredential {
+                kind: "kubeconfig".into(),
+                fields: serde_json::json!({}),
+                secrets: WireSecrets::of(&[("kubeconfig_yaml", s)]),
+                ..pw("x")
+            },
+        ),
+    ] {
+        catch(&format!("credential_create.{pos}"), s, || credentials::create(st, c));
+    }
+    catch("credential_update_fields.id", s, || {
+        credentials::update_fields(st, s, "x", &field("domain"))
+    });
+    catch("credential_update_fields.name", s, || {
+        credentials::update_fields(st, &ids.cred, s, &serde_json::json!({"username": "u"}))
+    });
+    catch("credential_update_fields.fields", s, || {
+        credentials::update_fields(st, &ids.cred, "x", &field("domain"))
+    });
+    catch("credential_replace_secrets.id", s, || {
+        credentials::replace_secrets(st, s, &WireSecrets::of(&[("password", "x")]), &[])
+    });
+    catch("credential_replace_secrets.set", s, || {
+        credentials::replace_secrets(st, &ids.cred, &WireSecrets::of(&[("password", s)]), &[])
+    });
+    catch("credential_replace_secrets.clear", s, || {
+        credentials::replace_secrets(st, &ids.cred, &WireSecrets::default(), &[s.to_owned()])
+    });
+    catch("credential_delete.id", s, || credentials::delete(st, s));
+    catch("credential_copy_secret.id", s, || credential_copy::copy_secret(st, s, "password"));
+    catch("credential_copy_secret.name", s, || credential_copy::copy_secret(st, &ids.cred, s));
+    catch("credential_copy_otp.id", s, || credential_copy::copy_otp(st, s));
+    catch("credential_parse_account.input", s, || credentials::parse_account_input(s));
+    catch("connection_set_role_credential.id", s, || {
+        tree::set_role_credential(st, s, "become", None)
+    });
+    catch("connection_set_role_credential.role", s, || {
+        tree::set_role_credential(st, &ids.conn, s, None)
+    });
+    catch("connection_set_role_credential.credentialId", s, || {
+        tree::set_role_credential(st, &ids.conn, "become", Some(s))
+    });
 }
 
 async fn hit_session_ids(st: &AppState, s: &str) {

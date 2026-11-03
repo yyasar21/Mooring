@@ -1,6 +1,7 @@
 # Verifies the mooring-vault test vectors with the reference `age` CLI, independently of the
 # Rust code that produced them (ADR-0006 test plan: "vectors decrypt with the age CLI in CI").
-# Actions are pinned by major tag in A0; release-engineer pins them by commit SHA in A4.
+# Actions are pinned by commit SHA with the tag in a comment (security review 3, L-14);
+# resolved with `git ls-remote` on 2026-11-03. Dependabot (github-actions) keeps them current.
 name: test-vectors
 on:
   push:
@@ -19,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the age CLI
         run: |
           sudo apt-get update

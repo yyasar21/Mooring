@@ -4,7 +4,7 @@ Status: Accepted · 2026-11-03 (Phase A1, item 3)
 
 ## Context
 `mooring-proto-ssh` must give a Royal-TS-class terminal (shell, resize, streaming), SFTP and
-port forwarding on top of ADR-0004, against servers the user does not control (home lab now,
+port forwarding on top of ADR-0004, against servers the user does not control (test servers now,
 customer estates later). Host-key handling and algorithm choice are the security core.
 
 ## Decision
@@ -78,7 +78,7 @@ customer estates later). Host-key handling and algorithm choice are the security
 - `known_hosts` parser: unit + proptest (random bytes never panic; round trip of written
   hashed entries). A `cargo fuzz` target `known_hosts_parse` is added when nightly is
   available (QA).
-- `MOORING_LAB=1` integration test against `xinfra01.homelab.xyz`: connect, `uname -a`, close —
+- `#[ignore]`d integration test against `<lab-host>` (`MOORING_LAB_HOST`): connect, `uname -a`, close —
   read-only, skipped by default.
 
 ## Alternatives considered

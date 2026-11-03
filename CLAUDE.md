@@ -33,8 +33,10 @@ machine; `mooring-app` needs the platform WebView toolchain.
   window label + capability (A2).
 - Every behaviour change ships with a test. `make check` green on macOS, Windows, Linux before
   a PR. Keep files under 500 lines. Prefer editing over creating.
-- The home lab (10.10.0.0/16, *.homelab.xyz) is read-only for agents. Never run anything that
-  changes it (no ansible without --check, no kubectl/oc mutations, no vCenter writes).
+- Any real infrastructure referenced by `MOORING_LAB_*` is read-only for agents. Never mutate
+  external systems (no ansible without --check, no kubectl/oc mutations, no hypervisor writes).
+  Real hosts, IPs, accounts and domains never go in the repo: tests use `example.test` and
+  RFC 5737 addresses; lab values live only in the local, gitignored `.env`.
 - Code, comments, commits in English, Conventional Commits. Chat may be Turkish.
 - No documentation files unless asked — ADRs and handoff notes are the exception and mandatory.
 - Never add a `Co-Authored-By` trailer unless `.claude/settings.json` sets `attribution.commit`.

@@ -8,7 +8,8 @@ use mooring_core::session::Size;
 use secrecy::SecretString;
 use tokio::sync::mpsc;
 
-use crate::commands::credentials::{self, NewCredential};
+use crate::commands::credential_copy;
+use crate::commands::credentials::{self, NewCredential, WireSecrets};
 use crate::commands::sessions::{self as sess, WireInput};
 use crate::commands::tree::{self, ConnectionFields};
 use crate::commands::{audit, vault};
@@ -75,23 +76,10 @@ pub async fn vault_gated_codes(
     cred: &str,
     conn: &str,
 ) -> Vec<(&'static str, &'static str)> {
-    let fields = || ConnectionFields {
-        folder_id: folder.to_owned(),
-        name: "n".into(),
-        protocol: "ssh".into(),
-        host: "h".into(),
-        port: None,
-        credential_id: None,
-        tags: vec![],
-    };
-    let secret = || SecretString::from("test-only secret".to_owned());
-    let new_cred = NewCredential {
-        name: "c".into(),
-        kind: "password".into(),
-        username: String::new(),
-        secret: secret(),
-        secret2: None,
-    };
+    let fields = || ConnectionFields::basic(folder, "n", "ssh", "h");
+    let new_cred = NewCredential::password_for_tests("c");
+    let set = WireSecrets::of(&[("password", "test-only secret")]);
+    let no_fields = serde_json::json!({"username": "y"});
     let (s, _rx) = sink();
     let size = Size { width: 80, height: 24 };
     vec![
@@ -108,10 +96,15 @@ pub async fn vault_gated_codes(
         ("connection_search", code(tree::search(st, "lab", 10))),
         ("credential_list", code(credentials::list(st))),
         ("credential_create", code(credentials::create(st, new_cred))),
-        ("credential_update_meta", code(credentials::update_meta(st, cred, "x", "y"))),
-        ("credential_replace_secret", code(credentials::replace_secret(st, cred, &secret(), None))),
+        ("credential_update_fields", code(credentials::update_fields(st, cred, "x", &no_fields))),
+        ("credential_replace_secrets", code(credentials::replace_secrets(st, cred, &set, &[]))),
         ("credential_delete", code(credentials::delete(st, cred))),
-        ("credential_copy_password", code(credentials::copy_password(st, cred))),
+        ("credential_copy_secret", code(credential_copy::copy_secret(st, cred, "password"))),
+        ("credential_copy_otp", code(credential_copy::copy_otp(st, cred))),
+        (
+            "connection_set_role_credential",
+            code(tree::set_role_credential(st, conn, "become", None)),
+        ),
         ("session_open", code(sess::open(st, conn, size, s).await)),
         ("audit_tail", code(audit::tail(st, 10, None))),
         ("audit_verify", code(audit::verify(st))),

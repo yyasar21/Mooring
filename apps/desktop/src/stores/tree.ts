@@ -100,8 +100,7 @@ export const useTree = create<TreeState>((set, get) => {
     renameConnection: async (id, name) => {
       const c = get().connections.find((x) => x.id === id);
       if (!c) return false;
-      const { folderId, protocol, host, port, credentialId, tags } = c;
-      return (await mutate(() => ipc.connectionUpdate({ id, folderId, name, protocol, host, port, credentialId, tags }))) !== null;
+      return (await mutate(() => ipc.connectionUpdate({ ...connectionFields(c), id, name }))) !== null;
     },
     moveConnection: async (id, folderId) => (await mutate(() => ipc.connectionMove({ id, folderId }))) !== null,
     deleteConnection: async (id) => {
@@ -120,6 +119,23 @@ export const useTree = create<TreeState>((set, get) => {
     },
   };
 });
+
+/** The editable fields of a connection, as `connection_update` takes them. */
+export function connectionFields(c: ConnectionSummary): ConnectionFields {
+  return {
+    folderId: c.folderId,
+    name: c.name,
+    protocol: c.protocol,
+    host: c.host,
+    port: c.port,
+    credentialId: c.credentialId,
+    usernameOverride: c.usernameOverride,
+    domainOverride: c.domainOverride,
+    gatewayCredentialId: c.gatewayCredentialId,
+    becomeCredentialId: c.becomeCredentialId,
+    tags: [...c.tags],
+  };
+}
 
 /** Root folder (parentId null). */
 export function rootFolder(folders: Folder[]): Folder | undefined {

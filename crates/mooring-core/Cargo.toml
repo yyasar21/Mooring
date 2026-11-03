@@ -20,6 +20,15 @@ secrecy = { workspace = true }
 zeroize = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
+ssh-key = { workspace = true }
+pem-rfc7468 = { workspace = true }
+data-encoding = { workspace = true }
+saphyr-parser = { workspace = true }
+hmac = { workspace = true }
+sha1 = { workspace = true }
+sha2-next = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# tests build an Ed25519 OpenSSH key from a fixed seed (russh enables the same feature)
+ssh-key = { workspace = true, features = ["ed25519"] }

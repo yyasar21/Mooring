@@ -1,76 +1,23 @@
-//! Credentials: plaintext metadata plus vault-sealed secret columns.
-//!
-//! `secret` / `secret2` hold the JSON encoding of [`mooring_vault::Sealed`], sealed with record
-//! id = credential id and field = column name (ADR-0005). Nothing in this module formats,
-//! logs or returns plaintext except [`Store::open_credential_secret`], whose buffer is
-//! zeroized on drop.
+//! Typed credentials (ADR-0009 §4): plaintext `fields_json` validated by the kind's serde type
+//! on every write and read, and one sealed row per secret in `credential_secret`, sealed with
+//! AAD = credential id ‖ 0x1F ‖ secret name. Secret names are a closed set per kind; unknown
+//! names are refused on read and write. Nothing here formats, logs or returns plaintext except
+//! [`Store::open_secret`], whose buffer is zeroized on drop.
 
-use mooring_core::CredentialId;
+use std::collections::BTreeMap;
+
+use mooring_core::credential::{validate_secret, CredentialError};
+use mooring_core::{CredentialFields, CredentialId, CredentialKind, SecretName};
 use mooring_vault::{Sealed, Vault};
-use rusqlite::{params, OptionalExtension, Row};
+use rusqlite::{params, OptionalExtension};
+use serde_json::Value;
 use time::OffsetDateTime;
 use zeroize::Zeroizing;
 
-use crate::error::{invalid, not_found, Result, StoreError};
+use crate::error::{not_found, Result, StoreError};
+use crate::legacy;
 use crate::util::{check_name, fmt_ts, now, parse_id, parse_ts};
 use crate::Store;
-
-/// Maximum username length (characters).
-pub const MAX_USERNAME: usize = 256;
-/// Maximum plaintext size of one secret (bytes); large enough for a PEM chain.
-pub const MAX_SECRET: usize = 64 * 1024;
-
-/// What a credential holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CredentialKind {
-    /// `secret` = password.
-    Password,
-    /// `secret` = private key, `secret2` = optional passphrase.
-    SshKey,
-    /// `secret` = certificate, `secret2` = private key.
-    Certificate,
-}
-
-impl CredentialKind {
-    /// Stable name stored in `credential.kind`.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Password => "password",
-            Self::SshKey => "ssh_key",
-            Self::Certificate => "certificate",
-        }
-    }
-
-    fn parse(s: &str) -> Result<Self> {
-        match s {
-            "password" => Ok(Self::Password),
-            "ssh_key" => Ok(Self::SshKey),
-            "certificate" => Ok(Self::Certificate),
-            _ => Err(StoreError::Corrupt { what: "credential kind" }),
-        }
-    }
-}
-
-/// A sealed column of `credential`. The variant's column name is the vault AAD field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SecretField {
-    /// Primary secret (password, private key, certificate).
-    Secret,
-    /// Secondary secret (key passphrase, certificate private key).
-    Secret2,
-}
-
-impl SecretField {
-    /// Column name, also the vault `field` bound into the AAD.
-    #[must_use]
-    pub const fn column(self) -> &'static str {
-        match self {
-            Self::Secret => "secret",
-            Self::Secret2 => "secret2",
-        }
-    }
-}
 
 /// Credential metadata. Never holds secret material, so `Debug` and serialisation to the UI
 /// are safe.
@@ -80,10 +27,13 @@ pub struct CredentialMeta {
     pub id: CredentialId,
     /// Display name, 1..=120 chars.
     pub name: String,
-    /// Kind.
+    /// Kind (immutable).
     pub kind: CredentialKind,
-    /// Optional user name, at most [`MAX_USERNAME`] chars.
-    pub username: Option<String>,
+    /// Plaintext fields (non-secret).
+    pub fields: CredentialFields,
+    /// Which secrets are stored (presence only), sorted. Legacy names are reported under the
+    /// name they will have after the reseal.
+    pub secret_names: Vec<SecretName>,
     /// Creation time (UTC).
     pub created_at: OffsetDateTime,
     /// Last change (UTC).
@@ -91,160 +41,257 @@ pub struct CredentialMeta {
 }
 
 impl CredentialMeta {
-    /// Fresh metadata with a new id and current timestamps.
-    pub fn new(name: &str, kind: CredentialKind, username: Option<&str>) -> Result<Self> {
-        let t = now();
-        let meta = Self {
-            id: CredentialId::new(),
-            name: check_name("name", name)?,
-            kind,
-            username: check_username(username)?,
-            created_at: t,
-            updated_at: t,
-        };
-        Ok(meta)
+    /// `SHA256:` fingerprint for `ssh_key` / `x509`.
+    #[must_use]
+    pub fn fingerprint(&self) -> Option<&str> {
+        self.fields.fingerprint()
     }
 }
 
-fn check_username(u: Option<&str>) -> Result<Option<String>> {
-    let Some(u) = u.map(str::trim).filter(|u| !u.is_empty()) else {
-        return Ok(None);
-    };
-    if u.chars().count() > MAX_USERNAME
-        || u.chars().any(|c| c.is_control() || mooring_core::is_bidi_or_invisible(c))
-    {
-        return Err(invalid("username", "at most 256 characters, no control or format characters"));
-    }
-    Ok(Some(u.to_owned()))
+pub(crate) fn seal(vault: &Vault, id: CredentialId, name: &str, plain: &[u8]) -> Result<Vec<u8>> {
+    let sealed = vault.seal(&id.to_string(), name, plain)?;
+    serde_json::to_vec(&sealed).map_err(|_| StoreError::Corrupt { what: "sealed value" })
 }
 
-fn check_secret(field: SecretField, s: &[u8]) -> Result<()> {
-    if s.len() > MAX_SECRET {
-        return Err(invalid(field.column(), "larger than 64 KiB"));
+pub(crate) fn unseal(
+    vault: &Vault,
+    id: CredentialId,
+    name: &str,
+    blob: &[u8],
+) -> Result<Zeroizing<Vec<u8>>> {
+    let sealed: Sealed =
+        serde_json::from_slice(blob).map_err(|_| StoreError::Corrupt { what: "sealed value" })?;
+    Ok(vault.open(&id.to_string(), name, &sealed)?)
+}
+
+pub(crate) fn put_secret(
+    conn: &rusqlite::Connection,
+    id: CredentialId,
+    name: &str,
+    blob: &[u8],
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO credential_secret (credential_id, name, sealed) VALUES (?1, ?2, ?3)
+         ON CONFLICT (credential_id, name) DO UPDATE SET sealed = excluded.sealed",
+        params![id.to_string(), name, blob],
+    )?;
+    Ok(())
+}
+
+/// Plaintext secrets for create / replace, keyed by name.
+pub type Secrets<'a> = BTreeMap<SecretName, &'a [u8]>;
+
+/// Check every secret against the kind and fold derived values (fingerprint, contexts) and the
+/// otp slot rule into `fields`.
+fn prepare(fields: &mut CredentialFields, secrets: &Secrets<'_>) -> Result<()> {
+    let kind = fields.kind();
+    for (name, plain) in secrets {
+        validate_secret(kind, *name, plain)?;
+        fields.derive_from_secret(*name, plain)?;
     }
     Ok(())
 }
 
-fn seal(vault: &Vault, id: CredentialId, field: SecretField, plain: &[u8]) -> Result<Vec<u8>> {
-    check_secret(field, plain)?;
-    let sealed = vault.seal(&id.to_string(), field.column(), plain)?;
-    serde_json::to_vec(&sealed).map_err(|_| StoreError::Corrupt { what: "sealed value" })
-}
-
-const META_COLS: &str = "id, name, kind, username, created_at, updated_at";
-
-fn row_to_meta(r: &Row<'_>) -> rusqlite::Result<[Option<String>; 6]> {
-    Ok([r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?])
-}
-
-fn decode(raw: [Option<String>; 6]) -> Result<CredentialMeta> {
-    let [id, name, kind, username, created, updated] = raw;
-    let req = |v: Option<String>| v.ok_or(StoreError::Corrupt { what: "credential" });
-    Ok(CredentialMeta {
-        id: parse_id(&req(id)?)?,
-        name: req(name)?,
-        kind: CredentialKind::parse(&req(kind)?)?,
-        username,
-        created_at: parse_ts(&req(created)?)?,
-        updated_at: parse_ts(&req(updated)?)?,
-    })
+fn otp_consistent(fields: &mut CredentialFields, has_seed: bool) -> Result<()> {
+    if has_seed && fields.otp().is_none() {
+        fields.set_otp(Some(mooring_core::credential::OtpParams::default()))?;
+    }
+    if !has_seed {
+        fields.set_otp(None)?;
+    }
+    Ok(())
 }
 
 impl Store {
-    /// Store a credential, sealing `secret` (and `secret2`) under the unlocked vault.
-    /// Metadata is re-validated; the stored form is returned.
+    /// Create a credential: validate `fields` (UI JSON) for `kind`, check and seal every
+    /// secret under its own name, insert all in one transaction. Required secrets must be set.
     pub fn create_credential(
         &self,
         vault: &Vault,
-        meta: &CredentialMeta,
-        secret: &[u8],
-        secret2: Option<&[u8]>,
+        name: &str,
+        kind: CredentialKind,
+        fields: &Value,
+        secrets: &Secrets<'_>,
     ) -> Result<CredentialMeta> {
-        let name = check_name("name", &meta.name)?;
-        let username = check_username(meta.username.as_deref())?;
-        let s1 = seal(vault, meta.id, SecretField::Secret, secret)?;
-        let s2 = secret2.map(|s| seal(vault, meta.id, SecretField::Secret2, s)).transpose()?;
-        self.conn.execute(
-            "INSERT INTO credential (id, name, kind, username, secret, secret2, created_at,
-                                     updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                meta.id.to_string(),
-                name,
-                meta.kind.name(),
-                username,
-                s1,
-                s2,
-                fmt_ts(meta.created_at)?,
-                fmt_ts(meta.updated_at)?,
-            ],
+        let name = check_name("name", name)?;
+        let mut f = CredentialFields::from_input(kind, fields, None)?;
+        prepare(&mut f, secrets)?;
+        let schema = kind.schema();
+        if let Some(missing) = schema
+            .secret_names()
+            .find(|n| schema.secret(*n).is_some_and(|s| s.required) && !secrets.contains_key(n))
+        {
+            return Err(CredentialError::invalid(missing.as_str(), "is required").into());
+        }
+        otp_consistent(&mut f, secrets.contains_key(&SecretName::OtpSeed))?;
+        let id = CredentialId::new();
+        let blobs = secrets
+            .iter()
+            .map(|(n, p)| Ok((n.as_str(), seal(vault, id, n.as_str(), p)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let ts = fmt_ts(now())?;
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO credential (id, name, kind, fields_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![id.to_string(), name, kind.name(), f.to_json()?, ts],
         )?;
-        tracing::info!(credential = %meta.id, kind = meta.kind.name(), "credential stored");
-        self.get_credential(meta.id)
+        for (n, blob) in &blobs {
+            put_secret(&tx, id, n, blob)?;
+        }
+        tx.commit()?;
+        tracing::info!(credential = %id, kind = kind.name(), "credential stored");
+        self.get_credential(id)
     }
 
-    /// Metadata of one credential.
+    /// Metadata of one credential (fields re-validated; a bad row is `Corrupt`).
     pub fn get_credential(&self, id: CredentialId) -> Result<CredentialMeta> {
-        let sql = format!("SELECT {META_COLS} FROM credential WHERE id = ?1");
-        let raw = self.conn.query_row(&sql, [id.to_string()], row_to_meta).optional()?;
-        decode(raw.ok_or_else(|| not_found("credential", &id))?)
+        let row: Option<(String, String, String, String, String)> = self
+            .conn
+            .query_row(
+                "SELECT name, kind, fields_json, created_at, updated_at FROM credential
+                 WHERE id = ?1",
+                [id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()?;
+        let (name, kind, json, created, updated) =
+            row.ok_or_else(|| not_found("credential", &id))?;
+        let kind =
+            CredentialKind::parse(&kind).ok_or(StoreError::Corrupt { what: "credential kind" })?;
+        let fields = CredentialFields::from_stored(kind, &json)
+            .map_err(|_| StoreError::Corrupt { what: "credential fields" })?;
+        Ok(CredentialMeta {
+            id,
+            name,
+            kind,
+            fields,
+            secret_names: self.secret_names(id, kind)?,
+            created_at: parse_ts(&created)?,
+            updated_at: parse_ts(&updated)?,
+        })
+    }
+
+    fn secret_names(&self, id: CredentialId, kind: CredentialKind) -> Result<Vec<SecretName>> {
+        let mut stmt =
+            self.conn.prepare("SELECT name FROM credential_secret WHERE credential_id = ?1")?;
+        let raw = stmt
+            .query_map([id.to_string()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut out = Vec::with_capacity(raw.len());
+        for n in raw {
+            if let Some(name) = SecretName::parse(&n).filter(|n| kind.schema().secret(*n).is_some())
+            {
+                out.push(name);
+                continue;
+            }
+            match legacy::target(kind, &n) {
+                Some(legacy::Target::Secret(name)) => out.push(name),
+                Some(legacy::Target::CertPem) => {}
+                None => return Err(StoreError::Corrupt { what: "secret name" }),
+            }
+        }
+        out.sort();
+        out.dedup();
+        Ok(out)
     }
 
     /// Metadata of every credential, sorted by name. Never returns secrets.
     pub fn list_credentials(&self) -> Result<Vec<CredentialMeta>> {
-        let sql = format!("SELECT {META_COLS} FROM credential ORDER BY name, id");
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], row_to_meta)?;
-        rows.map(|r| decode(r?)).collect()
+        let mut stmt = self.conn.prepare("SELECT id FROM credential ORDER BY name, id")?;
+        let ids =
+            stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.iter().map(|id| self.get_credential(parse_id(id)?)).collect()
     }
 
-    /// Change name / username.
-    pub fn update_credential_meta(
+    /// Change the name and plaintext fields (kind is immutable). Derived values that need a
+    /// secret (SSH private key fingerprint, kubeconfig contexts) are carried over; the `otp`
+    /// parameters are kept only while an `otp_seed` is stored.
+    pub fn update_credential_fields(
         &self,
         id: CredentialId,
         name: &str,
-        username: Option<&str>,
+        fields: &Value,
     ) -> Result<CredentialMeta> {
         let name = check_name("name", name)?;
-        let username = check_username(username)?;
-        let n = self.conn.execute(
-            "UPDATE credential SET name = ?2, username = ?3, updated_at = ?4 WHERE id = ?1",
-            params![id.to_string(), name, username, fmt_ts(now())?],
-        )?;
-        if n == 0 {
-            return Err(not_found("credential", &id));
+        let current = self.get_credential(id)?;
+        let mut f = CredentialFields::from_input(current.kind, fields, Some(&current.fields))?;
+        let has_seed = current.secret_names.contains(&SecretName::OtpSeed);
+        if has_seed && f.otp().is_none() {
+            f.set_otp(current.fields.otp())?;
         }
+        otp_consistent(&mut f, has_seed)?;
+        self.conn.execute(
+            "UPDATE credential SET name = ?2, fields_json = ?3, updated_at = ?4 WHERE id = ?1",
+            params![id.to_string(), name, f.to_json()?, fmt_ts(now())?],
+        )?;
         self.get_credential(id)
     }
 
-    /// Re-seal one secret column with a new value (`None` clears `secret2`; the primary
-    /// secret cannot be cleared).
-    pub fn replace_credential_secret(
+    /// Set and clear secrets in one transaction. Required secrets cannot be cleared; a name in
+    /// both `set` and `clear` is refused. Derived fields follow (fingerprint, contexts, otp).
+    pub fn replace_secrets(
         &self,
         vault: &Vault,
         id: CredentialId,
-        field: SecretField,
-        secret: Option<&[u8]>,
-    ) -> Result<()> {
-        let blob = match (field, secret) {
-            (SecretField::Secret, None) => return Err(invalid("secret", "cannot be cleared")),
-            (_, Some(s)) => Some(seal(vault, id, field, s)?),
-            (SecretField::Secret2, None) => None,
-        };
-        let sql = format!(
-            "UPDATE credential SET {} = ?2, updated_at = ?3 WHERE id = ?1",
-            field.column() // static column name from the enum, never user input
-        );
-        let n = self.conn.execute(&sql, params![id.to_string(), blob, fmt_ts(now())?])?;
-        if n == 0 {
-            return Err(not_found("credential", &id));
+        set: &Secrets<'_>,
+        clear: &[SecretName],
+    ) -> Result<CredentialMeta> {
+        let current = self.get_credential(id)?;
+        let schema = current.kind.schema();
+        for n in clear {
+            let spec = schema.secret(*n).ok_or_else(|| {
+                StoreError::from(CredentialError::invalid(
+                    n.as_str(),
+                    "is not a secret of this kind",
+                ))
+            })?;
+            if spec.required {
+                return Err(CredentialError::invalid(
+                    n.as_str(),
+                    "is required and cannot be cleared",
+                )
+                .into());
+            }
+            if set.contains_key(n) {
+                return Err(
+                    CredentialError::invalid(n.as_str(), "cannot be set and cleared").into()
+                );
+            }
         }
-        tracing::info!(credential = %id, field = field.column(), "credential secret replaced");
-        Ok(())
+        let mut f = current.fields.clone();
+        prepare(&mut f, set)?;
+        let has_seed = (current.secret_names.contains(&SecretName::OtpSeed)
+            || set.contains_key(&SecretName::OtpSeed))
+            && !clear.contains(&SecretName::OtpSeed);
+        otp_consistent(&mut f, has_seed)?;
+        let blobs = set
+            .iter()
+            .map(|(n, p)| Ok((n.as_str(), seal(vault, id, n.as_str(), p)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let tx = self.conn.unchecked_transaction()?;
+        for (n, blob) in &blobs {
+            put_secret(&tx, id, n, blob)?;
+            legacy::drop_aliases_of(&tx, id, current.kind, n)?;
+        }
+        for n in clear {
+            tx.execute(
+                "DELETE FROM credential_secret WHERE credential_id = ?1 AND name = ?2",
+                params![id.to_string(), n.as_str()],
+            )?;
+            legacy::drop_aliases_of(&tx, id, current.kind, n.as_str())?;
+        }
+        tx.execute(
+            "UPDATE credential SET fields_json = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id.to_string(), f.to_json()?, fmt_ts(now())?],
+        )?;
+        tx.commit()?;
+        tracing::info!(credential = %id, set = set.len(), cleared = clear.len(), "credential secrets replaced");
+        self.get_credential(id)
     }
 
-    /// Delete a credential. Folders / connections referencing it fall back to inheritance
-    /// (`ON DELETE SET NULL`).
+    /// Delete a credential and its secrets. Folders / connections referencing it as primary
+    /// fall back to inheritance (`ON DELETE SET NULL`); secondary roles are removed.
     pub fn delete_credential(&self, id: CredentialId) -> Result<()> {
         let n = self.conn.execute("DELETE FROM credential WHERE id = ?1", [id.to_string()])?;
         if n == 0 {
@@ -254,22 +301,46 @@ impl Store {
         Ok(())
     }
 
-    /// Decrypt one secret column. Fails with `Vault(Tampered)` if the stored value was moved
-    /// from another row or column, `NotFound { kind: "secret" }` if `secret2` is empty.
-    pub fn open_credential_secret(
+    /// Decrypt one secret. The name must belong to the credential's kind. Before the reseal a
+    /// legacy row (`secret` / `secret2`) is read through the fixed alias table. `NotFound
+    /// { kind: "secret" }` when absent; `Vault(Tampered)` when the blob was moved between
+    /// credentials or names.
+    pub fn open_secret(
         &self,
         vault: &Vault,
         id: CredentialId,
-        field: SecretField,
+        name: SecretName,
     ) -> Result<Zeroizing<Vec<u8>>> {
-        let sql = format!("SELECT {} FROM credential WHERE id = ?1", field.column());
-        let blob: Option<Option<Vec<u8>>> =
-            self.conn.query_row(&sql, [id.to_string()], |r| r.get(0)).optional()?;
-        let blob = blob.ok_or_else(|| not_found("credential", &id))?;
-        let blob = blob.ok_or_else(|| not_found("secret", &id))?;
-        let sealed: Sealed = serde_json::from_slice(&blob)
-            .map_err(|_| StoreError::Corrupt { what: "sealed value" })?;
-        Ok(vault.open(&id.to_string(), field.column(), &sealed)?)
+        let kind: Option<String> = self
+            .conn
+            .query_row("SELECT kind FROM credential WHERE id = ?1", [id.to_string()], |r| r.get(0))
+            .optional()?;
+        let kind = kind.ok_or_else(|| not_found("credential", &id))?;
+        let kind =
+            CredentialKind::parse(&kind).ok_or(StoreError::Corrupt { what: "credential kind" })?;
+        if kind.schema().secret(name).is_none() {
+            return Err(
+                CredentialError::invalid(name.as_str(), "is not a secret of this kind").into()
+            );
+        }
+        if let Some(blob) = self.secret_blob(id, name.as_str())? {
+            return unseal(vault, id, name.as_str(), &blob);
+        }
+        if let Some(plain) = legacy::open_alias(self, vault, id, kind, name)? {
+            return Ok(plain);
+        }
+        Err(not_found("secret", &id))
+    }
+
+    pub(crate) fn secret_blob(&self, id: CredentialId, name: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT sealed FROM credential_secret WHERE credential_id = ?1 AND name = ?2",
+                params![id.to_string(), name],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 }
 
@@ -284,38 +355,5 @@ pub(crate) fn ensure_credential(conn: &rusqlite::Connection, id: CredentialId) -
         Ok(())
     } else {
         Err(not_found("credential", &id))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn kinds_round_trip() {
-        for k in [CredentialKind::Password, CredentialKind::SshKey, CredentialKind::Certificate] {
-            assert_eq!(CredentialKind::parse(k.name()).expect("known"), k);
-        }
-        assert!(CredentialKind::parse("token").is_err());
-    }
-
-    #[test]
-    fn meta_validation() {
-        assert!(CredentialMeta::new("", CredentialKind::Password, None).is_err());
-        assert!(CredentialMeta::new("x", CredentialKind::Password, Some(&"u".repeat(257))).is_err());
-        let m = CredentialMeta::new(" lab ", CredentialKind::SshKey, Some("  ")).expect("ok");
-        assert_eq!(m.name, "lab");
-        assert_eq!(m.username, None);
-    }
-
-    #[test]
-    fn names_and_usernames_refuse_bidi_and_invisible_characters() {
-        for bad in ["root\u{202e}", "ad\u{200b}min", "\u{feff}u", "a\u{2066}b"] {
-            assert!(CredentialMeta::new(bad, CredentialKind::Password, None).is_err(), "{bad:?}");
-            assert!(
-                CredentialMeta::new("x", CredentialKind::Password, Some(bad)).is_err(),
-                "{bad:?}"
-            );
-        }
     }
 }

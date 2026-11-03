@@ -9,6 +9,8 @@
 #![allow(clippy::needless_pass_by_value)]
 
 pub mod audit;
+mod connect_plan;
+pub mod credential_copy;
 pub mod credentials;
 pub mod sessions;
 pub mod tree;

@@ -157,7 +157,7 @@ There are four Medium findings:
   - Sessions survive a vault lock, per ADR-0006.
 - **Capabilities:** `src-tauri/capabilities/main.json` is unchanged, `core:default` only, no
   plugin. Custom app commands need no permission entry.
-- **CSP:** identical to A0. Only `productName`, `identifier` (`xyz.homelab.mooring`) and
+- **CSP:** identical to A0. Only `productName`, `identifier` (`io.github.yyasar21.mooring`) and
   `title` changed in `tauri.conf.json`. `freezePrototype: true`, `withGlobalTauri: false`,
   `devtools: false`.
 - `window_detach` returns `ipc.unknown` (A2), as amended in ADR-0008.
@@ -313,14 +313,14 @@ CI `make check` / `make audit` must be green before A1 exit; with R-RSA, that ne
 - The vector passphrases still read `nexus-…`. That is cosmetic; leave it, since changing it
   would mean regenerating the vectors. `.gitleaks.toml` allow-lists only
   `^crates/mooring-vault/tests/vectors/`, so the renamed path is right.
-- The keyring service and the app identifier are now `xyz.homelab.mooring`. The data directory
+- The keyring service and the app identifier are now `io.github.yyasar21.mooring`. The data directory
   moves with it.
 
 ## Test evidence
 
 ```
 worktree agent-ac9df847a40ab8dd8, HEAD 2003ec8, Linux, 2026-11-03
-CARGO_TARGET_DIR=/home/claude/nexus/target cargo test --workspace         exit 0
+CARGO_TARGET_DIR=<repo>/target cargo test --workspace         exit 0
   mooring-app        lib 41
   mooring-audit 7 · mooring-core 10
   mooring-proto-ssh  lib 43 · auth 9 · forward 8 · sftp 7 · shell 8 · trust 5 · lab 1 ignored

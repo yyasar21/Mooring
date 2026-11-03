@@ -5,7 +5,7 @@ mod common;
 
 use common::{conn, lab, password, vault};
 use mooring_core::{Connection, FolderId, Protocol};
-use mooring_store::{SecretField, Store, StoreError};
+use mooring_store::{SecretName, Store, StoreError};
 
 #[test]
 fn moving_a_folder_changes_what_it_inherits() {
@@ -16,10 +16,10 @@ fn moving_a_folder_changes_what_it_inherits() {
     let servers_c = password(s, &v, "servers");
     s.set_folder_default_credential(l.root.id, Some(root_c.id)).expect("root");
     s.set_folder_default_credential(l.servers.id, Some(servers_c.id)).expect("servers");
-    let c = conn(s, &l.okd, "okd-master", "10.10.30.10", &[]);
+    let c = conn(s, &l.kube, "kube-cp", "198.51.100.10", &[]);
     assert_eq!(s.effective_credential(c.id).expect("eff"), Some(servers_c.id));
 
-    s.move_folder(l.okd.id, l.root.id).expect("move okd under root");
+    s.move_folder(l.kube.id, l.root.id).expect("move kube under root");
     assert_eq!(s.effective_credential(c.id).expect("eff after move"), Some(root_c.id));
 }
 
@@ -28,10 +28,10 @@ fn moving_a_connection_changes_what_it_inherits() {
     let l = lab();
     let s = &l.store;
     let v = vault();
-    let okd_c = password(s, &v, "okd");
-    s.set_folder_default_credential(l.okd.id, Some(okd_c.id)).expect("okd default");
-    let c = conn(s, &l.okd, "okd-master", "10.10.30.10", &[]);
-    assert_eq!(s.effective_credential(c.id).expect("eff"), Some(okd_c.id));
+    let kube_c = password(s, &v, "kube");
+    s.set_folder_default_credential(l.kube.id, Some(kube_c.id)).expect("kube default");
+    let c = conn(s, &l.kube, "kube-cp", "198.51.100.10", &[]);
+    assert_eq!(s.effective_credential(c.id).expect("eff"), Some(kube_c.id));
 
     let mut moved = s.get_connection(c.id).expect("get");
     moved.folder = l.servers.id;
@@ -50,20 +50,20 @@ fn deleting_a_shared_default_credential_nulls_every_reference() {
     let shared = password(s, &v, "shared");
     let root_c = password(s, &v, "root");
     s.set_folder_default_credential(l.root.id, Some(root_c.id)).expect("root");
-    for f in [l.servers.id, l.okd.id] {
+    for f in [l.servers.id, l.kube.id] {
         s.set_folder_default_credential(f, Some(shared.id)).expect("set");
     }
-    let mut c = Connection::new(l.okd.id, "x", Protocol::Ssh, "h").expect("valid");
+    let mut c = Connection::new(l.kube.id, "x", Protocol::Ssh, "h").expect("valid");
     c.credential = Some(shared.id);
     let c = s.create_connection(&c).expect("create");
 
     s.delete_credential(shared.id).expect("delete");
     assert_eq!(s.get_folder(l.servers.id).expect("servers").default_credential, None);
-    assert_eq!(s.get_folder(l.okd.id).expect("okd").default_credential, None);
+    assert_eq!(s.get_folder(l.kube.id).expect("kube").default_credential, None);
     assert_eq!(s.get_connection(c.id).expect("conn").credential, None);
     assert_eq!(s.effective_credential(c.id).expect("eff"), Some(root_c.id), "falls back to root");
     assert!(matches!(
-        s.open_credential_secret(&v, shared.id, SecretField::Secret),
+        s.open_secret(&v, shared.id, SecretName::Password),
         Err(StoreError::NotFound { .. })
     ));
     assert!(matches!(s.delete_credential(shared.id), Err(StoreError::NotFound { .. })));
@@ -76,8 +76,8 @@ fn folder_delete_cascade_keeps_credentials() {
     let v = vault();
     let folder_c = password(s, &v, "folder default");
     let own_c = password(s, &v, "override");
-    s.set_folder_default_credential(l.okd.id, Some(folder_c.id)).expect("set");
-    let mut c = Connection::new(l.okd.id, "x", Protocol::Ssh, "h").expect("valid");
+    s.set_folder_default_credential(l.kube.id, Some(folder_c.id)).expect("set");
+    let mut c = Connection::new(l.kube.id, "x", Protocol::Ssh, "h").expect("valid");
     c.credential = Some(own_c.id);
     s.create_connection(&c).expect("create");
 
@@ -86,12 +86,12 @@ fn folder_delete_cascade_keeps_credentials() {
     assert_eq!(s.list_credentials().expect("list").len(), 2);
     for id in [folder_c.id, own_c.id] {
         assert_eq!(
-            s.open_credential_secret(&v, id, SecretField::Secret).expect("open").as_slice(),
+            s.open_secret(&v, id, SecretName::Password).expect("open").as_slice(),
             b"test-secret"
         );
     }
-    assert!(s.list_connections(l.okd.id).expect("gone").is_empty());
-    assert!(matches!(s.delete_folder(l.okd.id), Err(StoreError::NotFound { .. })));
+    assert!(s.list_connections(l.kube.id).expect("gone").is_empty());
+    assert!(matches!(s.delete_folder(l.kube.id), Err(StoreError::NotFound { .. })));
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn search_survives_vacuum_and_reopen() {
         let (s, root) = l;
         let mut ids = Vec::new();
         for i in 0..20 {
-            ids.push(conn(&s, &root, &format!("node{i:02}"), &format!("10.10.9.{i}"), &["fleet"]));
+            ids.push(conn(&s, &root, &format!("node{i:02}"), &format!("192.0.2.{i}"), &["fleet"]));
         }
         // Delete the low rowids so VACUUM has something to renumber.
         for c in &ids[..15] {
@@ -162,7 +162,7 @@ fn search_survives_vacuum_and_reopen() {
     assert_eq!(hits, want);
     let one = s.search("node17", 5).expect("by name");
     assert_eq!(one.len(), 1);
-    assert_eq!(one[0].host, "10.10.9.17");
+    assert_eq!(one[0].host, "192.0.2.17");
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn data_survives_file_reopen() {
     assert_eq!(s.get_connection(cid).expect("conn").tags, vec!["t".to_owned()]);
     assert_eq!(s.effective_credential(cid).expect("eff"), Some(credid));
     assert_eq!(
-        s.open_credential_secret(&v, credid, SecretField::Secret).expect("open").as_slice(),
+        s.open_secret(&v, credid, SecretName::Password).expect("open").as_slice(),
         b"test-secret"
     );
 }

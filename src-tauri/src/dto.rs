@@ -68,12 +68,9 @@ pub fn port(raw: Option<u32>) -> IpcResult<Option<u16>> {
     .transpose()
 }
 
-/// Credential kind by its stable name.
+/// Credential kind by its stable wire name (ADR-0009 §1).
 pub fn credential_kind(raw: &str) -> IpcResult<CredentialKind> {
-    [CredentialKind::Password, CredentialKind::SshKey, CredentialKind::Certificate]
-        .into_iter()
-        .find(|k| k.name() == raw)
-        .ok_or_else(|| IpcError::invalid("kind", "must be password, ssh_key or certificate"))
+    CredentialKind::parse(raw).ok_or_else(|| IpcError::invalid("kind", "unknown credential kind"))
 }
 
 /// RFC 3339 UTC.
@@ -142,6 +139,14 @@ pub struct ConnectionDto {
     pub credential_id: Option<String>,
     /// Credential after inheritance.
     pub effective_credential_id: Option<String>,
+    /// Replaces the effective credential's username for this connection.
+    pub username_override: Option<String>,
+    /// Replaces the effective credential's domain for this connection.
+    pub domain_override: Option<String>,
+    /// RD Gateway credential (`null` = same as the session credential).
+    pub gateway_credential_id: Option<String>,
+    /// Become (`sudo_become`) credential.
+    pub become_credential_id: Option<String>,
     /// Tags.
     pub tags: Vec<String>,
     /// Created.
@@ -163,6 +168,10 @@ pub fn connection(store: &Store, c: &Connection) -> IpcResult<ConnectionDto> {
         port: c.port,
         credential_id: c.credential.map(|x| x.to_string()),
         effective_credential_id: effective.map(|x| x.to_string()),
+        username_override: c.username_override.clone(),
+        domain_override: c.domain_override.clone(),
+        gateway_credential_id: c.gateway_credential.map(|x| x.to_string()),
+        become_credential_id: c.become_credential.map(|x| x.to_string()),
         tags: c.tags.clone(),
         created_at: ts(c.created_at),
         updated_at: ts(c.created_at),
@@ -206,18 +215,23 @@ impl From<&ConnectionHit> for HitDto {
     }
 }
 
-/// `CredentialMeta` on the wire. Metadata only.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// `CredentialMeta` on the wire (ADR-0009 §6). `fields` is non-secret only; `secretNames`
+/// reports presence, never content.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialDto {
     /// Id.
     pub id: String,
     /// Name.
     pub name: String,
-    /// `password` | `ssh_key` | `certificate`.
+    /// Kind wire name.
     pub kind: &'static str,
-    /// User name, `""` when unset.
-    pub username: String,
+    /// Plain fields (`snake_case` keys, as in `KindSchema.fields`).
+    pub fields: serde_json::Value,
+    /// Stored secret names.
+    pub secret_names: Vec<&'static str>,
+    /// `SHA256:…` for `ssh_key` / `x509`.
+    pub fingerprint: Option<String>,
     /// Created.
     pub created_at: String,
     /// Last change.
@@ -230,7 +244,9 @@ impl From<&CredentialMeta> for CredentialDto {
             id: m.id.to_string(),
             name: m.name.clone(),
             kind: m.kind.name(),
-            username: m.username.clone().unwrap_or_default(),
+            fields: m.fields.to_value(),
+            secret_names: m.secret_names.iter().map(|n| n.as_str()).collect(),
+            fingerprint: m.fingerprint().map(str::to_owned),
             created_at: ts(m.created_at),
             updated_at: ts(m.updated_at),
         }
@@ -263,7 +279,7 @@ mod tests {
         assert!(port(Some(0)).is_err());
         assert!(port(Some(65_536)).is_err());
         assert_eq!(credential_kind("ssh_key").expect("ok"), CredentialKind::SshKey);
-        assert!(credential_kind("token").is_err());
+        assert!(credential_kind("password").is_err(), "legacy kind names are gone");
     }
 
     #[test]
@@ -271,8 +287,20 @@ mod tests {
         let f = Folder::new(None, "Root").expect("folder");
         let json = serde_json::to_string(&folder_dto(&f, 0)).expect("json");
         assert!(json.contains("\"parentId\":null") && json.contains("\"defaultCredentialId\""));
-        let m = CredentialMeta::new("ops", CredentialKind::Password, None).expect("meta");
+        let store = Store::open_in_memory().expect("store");
+        let vault = mooring_vault::Vault::create(
+            &secrecy::SecretString::from("test-only master pw".to_owned()),
+            mooring_vault::KdfParams::TEST,
+        )
+        .expect("vault");
+        let secrets = [(mooring_core::SecretName::Password, &b"test-only"[..])].into_iter().collect();
+        let fields = serde_json::json!({"username": "ops"});
+        let m = store
+            .create_credential(&vault, "ops", CredentialKind::UserPassword, &fields, &secrets)
+            .expect("meta");
         let json = serde_json::to_string(&CredentialDto::from(&m)).expect("json");
-        assert!(json.contains("\"createdAt\"") && json.contains("\"username\":\"\""), "{json}");
+        assert!(json.contains("\"createdAt\"") && json.contains("\"secretNames\":[\"password\"]"), "{json}");
+        assert!(json.contains("\"fields\":{\"username\":\"ops\"}") && json.contains("\"fingerprint\":null"));
+        assert!(!json.contains("test-only"), "{json}");
     }
 }

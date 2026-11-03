@@ -1,7 +1,7 @@
 //! Connection tree commands (ADR-0008 §Tree). Every command needs an unlocked vault: the tree
 //! is vault-derived state in the UI (lock wipes it), and it keeps the store bound to its vault.
 
-use mooring_core::{validate_name, Connection, ConnectionId};
+use mooring_core::{validate_name, Connection, ConnectionId, Role};
 use mooring_store::MAX_SEARCH_LIMIT;
 use serde::Deserialize;
 use tauri::State;
@@ -29,9 +29,40 @@ pub struct ConnectionFields {
     pub port: Option<u32>,
     /// Own credential.
     pub credential_id: Option<String>,
+    /// Username override (ADR-0009 §3).
+    #[serde(default)]
+    pub username_override: Option<String>,
+    /// Domain override.
+    #[serde(default)]
+    pub domain_override: Option<String>,
+    /// RD Gateway credential.
+    #[serde(default)]
+    pub gateway_credential_id: Option<String>,
+    /// Become credential.
+    #[serde(default)]
+    pub become_credential_id: Option<String>,
     /// Tags.
     #[serde(default)]
     pub tags: Vec<String>,
+}
+
+impl ConnectionFields {
+    /// Plain fields with no credential links (tests and helpers).
+    pub fn basic(folder_id: &str, name: &str, protocol: &str, host: &str) -> Self {
+        Self {
+            folder_id: folder_id.to_owned(),
+            name: name.to_owned(),
+            protocol: protocol.to_owned(),
+            host: host.to_owned(),
+            port: None,
+            credential_id: None,
+            username_override: None,
+            domain_override: None,
+            gateway_credential_id: None,
+            become_credential_id: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 impl ConnectionFields {
@@ -48,6 +79,17 @@ impl ConnectionFields {
         }
         c.port = dto::port(self.port)?;
         c.credential = dto::opt_credential_id("credentialId", self.credential_id.as_deref())?;
+        c.gateway_credential =
+            dto::opt_credential_id("gatewayCredentialId", self.gateway_credential_id.as_deref())?;
+        c.become_credential =
+            dto::opt_credential_id("becomeCredentialId", self.become_credential_id.as_deref())?;
+        for (field, v) in [("usernameOverride", &self.username_override), ("domainOverride", &self.domain_override)] {
+            if v.as_ref().is_some_and(|v| v.len() > 1024) {
+                return Err(IpcError::invalid(field, "too long"));
+            }
+        }
+        c.username_override = self.username_override;
+        c.domain_override = self.domain_override;
         c.tags = self.tags;
         Ok(c)
     }
@@ -164,6 +206,25 @@ pub fn delete_connection(state: &AppState, id: &str) -> IpcResult<()> {
     state.with_ready(|_, store| Ok(store.delete_connection(id)?))
 }
 
+/// `connection_set_role_credential({ id, role, credentialId })`: `role` is `gateway` or
+/// `become`; an incompatible credential fails with `credential.incompatible`.
+pub fn set_role_credential(
+    state: &AppState,
+    id: &str,
+    role: &str,
+    credential_id: Option<&str>,
+) -> IpcResult<ConnectionDto> {
+    let id = dto::connection_id("id", id)?;
+    let role = Role::parse(role)
+        .filter(|r| *r != Role::Primary)
+        .ok_or_else(|| IpcError::invalid("role", "must be gateway or become"))?;
+    let cred = dto::opt_credential_id("credentialId", credential_id)?;
+    state.with_ready(|_, store| {
+        let c = store.set_connection_role_credential(id, role, cred)?;
+        dto::connection(store, &c)
+    })
+}
+
 /// `connection_search({ query, limit })`: limit clamped to `1..=200`.
 pub fn search(state: &AppState, query: &str, limit: u32) -> IpcResult<Vec<HitDto>> {
     if query.len() > MAX_QUERY_BYTES {
@@ -229,9 +290,10 @@ pub fn folder_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
     delete_folder(&state, &id)
 }
 
-/// `connection_create({ folderId, name, protocol, host, port, credentialId, tags })`.
+/// `connection_create({ folderId, name, protocol, host, port, credentialId, usernameOverride,
+/// domainOverride, gatewayCredentialId, becomeCredentialId, tags })`.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)] // one argument per ADR-0008 field
+#[allow(clippy::too_many_arguments)] // one argument per ADR-0008/0009 field
 pub fn connection_create(
     state: State<'_, AppState>,
     folder_id: String,
@@ -240,16 +302,31 @@ pub fn connection_create(
     host: String,
     port: Option<u32>,
     credential_id: Option<String>,
+    username_override: Option<String>,
+    domain_override: Option<String>,
+    gateway_credential_id: Option<String>,
+    become_credential_id: Option<String>,
     tags: Option<Vec<String>>,
 ) -> IpcResult<ConnectionDto> {
-    let tags = tags.unwrap_or_default();
-    let fields = ConnectionFields { folder_id, name, protocol, host, port, credential_id, tags };
+    let fields = ConnectionFields {
+        folder_id,
+        name,
+        protocol,
+        host,
+        port,
+        credential_id,
+        username_override,
+        domain_override,
+        gateway_credential_id,
+        become_credential_id,
+        tags: tags.unwrap_or_default(),
+    };
     create_connection(&state, fields)
 }
 
-/// `connection_update({ id, folderId, name, protocol, host, port, credentialId, tags })`.
+/// `connection_update({ id, ...connection_create fields })`.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)] // one argument per ADR-0008 field
+#[allow(clippy::too_many_arguments)] // one argument per ADR-0008/0009 field
 pub fn connection_update(
     state: State<'_, AppState>,
     id: String,
@@ -259,11 +336,37 @@ pub fn connection_update(
     host: String,
     port: Option<u32>,
     credential_id: Option<String>,
+    username_override: Option<String>,
+    domain_override: Option<String>,
+    gateway_credential_id: Option<String>,
+    become_credential_id: Option<String>,
     tags: Option<Vec<String>>,
 ) -> IpcResult<ConnectionDto> {
-    let tags = tags.unwrap_or_default();
-    let fields = ConnectionFields { folder_id, name, protocol, host, port, credential_id, tags };
+    let fields = ConnectionFields {
+        folder_id,
+        name,
+        protocol,
+        host,
+        port,
+        credential_id,
+        username_override,
+        domain_override,
+        gateway_credential_id,
+        become_credential_id,
+        tags: tags.unwrap_or_default(),
+    };
     update_connection(&state, &id, fields)
+}
+
+/// `connection_set_role_credential({ id, role, credentialId })`.
+#[tauri::command]
+pub fn connection_set_role_credential(
+    state: State<'_, AppState>,
+    id: String,
+    role: String,
+    credential_id: Option<String>,
+) -> IpcResult<ConnectionDto> {
+    set_role_credential(&state, &id, &role, credential_id.as_deref())
 }
 
 /// `connection_move({ id, folderId })`.
@@ -293,139 +396,5 @@ pub fn connection_search(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::testing::*;
-
-    fn root(state: &AppState) -> String {
-        state.with_ready(|_, s| Ok(root_id(s).to_string())).expect("root")
-    }
-
-    fn fields(folder: &str, name: &str, host: &str) -> ConnectionFields {
-        ConnectionFields {
-            folder_id: folder.to_owned(),
-            name: name.to_owned(),
-            protocol: "ssh".to_owned(),
-            host: host.to_owned(),
-            port: None,
-            credential_id: None,
-            tags: vec!["lab".to_owned()],
-        }
-    }
-
-    #[test]
-    fn locked_vault_refuses_tree_access() {
-        let f = unlocked();
-        let root = root(&f.state);
-        crate::commands::vault::lock(&f.state, None).expect("lock");
-        assert_eq!(list(&f.state).expect_err("locked").code, "vault.locked");
-        assert_eq!(create_folder(&f.state, &root, "x").expect_err("locked").code, "vault.locked");
-        let e = search(&f.state, "x", 10).expect_err("locked");
-        assert_eq!(e.code, "vault.locked");
-    }
-
-    #[test]
-    fn folder_round_trip_and_tree_errors() {
-        let f = unlocked();
-        let root = root(&f.state);
-        let a = create_folder(&f.state, &root, "  Servers ").expect("a");
-        assert_eq!(a.name, "Servers");
-        assert_eq!(a.parent_id.as_deref(), Some(root.as_str()));
-        let b = create_folder(&f.state, &a.id, "okd").expect("b");
-        assert_eq!(rename_folder(&f.state, &b.id, "OKD").expect("rename").name, "OKD");
-        assert_eq!(move_folder(&f.state, &a.id, &b.id).expect_err("cycle").code, "tree.cycle");
-        assert_eq!(move_folder(&f.state, &root, &a.id).expect_err("root").code, "tree.root");
-        assert_eq!(delete_folder(&f.state, &root).expect_err("root").code, "tree.root");
-        let missing = mooring_core::FolderId::new().to_string();
-        assert_eq!(rename_folder(&f.state, &missing, "x").expect_err("nf").code, "tree.not_found");
-        let moved = move_folder(&f.state, &b.id, &root).expect("move");
-        assert_eq!(moved.parent_id.as_deref(), Some(root.as_str()));
-        delete_folder(&f.state, &a.id).expect("delete");
-        let tree = list(&f.state).expect("list");
-        assert_eq!(tree.folders.len(), 2, "root + okd");
-    }
-
-    #[test]
-    fn input_validation() {
-        let f = unlocked();
-        let root = root(&f.state);
-        let cases = [
-            create_folder(&f.state, "not-a-uuid", "x").map(drop),
-            create_folder(&f.state, &root, "").map(drop),
-            create_folder(&f.state, &root, &"n".repeat(121)).map(drop),
-            create_folder(&f.state, &root, "a\u{7}b").map(drop),
-            create_connection(&f.state, fields(&root, "x", "bad host")).map(drop),
-            create_connection(&f.state, fields(&root, "x", &"h".repeat(2049))).map(drop),
-            create_connection(
-                &f.state,
-                ConnectionFields { port: Some(0), ..fields(&root, "x", "h") },
-            )
-            .map(drop),
-            create_connection(
-                &f.state,
-                ConnectionFields { protocol: "telnet".into(), ..fields(&root, "x", "h") },
-            )
-            .map(drop),
-            create_connection(
-                &f.state,
-                ConnectionFields { tags: vec!["t".into(); 51], ..fields(&root, "x", "h") },
-            )
-            .map(drop),
-            create_connection(
-                &f.state,
-                ConnectionFields { tags: vec!["t".repeat(65)], ..fields(&root, "x", "h") },
-            )
-            .map(drop),
-            search(&f.state, &"q".repeat(MAX_QUERY_BYTES + 1), 10).map(drop),
-        ];
-        for (i, r) in cases.into_iter().enumerate() {
-            assert_eq!(r.expect_err("must fail").code, "input.invalid", "case {i}");
-        }
-        let unknown_cred = ConnectionFields {
-            credential_id: Some(mooring_core::CredentialId::new().to_string()),
-            ..fields(&root, "x", "h")
-        };
-        let e = create_connection(&f.state, unknown_cred).expect_err("unknown credential");
-        assert_eq!(e.code, "credential.not_found");
-    }
-
-    #[test]
-    fn connection_round_trip_inheritance_and_search() {
-        let f = unlocked();
-        let root = root(&f.state);
-        let prod = create_folder(&f.state, &root, "prod").expect("prod");
-        let cred = crate::commands::credentials::create(
-            &f.state,
-            crate::commands::credentials::NewCredential::password_for_tests("ops"),
-        )
-        .expect("cred");
-        set_default_credential(&f.state, &prod.id, Some(&cred.id)).expect("default");
-
-        let c = create_connection(&f.state, fields(&prod.id, "xinfra01", "10.10.20.5"))
-            .expect("create");
-        assert_eq!(c.credential_id, None);
-        assert_eq!(c.effective_credential_id.as_deref(), Some(cred.id.as_str()), "inherited");
-        assert_eq!(c.tags, ["lab"]);
-
-        let mut upd = fields(&prod.id, "xinfra01-new", "10.10.20.6");
-        upd.port = Some(2222);
-        let u = update_connection(&f.state, &c.id, upd).expect("update");
-        assert_eq!(
-            (u.name.as_str(), u.port, u.created_at.as_str()),
-            ("xinfra01-new", Some(2222), c.created_at.as_str())
-        );
-
-        let hits = search(&f.state, "xinfra", 0).expect("search");
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].folder_id, prod.id);
-
-        let m = move_connection(&f.state, &c.id, &root).expect("move");
-        assert_eq!(m.folder_id, root);
-        assert_eq!(m.effective_credential_id, None, "root has no default");
-
-        let tree = list(&f.state).expect("list");
-        assert_eq!(tree.connections.len(), 1);
-        delete_connection(&f.state, &c.id).expect("delete");
-        assert_eq!(delete_connection(&f.state, &c.id).expect_err("gone").code, "tree.not_found");
-    }
-}
+#[path = "tree_tests.rs"]
+mod tests;

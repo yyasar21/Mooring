@@ -31,6 +31,12 @@ export interface ConnectionSummary {
   port: number | null;
   credentialId: string | null;
   effectiveCredentialId: string | null;
+  /** ADR-0009 §3: replaces the effective credential's username/user for this connection only. */
+  usernameOverride: string | null;
+  domainOverride: string | null;
+  /** Secondary roles (per connection, no inheritance). Gateway null = same as the session credential. */
+  gatewayCredentialId: string | null;
+  becomeCredentialId: string | null;
   tags: string[];
   createdAt: string;
   updatedAt: string;
@@ -44,6 +50,10 @@ export interface ConnectionFields {
   host: string;
   port: number | null;
   credentialId: string | null;
+  usernameOverride: string | null;
+  domainOverride: string | null;
+  gatewayCredentialId: string | null;
+  becomeCredentialId: string | null;
   tags: string[];
 }
 
@@ -60,24 +70,110 @@ export interface TreeSnapshot {
   connections: ConnectionSummary[];
 }
 
-export type CredentialKind = "password" | "ssh_key" | "certificate";
+/** ADR-0009 §1: the closed set of credential kinds (wire names). Kind is immutable after creation. */
+export const CREDENTIAL_KINDS = [
+  "user_password",
+  "domain_user",
+  "ssh_key",
+  "ssh_agent",
+  "x509",
+  "api_token",
+  "oauth_client",
+  "kubeconfig",
+  "kube_token",
+  "vsphere_user",
+  "vnc_password",
+  "vnc_user_password",
+  "prompt",
+  "external_ref",
+  "sudo_become",
+] as const;
+export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
+
+export type KindGroup = "Windows" | "SSH" | "VNC" | "Web/API" | "Kubernetes" | "vSphere" | "Other";
+export type CredentialRole = "primary" | "gateway" | "become";
+export type FieldFormat = "text" | "pem" | "base32" | "yaml" | "url" | "netbios_or_upn" | "upn" | "enum";
+
+export interface FieldValidation {
+  maxBytes: number;
+  format: FieldFormat;
+  options?: string[];
+  pattern?: string;
+}
+
+export interface FieldSchema {
+  name: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  multiline: boolean;
+  placeholder: string;
+  /** Secret fields only: `credential_copy_secret` accepts this name. */
+  copyable: boolean;
+  validation: FieldValidation;
+}
+
+export interface KindProtocol {
+  protocol: Protocol;
+  roles: CredentialRole[];
+}
+
+/** `credential_kinds()`: the schema every credential form is rendered from (ADR-0009 §6). */
+/** Derived values (`fingerprint`, `contexts`) are not fields: they arrive on `CredentialMeta`. */
+export interface KindSchema {
+  kind: CredentialKind;
+  label: string;
+  group: KindGroup;
+  protocols: KindProtocol[];
+  supportsOtp: boolean;
+  fields: FieldSchema[];
+}
+
+export type OtpDigits = 6 | 8;
+export type OtpPeriod = 30 | 60;
+export type OtpAlgorithm = "sha1" | "sha256" | "sha512";
+export interface OtpSettings {
+  digits: OtpDigits;
+  period: OtpPeriod;
+  algorithm: OtpAlgorithm;
+}
+
+/** Non-secret field values. `otp` holds the TOTP parameters; `contexts` is derived (names only). */
+export type FieldValue = string | string[] | OtpSettings;
+export type CredentialFields = Record<string, FieldValue>;
 
 export interface CredentialMeta {
   id: string;
   name: string;
   kind: CredentialKind;
-  username: string;
+  fields: CredentialFields;
+  /** Which secrets are stored. Presence only; a value never crosses outward. */
+  secretNames: string[];
+  /** `SHA256:…` for ssh_key / x509, else null. */
+  fingerprint: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Inward only. The caller must drop its copy of `secret`/`secret2` once the promise settles. */
+/** Inward only. The caller must drop its copy of `secrets` once the promise settles. */
 export interface CredentialCreate {
   name: string;
   kind: CredentialKind;
-  username: string;
-  secret: string;
-  secret2: string | null;
+  fields: CredentialFields;
+  secrets: Record<string, string>;
+}
+
+export interface CredentialReplaceSecrets {
+  id: string;
+  set: Record<string, string>;
+  clear: string[];
+}
+
+export type AccountForm = "netbios" | "upn";
+export interface ParsedAccount {
+  form: AccountForm;
+  user: string;
+  domain: string;
 }
 
 export interface Size {
@@ -86,19 +182,32 @@ export interface Size {
 }
 
 /** Why a prompt was raised; set by Rust, never derived from server text (review 2, L-2). */
-export type PromptPurpose = "host_key_trust" | "keyboard_interactive" | "other";
+export type PromptPurpose = "host_key_trust" | "keyboard_interactive" | "credential" | "other";
+
+/**
+ * `purpose: "credential"` only (ADR-0009 `prompt` kind): what the connect-time form should ask.
+ * `username`/`domain` are pre-fills from the credential fields or connection overrides.
+ */
+export interface PromptAccount {
+  username: string | null;
+  domain: string | null;
+  needsUsername: boolean;
+  needsDomain: boolean;
+}
 
 export type SessionEvent =
   | { kind: "connected"; protocol: Protocol; peerIdentity: string | null }
   | { kind: "bytes"; data: Uint8Array }
   | { kind: "frame"; x: number; y: number; width: number; height: number; rgba: Uint8Array }
-  | { kind: "prompt"; id: number; message: string; secret: boolean; purpose: PromptPurpose }
+  | { kind: "prompt"; id: number; message: string; secret: boolean; purpose: PromptPurpose; account: PromptAccount | null }
   | { kind: "closed"; reason: string };
 
 export type SessionInput =
   | { kind: "bytes"; data: Uint8Array }
   | { kind: "resize"; size: Size }
   | { kind: "answer"; id: number; text: string }
+  /** Answer to a `credential` prompt. Inward only; Rust holds `password` as a SecretString. */
+  | { kind: "credential_answer"; id: number; username: string; domain: string | null; password: string }
   | { kind: "pointer"; x: number; y: number; buttons: number }
   | { kind: "key"; scancode: number; pressed: boolean };
 
@@ -127,7 +236,7 @@ export interface AuditVerify {
   brokenAt: number | null;
 }
 
-/** Every command of ADR-0008 (plus A0 vault/app commands and `window_detach`). */
+/** Every command of ADR-0008 / ADR-0009 (plus A0 vault/app commands and `window_detach`). */
 export interface Ipc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
@@ -148,12 +257,23 @@ export interface Ipc {
   connectionDelete(args: { id: string }): Promise<void>;
   connectionSearch(args: { query: string; limit: number }): Promise<ConnectionHit[]>;
 
+  connectionSetRoleCredential(args: {
+    id: string;
+    role: Exclude<CredentialRole, "primary">;
+    credentialId: string | null;
+  }): Promise<ConnectionSummary>;
+
+  credentialKinds(): Promise<KindSchema[]>;
   credentialList(): Promise<CredentialMeta[]>;
   credentialCreate(args: CredentialCreate): Promise<CredentialMeta>;
-  credentialUpdateMeta(args: { id: string; name: string; username: string }): Promise<CredentialMeta>;
-  credentialReplaceSecret(args: { id: string; secret: string; secret2: string | null }): Promise<void>;
+  credentialUpdateFields(args: { id: string; name: string; fields: CredentialFields }): Promise<CredentialMeta>;
+  credentialReplaceSecrets(args: CredentialReplaceSecrets): Promise<void>;
   credentialDelete(args: { id: string }): Promise<void>;
-  credentialCopyPassword(args: { id: string }): Promise<{ clearsInMs: number }>;
+  /** Rust writes the clipboard, schedules the clear and audits `credential.copied {id, name}`. */
+  credentialCopySecret(args: { id: string; name: string }): Promise<{ clearsInMs: number }>;
+  /** Rust computes the current TOTP code and writes it to the clipboard; the code never comes back. */
+  credentialCopyOtp(args: { id: string }): Promise<{ clearsInMs: number; validForMs: number }>;
+  credentialParseAccount(args: { input: string }): Promise<ParsedAccount>;
 
   sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler }): Promise<{ sessionId: string }>;
   sessionSend(args: { sessionId: string; input: SessionInput }): Promise<void>;
