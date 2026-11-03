@@ -166,7 +166,8 @@ fn query_physical_ram_kib() -> Option<u64> {
     use sysinfo::{MemoryRefreshKind, RefreshKind, System};
     let sys = System::new_with_specifics(
         RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()),
-    );
+    )
+    .ok()?;
     match sys.total_memory() / 1024 {
         0 => None,
         kib => Some(kib),

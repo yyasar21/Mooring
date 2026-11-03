@@ -25,7 +25,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.89"  # rusqlite 0.41 / keyring 4 floor; sysinfo pinned to 0.38 (0.39+ needs 1.95)
+rust-version = "1.95"  # sysinfo 0.40 floor; rusqlite 0.41 / keyring 4 need ≥ 1.89
 license = "MIT"
 authors = ["Yunus Yaşar"]
 repository = "https://github.com/yyasar21/Mooring"
@@ -90,6 +90,7 @@ dbg_macro = "deny"
 print_stdout = "deny"             # logging goes through tracing with redaction
 print_stderr = "deny"
 todo = "deny"
+duration_suboptimal_units = "allow" # from_mins/from_hours would raise the MSRV; `15 * 60` reads fine
 
 [profile.release]
 lto = "thin"
