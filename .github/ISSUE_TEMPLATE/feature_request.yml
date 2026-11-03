@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest a new capability or an improvement.
+title: "feat: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [roadmap](https://github.com/yyasar21/Mooring/blob/main/docs/roadmap.md)
+        first — RDP, VNC, web sessions, Kubernetes and vSphere are already planned. Open-ended
+        ideas fit better in Discussions.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should Mooring behave? Mock-ups welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, or how other tools (Royal TS, RDM, mRemoteNG, Termius…) handle it.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Vault and credentials
+        - Connection tree and organisation
+        - SSH
+        - RDP / VNC
+        - Web sessions
+        - Kubernetes
+        - vSphere
+        - Import / export
+        - Audit and compliance
+        - User interface
+        - Packaging and installation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security considerations
+      description: >-
+        Does this touch secrets, the trust boundary, network exposure or a new dependency?
+        Anything a reviewer should think about?
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to work on this myself.
