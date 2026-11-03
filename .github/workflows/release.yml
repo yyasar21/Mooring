@@ -296,7 +296,7 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/out"; mkdir -p "$out"
           files=()
-          while IFS= read -r line; do [[ -n "$line" ]] && files+=("$line"); done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
+          while IFS= read -r line; do line="${line%$'\r'}"; [[ -n "$line" ]] && files+=("$line"); done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
           [[ -n "${PKG_PATH:-}" ]] && files+=("$PKG_PATH")
           for f in "${files[@]}"; do
             f="${f//\\//}" # Windows runners report D:\a\... paths; Git Bash wants forward slashes
@@ -395,7 +395,7 @@ jobs:
         run: |
           set -euo pipefail
           files=()
-          while IFS= read -r line; do [[ -n "$line" ]] && files+=("$line"); done < <(find dist -type f | LC_ALL=C sort)
+          while IFS= read -r line; do line="${line%$'\r'}"; [[ -n "$line" ]] && files+=("$line"); done < <(find dist -type f | LC_ALL=C sort)
           dupes=$(printf '%s\n' "${files[@]##*/}" | sort | uniq -d)
           [[ -z "$dupes" ]] || { echo "::error::same file name from two builds: $dupes"; exit 1; }
           gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" "${files[@]}"
