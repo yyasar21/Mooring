@@ -6,18 +6,16 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use mooring_audit::AuditEvent;
-use mooring_core::session::{ConnectParams, ConnectSecret, SessionInput, Size};
-use mooring_core::Protocol;
+use mooring_core::session::{SessionInput, Size};
 use mooring_proto_ssh::{SshOptions, SshSession};
-use mooring_store::{CredentialKind, SecretField};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 use time::OffsetDateTime;
 use tokio::sync::oneshot;
-use zeroize::Zeroizing;
 
+use crate::commands::connect_plan::{self, Plan};
 use crate::dto;
 use crate::error::{IpcError, IpcResult};
 use crate::sessions::{self, EventSink, SessionCommand, TaskContext, WireEvent};
@@ -69,6 +67,19 @@ pub enum WireInput {
         /// Answer.
         text: SecretString,
     },
+    /// Sign-in form answer for a `credential` prompt (ADR-0009). Empty username and password
+    /// mean the user cancelled.
+    CredentialAnswer {
+        /// Prompt id.
+        id: u32,
+        /// Username as typed.
+        username: String,
+        /// Domain, when asked.
+        #[serde(default)]
+        domain: Option<String>,
+        /// Password; never logged or echoed.
+        password: SecretString,
+    },
 }
 
 impl std::fmt::Debug for WireInput {
@@ -79,6 +90,7 @@ impl std::fmt::Debug for WireInput {
             Self::Pointer { .. } => "pointer",
             Self::Key { .. } => "key",
             Self::Answer { .. } => "answer",
+            Self::CredentialAnswer { .. } => "credential_answer",
         };
         write!(f, "WireInput({kind}, <redacted>)")
     }
@@ -117,6 +129,20 @@ pub fn decode_input(input: WireInput) -> IpcResult<SessionInput> {
             }
             SessionInput::Answer { id, text }
         }
+        WireInput::CredentialAnswer { id, username, domain, password } => {
+            if secrecy::ExposeSecret::expose_secret(&password).len() > MAX_ANSWER_BYTES {
+                return Err(IpcError::invalid("password", "longer than 4096 bytes"));
+            }
+            let username = username.trim().to_owned();
+            let domain = domain.map(|d| d.trim().to_owned()).filter(|d| !d.is_empty());
+            let bad = |s: &str, max: usize| {
+                s.len() > max || s.chars().any(mooring_core::credential::is_forbidden)
+            };
+            if bad(&username, 256) || domain.as_deref().is_some_and(|d| bad(d, 253)) {
+                return Err(IpcError::invalid("username", "too long or has control characters"));
+            }
+            SessionInput::CredentialAnswer { id, username, domain, password }
+        }
     })
 }
 
@@ -144,60 +170,6 @@ pub struct SessionInfo {
     pub opened_at: String,
 }
 
-/// What `session_open` resolves from the store before any network I/O.
-struct Plan {
-    params: ConnectParams,
-    credential: Option<String>,
-}
-
-fn secret_text(bytes: Zeroizing<Vec<u8>>) -> IpcResult<SecretString> {
-    let text = String::from_utf8(bytes.to_vec())
-        .map_err(|_| IpcError::session_failed("stored secret is not text"))?;
-    drop(bytes);
-    Ok(SecretString::from(text))
-}
-
-fn plan(state: &AppState, connection_id: &str, size: Size) -> IpcResult<Plan> {
-    let id = dto::connection_id("connectionId", connection_id)?;
-    state.with_ready(|vault, store| {
-        let c = store.get_connection(id)?;
-        if c.protocol != Protocol::Ssh {
-            return Err(IpcError::session_failed(format!(
-                "{} sessions are not available in this version",
-                c.protocol.name()
-            )));
-        }
-        let port = c.effective_port().unwrap_or(22);
-        let (username, secret, credential) = match store.effective_credential(id)? {
-            None => (None, ConnectSecret::None, None),
-            Some(cred) => {
-                let meta = store.get_credential(cred)?;
-                let primary = store.open_credential_secret(vault, cred, SecretField::Secret)?;
-                let secret = match meta.kind {
-                    CredentialKind::Password => ConnectSecret::Password(secret_text(primary)?),
-                    CredentialKind::SshKey => {
-                        let passphrase =
-                            match store.open_credential_secret(vault, cred, SecretField::Secret2) {
-                                Ok(p) => Some(secret_text(p)?),
-                                Err(mooring_store::StoreError::NotFound { .. }) => None,
-                                Err(e) => return Err(e.into()),
-                            };
-                        ConnectSecret::PrivateKey { pem: secret_text(primary)?, passphrase }
-                    }
-                    CredentialKind::Certificate => {
-                        return Err(IpcError::session_failed(
-                            "certificate credentials are not available for ssh in this version",
-                        ));
-                    }
-                };
-                (meta.username, secret, Some(cred.to_string()))
-            }
-        };
-        let params = ConnectParams { host: c.host, port, username, secret, size };
-        Ok(Plan { params, credential })
-    })
-}
-
 /// `session_open`: resolve, connect (TCP only; handshake continues in the session task), and
 /// register. Events go to `sink`. Must run inside a Tokio runtime.
 pub async fn open(
@@ -210,9 +182,9 @@ pub async fn open(
     if state.sessions.lock().map_err(|_| IpcError::poisoned())?.len() >= MAX_SESSIONS {
         return Err(IpcError::session_failed("too many open sessions"));
     }
-    let Plan { params, credential } = plan(state, connection_id, size)?;
+    let Plan { params, used } = connect_plan::plan(state, connection_id, size)?;
     let connection = dto::connection_id("connectionId", connection_id)?.to_string();
-    if let Some(cred) = credential {
+    for cred in used {
         state.audit(AuditEvent::CredentialUsed {
             credential: cred,
             purpose: "connect".to_owned(),
@@ -250,14 +222,28 @@ fn command_sender(
         .ok_or_else(|| IpcError::new("session.not_found", "session not found"))
 }
 
+fn connection_of(state: &AppState, session_id: &str) -> IpcResult<String> {
+    let map = state.sessions.lock().map_err(|_| IpcError::poisoned())?;
+    map.get(session_id)
+        .map(|h| h.connection_id.clone())
+        .ok_or_else(|| IpcError::new("session.not_found", "session not found"))
+}
+
 fn gone() -> IpcError {
     IpcError::new("session.not_found", "session is closed")
 }
 
-/// `session_send({ sessionId, input })`.
+/// `session_send({ sessionId, input })`. A sign-in form answer is audited as
+/// `credential_prompted {connection, username}` (never the password).
 pub async fn send(state: &AppState, session_id: &str, input: WireInput) -> IpcResult<()> {
     let tx = command_sender(state, session_id)?;
     let input = decode_input(input)?;
+    if let SessionInput::CredentialAnswer { username, .. } = &input {
+        if !username.is_empty() {
+            let connection = connection_of(state, session_id)?;
+            state.audit(AuditEvent::CredentialPrompted { connection, username: username.clone() });
+        }
+    }
     let (reply, rx) = oneshot::channel();
     tx.send(SessionCommand::Input(input, reply)).await.map_err(|_| gone())?;
     rx.await.map_err(|_| gone())?

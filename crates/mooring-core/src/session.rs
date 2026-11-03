@@ -12,48 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 use crate::model::Protocol;
 
-/// Secret material handed to a session for the duration of the handshake only.
-///
-/// `Debug` is implemented by hand so the secret can never be printed.
-pub enum ConnectSecret {
-    /// Password / passphrase.
-    Password(SecretString),
-    /// PEM-encoded private key and optional passphrase.
-    PrivateKey {
-        /// PEM text.
-        pem: SecretString,
-        /// Passphrase for the key, if any.
-        passphrase: Option<SecretString>,
-    },
-    /// No secret (e.g. agent authentication or anonymous VNC).
-    None,
-}
-
-impl std::fmt::Debug for ConnectSecret {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let kind = match self {
-            Self::Password(_) => "password",
-            Self::PrivateKey { .. } => "private-key",
-            Self::None => "none",
-        };
-        write!(f, "ConnectSecret(<{kind}, redacted>)")
-    }
-}
-
-/// Everything a protocol crate needs to open a session.
-#[derive(Debug)]
-pub struct ConnectParams {
-    /// Host or URL.
-    pub host: String,
-    /// Port.
-    pub port: u16,
-    /// User name, when the protocol has one.
-    pub username: Option<String>,
-    /// Secret material (dropped after the handshake).
-    pub secret: ConnectSecret,
-    /// Initial terminal / screen size.
-    pub size: Size,
-}
+pub use crate::connect::{Become, ConnectParams, ConnectSecret, PromptAccount};
 
 /// Terminal columns×rows or screen width×height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +64,20 @@ pub enum SessionInput {
         #[serde(serialize_with = "serialize_redacted")]
         text: SecretString,
     },
+    /// Answer to a `credential` prompt (ADR-0009 `prompt` kind): one form, one answer. An empty
+    /// username and password means the user cancelled.
+    CredentialAnswer {
+        /// Id of the prompt being answered.
+        id: u32,
+        /// Username as typed (may be `DOMAIN\user`).
+        username: String,
+        /// Domain, when asked.
+        #[serde(default)]
+        domain: Option<String>,
+        /// Password. Never printed, never serialised back.
+        #[serde(serialize_with = "serialize_redacted")]
+        password: SecretString,
+    },
 }
 
 /// Placeholder written instead of secret answer text.
@@ -134,6 +107,13 @@ impl std::fmt::Debug for SessionInput {
             Self::Answer { id, .. } => {
                 f.debug_struct("Answer").field("id", id).field("text", &REDACTED).finish()
             }
+            Self::CredentialAnswer { id, username, domain, .. } => f
+                .debug_struct("CredentialAnswer")
+                .field("id", id)
+                .field("username", username)
+                .field("domain", domain)
+                .field("password", &REDACTED)
+                .finish(),
         }
     }
 }
@@ -178,6 +158,8 @@ pub enum SessionEvent {
         /// Who asks and why. The UI picks the dialog from this, never from `message`, which a
         /// server can control (ADR-0007, security review 2 L-2).
         purpose: PromptPurpose,
+        /// What to ask, for `purpose: credential` only (ADR-0009); `null` otherwise.
+        account: Option<PromptAccount>,
     },
     /// Session ended.
     Closed {
@@ -195,6 +177,8 @@ pub enum PromptPurpose {
     HostKeyTrust,
     /// A server keyboard-interactive prompt (server-controlled text).
     KeyboardInteractive,
+    /// Sign-in form for a `prompt` credential: answered with `SessionInput::CredentialAnswer`.
+    Credential,
     /// Anything else.
     Other,
 }
@@ -224,6 +208,7 @@ mod tests {
         for (p, wire) in [
             (PromptPurpose::HostKeyTrust, "\"host_key_trust\""),
             (PromptPurpose::KeyboardInteractive, "\"keyboard_interactive\""),
+            (PromptPurpose::Credential, "\"credential\""),
             (PromptPurpose::Other, "\"other\""),
         ] {
             assert_eq!(serde_json::to_string(&p).expect("ser"), wire);
@@ -260,6 +245,48 @@ mod tests {
 
         let cloned = format!("{:?}", input.clone());
         assert!(!cloned.contains("otp-314159"));
+    }
+
+    #[test]
+    fn credential_answer_never_prints_or_serialises_the_password() {
+        let input: SessionInput = serde_json::from_str(
+            r#"{"kind":"credential_answer","id":3,"username":"CORP\\bob","domain":null,"password":"pw-271828"}"#,
+        )
+        .expect("deserialises");
+        let SessionInput::CredentialAnswer { id, ref username, ref domain, ref password } = input
+        else {
+            panic!("expected CredentialAnswer");
+        };
+        assert_eq!((id, username.as_str(), domain.as_deref()), (3, "CORP\\bob", None));
+        assert_eq!(secrecy::ExposeSecret::expose_secret(password), "pw-271828");
+        let debug = format!("{input:?}");
+        assert!(!debug.contains("pw-271828") && debug.contains("<redacted>"), "{debug}");
+        let json = serde_json::to_string(&input).expect("ser");
+        assert!(!json.contains("pw-271828"), "{json}");
+        let no_domain: SessionInput = serde_json::from_str(
+            r#"{"kind":"credential_answer","id":1,"username":"","password":""}"#,
+        )
+        .expect("domain optional");
+        assert!(matches!(no_domain, SessionInput::CredentialAnswer { domain: None, .. }));
+    }
+
+    #[test]
+    fn credential_prompt_wire_shape() {
+        let e = SessionEvent::Prompt {
+            id: 1,
+            message: "Sign in".into(),
+            secret: true,
+            purpose: PromptPurpose::Credential,
+            account: Some(PromptAccount {
+                username: Some("alice".into()),
+                domain: None,
+                needs_username: false,
+                needs_domain: true,
+            }),
+        };
+        let v = serde_json::to_value(&e).expect("json");
+        assert_eq!(v["purpose"], "credential");
+        assert_eq!(v["account"]["needs_domain"], true);
     }
 
     #[test]

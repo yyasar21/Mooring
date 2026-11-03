@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use mooring_audit::{AuditEvent, AuditLog};
-use mooring_core::session::{PromptPurpose, Session, SessionEvent, SessionInput};
+use mooring_core::session::{PromptAccount, PromptPurpose, Session, SessionEvent, SessionInput};
 use mooring_core::Protocol;
 use mooring_proto_ssh::{SshSession, TrustEvent};
 use serde::Serialize;
@@ -58,8 +58,10 @@ pub enum WireEvent {
         message: String,
         /// Hide the answer.
         secret: bool,
-        /// `host_key_trust`, `keyboard_interactive` or `other` (L-2).
+        /// `host_key_trust`, `keyboard_interactive`, `credential` or `other` (L-2).
         purpose: PromptPurpose,
+        /// Sign-in form for `purpose: credential` (ADR-0009), `null` otherwise.
+        account: Option<PromptAccount>,
     },
     /// Session ended (always last).
     Closed {
@@ -79,8 +81,8 @@ impl From<SessionEvent> for WireEvent {
             SessionEvent::Frame { x, y, width, height, rgba } => {
                 Self::Frame { x, y, width, height, rgba: b64(&rgba) }
             }
-            SessionEvent::Prompt { id, message, secret, purpose } => {
-                Self::Prompt { id, message, secret, purpose }
+            SessionEvent::Prompt { id, message, secret, purpose, account } => {
+                Self::Prompt { id, message, secret, purpose, account }
             }
             SessionEvent::Closed { reason } => Self::Closed { reason },
         }

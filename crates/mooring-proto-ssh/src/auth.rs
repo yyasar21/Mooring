@@ -53,6 +53,10 @@ pub(crate) enum AuthError {
     Cancelled,
     /// The connection broke.
     Transport,
+    /// The user cancelled the connect-time sign-in form.
+    PromptCancelled,
+    /// The credential needs a capability this build lacks (FIDO2 `sk-*` key).
+    Unsupported,
 }
 
 impl AuthError {
@@ -61,6 +65,8 @@ impl AuthError {
             Self::Failed => "authentication failed",
             Self::Cancelled => "closed by user",
             Self::Transport => "connection lost",
+            Self::PromptCancelled => "authentication cancelled",
+            Self::Unsupported => "this credential is not supported for ssh in this version",
         }
     }
 }
@@ -95,6 +101,7 @@ pub(crate) async fn authenticate(
     shared: &Shared,
 ) -> Result<AuthMethod, AuthError> {
     let Credentials { user, secret, allow_agent } = creds;
+    let (user, secret) = resolve(user, secret, shared).await?;
     let mut allowed = Allowed(None);
     let mut key_failed = false;
 
@@ -108,9 +115,15 @@ pub(crate) async fn authenticate(
         }
     }
 
-    let agent_wanted = matches!(secret, ConnectSecret::None) || key_failed;
-    if allow_agent && agent_wanted && allowed.permits(MethodKind::PublicKey) {
-        if let Some(true) = crate::agent::try_agent(handle, &user, &mut allowed.0).await? {
+    // An explicit `ssh_agent` credential uses the agent even when the app setting is off for
+    // implicit fallback; `pin` restricts it to one key.
+    let (agent_wanted, pin) = match &secret {
+        ConnectSecret::Agent { fingerprint } => (true, fingerprint.as_deref()),
+        ConnectSecret::None => (allow_agent, None),
+        _ => (allow_agent && key_failed, None),
+    };
+    if agent_wanted && allowed.permits(MethodKind::PublicKey) {
+        if let Some(true) = crate::agent::try_agent(handle, &user, pin, &mut allowed.0).await? {
             return ok(shared, AuthMethod::Agent);
         }
     }
@@ -139,6 +152,56 @@ pub(crate) async fn authenticate(
 
     shared.audit.push(TrustEvent::AuthFailed);
     Err(AuthError::Failed)
+}
+
+/// Turn the connect-time forms into plain secrets: a `prompt` credential asks the user once
+/// (one form: username, domain, password); `DomainPassword` logs in as `user@domain` (`NetBIOS`)
+/// or the UPN as given (ADR-0009 §2 footnote 2). FIDO2 keys are refused up front.
+async fn resolve(
+    user: String,
+    secret: ConnectSecret,
+    shared: &Shared,
+) -> Result<(String, ConnectSecret), AuthError> {
+    match secret {
+        ConnectSecret::Prompt(account) => {
+            let form = shared
+                .broker
+                .ask_credential(&shared.events, account)
+                .await
+                .ok_or(AuthError::Cancelled)?;
+            let typed = form.username.trim().to_owned();
+            if typed.is_empty() && form.password.expose_secret().is_empty() {
+                return Err(AuthError::PromptCancelled);
+            }
+            let login = if typed.is_empty() { user } else { typed };
+            let login = match form.domain.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+                Some(d) if !login.contains(['@', '\\']) => format!("{login}@{d}"),
+                _ => login,
+            };
+            if login.is_empty() || login.chars().any(char::is_control) {
+                return Err(AuthError::Failed);
+            }
+            Ok((login, ConnectSecret::Password(form.password)))
+        }
+        ConnectSecret::DomainPassword { user: u, domain, password } => {
+            let login = if domain.is_empty() { u } else { format!("{u}@{domain}") };
+            Ok((login, ConnectSecret::Password(password)))
+        }
+        ConnectSecret::PrivateKey { pem, .. } if is_security_key(&pem) => {
+            Err(AuthError::Unsupported)
+        }
+        other => Ok((user, other)),
+    }
+}
+
+/// FIDO2 `sk-*` key handles need the authenticator round trip (not in this version).
+fn is_security_key(pem: &SecretString) -> bool {
+    russh::keys::PrivateKey::from_openssh(pem.expose_secret().trim()).is_ok_and(|k| {
+        matches!(
+            k.algorithm(),
+            russh::keys::Algorithm::SkEd25519 | russh::keys::Algorithm::SkEcdsaSha2NistP256
+        )
+    })
 }
 
 #[allow(clippy::unnecessary_wraps)] // reads as the success arm of `authenticate`

@@ -16,6 +16,8 @@ mod connections;
 mod credentials;
 mod error;
 mod folders;
+mod legacy;
+mod roles;
 pub mod schema;
 mod search;
 mod util;
@@ -24,8 +26,10 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-pub use credentials::{CredentialKind, CredentialMeta, SecretField};
+pub use credentials::{CredentialMeta, Secrets};
 pub use error::{Result, StoreError};
+pub use mooring_core::{CredentialKind, Role, SecretName};
+pub use roles::Resolved;
 pub use search::{ConnectionHit, MAX_SEARCH_LIMIT};
 
 /// Input limits, owned by `mooring_core::model` and re-exported for callers of the store.

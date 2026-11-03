@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mooring_core::session::{PromptPurpose, SessionEvent};
+use mooring_core::session::{PromptAccount, PromptPurpose, SessionEvent};
 use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 
@@ -24,7 +24,34 @@ pub(crate) fn sanitize(text: &str) -> String {
     text.chars().filter(|c| !c.is_control()).take(MAX_PROMPT_CHARS).collect()
 }
 
-type Pending = Option<(u32, oneshot::Sender<SecretString>)>;
+/// An answer to a prompt: free text (TOFU, keyboard-interactive) or the sign-in form of a
+/// `prompt` credential. Never printed.
+pub(crate) enum Reply {
+    Text(SecretString),
+    Credential(CredentialReply),
+}
+
+/// The connect-time sign-in form (`SessionInput::CredentialAnswer`).
+pub(crate) struct CredentialReply {
+    pub(crate) username: String,
+    pub(crate) domain: Option<String>,
+    pub(crate) password: SecretString,
+}
+
+impl std::fmt::Debug for CredentialReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialReply").field("username", &self.username).finish_non_exhaustive()
+    }
+}
+
+/// Which answer shape the open prompt expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Expect {
+    Text,
+    Credential,
+}
+
+type Pending = Option<(u32, Expect, oneshot::Sender<Reply>)>;
 
 /// One outstanding question at a time, answered by id.
 #[derive(Clone, Default)]
@@ -47,14 +74,12 @@ impl PromptBroker {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Emit a prompt and wait for its answer. `None` when the session is closing.
-    pub(crate) async fn ask(
+    async fn raise(
         &self,
         events: &mpsc::Sender<SessionEvent>,
-        message: String,
-        secret: bool,
-        purpose: PromptPurpose,
-    ) -> Option<SecretString> {
+        event: impl FnOnce(u32) -> SessionEvent,
+        expect: Expect,
+    ) -> Option<Reply> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         let (tx, rx) = oneshot::channel();
         {
@@ -62,17 +87,60 @@ impl PromptBroker {
             if self.shut.load(Ordering::Acquire) {
                 return None;
             }
-            *slot = Some((id, tx));
+            *slot = Some((id, expect, tx));
         }
-        events.send(SessionEvent::Prompt { id, message, secret, purpose }).await.ok()?;
+        events.send(event(id)).await.ok()?;
         rx.await.ok()
     }
 
-    /// Deliver an answer. `false` when no prompt with this id is outstanding.
-    pub(crate) fn answer(&self, id: u32, text: SecretString) -> bool {
+    /// Emit a text prompt and wait for its answer. `None` when the session is closing.
+    pub(crate) async fn ask(
+        &self,
+        events: &mpsc::Sender<SessionEvent>,
+        message: String,
+        secret: bool,
+        purpose: PromptPurpose,
+    ) -> Option<SecretString> {
+        let event = |id| SessionEvent::Prompt { id, message, secret, purpose, account: None };
+        match self.raise(events, event, Expect::Text).await? {
+            Reply::Text(t) => Some(t),
+            Reply::Credential(_) => None,
+        }
+    }
+
+    /// Emit the sign-in form of a `prompt` credential and wait for it.
+    pub(crate) async fn ask_credential(
+        &self,
+        events: &mpsc::Sender<SessionEvent>,
+        account: PromptAccount,
+    ) -> Option<CredentialReply> {
+        let event = |id| SessionEvent::Prompt {
+            id,
+            message: "Sign in".to_owned(),
+            secret: true,
+            purpose: PromptPurpose::Credential,
+            account: Some(account),
+        };
+        match self.raise(events, event, Expect::Credential).await? {
+            Reply::Credential(c) => Some(c),
+            Reply::Text(_) => None,
+        }
+    }
+
+    /// Deliver an answer. `false` when no prompt with this id is outstanding or the answer has
+    /// the wrong shape (a text answer to the sign-in form or the reverse).
+    pub(crate) fn answer(&self, id: u32, reply: Reply) -> bool {
         let mut slot = self.slot();
         match slot.take() {
-            Some((pending, tx)) if pending == id => tx.send(text).is_ok(),
+            Some((pending, expect, tx))
+                if pending == id
+                    && matches!(
+                        (expect, &reply),
+                        (Expect::Text, Reply::Text(_)) | (Expect::Credential, Reply::Credential(_))
+                    ) =>
+            {
+                tx.send(reply).is_ok()
+            }
             other => {
                 *slot = other;
                 false
@@ -176,11 +244,41 @@ mod tests {
         };
         assert!(secret);
         assert_eq!(purpose, kbd);
-        assert!(!broker.answer(id + 1, SecretString::from("no")));
-        assert!(broker.answer(id, SecretString::from("yes")));
+        let text = |s: &str| Reply::Text(SecretString::from(s.to_owned()));
+        assert!(!broker.answer(id + 1, text("no")));
+        let form = CredentialReply {
+            username: "u".into(),
+            domain: None,
+            password: SecretString::from("p".to_owned()),
+        };
+        assert!(!broker.answer(id, Reply::Credential(form)), "wrong shape is refused");
+        assert!(broker.answer(id, text("yes")));
         let got = task.await.expect("join").expect("answered");
         assert_eq!(got.expose_secret(), "yes");
-        assert!(!broker.answer(id, SecretString::from("again")));
+        assert!(!broker.answer(id, text("again")));
+    }
+
+    #[tokio::test]
+    async fn credential_form_round_trip() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let broker = PromptBroker::default();
+        let b2 = broker.clone();
+        let account = PromptAccount { needs_username: true, ..PromptAccount::default() };
+        let task = tokio::spawn(async move { b2.ask_credential(&tx, account).await });
+        let Some(SessionEvent::Prompt { id, purpose, account, .. }) = rx.recv().await else {
+            panic!("expected prompt");
+        };
+        assert_eq!(purpose, PromptPurpose::Credential);
+        assert!(account.is_some_and(|a| a.needs_username));
+        assert!(!broker.answer(id, Reply::Text(SecretString::from("x".to_owned()))));
+        let form = CredentialReply {
+            username: "bob".into(),
+            domain: Some("CORP".into()),
+            password: SecretString::from("p".to_owned()),
+        };
+        assert!(broker.answer(id, Reply::Credential(form)));
+        let got = task.await.expect("join").expect("answered");
+        assert_eq!((got.username.as_str(), got.domain.as_deref()), ("bob", Some("CORP")));
     }
 
     #[tokio::test]

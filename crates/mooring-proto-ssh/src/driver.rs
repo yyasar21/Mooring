@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use mooring_core::session::{SessionEvent, Size};
+use mooring_core::session::{Become, SessionEvent, Size};
 use mooring_core::Protocol;
 use russh::client::Handle;
 use russh::Disconnect;
@@ -26,6 +26,7 @@ pub(crate) struct Driver {
     pub(crate) config: russh::client::Config,
     pub(crate) handler: ClientHandler,
     pub(crate) creds: Credentials,
+    pub(crate) r#become: Option<Become>,
     pub(crate) size: Size,
     pub(crate) shared: Arc<Shared>,
     pub(crate) commands: mpsc::Receiver<Command>,
@@ -43,7 +44,8 @@ impl Driver {
     }
 
     async fn run_inner(self) -> String {
-        let Self { stream, config, handler, creds, size, shared, mut commands, slot } = self;
+        let Self { stream, config, handler, creds, r#become, size, shared, mut commands, slot } =
+            self;
 
         let mut handle =
             match russh::client::connect_stream(Arc::new(config), stream, handler).await {
@@ -82,7 +84,7 @@ impl Driver {
             return "closed by user".to_owned();
         }
 
-        let end = pump(channel, &mut commands, &shared.events).await;
+        let end = pump(channel, &mut commands, &shared.events, r#become).await;
         let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
         end.reason()
     }

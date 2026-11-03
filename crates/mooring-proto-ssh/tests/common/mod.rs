@@ -55,6 +55,10 @@ pub struct ServerSpec {
     pub sftp_limits: Option<u64>,
     /// Request counters of the SFTP subsystem.
     pub sftp_stats: Arc<Mutex<sftp_server::SftpStats>>,
+    /// Password-auth user name the server accepts (default [`USER`]).
+    pub password_user: String,
+    /// Shell answers a `sudo -p '<prompt>' …` line with `<prompt>` (become tests).
+    pub become_prompt: bool,
 }
 
 impl ServerSpec {
@@ -68,6 +72,8 @@ impl ServerSpec {
             sftp_root: None,
             sftp_limits: None,
             sftp_stats: Arc::default(),
+            password_user: USER.to_owned(),
+            become_prompt: false,
         }
     }
 }
@@ -85,6 +91,8 @@ pub struct Seen {
     /// Server-side handle of the last connection, so a test can open channels toward the
     /// client (x11, agent, session ...).
     pub handle: Option<server::Handle>,
+    /// Lines the shell received, in order (become tests).
+    pub shell_lines: Vec<String>,
 }
 
 pub struct TestServer {
@@ -153,7 +161,7 @@ impl server::Handler for Handler {
 
     async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         let ok = self.spec.methods.contains(&MethodKind::Password)
-            && user == USER
+            && user == self.spec.password_user
             && self.spec.password.as_deref() == Some(password);
         Ok(if ok { Auth::Accept } else { reject() })
     }
@@ -341,6 +349,16 @@ impl server::Handler for Handler {
         if !self.shells.contains(&channel) {
             return Ok(());
         }
+        if self.spec.become_prompt {
+            let line = String::from_utf8_lossy(data).into_owned();
+            self.seen.lock().expect("lock").shell_lines.push(line.clone());
+            if let Some(rest) = line.strip_prefix("sudo -p '") {
+                let prompt = rest.split('\'').next().unwrap_or_default().to_owned();
+                return session.data(channel, prompt.into_bytes());
+            }
+            // the password line is not echoed (tty echo off), like a real sudo prompt
+            return session.data(channel, b"\r\nroot# ".to_vec());
+        }
         if data == b"exit\r" {
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
@@ -371,6 +389,7 @@ pub fn params(port: u16, secret: ConnectSecret) -> ConnectParams {
         port,
         username: Some(USER.to_owned()),
         secret,
+        r#become: None,
         size: Size { width: 80, height: 24 },
     }
 }
@@ -403,7 +422,7 @@ pub async fn answer(s: &mut SshSession, id: u32, text: &str) {
 /// Answer the TOFU prompt with "yes" and return its message.
 pub async fn accept_tofu(s: &mut SshSession) -> String {
     match next(s).await {
-        SessionEvent::Prompt { id, message, secret, purpose } => {
+        SessionEvent::Prompt { id, message, secret, purpose, .. } => {
             assert!(!secret);
             assert_eq!(purpose, mooring_core::PromptPurpose::HostKeyTrust);
             answer(s, id, "yes").await;

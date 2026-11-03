@@ -206,6 +206,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arraydeque"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3200,10 +3206,17 @@ name = "mooring-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "data-encoding",
+ "hmac",
+ "pem-rfc7468",
  "proptest",
+ "saphyr-parser",
  "secrecy",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2 0.11.1",
+ "ssh-key",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -4736,6 +4749,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "saphyr-parser"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48cf5a82d41247a625f040af08e91008fec945bce3b0bffba992c44af092caa2"
+dependencies = [
+ "arraydeque",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

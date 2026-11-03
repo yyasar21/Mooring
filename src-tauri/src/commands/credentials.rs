@@ -1,79 +1,125 @@
-//! Credential commands (ADR-0008 §Credentials). Metadata goes out; secrets only come in and are
-//! sealed straight into the store. `credential_copy_password` writes the clipboard from Rust.
+//! Credential commands (ADR-0009 §6, replacing the ADR-0008 block). Metadata goes out; secrets
+//! only come in, are size-checked here, validated per kind in `mooring-core` and sealed one by
+//! one into the store. Clipboard commands live in [`super::credential_copy`].
 
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::collections::BTreeMap;
 
 use mooring_audit::AuditEvent;
-use mooring_store::{CredentialKind, CredentialMeta, SecretField, MAX_NAME};
+use mooring_core::credential::{self as cred, parse_account, Account, KindSchema};
+use mooring_core::SecretName;
+use mooring_store::{Secrets, MAX_NAME};
 use secrecy::{ExposeSecret, SecretString};
-use serde::Serialize;
+use serde::Deserialize;
 use tauri::State;
-use zeroize::Zeroizing;
 
-use crate::clipboard::{self, Clipboard};
 use crate::dto::{self, CredentialDto};
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
 
-/// Largest secret accepted over IPC (bytes): the store's sealed-column cap.
-pub const MAX_SECRET_BYTES: usize = 64 * 1024;
-/// Longest user name (characters, store rule).
-pub const MAX_USERNAME_CHARS: usize = 256;
+/// Largest single secret accepted over IPC (bytes): the kubeconfig cap. Per-secret caps are
+/// enforced by `mooring-core` afterwards.
+pub const MAX_SECRET_BYTES: usize = 1024 * 1024;
+/// Most secrets in one call.
+pub const MAX_SECRETS: usize = 8;
+/// Largest `fields` object accepted (bytes of JSON).
+pub const MAX_FIELDS_BYTES: usize = mooring_core::credential::MAX_FIELDS_JSON;
+/// Longest account input for `credential_parse_account` (bytes).
+pub const MAX_ACCOUNT_INPUT: usize = 512;
 
-/// `credential_create` input. `secret`/`secret2` are wrapped at the IPC edge.
+/// Secrets as they cross IPC: `{ [name]: string }`, wrapped at once.
+#[derive(Default, Deserialize)]
+#[serde(transparent)]
+pub struct WireSecrets(pub BTreeMap<String, SecretString>);
+
+impl std::fmt::Debug for WireSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set().entries(self.0.keys()).finish()
+    }
+}
+
+impl WireSecrets {
+    /// Synthetic secrets for tests.
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn of(pairs: &[(&str, &str)]) -> Self {
+        Self(pairs.iter().map(|(k, v)| ((*k).to_owned(), SecretString::from((*v).to_owned()))).collect())
+    }
+
+    /// Parse names and bound sizes. Blank values are dropped (the UI leaves untouched inputs
+    /// empty); every name must be a known secret name (the kind check comes later).
+    fn parse(&self) -> IpcResult<BTreeMap<SecretName, &SecretString>> {
+        if self.0.len() > MAX_SECRETS {
+            return Err(IpcError::invalid("secrets", "too many entries"));
+        }
+        let mut out = BTreeMap::new();
+        for (k, v) in &self.0 {
+            let name = SecretName::parse(k).ok_or_else(|| IpcError::invalid("secrets", "unknown secret name"))?;
+            if v.expose_secret().len() > MAX_SECRET_BYTES {
+                return Err(IpcError::invalid(name.as_str(), "larger than 1 MiB"));
+            }
+            if !v.expose_secret().is_empty() {
+                out.insert(name, v);
+            }
+        }
+        Ok(out)
+    }
+}
+
+fn as_bytes<'a>(m: &BTreeMap<SecretName, &'a SecretString>) -> Secrets<'a> {
+    m.iter().map(|(k, v)| (*k, v.expose_secret().as_bytes())).collect()
+}
+
+fn check_name(name: &str) -> IpcResult<()> {
+    if name.len() > MAX_NAME * 4 {
+        return Err(IpcError::invalid("name", "must be 1..=120 characters"));
+    }
+    Ok(())
+}
+
+fn check_fields(fields: &serde_json::Value) -> IpcResult<()> {
+    if !fields.is_object() {
+        return Err(IpcError::invalid("fields", "must be an object"));
+    }
+    if fields.to_string().len() > MAX_FIELDS_BYTES {
+        return Err(IpcError::invalid("fields", "larger than 128 KiB"));
+    }
+    Ok(())
+}
+
+/// `credential_create` input.
 #[derive(Debug)]
 pub struct NewCredential {
     /// Display name.
     pub name: String,
-    /// Kind name.
+    /// Kind wire name.
     pub kind: String,
-    /// User name (`""` = none).
-    pub username: String,
-    /// Primary secret.
-    pub secret: SecretString,
-    /// Secondary secret.
-    pub secret2: Option<SecretString>,
+    /// Plain fields.
+    pub fields: serde_json::Value,
+    /// Secrets by name.
+    pub secrets: WireSecrets,
 }
 
 impl NewCredential {
-    /// A password credential with a synthetic secret (tests only).
+    /// A `user_password` credential (`ops`) with a synthetic password (tests only).
     #[cfg(any(test, feature = "test-util"))]
     pub fn password_for_tests(name: &str) -> Self {
+        Self::user_password(name, "ops", "test-only secret")
+    }
+
+    /// A `user_password` credential (tests only).
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn user_password(name: &str, username: &str, password: &str) -> Self {
         Self {
             name: name.to_owned(),
-            kind: "password".to_owned(),
-            username: "ops".to_owned(),
-            secret: SecretString::from("test-only secret"),
-            secret2: None,
+            kind: "user_password".to_owned(),
+            fields: serde_json::json!({ "username": username }),
+            secrets: WireSecrets::of(&[("password", password)]),
         }
     }
 }
 
-fn check_secret(field: &str, s: &SecretString, required: bool) -> IpcResult<()> {
-    let len = s.expose_secret().len();
-    if len > MAX_SECRET_BYTES {
-        return Err(IpcError::invalid(field, "larger than 64 KiB"));
-    }
-    if required && len == 0 {
-        return Err(IpcError::invalid(field, "is required"));
-    }
-    Ok(())
-}
-
-fn check_meta(name: &str, username: &str) -> IpcResult<()> {
-    // Cheap size bounds before the store's full validation (which never echoes the value).
-    if name.len() > MAX_NAME * 4 {
-        return Err(IpcError::invalid("name", "must be 1..=120 characters"));
-    }
-    if username.chars().count() > MAX_USERNAME_CHARS {
-        return Err(IpcError::invalid("username", "at most 256 characters"));
-    }
-    Ok(())
-}
-
-fn opt_username(username: &str) -> Option<&str> {
-    Some(username.trim()).filter(|u| !u.is_empty())
+/// `credential_kinds()`: the ADR-0009 table, also the protocol matrix.
+pub fn kinds() -> &'static [KindSchema] {
+    cred::credential_kinds()
 }
 
 /// `credential_list()`.
@@ -81,65 +127,49 @@ pub fn list(state: &AppState) -> IpcResult<Vec<CredentialDto>> {
     state.with_ready(|_, store| Ok(store.list_credentials()?.iter().map(Into::into).collect()))
 }
 
-/// `credential_create(...)`.
+/// `credential_create({ name, kind, fields, secrets })`.
 pub fn create(state: &AppState, c: NewCredential) -> IpcResult<CredentialDto> {
-    check_meta(&c.name, &c.username)?;
+    check_name(&c.name)?;
     let kind = dto::credential_kind(&c.kind)?;
-    check_secret("secret", &c.secret, true)?;
-    if let Some(s2) = &c.secret2 {
-        check_secret("secret2", s2, false)?;
+    check_fields(&c.fields)?;
+    let parsed = c.secrets.parse()?;
+    let stored = state.with_ready(|vault, store| {
+        Ok(store.create_credential(vault, &c.name, kind, &c.fields, &as_bytes(&parsed))?)
+    })?;
+    if stored.secret_names.contains(&SecretName::OtpSeed) {
+        state.audit(AuditEvent::CredentialOtpAttached { credential: stored.id.to_string() });
     }
-    let meta = CredentialMeta::new(&c.name, kind, opt_username(&c.username))?;
-    state.with_ready(|vault, store| {
-        let secret2 = c.secret2.as_ref().map(|s| s.expose_secret().as_bytes());
-        let stored = store.create_credential(
-            vault,
-            &meta,
-            c.secret.expose_secret().as_bytes(),
-            secret2.filter(|s| !s.is_empty()),
-        )?;
-        Ok(CredentialDto::from(&stored))
-    })
+    Ok(CredentialDto::from(&stored))
 }
 
-/// `credential_update_meta({ id, name, username })`.
-pub fn update_meta(
-    state: &AppState,
-    id: &str,
-    name: &str,
-    username: &str,
-) -> IpcResult<CredentialDto> {
+/// `credential_update_fields({ id, name, fields })`: kind is immutable.
+pub fn update_fields(state: &AppState, id: &str, name: &str, fields: &serde_json::Value) -> IpcResult<CredentialDto> {
     let id = dto::credential_id("id", id)?;
-    check_meta(name, username)?;
-    state.with_ready(|_, store| {
-        Ok(CredentialDto::from(&store.update_credential_meta(id, name, opt_username(username))?))
-    })
+    check_name(name)?;
+    check_fields(fields)?;
+    state.with_ready(|_, store| Ok(CredentialDto::from(&store.update_credential_fields(id, name, fields)?)))
 }
 
-/// `credential_replace_secret({ id, secret, secret2 })`: `secret2 = null` clears it.
-pub fn replace_secret(
-    state: &AppState,
-    id: &str,
-    secret: &SecretString,
-    secret2: Option<&SecretString>,
-) -> IpcResult<()> {
+/// `credential_replace_secrets({ id, set, clear })`.
+pub fn replace_secrets(state: &AppState, id: &str, set: &WireSecrets, clear: &[String]) -> IpcResult<()> {
     let id = dto::credential_id("id", id)?;
-    check_secret("secret", secret, true)?;
-    if let Some(s2) = secret2 {
-        check_secret("secret2", s2, false)?;
+    let parsed = set.parse()?;
+    if clear.len() > MAX_SECRETS {
+        return Err(IpcError::invalid("clear", "too many entries"));
     }
+    let clear = clear
+        .iter()
+        .map(|n| SecretName::parse(n).ok_or_else(|| IpcError::invalid("clear", "unknown secret name")))
+        .collect::<IpcResult<Vec<_>>>()?;
+    let attached = parsed.contains_key(&SecretName::OtpSeed);
     state.with_ready(|vault, store| {
-        store.get_credential(id)?;
-        store.replace_credential_secret(
-            vault,
-            id,
-            SecretField::Secret,
-            Some(secret.expose_secret().as_bytes()),
-        )?;
-        let s2 = secret2.map(|s| s.expose_secret().as_bytes()).filter(|s| !s.is_empty());
-        store.replace_credential_secret(vault, id, SecretField::Secret2, s2)?;
+        store.replace_secrets(vault, id, &as_bytes(&parsed), &clear)?;
         Ok(())
-    })
+    })?;
+    if attached {
+        state.audit(AuditEvent::CredentialOtpAttached { credential: id.to_string() });
+    }
+    Ok(())
 }
 
 /// `credential_delete({ id })`.
@@ -148,76 +178,21 @@ pub fn delete(state: &AppState, id: &str) -> IpcResult<()> {
     state.with_ready(|_, store| Ok(store.delete_credential(id)?))
 }
 
-/// `{ clearsInMs }`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CopyResult {
-    /// When the clipboard will be cleared.
-    pub clears_in_ms: u64,
-}
-
-/// `credential_copy_password({ id })`: put a password credential's secret on the clipboard,
-/// audit `credential_used { purpose: copy }`, and schedule a clear that only fires while the
-/// clipboard still holds that value. The clear task holds a SHA-256 digest, not the secret.
-/// Must run inside a Tokio runtime (the clear task is spawned on it).
-pub fn copy_password(state: &AppState, id: &str) -> IpcResult<CopyResult> {
-    let cred = dto::credential_id("id", id)?;
-    let secret = state.with_ready(|vault, store| {
-        let meta = store.get_credential(cred)?;
-        if meta.kind != CredentialKind::Password {
-            return Err(IpcError::invalid("id", "only password credentials can be copied"));
-        }
-        Ok(store.open_credential_secret(vault, cred, SecretField::Secret)?)
-    })?;
-    let text = Zeroizing::new(
-        String::from_utf8(secret.to_vec())
-            .map_err(|_| IpcError::invalid("id", "password is not text"))?,
-    );
-    drop(secret);
-    let clipboard = Arc::clone(&state.settings.clipboard);
-    clipboard
-        .set(&text)
-        .map_err(|_| IpcError::new("clipboard.unavailable", "the clipboard is not available"))?;
-    let expected = clipboard::digest(&text);
-    drop(text);
-    if let Ok(mut pending) = state.pending_clipboard.lock() {
-        *pending = Some(expected);
+/// `credential_parse_account({ input })` → `{ form, user, domain }`. Pure; no vault needed.
+pub fn parse_account_input(input: &str) -> IpcResult<Account> {
+    if input.len() > MAX_ACCOUNT_INPUT {
+        return Err(IpcError::invalid("input", "too long"));
     }
-    let delay = state.settings.clipboard_clear_after;
-    tokio::spawn(clear_later(clipboard, Arc::clone(&state.pending_clipboard), expected, delay));
-    state.audit(AuditEvent::CredentialUsed {
-        credential: cred.to_string(),
-        purpose: "copy".to_owned(),
-        connection: None,
-    });
-    Ok(CopyResult { clears_in_ms: u64::try_from(delay.as_millis()).unwrap_or(u64::MAX) })
-}
-
-async fn clear_later(
-    clipboard: Arc<dyn Clipboard>,
-    pending: Arc<Mutex<Option<clipboard::ValueDigest>>>,
-    expected: clipboard::ValueDigest,
-    delay: Duration,
-) {
-    tokio::time::sleep(delay).await;
-    // Forget the pending digest unless a newer copy replaced it; shutdown/lock may have
-    // already taken it, in which case the clear below finds a different value or nothing.
-    if let Ok(mut p) = pending.lock() {
-        if p.as_ref() == Some(&expected) {
-            *p = None;
-        }
-    }
-    let result =
-        tokio::task::spawn_blocking(move || clipboard::clear_if_unchanged(&*clipboard, &expected))
-            .await;
-    match result {
-        Ok(Ok(true)) => tracing::info!("copied password cleared from the clipboard"),
-        Ok(Ok(false)) => tracing::debug!("clipboard changed since copy; left alone"),
-        Ok(Err(_)) | Err(_) => tracing::warn!("could not clear the clipboard"),
-    }
+    Ok(parse_account(input)?)
 }
 
 // ------------------------------------------------------------------ Tauri wrappers
+
+/// `credential_kinds()`.
+#[tauri::command]
+pub fn credential_kinds() -> &'static [KindSchema] {
+    kinds()
+}
 
 /// `credential_list()`.
 #[tauri::command]
@@ -225,48 +200,39 @@ pub fn credential_list(state: State<'_, AppState>) -> IpcResult<Vec<CredentialDt
     list(&state)
 }
 
-/// `credential_create({ name, kind, username, secret, secret2 })`.
+/// `credential_create({ name, kind, fields, secrets })`.
 #[tauri::command]
 pub fn credential_create(
     state: State<'_, AppState>,
     name: String,
     kind: String,
-    username: Option<String>,
-    secret: String,
-    secret2: Option<String>,
+    fields: Option<serde_json::Value>,
+    secrets: Option<WireSecrets>,
 ) -> IpcResult<CredentialDto> {
-    let c = NewCredential {
-        name,
-        kind,
-        username: username.unwrap_or_default(),
-        secret: SecretString::from(secret),
-        secret2: secret2.map(SecretString::from),
-    };
-    create(&state, c)
+    let fields = fields.unwrap_or_else(|| serde_json::json!({}));
+    create(&state, NewCredential { name, kind, fields, secrets: secrets.unwrap_or_default() })
 }
 
-/// `credential_update_meta({ id, name, username })`.
+/// `credential_update_fields({ id, name, fields })`.
 #[tauri::command]
-pub fn credential_update_meta(
+pub fn credential_update_fields(
     state: State<'_, AppState>,
     id: String,
     name: String,
-    username: Option<String>,
+    fields: serde_json::Value,
 ) -> IpcResult<CredentialDto> {
-    update_meta(&state, &id, &name, username.as_deref().unwrap_or_default())
+    update_fields(&state, &id, &name, &fields)
 }
 
-/// `credential_replace_secret({ id, secret, secret2 })`.
+/// `credential_replace_secrets({ id, set, clear })`.
 #[tauri::command]
-pub fn credential_replace_secret(
+pub fn credential_replace_secrets(
     state: State<'_, AppState>,
     id: String,
-    secret: String,
-    secret2: Option<String>,
+    set: Option<WireSecrets>,
+    clear: Option<Vec<String>>,
 ) -> IpcResult<()> {
-    let secret = SecretString::from(secret);
-    let secret2 = secret2.map(SecretString::from);
-    replace_secret(&state, &id, &secret, secret2.as_ref())
+    replace_secrets(&state, &id, &set.unwrap_or_default(), &clear.unwrap_or_default())
 }
 
 /// `credential_delete({ id })`.
@@ -275,139 +241,12 @@ pub fn credential_delete(state: State<'_, AppState>, id: String) -> IpcResult<()
     delete(&state, &id)
 }
 
-/// `credential_copy_password({ id })`.
+/// `credential_parse_account({ input })`.
 #[tauri::command]
-pub async fn credential_copy_password(
-    state: State<'_, AppState>,
-    id: String,
-) -> IpcResult<CopyResult> {
-    copy_password(&state, &id)
+pub fn credential_parse_account(input: String) -> IpcResult<Account> {
+    parse_account_input(&input)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::state::testing::*;
-
-    fn new(kind: &str, secret: &str) -> NewCredential {
-        NewCredential {
-            name: "ops".into(),
-            kind: kind.into(),
-            username: " admin ".into(),
-            secret: SecretString::from(secret.to_owned()),
-            secret2: None,
-        }
-    }
-
-    #[test]
-    fn round_trip_metadata_only() {
-        let f = unlocked();
-        let c = create(&f.state, new("password", "test-only pw 1")).expect("create");
-        assert_eq!((c.kind, c.username.as_str()), ("password", "admin"));
-        let json = serde_json::to_string(&list(&f.state).expect("list")).expect("json");
-        assert!(!json.contains("test-only pw 1"), "no secret outward: {json}");
-        let u = update_meta(&f.state, &c.id, "ops2", "").expect("update");
-        assert_eq!((u.name.as_str(), u.username.as_str()), ("ops2", ""));
-        replace_secret(&f.state, &c.id, &SecretString::from("test-only pw 2"), None).expect("re");
-        f.state
-            .with_ready(|v, s| {
-                let id = c.id.parse().expect("id");
-                let got = s.open_credential_secret(v, id, SecretField::Secret)?;
-                assert_eq!(got.as_slice(), b"test-only pw 2");
-                Ok(())
-            })
-            .expect("open");
-        delete(&f.state, &c.id).expect("delete");
-        assert_eq!(delete(&f.state, &c.id).expect_err("gone").code, "credential.not_found");
-    }
-
-    #[test]
-    fn validation() {
-        let f = unlocked();
-        let big = "x".repeat(MAX_SECRET_BYTES + 1);
-        assert_eq!(create(&f.state, new("token", "s")).expect_err("kind").code, "input.invalid");
-        assert_eq!(create(&f.state, new("password", "")).expect_err("empty").code, "input.invalid");
-        assert_eq!(create(&f.state, new("password", &big)).expect_err("big").code, "input.invalid");
-        let mut long_user = new("password", "s");
-        long_user.username = "u".repeat(257);
-        assert_eq!(create(&f.state, long_user).expect_err("user").code, "input.invalid");
-        let mut bad_name = new("password", "s");
-        bad_name.name = String::new();
-        assert_eq!(create(&f.state, bad_name).expect_err("name").code, "input.invalid");
-        let missing = mooring_core::CredentialId::new().to_string();
-        let e = replace_secret(&f.state, &missing, &SecretString::from("s"), None).expect_err("nf");
-        assert_eq!(e.code, "credential.not_found");
-        assert_eq!(update_meta(&f.state, "nope", "n", "").expect_err("id").code, "input.invalid");
-        crate::commands::vault::lock(&f.state, None).expect("lock");
-        assert_eq!(create(&f.state, new("password", "s")).expect_err("lock").code, "vault.locked");
-    }
-
-    #[tokio::test]
-    async fn copy_password_sets_clears_and_audits() {
-        let f = unlocked();
-        let c = create(&f.state, new("password", "test-only clip")).expect("create");
-        let r = copy_password(&f.state, &c.id).expect("copy");
-        assert_eq!(r.clears_in_ms, 200);
-        assert_eq!(f.clipboard.peek().as_deref(), Some("test-only clip"));
-        let events = audit_events(&f.state);
-        assert_eq!(events.last().map(String::as_str), Some("credential_used"));
-        let log = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("log");
-        assert!(log.contains("\"purpose\":\"copy\"") && !log.contains("test-only clip"));
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        assert_eq!(f.clipboard.peek(), None, "cleared after the delay");
-    }
-
-    #[tokio::test]
-    async fn copy_leaves_a_newer_clipboard_value_alone() {
-        let f = unlocked();
-        let c = create(&f.state, new("password", "test-only clip")).expect("create");
-        copy_password(&f.state, &c.id).expect("copy");
-        f.clipboard.set("user copied this").expect("set");
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        assert_eq!(f.clipboard.peek().as_deref(), Some("user copied this"));
-    }
-
-    /// M-1: a fixture whose timer never fires during the test, so only lock/shutdown can clear.
-    fn copied_with_slow_timer() -> Fixture {
-        let mut f = unlocked();
-        f.state.settings.clipboard_clear_after = Duration::from_secs(3600);
-        let c = create(&f.state, new("password", "test-only clip")).expect("create");
-        copy_password(&f.state, &c.id).expect("copy");
-        assert_eq!(f.clipboard.peek().as_deref(), Some("test-only clip"));
-        f
-    }
-
-    #[tokio::test]
-    async fn vault_lock_clears_a_pending_copy_synchronously() {
-        let f = copied_with_slow_timer();
-        crate::commands::vault::lock(&f.state, None).expect("lock");
-        assert_eq!(f.clipboard.peek(), None, "lock clears the copied password");
-    }
-
-    #[tokio::test]
-    async fn shutdown_clears_a_pending_copy_synchronously() {
-        let f = copied_with_slow_timer();
-        f.state.shutdown();
-        assert_eq!(f.clipboard.peek(), None, "exit clears the copied password");
-    }
-
-    #[tokio::test]
-    async fn lock_leaves_a_newer_clipboard_value_alone() {
-        let f = copied_with_slow_timer();
-        f.clipboard.set("user copied this").expect("set");
-        crate::commands::vault::lock(&f.state, None).expect("lock");
-        assert_eq!(f.clipboard.peek().as_deref(), Some("user copied this"));
-        f.state.shutdown();
-        assert_eq!(f.clipboard.peek().as_deref(), Some("user copied this"));
-    }
-
-    #[tokio::test]
-    async fn copy_refuses_non_passwords_and_locked_vault() {
-        let f = unlocked();
-        let key = create(&f.state, new("ssh_key", "test-only pem")).expect("create");
-        assert_eq!(copy_password(&f.state, &key.id).expect_err("kind").code, "input.invalid");
-        assert_eq!(f.clipboard.peek(), None);
-        crate::commands::vault::lock(&f.state, None).expect("lock");
-        assert_eq!(copy_password(&f.state, &key.id).expect_err("lock").code, "vault.locked");
-    }
-}
+#[path = "credentials_tests.rs"]
+mod tests;

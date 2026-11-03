@@ -39,6 +39,7 @@ async fn connect_agent() -> Option<DynAgent> {
 pub(crate) async fn try_agent(
     handle: &mut Handle<ClientHandler>,
     user: &str,
+    pin: Option<&str>,
     allowed: &mut Option<MethodSet>,
 ) -> Result<Option<bool>, AuthError> {
     let Some(mut agent) = connect_agent().await else {
@@ -53,6 +54,9 @@ pub(crate) async fn try_agent(
         let AgentIdentity::PublicKey { key, .. } = identity else {
             continue; // certificates: not in A1
         };
+        if pin.is_some_and(|p| key.fingerprint(russh::keys::HashAlg::Sha256).to_string() != p) {
+            continue;
+        }
         let hash = if key.algorithm().is_rsa() {
             match rsa_hash(handle).await {
                 Some(h) => h,

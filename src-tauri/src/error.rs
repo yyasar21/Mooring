@@ -4,6 +4,7 @@
 //! user-facing and never contains secret material or internal detail (SQL, paths, OS errors):
 //! internal causes are logged with `tracing` and replaced by a fixed sentence.
 
+use mooring_core::credential::CredentialError;
 use mooring_core::MooringError;
 use mooring_store::StoreError;
 use mooring_vault::VaultError;
@@ -81,15 +82,33 @@ impl From<StoreError> for IpcError {
             }
             StoreError::Tree(reason) => tree_error(&reason),
             StoreError::Vault(v) => v.into(),
+            StoreError::Credential(c) => c.into(),
+            StoreError::Corrupt { what } => {
+                tracing::error!(what, "corrupt store row");
+                Self::new("store.corrupt", "a stored record is damaged and was not used")
+            }
             StoreError::VaultIdMismatch => Self::new(
                 "store.vault_mismatch",
                 "the connection database belongs to a different vault",
             ),
-            other @ (StoreError::Sqlite(_)
-            | StoreError::Downgrade { .. }
-            | StoreError::Corrupt { .. }) => {
+            other @ (StoreError::Sqlite(_) | StoreError::Downgrade { .. }) => {
                 tracing::error!(error = %other, "store error");
                 Self::new("store.io", "the connection database could not be read or written")
+            }
+        }
+    }
+}
+
+impl From<CredentialError> for IpcError {
+    fn from(e: CredentialError) -> Self {
+        // CredentialError messages are value-free by construction (mooring-core credential).
+        match e {
+            CredentialError::Invalid { field, reason } => Self::invalid(field, &reason),
+            CredentialError::KubeconfigRejected(m) => Self::new("credential.kubeconfig_rejected", m),
+            CredentialError::Incompatible(m) => Self::new("credential.incompatible", m),
+            CredentialError::KindUnsupported(m) => Self::new("credential.kind_unsupported", m),
+            e @ CredentialError::SecretMissing(_) => {
+                Self::new("credential.secret_missing", e.to_string())
             }
         }
     }
@@ -148,7 +167,25 @@ mod tests {
             (StoreError::Vault(VaultError::Locked), "vault.locked"),
             (StoreError::Vault(VaultError::Tampered), "vault.tampered"),
             (StoreError::VaultIdMismatch, "store.vault_mismatch"),
-            (StoreError::Corrupt { what: "id" }, "store.io"),
+            (StoreError::Corrupt { what: "id" }, "store.corrupt"),
+            (
+                StoreError::Credential(CredentialError::Incompatible("x".into())),
+                "credential.incompatible",
+            ),
+            (
+                StoreError::Credential(CredentialError::KubeconfigRejected("x".into())),
+                "credential.kubeconfig_rejected",
+            ),
+            (
+                StoreError::Credential(CredentialError::KindUnsupported("x".into())),
+                "credential.kind_unsupported",
+            ),
+            (
+                StoreError::Credential(CredentialError::SecretMissing(
+                    mooring_core::SecretName::Token,
+                )),
+                "credential.secret_missing",
+            ),
             (StoreError::Downgrade { found: 9, supported: 1 }, "store.io"),
         ];
         for (e, code) in cases {
@@ -160,7 +197,7 @@ mod tests {
     fn internal_detail_is_not_forwarded() {
         let sql = rusqlite_like_error();
         let e = IpcError::from(sql);
-        assert_eq!(e.code, "store.io");
+        assert_eq!(e.code, "store.corrupt");
         assert!(!e.message.contains("SELECT"), "{}", e.message);
         let not_found = IpcError::from(StoreError::NotFound { kind: "folder", id: "abc".into() });
         assert!(!not_found.message.contains("abc"), "ids of missing rows are not echoed");
