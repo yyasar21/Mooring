@@ -94,26 +94,47 @@ pub(crate) fn keyring_aad(header: &Header) -> Vec<u8> {
 }
 
 impl Vault {
+    /// Run `change` with the KEK and DEK obtained from `password`, then restore the previous
+    /// lock state on every exit path, and the previous header on every error path (A1 review
+    /// B1): a refused OS keyring must neither leave the DEK in RAM behind a "locked" UI nor
+    /// leave an unpersisted v1 -> v2 upgrade in memory.
+    fn with_password_kek(
+        &mut self,
+        password: &SecretString,
+        change: impl FnOnce(&mut Self, &[u8; KEY_LEN], &[u8; KEY_LEN]) -> Result<(), VaultError>,
+    ) -> Result<(), VaultError> {
+        let (was, before) = (self.state(), self.header.clone());
+        let result = self.unlock_with_kek(password).and_then(|kek| {
+            let dek = self.dek.clone().ok_or(VaultError::Locked)?;
+            change(self, &kek, &dek)
+        });
+        if result.is_err() {
+            self.header = before;
+        }
+        if was == VaultState::Locked {
+            self.dek = None;
+        }
+        result
+    }
+
     /// Enable OS-keyring unlock. Requires the master password; the vault keeps its current
-    /// locked/unlocked state. Persist [`Vault::header`] afterwards.
+    /// locked/unlocked state, and on any error its header is left as it was. Persist
+    /// [`Vault::header`] afterwards.
     pub fn enable_keyring_unlock(
         &mut self,
         store: &dyn WrapKeyStore,
         password: &SecretString,
     ) -> Result<(), VaultError> {
-        let was = self.state();
-        let kek = self.unlock_with_kek(password)?;
-        let dek = self.dek.clone().ok_or(VaultError::Locked)?;
-        let wrap_key = Zeroizing::new(random::<KEY_LEN>());
-        let mut header = self.header.clone();
-        header.keyring_wrap = Some(seal_with(&wrap_key, &keyring_aad(&header), dek.as_ref()));
-        rewrap_password(&mut header, &kek, &dek);
-        // Store first: if the OS keyring refuses, the header is left untouched.
-        store.put(header.vault_id, &wrap_key)?;
-        self.header = header;
-        if was == VaultState::Locked {
-            self.dek = None;
-        }
+        self.with_password_kek(password, |v, kek, dek| {
+            let wrap_key = Zeroizing::new(random::<KEY_LEN>());
+            let mut header = v.header.clone();
+            header.keyring_wrap = Some(seal_with(&wrap_key, &keyring_aad(&header), dek));
+            rewrap_password(&mut header, kek, dek);
+            // Store first: if the OS keyring refuses, the header is not replaced.
+            store.put(header.vault_id, &wrap_key)?;
+            v.header = header;
+            Ok(())
+        })?;
         tracing::info!("keyring unlock enabled");
         Ok(())
     }
@@ -139,18 +160,15 @@ impl Vault {
         store: &dyn WrapKeyStore,
         password: &SecretString,
     ) -> Result<(), VaultError> {
-        let was = self.state();
-        let kek = self.unlock_with_kek(password)?;
-        let dek = self.dek.clone().ok_or(VaultError::Locked)?;
-        // Delete first: a failed delete leaves everything as it was, so the user can retry.
-        store.delete(self.header.vault_id)?;
-        let mut header = self.header.clone();
-        header.keyring_wrap = None;
-        rewrap_password(&mut header, &kek, &dek);
-        self.header = header;
-        if was == VaultState::Locked {
-            self.dek = None;
-        }
+        self.with_password_kek(password, |v, kek, dek| {
+            // Delete first: a failed delete leaves everything as it was, so the user can retry.
+            store.delete(v.header.vault_id)?;
+            let mut header = v.header.clone();
+            header.keyring_wrap = None;
+            rewrap_password(&mut header, kek, dek);
+            v.header = header;
+            Ok(())
+        })?;
         tracing::info!("keyring unlock disabled");
         Ok(())
     }
@@ -216,6 +234,70 @@ mod tests {
         assert!(store.is_empty());
         assert!(matches!(v.enable_keyring_unlock(&Broken, &pw(PW)), Err(VaultError::Keyring(_))));
         assert_eq!(v.header(), &before);
+    }
+
+    #[test]
+    fn failed_enable_on_locked_vault_stays_locked() {
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        v.lock();
+        let before = v.header().clone();
+        assert!(matches!(v.enable_keyring_unlock(&Broken, &pw(PW)), Err(VaultError::Keyring(_))));
+        assert_eq!(v.state(), VaultState::Locked, "DEK must not stay in RAM");
+        assert_eq!(v.header(), &before);
+        assert_eq!(v.seal("r", "f", b"x"), Err(VaultError::Locked));
+    }
+
+    #[test]
+    fn failed_disable_on_locked_vault_stays_locked() {
+        let store = MemoryWrapKeyStore::new();
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        v.enable_keyring_unlock(&store, &pw(PW)).expect("enable");
+        v.lock();
+        let before = v.header().clone();
+        assert!(matches!(v.disable_keyring_unlock(&Broken, &pw(PW)), Err(VaultError::Keyring(_))));
+        assert_eq!(v.state(), VaultState::Locked, "DEK must not stay in RAM");
+        assert_eq!(v.header(), &before);
+        assert!(v.header().keyring_enabled());
+    }
+
+    /// A v1 header exactly as A0 wrote it (legacy AAD, no v2 fields).
+    fn v1_header() -> Header {
+        use crate::format::{Sealed, MAGIC};
+        use crate::kdf::{derive_kek, SALT_LEN};
+        let salt = random::<SALT_LEN>();
+        let dek = Zeroizing::new(random::<KEY_LEN>());
+        let mut h = Header {
+            magic: MAGIC.to_owned(),
+            version: 1,
+            vault_id: Uuid::nil(),
+            kdf: "argon2id".to_owned(),
+            kdf_params: KdfParams::TEST,
+            salt: salt.to_vec(),
+            wrapped_dek: Sealed { nonce: Vec::new(), ciphertext: Vec::new() },
+            keyring_wrap: None,
+        };
+        let kek = derive_kek(PW.as_bytes(), &salt, KdfParams::TEST).expect("kdf");
+        rewrap_password(&mut h, &kek, &dek);
+        h
+    }
+
+    #[test]
+    fn failed_keyring_change_on_v1_header_keeps_v1_header() {
+        let h1 = v1_header();
+        let mut v = Vault::from_header(h1.clone());
+        assert!(matches!(v.enable_keyring_unlock(&Broken, &pw(PW)), Err(VaultError::Keyring(_))));
+        assert_eq!(v.state(), VaultState::Locked);
+        assert_eq!(v.header(), &h1, "no unpersisted v1 -> v2 upgrade left in memory");
+        assert!(v.vault_id().is_nil());
+        assert!(matches!(v.disable_keyring_unlock(&Broken, &pw(PW)), Err(VaultError::Keyring(_))));
+        assert_eq!(v.state(), VaultState::Locked);
+        assert_eq!(v.header(), &h1);
+        // and the success path upgrades and enables in one go
+        let store = MemoryWrapKeyStore::new();
+        v.enable_keyring_unlock(&store, &pw(PW)).expect("enable");
+        assert_eq!(v.state(), VaultState::Locked);
+        assert!(!v.header().needs_upgrade() && v.header().keyring_enabled());
+        v.unlock_with_keyring(&store).expect("keyring unlock");
     }
 
     #[test]
