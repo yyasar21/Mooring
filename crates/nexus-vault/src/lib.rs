@@ -26,6 +26,8 @@ mod format;
 mod kdf;
 mod keyring;
 mod vault;
+#[cfg(test)]
+mod vectors;
 
 pub use autolock::{AutoLockClock, AutoLockPolicy, LockEvent, LockReason};
 pub use error::VaultError;
