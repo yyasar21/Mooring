@@ -180,7 +180,13 @@ async fn host_key_mismatch_is_a_hard_stop_and_audited() {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(audit_log(&f).contains("\"decision\":\"changed\""));
+    let log = audit_log(&f);
+    assert!(log.contains("\"decision\":\"changed\""));
+    // L-6: the investigator gets the stored fingerprint as well as the presented one.
+    let stored = mooring_proto_ssh::known_hosts::fingerprint(&other.host_public);
+    let presented = mooring_proto_ssh::known_hosts::fingerprint(&srv.host_public);
+    assert!(log.contains(&format!("\"expected\":\"{stored}\"")), "{log}");
+    assert!(log.contains(&format!("\"fingerprint\":\"{presented}\"")), "{log}");
 }
 
 #[tokio::test]

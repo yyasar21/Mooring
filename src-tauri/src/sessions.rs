@@ -201,15 +201,15 @@ pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcRes
 
 fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
     for e in events {
-        let (host, fingerprint, decision) = match e {
+        let (host, fingerprint, decision, expected) = match e {
             TrustEvent::HostKeyAdded { host, port, fingerprint, .. } => {
-                (format!("{host}:{port}"), fingerprint, "accepted")
+                (format!("{host}:{port}"), fingerprint, "accepted", None)
             }
             TrustEvent::HostKeyRejected { host, port, fingerprint } => {
-                (format!("{host}:{port}"), fingerprint, "rejected")
+                (format!("{host}:{port}"), fingerprint, "rejected", None)
             }
-            TrustEvent::HostKeyMismatch { host, port, presented, .. } => {
-                (format!("{host}:{port}"), presented, "changed")
+            TrustEvent::HostKeyMismatch { host, port, presented, expected } => {
+                (format!("{host}:{port}"), presented, "changed", Some(expected))
             }
             TrustEvent::AuthSucceeded { method } => {
                 tracing::info!(method = method.as_str(), "ssh authentication succeeded");
@@ -232,7 +232,12 @@ fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
         };
         record_audit(
             audit,
-            AuditEvent::TrustDecision { host, fingerprint, decision: decision.to_owned() },
+            AuditEvent::TrustDecision {
+                host,
+                fingerprint,
+                decision: decision.to_owned(),
+                expected,
+            },
         );
     }
 }
