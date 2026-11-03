@@ -10,10 +10,13 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use crate::error::{Result, StoreError};
 
 /// `(version, sql)`, strictly increasing. Never edit a shipped script; add a new one.
-const MIGRATIONS: &[(u32, &str)] = &[(1, include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(u32, &str)] = &[
+    (1, include_str!("../migrations/0001_init.sql")),
+    (2, include_str!("../migrations/0002_fts_secure_delete.sql")),
+];
 
 /// Highest schema version this build understands.
-pub const LATEST: u32 = 1;
+pub const LATEST: u32 = 2;
 
 pub(crate) const KEY_SCHEMA_VERSION: &str = "schema_version";
 pub(crate) const KEY_VAULT_ID: &str = "vault_id";
@@ -99,6 +102,28 @@ fn rebuild_search(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Merge the FTS index into one segment. The index is `contentless_delete = 1`, which records
+/// deletes as tombstones: the FTS5 `secure-delete` option does not apply to that mode, so the
+/// deleted tokens stay in segment pages until a merge. `optimize` is that merge; the freed
+/// pages are then wiped by the `secure_delete` pragma (review L4).
+pub(crate) fn purge_search(conn: &Connection) -> Result<()> {
+    conn.execute("INSERT INTO search (search) VALUES ('optimize')", [])?;
+    Ok(())
+}
+
+/// Fold the WAL back into the main file and truncate it, so deleted rows do not linger in
+/// `-wal` after the store is closed (review L4).
+pub(crate) fn checkpoint_truncate(conn: &Connection) -> Result<()> {
+    let (busy, _, _): (i64, i64, i64) =
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+    if busy != 0 {
+        tracing::warn!("WAL checkpoint could not complete (database busy)");
+    }
+    Ok(())
+}
+
 pub(crate) fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(conn
         .query_row("SELECT value FROM setting WHERE key = ?1", [key], |r| r.get(0))
@@ -136,6 +161,16 @@ mod tests {
         assert_eq!(migrate(&mut conn).expect("migrate"), LATEST);
         assert_eq!(current_version(&conn).expect("v"), LATEST);
         assert_eq!(migrate(&mut conn).expect("again"), LATEST);
+    }
+
+    #[test]
+    fn fts_secure_delete_is_on() {
+        let mut conn = Connection::open_in_memory().expect("open");
+        migrate(&mut conn).expect("migrate");
+        let v: i64 = conn
+            .query_row("SELECT v FROM search_config WHERE k = 'secure-delete'", [], |r| r.get(0))
+            .expect("secure-delete config row");
+        assert_eq!(v, 1);
     }
 
     #[test]

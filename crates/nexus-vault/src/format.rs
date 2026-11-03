@@ -241,6 +241,9 @@ mod tests {
             Some(VaultError::Format(_))
         ));
         assert!(matches!(bad(|h| h.kdf_params.m_kib = 64), Some(VaultError::KdfParams(_))));
+        assert!(matches!(bad(|h| h.kdf_params.m_kib = u32::MAX), Some(VaultError::KdfParams(_))));
+        assert!(matches!(bad(|h| h.kdf_params.t = 17), Some(VaultError::KdfParams(_))));
+        assert!(matches!(bad(|h| h.kdf_params.p = 17), Some(VaultError::KdfParams(_))));
         assert!(bad(|_| ()).is_none());
         let huge = vec![b' '; MAX_HEADER_BYTES + 1];
         assert!(matches!(Header::from_bytes(&huge), Err(VaultError::Format(_))));

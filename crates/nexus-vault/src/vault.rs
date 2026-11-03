@@ -49,8 +49,13 @@ pub(crate) fn check_password(password: &SecretString) -> Result<(), VaultError> 
 }
 
 /// Re-seal the DEK under the KEK with the header's current AAD (fresh nonce).
-pub(crate) fn rewrap_password(header: &mut Header, kek: &[u8; KEY_LEN], dek: &[u8; KEY_LEN]) {
-    header.wrapped_dek = seal_with(kek, &header.aad(), dek);
+pub(crate) fn rewrap_password(
+    header: &mut Header,
+    kek: &[u8; KEY_LEN],
+    dek: &[u8; KEY_LEN],
+) -> Result<(), VaultError> {
+    header.wrapped_dek = seal_with(kek, &header.aad(), dek)?;
+    Ok(())
 }
 
 impl Vault {
@@ -71,7 +76,7 @@ impl Vault {
             keyring_wrap: None,
         };
         let kek = derive_kek(password.expose_secret().as_bytes(), &salt, params)?;
-        rewrap_password(&mut header, &kek, &dek);
+        rewrap_password(&mut header, &kek, &dek)?;
         tracing::info!(m_kib = params.m_kib, t = params.t, p = params.p, "vault created");
         Ok(Self { header, dek: Some(dek) })
     }
@@ -117,6 +122,29 @@ impl Vault {
         self.unlock_with_kek(password).map(drop)
     }
 
+    /// [`Vault::unlock`] for callers that persist the header: when the unlock upgraded a v1
+    /// header, `persist` is called with the new header. If `persist` fails, the vault is locked
+    /// again and the previous (v1) header restored, so no unpersisted `vault_id` stays in
+    /// memory and the next attempt starts clean (A1 review L1). Unlock errors come back
+    /// through `E: From<VaultError>`.
+    pub fn unlock_persisting<E: From<VaultError>>(
+        &mut self,
+        password: &SecretString,
+        persist: impl FnOnce(&Header) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let before = self.header.needs_upgrade().then(|| self.header.clone());
+        self.unlock(password)?;
+        if let Some(before) = before {
+            if let Err(e) = persist(&self.header) {
+                self.header = before;
+                self.lock();
+                tracing::warn!("upgraded vault header could not be persisted; vault locked");
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
     /// [`Vault::unlock`] that also hands back the KEK for callers that must re-wrap.
     pub(crate) fn unlock_with_kek(
         &mut self,
@@ -133,7 +161,7 @@ impl Vault {
             header.version = FORMAT_VERSION;
             header.vault_id = Uuid::new_v4();
             header.keyring_wrap = None;
-            rewrap_password(&mut header, &kek, &dek);
+            rewrap_password(&mut header, &kek, &dek)?;
             self.header = header;
             tracing::info!(version = FORMAT_VERSION, "vault header upgraded");
         }
@@ -178,7 +206,7 @@ impl Vault {
             tracing::info!("keyring unlock disabled by password change");
         }
         let kek = derive_kek(new.expose_secret().as_bytes(), &salt, params)?;
-        rewrap_password(&mut header, &kek, dek);
+        rewrap_password(&mut header, &kek, dek)?;
         self.header = header;
         tracing::info!("vault password changed");
         Ok(())
@@ -193,7 +221,7 @@ impl Vault {
         plaintext: &[u8],
     ) -> Result<Sealed, VaultError> {
         let dek = self.dek.as_ref().ok_or(VaultError::Locked)?;
-        Ok(seal_with(dek, &field_aad(record_id, field), plaintext))
+        seal_with(dek, &field_aad(record_id, field), plaintext)
     }
 
     /// Decrypt one field. The returned buffer is zeroized on drop.
@@ -307,7 +335,7 @@ mod tests {
             keyring_wrap: None,
         };
         let kek = derive_kek(password.as_bytes(), &salt, KdfParams::TEST).expect("kdf");
-        rewrap_password(&mut header, &kek, &dek);
+        rewrap_password(&mut header, &kek, &dek).expect("wrap");
         (header, dek)
     }
 
@@ -318,7 +346,7 @@ mod tests {
         assert!(!String::from_utf8_lossy(&bytes).contains("vault_id"), "v1 shape on disk");
         let mut v = Vault::from_header_bytes(&bytes).expect("v1 parses");
         assert!(v.header().needs_upgrade());
-        let s = crate::crypto::seal_with(&dek, &field_aad("r", "f"), b"legacy");
+        let s = crate::crypto::seal_with(&dek, &field_aad("r", "f"), b"legacy").expect("seal");
 
         v.unlock(&pw(PW)).expect("unlock v1");
         assert!(!v.header().needs_upgrade());
@@ -337,6 +365,58 @@ mod tests {
         forged.version = 2;
         forged.vault_id = Uuid::new_v4();
         assert_eq!(Vault::from_header(forged).unlock(&pw(PW)), Err(VaultError::Unlock));
+    }
+
+    /// Review N2: a v2 header relabelled v1 with `vault_id` and `keyring_wrap` stripped parses
+    /// (it is a well-formed v1 header) but must not unlock: the v1 AAD differs from the one the
+    /// DEK was wrapped under.
+    #[test]
+    fn v2_header_downgraded_to_v1_is_refused() {
+        let store = crate::keyring::MemoryWrapKeyStore::new();
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        v.enable_keyring_unlock(&store, &pw(PW)).expect("enable");
+        let mut down = v.header().clone();
+        down.version = 1;
+        down.vault_id = Uuid::nil();
+        down.keyring_wrap = None;
+        let bytes = down.to_bytes().expect("bytes");
+        let mut forged = Vault::from_header_bytes(&bytes).expect("well-formed v1 parses");
+        assert_eq!(forged.unlock(&pw(PW)), Err(VaultError::Unlock));
+        assert_eq!(forged.state(), VaultState::Locked);
+        assert_eq!(forged.header(), &down, "no upgrade on a failed unlock");
+    }
+
+    #[test]
+    fn unlock_persisting_locks_and_restores_when_persist_fails() {
+        let (h1, _) = v1_vault(PW);
+        let mut v = Vault::from_header(h1.clone());
+        let r: Result<(), VaultError> =
+            v.unlock_persisting(&pw(PW), |_| Err(VaultError::Format("disk full".into())));
+        assert_eq!(r, Err(VaultError::Format("disk full".into())));
+        assert_eq!(v.state(), VaultState::Locked, "must not stay unlocked");
+        assert_eq!(v.header(), &h1, "unpersisted upgrade must not stay in memory");
+
+        // retry with a working sink: upgrades, persists exactly that header, stays unlocked
+        let mut saved = None;
+        v.unlock_persisting(&pw(PW), |h| {
+            saved = Some(h.clone());
+            Ok::<(), VaultError>(())
+        })
+        .expect("unlock");
+        assert_eq!(v.state(), VaultState::Unlocked);
+        assert_eq!(saved.as_ref(), Some(v.header()));
+        assert!(!v.header().needs_upgrade());
+
+        // v2 header: persist is not called; wrong password is passed through
+        let mut v2 = Vault::from_header(v.header().clone());
+        let r = v2.unlock_persisting(&pw("wrong password!!"), |_| -> Result<(), VaultError> {
+            panic!("no persist on failed unlock")
+        });
+        assert_eq!(r, Err(VaultError::Unlock));
+        v2.unlock_persisting(&pw(PW), |_| -> Result<(), VaultError> {
+            panic!("no persist for a v2 header")
+        })
+        .expect("unlock v2");
     }
 
     #[test]

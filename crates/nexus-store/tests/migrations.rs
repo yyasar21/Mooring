@@ -26,6 +26,59 @@ fn migrates_from_empty_and_reopens_idempotently() {
     assert_eq!(s.search("xinfra", 10).expect("search").len(), 1);
 }
 
+/// Review L4: a deleted connection leaves no trace in `-wal` or in the FTS segments once the
+/// store is closed.
+#[test]
+fn deleted_rows_do_not_linger_after_close() {
+    const MARKER: &[u8] = b"zqxlingermarker";
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("nexus.db");
+    let wal = dir.path().join("nexus.db-wal");
+    let s = Store::open(&path).expect("open");
+    let root = s.create_folder(None, "root").expect("root");
+    let keep = common::conn(&s, &root, "keepme", "keep.example.test", &[]);
+    let gone = common::conn(&s, &root, "zqxlingermarker", "zqxlingermarker.example.test", &[]);
+    s.delete_connection(gone.id).expect("delete");
+    s.close().expect("close");
+
+    let wal_len = std::fs::metadata(&wal).map_or(0, |m| m.len());
+    assert_eq!(wal_len, 0, "WAL truncated on close");
+    let db = std::fs::read(&path).expect("read db");
+    assert!(!db.windows(MARKER.len()).any(|w| w == MARKER), "deleted text left in the file");
+
+    let s = Store::open(&path).expect("reopen");
+    assert_eq!(s.search("keepme", 10).expect("search").len(), 1);
+    assert!(s.search("zqxlingermarker", 10).expect("search").is_empty());
+    assert_eq!(s.get_connection(keep.id).expect("kept").name, "keepme");
+}
+
+/// Review M2: the database and its WAL/SHM files are owner-only, whatever the umask, and an
+/// existing file with loose permissions is tightened on open.
+#[cfg(unix)]
+#[test]
+fn database_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode =
+        |p: &std::path::Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("nexus.db");
+    let s = Store::open(&path).expect("open");
+    let root = s.create_folder(None, "root").expect("root");
+    common::conn(&s, &root, "c", "h.example.test", &[]);
+    assert_eq!(mode(&path), 0o600);
+    for ext in ["db-wal", "db-shm"] {
+        let side = path.with_extension(ext);
+        if side.exists() {
+            assert_eq!(mode(&side) & 0o077, 0, "{ext} readable by others");
+        }
+    }
+    drop(s);
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("loosen");
+    drop(Store::open(&path).expect("reopen"));
+    assert_eq!(mode(&path), 0o600, "existing file tightened");
+}
+
 #[test]
 fn file_store_uses_wal() {
     let dir = tempfile::tempdir().expect("tempdir");

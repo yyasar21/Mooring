@@ -17,6 +17,9 @@ pub mod session;
 pub mod tree;
 
 pub use error::NexusError;
-pub use model::{Connection, ConnectionId, CredentialId, Folder, FolderId, Protocol};
+pub use model::{
+    validate_host, validate_name, validate_tag, Connection, ConnectionId, CredentialId, Folder,
+    FolderId, Protocol, MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS,
+};
 pub use session::{Session, SessionEvent, SessionInput};
 pub use tree::ConnectionTree;

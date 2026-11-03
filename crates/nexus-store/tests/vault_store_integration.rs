@@ -215,13 +215,11 @@ fn export_import_of_store_credentials_round_trips() {
     assert!(import_age(&file, &pw(MASTER)).is_err());
 }
 
-/// BUG (A1-QA-2): `Store::set_vault_id` accepts the nil UUID. A v1 vault header reports
-/// `vault_id = nil` until its first password unlock upgrades it to v2 with a fresh random id
-/// (`Vault::unlock`). If the app binds the store before that unlock, the store is pinned to
-/// nil and every later bind with the real id fails with `VaultIdMismatch`, locking the user
-/// out of their store. Expected: nil is refused as `Invalid`.
+/// Regression for A1-QA-2: a v1 vault header reports `vault_id = nil` until its first
+/// password unlock upgrades it to v2 with a fresh random id (`Vault::unlock`). If the app
+/// bound the store before that unlock, the store would be pinned to nil and every later bind
+/// with the real id would fail with `VaultIdMismatch`. Nil is refused as `Invalid`.
 #[test]
-#[ignore = "A1-QA-2: Store::set_vault_id accepts the nil UUID (v1 header id before upgrade)"]
 fn nil_vault_id_is_refused() {
     let s = Store::open_in_memory().expect("store");
     assert!(matches!(

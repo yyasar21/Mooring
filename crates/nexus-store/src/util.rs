@@ -45,16 +45,12 @@ pub(crate) fn parse_opt_id<T: FromStr<Err = NexusError>>(s: Option<&str>) -> Res
     s.map(parse_id).transpose()
 }
 
-/// Name rules shared with `nexus_core::model` (1..=120 chars after trim, no control chars).
+/// Name rules from [`nexus_core::validate_name`], reported under `field`.
 pub(crate) fn check_name(field: &'static str, name: &str) -> Result<String> {
-    let n = name.trim();
-    if n.is_empty() || n.chars().count() > crate::MAX_NAME {
-        return Err(invalid(field, "must be 1..=120 characters"));
-    }
-    if n.chars().any(char::is_control) {
-        return Err(invalid(field, "contains control characters"));
-    }
-    Ok(n.to_owned())
+    nexus_core::validate_name(name).map_err(|e| match e {
+        NexusError::Invalid { reason, .. } => StoreError::Invalid { field, reason },
+        other => other.into(),
+    })
 }
 
 #[cfg(test)]

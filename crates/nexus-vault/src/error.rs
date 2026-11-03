@@ -42,6 +42,10 @@ pub enum VaultError {
     #[error("OS keyring error: {0}")]
     Keyring(String),
 
+    /// Encryption failed (input beyond the AEAD length limit). Nothing was written.
+    #[error("could not encrypt data")]
+    Seal,
+
     /// Export or import failed. Fixed descriptions only; never the passphrase or plaintext.
     #[error("export error: {0}")]
     Export(&'static str),

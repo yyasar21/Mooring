@@ -24,6 +24,11 @@ pub const MAX_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 /// Highest scrypt work factor (`N = 2^n`) accepted on import: about 1 GiB of memory with
 /// age's `r = 8`. Bounds what a hostile file can make us spend.
 pub const MAX_IMPORT_SCRYPT_LOG_N: u8 = 20;
+/// Fixed scrypt work factor written by [`export_age`] (`N = 2^18`, about 256 MiB), the same as
+/// the reference Go `age` CLI. Pinned rather than host-calibrated so a backup made on a fast
+/// machine always imports on a slow one, two steps under [`MAX_IMPORT_SCRYPT_LOG_N`]
+/// (review L5).
+pub const EXPORT_SCRYPT_LOG_N: u8 = 18;
 
 /// One credential record: its id and every sealed field by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,12 +60,13 @@ fn check_passphrase(passphrase: &SecretString) -> Result<(), VaultError> {
     Ok(())
 }
 
-/// Encrypt `doc` to an armored `age` file. The scrypt work factor is age's own (~1 s here).
+/// Encrypt `doc` to an armored `age` file with scrypt work factor [`EXPORT_SCRYPT_LOG_N`].
 pub fn export_age(doc: &ExportDocument, passphrase: &SecretString) -> Result<Vec<u8>, VaultError> {
-    export_age_inner(doc, passphrase, None)
+    export_age_inner(doc, passphrase, Some(EXPORT_SCRYPT_LOG_N))
 }
 
-/// [`export_age`] with a fixed scrypt work factor; only for fast tests and test vectors.
+/// [`export_age`] with a chosen scrypt work factor (`None` = age's host-calibrated default);
+/// other values only for fast tests and test vectors.
 pub(crate) fn export_age_inner(
     doc: &ExportDocument,
     passphrase: &SecretString,
@@ -182,10 +188,28 @@ mod tests {
     }
 
     #[test]
-    fn default_work_factor_round_trips() {
+    fn export_age_writes_pinned_work_factor() {
+        // One real scrypt at 2^18 (slow in debug builds); the import side of the round trip is
+        // covered at a low work factor by `round_trip_and_fields_still_open`.
         let (_, d) = doc();
         let bytes = export_age(&d, &s(PASS)).expect("export");
-        assert_eq!(import_age(&bytes, &s(PASS)).expect("import"), d);
+        assert_eq!(scrypt_log_n(&bytes), EXPORT_SCRYPT_LOG_N);
+    }
+
+    /// The work factor written in the (de-armored) scrypt stanza: `-> scrypt <salt> <log_n>`.
+    fn scrypt_log_n(armored: &[u8]) -> u8 {
+        let mut bin = Vec::new();
+        ArmoredReader::new(armored).read_to_end(&mut bin).expect("dearmor");
+        let text = String::from_utf8_lossy(&bin);
+        let line = text.lines().find(|l| l.starts_with("-> scrypt ")).expect("scrypt stanza");
+        line.rsplit(' ').next().and_then(|n| n.parse().ok()).expect("work factor")
+    }
+
+    #[test]
+    fn export_pins_work_factor_below_import_cap() {
+        const { assert!(EXPORT_SCRYPT_LOG_N == 18 && EXPORT_SCRYPT_LOG_N < MAX_IMPORT_SCRYPT_LOG_N) };
+        let (_, d) = doc();
+        assert_eq!(scrypt_log_n(&export_age_inner(&d, &s(PASS), FAST).expect("export")), 10);
     }
 
     #[test]
@@ -257,6 +281,42 @@ mod tests {
             let _ = import_age(&input, &s(PASS));
             let _ = Header::from_bytes(&input);
         }
+    }
+
+    /// Encrypt arbitrary bytes with age directly, bypassing `export_age`'s header check.
+    fn raw_age(payload: &[u8]) -> Vec<u8> {
+        let mut recipient = scrypt::Recipient::new(age::secrecy::SecretString::from(PASS));
+        recipient.set_work_factor(10);
+        let enc = age::Encryptor::with_recipients(iter::once(&recipient as &dyn age::Recipient))
+            .expect("encryptor");
+        let mut out = Vec::new();
+        let mut w = enc.wrap_output(&mut out).expect("wrap");
+        w.write_all(payload).expect("write");
+        w.finish().expect("finish");
+        out
+    }
+
+    #[test]
+    fn import_refuses_hostile_kdf_cost_in_header() {
+        let (_, d) = doc();
+        for params in [
+            KdfParams { m_kib: u32::MAX, t: 1, p: 1 },
+            KdfParams { m_kib: KdfParams::TEST.m_kib, t: u32::MAX, p: 1 },
+            KdfParams { m_kib: KdfParams::TEST.m_kib, t: 1, p: 0x00FF_FFFF },
+            KdfParams { m_kib: u32::MAX, t: u32::MAX, p: 0x00FF_FFFF },
+        ] {
+            let mut hostile = d.clone();
+            hostile.header.kdf_params = params;
+            let bytes = raw_age(&serde_json::to_vec(&hostile).expect("json"));
+            assert_eq!(
+                import_age(&bytes, &s(PASS)),
+                Err(VaultError::Export("invalid vault header in export")),
+                "{params:?}"
+            );
+        }
+        // the same path accepts a sane header
+        let ok = raw_age(&serde_json::to_vec(&d).expect("json"));
+        assert_eq!(import_age(&ok, &s(PASS)).expect("import"), d);
     }
 
     #[test]

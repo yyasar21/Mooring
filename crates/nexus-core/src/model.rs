@@ -139,31 +139,64 @@ pub struct Connection {
     pub created_at: OffsetDateTime,
 }
 
-const MAX_NAME: usize = 120;
-const MAX_HOST: usize = 2048;
+/// Maximum display-name length (characters, after trimming).
+pub const MAX_NAME: usize = 120;
+/// Maximum host length (bytes, after trimming).
+pub const MAX_HOST: usize = 2048;
+/// Maximum tag length (characters, after trimming).
+pub const MAX_TAG: usize = 64;
+/// Maximum number of tags per connection.
+pub const MAX_TAGS: usize = 50;
 
-fn check_name(name: &str) -> Result<()> {
+fn invalid(field: &'static str, reason: String) -> NexusError {
+    NexusError::Invalid { field, reason }
+}
+
+/// Validate a display name (folder, connection, credential) and return it trimmed:
+/// 1..=[`MAX_NAME`] characters, no control characters. The error never echoes the input.
+pub fn validate_name(name: &str) -> Result<String> {
     let n = name.trim();
     if n.is_empty() || n.chars().count() > MAX_NAME {
-        return Err(NexusError::Invalid { field: "name", reason: format!("1..={MAX_NAME} chars") });
+        return Err(invalid("name", format!("must be 1..={MAX_NAME} characters")));
     }
     if n.chars().any(char::is_control) {
-        return Err(NexusError::Invalid { field: "name", reason: "control characters".into() });
+        return Err(invalid("name", "contains control characters".into()));
     }
-    Ok(())
+    Ok(n.to_owned())
+}
+
+/// Validate a host (name, IP, URL or context) and return it trimmed: 1..=[`MAX_HOST`] bytes,
+/// no whitespace or control characters.
+pub fn validate_host(host: &str) -> Result<String> {
+    let h = host.trim();
+    if h.is_empty() || h.len() > MAX_HOST || h.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(invalid(
+            "host",
+            format!("empty, longer than {MAX_HOST} bytes or has spaces/control characters"),
+        ));
+    }
+    Ok(h.to_owned())
+}
+
+/// Validate one tag and return it trimmed: 1..=[`MAX_TAG`] characters, no control characters.
+/// The count limit [`MAX_TAGS`] applies to the list and is checked by the caller.
+pub fn validate_tag(tag: &str) -> Result<String> {
+    let t = tag.trim();
+    if t.is_empty() || t.chars().count() > MAX_TAG {
+        return Err(invalid("tag", format!("must be 1..={MAX_TAG} characters")));
+    }
+    if t.chars().any(char::is_control) {
+        return Err(invalid("tag", "contains control characters".into()));
+    }
+    Ok(t.to_owned())
 }
 
 impl Folder {
     /// Build a validated folder.
     pub fn new(parent: Option<FolderId>, name: impl Into<String>) -> Result<Self> {
-        let name = name.into();
-        check_name(&name)?;
-        Ok(Self {
-            id: FolderId::new(),
-            parent,
-            name: name.trim().to_owned(),
-            default_credential: None,
-        })
+        let name = validate_name(&name.into())?;
+        Ok(Self { id: FolderId::new(), parent, name, default_credential: None })
     }
 }
 
@@ -175,22 +208,14 @@ impl Connection {
         protocol: Protocol,
         host: impl Into<String>,
     ) -> Result<Self> {
-        let name = name.into();
-        let host = host.into();
-        check_name(&name)?;
-        let h = host.trim();
-        if h.is_empty() || h.len() > MAX_HOST || h.chars().any(char::is_whitespace) {
-            return Err(NexusError::Invalid {
-                field: "host",
-                reason: "empty, too long or has spaces".into(),
-            });
-        }
+        let name = validate_name(&name.into())?;
+        let host = validate_host(&host.into())?;
         Ok(Self {
             id: ConnectionId::new(),
             folder,
-            name: name.trim().to_owned(),
+            name,
             protocol,
-            host: h.to_owned(),
+            host,
             port: None,
             credential: None,
             tags: Vec::new(),
@@ -218,6 +243,38 @@ mod tests {
         let c = Connection::new(root.id, " xinfra01 ", Protocol::Ssh, "10.10.20.5").expect("valid");
         assert_eq!(c.name, "xinfra01");
         assert_eq!(c.effective_port(), Some(22));
+    }
+
+    #[test]
+    fn public_validators() {
+        assert_eq!(validate_name("  a ").expect("ok"), "a");
+        assert_eq!(validate_name(&"x".repeat(MAX_NAME)).expect("max").chars().count(), MAX_NAME);
+        assert!(validate_name(&"x".repeat(MAX_NAME + 1)).is_err());
+        assert!(validate_name("").is_err());
+        assert!(validate_name("a\nb").is_err());
+
+        assert_eq!(validate_host(" 10.10.20.5 ").expect("ok"), "10.10.20.5");
+        assert!(validate_host(&"h".repeat(MAX_HOST)).is_ok());
+        assert!(validate_host(&"h".repeat(MAX_HOST + 1)).is_err());
+        assert!(validate_host("a b").is_err());
+        assert!(validate_host("a\u{0}b").is_err());
+        assert!(validate_host("").is_err());
+
+        assert_eq!(validate_tag(" infra ").expect("ok"), "infra");
+        assert!(validate_tag(&"t".repeat(MAX_TAG)).is_ok());
+        assert!(validate_tag(&"t".repeat(MAX_TAG + 1)).is_err());
+        assert!(validate_tag(" ").is_err());
+        assert!(validate_tag("a\u{7}").is_err());
+
+        // errors never echo the rejected value
+        let e = validate_host("secret-looking host").expect_err("spaces");
+        assert!(!e.to_string().contains("secret-looking"));
+    }
+
+    #[test]
+    fn connection_new_refuses_control_chars_in_host() {
+        let root = Folder::new(None, "Lab").expect("valid");
+        assert!(Connection::new(root.id, "x", Protocol::Ssh, "host\u{1b}[31m").is_err());
     }
 
     #[test]

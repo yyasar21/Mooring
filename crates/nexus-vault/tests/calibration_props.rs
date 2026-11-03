@@ -143,15 +143,12 @@ fn header_below_floor_is_refused_at_parse() {
     }
 }
 
-/// BUG (A1-QA-1): ADR-0006 "Security consequences" says a hostile header cannot cause OOM,
-/// but `KdfParams::validate` only enforces the floor and Argon2's own limits (m up to
-/// `u32::MAX` KiB = 4 TiB, t up to `u32::MAX`). A tampered `vault.header.json` (or an imported
-/// export, which re-runs the same check) is therefore accepted and the next `unlock` tries
-/// to allocate terabytes / run for hours before the AEAD can reject it. Expected: parsing
-/// refuses KDF params above a documented ceiling (e.g. m <= 4 GiB, t <= 64, p <= 16).
+/// Regression for A1-QA-1 / review B2: ADR-0006 "Security consequences" says a hostile header
+/// cannot cause OOM. A tampered `vault.header.json` (or an imported export, which re-runs the
+/// same check) with absurd KDF costs must be refused at parse time, above
+/// `KdfParams::CEILING` (m <= 4 GiB, t <= 16, p <= 16), before any key derivation.
 /// This test does NOT call unlock; it only checks that parsing rejects the header.
 #[test]
-#[ignore = "A1-QA-1: header KDF params have no upper bound (OOM/CPU DoS on unlock); fix in nexus-vault validate()"]
 fn header_with_absurd_kdf_cost_is_refused_at_parse() {
     for p in [
         KdfParams { m_kib: u32::MAX, t: 1, p: 1 },
