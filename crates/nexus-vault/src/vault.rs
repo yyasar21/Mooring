@@ -117,6 +117,29 @@ impl Vault {
         self.unlock_with_kek(password).map(drop)
     }
 
+    /// [`Vault::unlock`] for callers that persist the header: when the unlock upgraded a v1
+    /// header, `persist` is called with the new header. If `persist` fails, the vault is locked
+    /// again and the previous (v1) header restored, so no unpersisted `vault_id` stays in
+    /// memory and the next attempt starts clean (A1 review L1). Unlock errors come back
+    /// through `E: From<VaultError>`.
+    pub fn unlock_persisting<E: From<VaultError>>(
+        &mut self,
+        password: &SecretString,
+        persist: impl FnOnce(&Header) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let before = self.header.needs_upgrade().then(|| self.header.clone());
+        self.unlock(password)?;
+        if let Some(before) = before {
+            if let Err(e) = persist(&self.header) {
+                self.header = before;
+                self.lock();
+                tracing::warn!("upgraded vault header could not be persisted; vault locked");
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
     /// [`Vault::unlock`] that also hands back the KEK for callers that must re-wrap.
     pub(crate) fn unlock_with_kek(
         &mut self,
@@ -337,6 +360,39 @@ mod tests {
         forged.version = 2;
         forged.vault_id = Uuid::new_v4();
         assert_eq!(Vault::from_header(forged).unlock(&pw(PW)), Err(VaultError::Unlock));
+    }
+
+    #[test]
+    fn unlock_persisting_locks_and_restores_when_persist_fails() {
+        let (h1, _) = v1_vault(PW);
+        let mut v = Vault::from_header(h1.clone());
+        let r: Result<(), VaultError> =
+            v.unlock_persisting(&pw(PW), |_| Err(VaultError::Format("disk full".into())));
+        assert_eq!(r, Err(VaultError::Format("disk full".into())));
+        assert_eq!(v.state(), VaultState::Locked, "must not stay unlocked");
+        assert_eq!(v.header(), &h1, "unpersisted upgrade must not stay in memory");
+
+        // retry with a working sink: upgrades, persists exactly that header, stays unlocked
+        let mut saved = None;
+        v.unlock_persisting(&pw(PW), |h| {
+            saved = Some(h.clone());
+            Ok::<(), VaultError>(())
+        })
+        .expect("unlock");
+        assert_eq!(v.state(), VaultState::Unlocked);
+        assert_eq!(saved.as_ref(), Some(v.header()));
+        assert!(!v.header().needs_upgrade());
+
+        // v2 header: persist is not called; wrong password is passed through
+        let mut v2 = Vault::from_header(v.header().clone());
+        let r = v2.unlock_persisting(&pw("wrong password!!"), |_| -> Result<(), VaultError> {
+            panic!("no persist on failed unlock")
+        });
+        assert_eq!(r, Err(VaultError::Unlock));
+        v2.unlock_persisting(&pw(PW), |_| -> Result<(), VaultError> {
+            panic!("no persist for a v2 header")
+        })
+        .expect("unlock v2");
     }
 
     #[test]

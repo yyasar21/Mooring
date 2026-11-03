@@ -126,12 +126,11 @@ pub fn vault_unlock(state: State<'_, AppState>, password: String) -> IpcResult<V
     let mut guard =
         state.vault.lock().map_err(|_| IpcError::new("state.poisoned", "internal error"))?;
     let vault = guard.as_mut().ok_or_else(|| IpcError::new("vault.missing", "no vault yet"))?;
-    let upgrade = vault.header().needs_upgrade();
-    vault.unlock(&password)?;
-    if upgrade {
-        // v1 -> v2 happened in memory during unlock (ADR-0006); persist it now.
-        state.save_header(vault)?;
-    }
+    // A v1 -> v2 upgrade happens in memory during unlock (ADR-0006) and is persisted here. If
+    // that write fails the vault is locked again with its v1 header (review L1).
+    vault.unlock_persisting(&password, |header| {
+        state.save_header_bytes(header).map_err(IpcError::from)
+    })?;
     audit(&state, AuditEvent::VaultUnlocked);
     Ok(VaultStatus::Unlocked)
 }

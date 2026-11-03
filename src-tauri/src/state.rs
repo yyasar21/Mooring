@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use nexus_audit::{AuditError, AuditLog};
-use nexus_vault::{Vault, VaultError};
+use nexus_vault::{Header, Vault, VaultError};
 
 /// Shared application state managed by Tauri.
 #[derive(Debug)]
@@ -51,7 +51,12 @@ impl AppState {
 
     /// Persist the current vault header (contains no secret material).
     pub fn save_header(&self, vault: &Vault) -> Result<(), StateError> {
-        let bytes = vault.header().to_bytes()?;
+        self.save_header_bytes(vault.header())
+    }
+
+    /// Persist a given header (used while the vault itself is mutably borrowed).
+    pub fn save_header_bytes(&self, header: &Header) -> Result<(), StateError> {
+        let bytes = header.to_bytes()?;
         let path = self.data_dir.join(Self::HEADER_FILE);
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, bytes)?;
