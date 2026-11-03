@@ -41,6 +41,9 @@ secrecy = { version = "0.10", features = ["serde"] }
 age = { version = "0.12", features = ["armor"] }          # ADR-0006: age-compatible export (RustCrypto, pure Rust)
 keyring = "4"                                             # ADR-0006: OS keyring wrap (Keychain / Credential Manager / Secret Service via zbus), opt-in; used by nexus-app only
 sysinfo = { version = "0.38", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
+# ssh (ADR-0007): ring backend only, aws-lc-rs off
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh-sftp = "3"
 # data
 rusqlite = { version = "0.41", features = ["bundled"] } # ADR-0005: single SQLite store, bundled for 3-OS parity
 serde = { version = "1", features = ["derive"] }
