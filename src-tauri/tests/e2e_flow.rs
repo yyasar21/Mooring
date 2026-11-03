@@ -14,6 +14,8 @@
 
 use mooring_app_lib::{commands, error, sessions, state, test_ssh_server};
 
+#[path = "e2e_flow/credential_kinds.rs"]
+mod credential_kinds;
 #[path = "e2e_flow/hostile.rs"]
 mod hostile;
 #[path = "e2e_flow/hostile_edges.rs"]
@@ -45,28 +47,16 @@ fn pw(s: &str) -> SecretString {
 fn build_tree(state: &state::AppState, port: u16) -> (String, String, String) {
     let root = tree::list(state).expect("tree").folders[0].id.clone();
     let lab = tree::create_folder(state, &root, "Lab").expect("folder");
-    let cred = credentials::create(
-        state,
-        NewCredential {
-            name: "lab login".into(),
-            kind: "password".into(),
-            username: USER.into(),
-            secret: pw(PASSWORD),
-            secret2: None,
-        },
-    )
-    .expect("credential");
+    let cred =
+        credentials::create(state, NewCredential::user_password("lab login", USER, PASSWORD))
+            .expect("credential");
     tree::set_default_credential(state, &lab.id, Some(&cred.id)).expect("default cred");
     let conn = tree::create_connection(
         state,
         ConnectionFields {
-            folder_id: lab.id.clone(),
-            name: "web01 (loopback stand-in)".into(),
-            protocol: "ssh".into(),
-            host: "127.0.0.1".into(),
             port: Some(u32::from(port)),
-            credential_id: None,
             tags: vec!["lab".into(), "linux".into()],
+            ..ConnectionFields::basic(&lab.id, "web01 (loopback stand-in)", "ssh", "127.0.0.1")
         },
     )
     .expect("connection");
@@ -131,7 +121,7 @@ async fn create_vault_add_connection_run_uname_close_and_lock() {
     for (name, code) in &locked {
         assert_eq!(*code, "vault.locked", "{name} after lock");
     }
-    assert_eq!(locked.len(), 20, "every vault-gated command is covered");
+    assert_eq!(locked.len(), 22, "every vault-gated command is covered");
     assert_eq!(support::change_password_while_locked(st), "vault.unlock");
     assert_eq!(vault::status(st).expect("status"), VaultStatus::Locked, "still locked");
     assert_eq!(sess::list(st).expect("session_list is not gated"), vec![]);

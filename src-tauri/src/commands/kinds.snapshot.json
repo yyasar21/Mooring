@@ -1,0 +1,898 @@
+[
+ {
+  "kind": "user_password",
+  "label": "Username and password",
+  "group": "Windows",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "rdp",
+    "roles": [
+     "primary",
+     "gateway"
+    ]
+   },
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "vsphere-console",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": true,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "domain",
+    "label": "Domain",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 253,
+     "format": "text"
+    }
+   },
+   {
+    "name": "password",
+    "label": "Password",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "domain_user",
+  "label": "Domain account",
+  "group": "Windows",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "rdp",
+    "roles": [
+     "primary",
+     "gateway"
+    ]
+   },
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "vsphere-console",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": true,
+  "fields": [
+   {
+    "name": "user",
+    "label": "Account",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "CORP\\alice or alice@corp.example",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "netbios_or_upn"
+    }
+   },
+   {
+    "name": "domain",
+    "label": "Domain",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 253,
+     "format": "text"
+    }
+   },
+   {
+    "name": "form",
+    "label": "Form",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 8,
+     "format": "enum",
+     "options": [
+      "netbios",
+      "upn"
+     ]
+    }
+   },
+   {
+    "name": "password",
+    "label": "Password",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "ssh_key",
+  "label": "SSH key",
+  "group": "SSH",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": true,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "private_key",
+    "label": "Private key",
+    "secret": true,
+    "required": true,
+    "multiline": true,
+    "placeholder": "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 65536,
+     "format": "pem"
+    }
+   },
+   {
+    "name": "passphrase",
+    "label": "Key passphrase",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   },
+   {
+    "name": "public_key",
+    "label": "Public key",
+    "secret": false,
+    "required": false,
+    "multiline": true,
+    "placeholder": "ssh-ed25519 AAAA… (optional)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   },
+   {
+    "name": "certificate",
+    "label": "OpenSSH certificate",
+    "secret": false,
+    "required": false,
+    "multiline": true,
+    "placeholder": "ssh-ed25519-cert-v01@openssh.com AAAA… (optional, from *-cert.pub)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 65536,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "ssh_agent",
+  "label": "SSH agent",
+  "group": "SSH",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "key_fingerprint",
+    "label": "Pin agent key",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "SHA256:… (optional)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 128,
+     "format": "text",
+     "pattern": "^SHA256:[A-Za-z0-9+/]{43}=?$"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "sudo_become",
+  "label": "Become (sudo, su, doas)",
+  "group": "SSH",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "become"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "method",
+    "label": "Method",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 8,
+     "format": "enum",
+     "options": [
+      "sudo",
+      "su",
+      "doas"
+     ]
+    }
+   },
+   {
+    "name": "become_user",
+    "label": "Become user",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "root",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "password",
+    "label": "Become password",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "x509",
+  "label": "X.509 client certificate",
+  "group": "Web/API",
+  "protocols": [
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "kubernetes",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "cert_pem",
+    "label": "Certificate",
+    "secret": false,
+    "required": true,
+    "multiline": true,
+    "placeholder": "-----BEGIN CERTIFICATE-----",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 65536,
+     "format": "pem"
+    }
+   },
+   {
+    "name": "key_pem",
+    "label": "Private key",
+    "secret": true,
+    "required": true,
+    "multiline": true,
+    "placeholder": "-----BEGIN PRIVATE KEY-----",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 65536,
+     "format": "pem"
+    }
+   },
+   {
+    "name": "key_passphrase",
+    "label": "Key passphrase",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "api_token",
+  "label": "API token",
+  "group": "Web/API",
+  "protocols": [
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "header_name",
+    "label": "Header",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "Authorization",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 64,
+     "format": "text"
+    }
+   },
+   {
+    "name": "scheme",
+    "label": "Scheme",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "Bearer",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 64,
+     "format": "text"
+    }
+   },
+   {
+    "name": "token",
+    "label": "Token",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "oauth_client",
+  "label": "OAuth client credentials",
+  "group": "Web/API",
+  "protocols": [
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "token_url",
+    "label": "Token URL",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "https://login.example.test/oauth2/token",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 2048,
+     "format": "url"
+    }
+   },
+   {
+    "name": "client_id",
+    "label": "Client ID",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "scope",
+    "label": "Scope",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 1024,
+     "format": "text"
+    }
+   },
+   {
+    "name": "client_secret",
+    "label": "Client secret",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   },
+   {
+    "name": "refresh_token",
+    "label": "Refresh token",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "kubeconfig",
+  "label": "kubeconfig",
+  "group": "Kubernetes",
+  "protocols": [
+   {
+    "protocol": "kubernetes",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "kubeconfig_yaml",
+    "label": "kubeconfig",
+    "secret": true,
+    "required": true,
+    "multiline": true,
+    "placeholder": "apiVersion: v1\nkind: Config\n…",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 1048576,
+     "format": "yaml"
+    }
+   },
+   {
+    "name": "context",
+    "label": "Context",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "current-context",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 253,
+     "format": "enum"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "kube_token",
+  "label": "Kubernetes token",
+  "group": "Kubernetes",
+  "protocols": [
+   {
+    "protocol": "kubernetes",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "subject",
+    "label": "Subject",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "system:serviceaccount:ns:name (display only)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "token",
+    "label": "Bearer token",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "vsphere_user",
+  "label": "vSphere SSO account",
+  "group": "vSphere",
+  "protocols": [
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "vsphere-console",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": true,
+  "fields": [
+   {
+    "name": "upn",
+    "label": "Account",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "administrator@vsphere.local",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 510,
+     "format": "upn"
+    }
+   },
+   {
+    "name": "password",
+    "label": "Password",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "vnc_password",
+  "label": "VNC password",
+  "group": "VNC",
+  "protocols": [
+   {
+    "protocol": "vnc",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "password",
+    "label": "Password",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "at most 8 bytes",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 8,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "vnc_user_password",
+  "label": "VNC username and password",
+  "group": "VNC",
+  "protocols": [
+   {
+    "protocol": "vnc",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "password",
+    "label": "Password",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": true,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "prompt",
+  "label": "Ask at connect",
+  "group": "Other",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "rdp",
+    "roles": [
+     "primary",
+     "gateway"
+    ]
+   },
+   {
+    "protocol": "vnc",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "web",
+    "roles": [
+     "primary"
+    ]
+   },
+   {
+    "protocol": "vsphere-console",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "domain",
+    "label": "Domain",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 253,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "external_ref",
+  "label": "Secret manager reference",
+  "group": "Other",
+  "protocols": [],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "provider",
+    "label": "Provider",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16,
+     "format": "enum",
+     "options": [
+      "vault",
+      "onepassword",
+      "bitwarden"
+     ]
+    }
+   },
+   {
+    "name": "reference",
+    "label": "Reference",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 1024,
+     "format": "text"
+    }
+   },
+   {
+    "name": "target_kind",
+    "label": "Resolves to",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 32,
+     "format": "enum",
+     "options": [
+      "user_password",
+      "domain_user",
+      "ssh_key",
+      "x509",
+      "api_token",
+      "oauth_client",
+      "kubeconfig",
+      "kube_token",
+      "vsphere_user",
+      "vnc_password",
+      "vnc_user_password",
+      "sudo_become"
+     ]
+    }
+   }
+  ]
+ }
+]

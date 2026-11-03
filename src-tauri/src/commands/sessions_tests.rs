@@ -50,26 +50,16 @@ fn ssh_fixture(port: u16, protocol: &str) -> (Fixture, String) {
     let f = unlocked();
     let cred = credentials::create(
         &f.state,
-        NewCredential {
-            name: "alice".into(),
-            kind: "password".into(),
-            username: USER.into(),
-            secret: SecretString::from(PASSWORD),
-            secret2: None,
-        },
+        NewCredential::user_password("alice", USER, PASSWORD),
     )
     .expect("cred");
     let root = f.state.with_ready(|_, s| Ok(tree::root_id(s).to_string())).expect("root");
     let c = tree::create_connection(
         &f.state,
         ConnectionFields {
-            folder_id: root,
-            name: "test server".into(),
-            protocol: protocol.into(),
-            host: "127.0.0.1".into(),
             port: Some(u32::from(port)),
             credential_id: Some(cred.id),
-            tags: vec![],
+            ..ConnectionFields::basic(&root, "test server", protocol, "127.0.0.1")
         },
     )
     .expect("connection");

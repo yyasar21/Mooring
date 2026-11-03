@@ -151,17 +151,8 @@ async fn hostile_input_on_a_live_ssh_session() {
     let f = testing::unlocked();
     let st = &f.state;
     let root = tree::list(st).expect("tree").folders[0].id.clone();
-    let cred = credentials::create(
-        st,
-        NewCredential {
-            name: "c".into(),
-            kind: "password".into(),
-            username: USER.into(),
-            secret: SecretString::from(PASSWORD.to_owned()),
-            secret2: None,
-        },
-    )
-    .expect("cred");
+    let cred =
+        credentials::create(st, NewCredential::user_password("c", USER, PASSWORD)).expect("cred");
     let conn = tree::create_connection(
         st,
         ConnectionFields {
