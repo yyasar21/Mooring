@@ -52,10 +52,14 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         onKeyDown={trap}
-        className="pop fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-y-auto"
+        className="pop m-hud fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-y-auto"
+        data-active
         style={{ width }}
       >
-        <h2 className="border-b border-line px-4 py-3 text-[length:var(--fs-l)] font-medium">{title}</h2>
+        <h2 className="m-display flex items-center gap-3 border-b border-line px-4 py-3.5 text-[length:var(--fs-l)]">
+          <span aria-hidden className="state-dot" data-state="connected" />
+          {title}
+        </h2>
         {children}
       </div>
     </>

@@ -1,6 +1,5 @@
-import { Kbd, StateDot } from "@mooring/ui";
+import { Kbd } from "@mooring/ui";
 import { useApp } from "../stores/app";
-import { useSessions } from "../stores/sessions";
 import { INSPECTOR, SIDEBAR, useUi } from "../stores/ui";
 import { Sidebar } from "./tree/Sidebar";
 import { Workspace } from "./Workspace";
@@ -9,15 +8,16 @@ import { CommandPalette } from "./CommandPalette";
 import { AuditView } from "./audit/AuditView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
+import { Telemetry } from "./Telemetry";
 import { useShortcuts } from "./useShortcuts";
 
-/** Main window once the vault is unlocked: tree | tabs (or audit) | inspector, with a status line. */
+/** Main window once the vault is unlocked: tree | tabs (or audit) | inspector, over a telemetry strip. */
 export function Shell() {
   const ui = useUi();
   useShortcuts();
 
   return (
-    <div className="grid h-full grid-rows-[40px_1fr_var(--status-h)]">
+    <div className="deck grid h-full grid-rows-[42px_1fr_var(--status-h)]">
       <TitleBar />
       <div
         className="grid min-h-0"
@@ -45,7 +45,7 @@ export function Shell() {
           </>
         )}
       </div>
-      <StatusBar />
+      <Telemetry />
       <CommandPalette />
       <DialogHost />
     </div>
@@ -61,13 +61,13 @@ function TitleBar() {
   const lock = useApp((s) => s.lock);
 
   return (
-    <header className="flex items-center gap-2 border-b border-line bg-bg-sunken px-3" data-tauri-drag-region>
-      <span className="pr-2 font-semibold tracking-tight">Mooring</span>
-      <button
-        type="button"
-        onClick={() => { setPalette(true); }}
-        className="flex h-[26px] w-[380px] min-w-0 items-center gap-2 rounded-[var(--radius-s)] border border-line bg-bg px-2 text-left text-text-faint hover:border-line-strong"
-      >
+    <header className="titlebar" data-tauri-drag-region>
+      <span className="wordmark">
+        <Mark />
+        <span className="wordmark-text">MOORING</span>
+      </span>
+      <button type="button" onClick={() => { setPalette(true); }} className="seek">
+        <span aria-hidden className="seek-caret">&gt;</span>
         <span className="flex-1 truncate">Open a connection</span>
         <Kbd>mod K</Kbd>
       </button>
@@ -90,6 +90,10 @@ function TitleBar() {
           {theme === "dark" ? "Light" : "Dark"}
         </button>
         <button type="button" onClick={() => void lock()} className="btn btn-ghost">
+          <svg width="10" height="11" viewBox="0 0 10 11" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+            <rect x="1" y="4.5" width="8" height="6" />
+            <path d="M3 4.5V3a2 2 0 0 1 4 0v1.5" />
+          </svg>
           Lock
         </button>
       </nav>
@@ -97,30 +101,13 @@ function TitleBar() {
   );
 }
 
-function StatusBar() {
-  const info = useApp((s) => s.info);
-  const tabs = useSessions((s) => s.tabs);
-  const live = tabs.filter((t) => t.state === "connected").length;
-  const pending = tabs.filter((t) => t.state === "connecting").length;
-
+/** Brand mark: a bollard seen from above, with a line made fast to it. */
+function Mark() {
   return (
-    <footer className="flex items-center gap-4 border-t border-line bg-bg-sunken px-3 text-[length:var(--fs-xs)] text-text-muted">
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Vault unlocked
-      </span>
-      <span className="tnum flex items-center gap-1.5">
-        <StateDot state={live > 0 ? "connected" : "closed"} />
-        <span>
-          {live} connected
-          {pending > 0 && <span className="text-text-faint">, {pending} connecting</span>}
-        </span>
-      </span>
-      {info && (
-        <span className="ml-auto text-text-faint">
-          {info.name} {info.version}, {info.os}/{info.arch}
-          {info.debug ? ", debug build" : ""}
-        </span>
-      )}
-    </footer>
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
+      <path d="M9 1.5 15.5 5v8L9 16.5 2.5 13V5z" />
+      <circle cx="9" cy="9" r="2.4" />
+      <path d="M11.2 9h5.3" />
+    </svg>
   );
 }

@@ -90,13 +90,14 @@ export function TreeRowView(p: Props) {
           </svg>
         </button>
       ) : (
-        p.connection && <ProtocolPip protocol={p.connection.protocol} />
+        p.connection && <ProtocolPip protocol={p.connection.protocol} live={p.sessionState === "connected"} />
       )}
       {p.renaming ? (
         <RenameField initial={name} onDone={p.onRename} />
       ) : (
-        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span className="tree-name">{name}</span>
       )}
+      {!p.renaming && <span aria-hidden className="tree-link" data-state={p.sessionState ?? undefined} />}
       {p.sessionState && <StateDot state={p.sessionState} label={`session ${p.sessionState}`} />}
       {isFolder && p.folder?.defaultCredentialId && (
         <span title="Folder supplies a default credential" aria-label="has default credential" className="flex-none text-text-faint">
