@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Mooring – secure remote access manager for SSH, RDP, VNC, Kubernetes and vSphere</title>
+<meta name="description" content="Mooring is an open source, security-first remote access manager for macOS, Windows and Linux. Argon2id + XChaCha20-Poly1305 vault, hash-chained audit log, strict SSH with TOFU. Built in Rust and Tauri.">
+<link rel="canonical" href="https://yyasar21.github.io/Mooring/">
+<meta name="theme-color" content="#03070a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2f6f7" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Mooring">
+<meta property="og:title" content="Mooring – secure remote access manager">
+<meta property="og:description" content="Open source remote access manager for SSH, RDP, VNC, Kubernetes and vSphere. Encrypted vault, tamper-evident audit log, Rust core.">
+<meta property="og:url" content="https://yyasar21.github.io/Mooring/">
+<meta property="og:image" content="https://yyasar21.github.io/Mooring/assets/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Mooring wordmark beside the app window with an SSH session open">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mooring – secure remote access manager">
+<meta name="twitter:description" content="Open source remote access manager for SSH, RDP, VNC, Kubernetes and vSphere. Encrypted vault, tamper-evident audit log, Rust core.">
+<meta name="twitter:image" content="https://yyasar21.github.io/Mooring/assets/og.png">
+<meta name="twitter:image:alt" content="Mooring wordmark beside the app window with an SSH session open">
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="fonts/chakra-petch-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/hero.webp" as="image" type="image/webp" fetchpriority="high">
+<link rel="stylesheet" href="css/site.css">
+<script src="js/site.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Mooring",
+  "applicationCategory": "UtilitiesApplication",
+  "applicationSubCategory": "Remote access manager",
+  "operatingSystem": "macOS, Windows, Linux",
+  "description": "Open source, security-first remote access manager for SSH, RDP, VNC, Kubernetes and vSphere with an Argon2id + XChaCha20-Poly1305 vault and a hash-chained audit log.",
+  "url": "https://yyasar21.github.io/Mooring/",
+  "downloadUrl": "https://github.com/yyasar21/Mooring/releases",
+  "image": "https://yyasar21.github.io/Mooring/assets/og.png",
+  "screenshot": "https://yyasar21.github.io/Mooring/assets/hero.webp",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Yunus Yaşar" },
+  "codeRepository": "https://github.com/yyasar21/Mooring",
+  "programmingLanguage": ["Rust", "TypeScript"]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="wordmark" href="./" aria-label="Mooring home">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>Mooring</span>
+    </a>
+    <nav aria-label="Primary">
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/docs/user-guide/README.md">Docs</a></li>
+        <li class="hide-s"><a href="#roadmap">Roadmap</a></li>
+      </ul>
+    </nav>
+    <div class="nav-actions">
+      <a class="star" href="https://github.com/yyasar21/Mooring" aria-describedby="star-count">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.6l1.9 4 4.4.5-3.3 3 .9 4.3L8 11.2l-3.9 2.2.9-4.3-3.3-3 4.4-.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        <span>Star</span><span class="star-count" id="star-count" hidden></span>
+      </a>
+      <a class="btn btn-primary btn-s hide-xs" href="#download">Download</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <h1 id="hero-title">Secure remote access manager for SSH, RDP, VNC, Kubernetes and vSphere</h1>
+      <p class="lede">One encrypted vault and one keyboard-first window for every server, desktop and cluster you administer. Open source, local-first, no account, built in Rust.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" id="cta-download" href="#download">Download for your OS</a>
+        <a class="btn btn-ghost" href="https://github.com/yyasar21/Mooring">View on GitHub</a>
+      </div>
+      <p class="status-note" id="hero-status">Pre-release. The vault, connection tree and SSH work today; RDP, VNC, Kubernetes and vSphere are on the <a href="#roadmap">roadmap</a>.</p>
+    </div>
+    <div class="wrap wrap-wide">
+      <figure class="bezel">
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcset="assets/shots/05-shell-ssh-light.webp">
+          <img src="assets/hero.webp" width="1440" height="860" fetchpriority="high" decoding="async"
+               alt="Mooring with two SSH sessions open: the connection tree on the left, a terminal on web01.example.test in the middle, host details and the linked credential on the right">
+        </picture>
+      </figure>
+      <dl class="telemetry" aria-label="Project status">
+        <div><dt>Release</dt><dd id="tm-release">checking</dd></div>
+        <div><dt>Stars</dt><dd id="tm-stars">checking</dd></div>
+        <div><dt>License</dt><dd>MIT</dd></div>
+        <div><dt>Platforms</dt><dd>macOS, Windows, Linux</dd></div>
+        <div><dt>Core</dt><dd>Rust, <code>forbid(unsafe)</code></dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" id="security" aria-labelledby="security-title">
+    <div class="wrap split">
+      <div class="split-head">
+        <h2 id="security-title">Why Mooring</h2>
+        <p>A remote access manager holds the keys to everything you run. Mooring treats that as the design constraint. Each point below works on <code>main</code> today and is backed by a public decision record.</p>
+        <p><a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/security/threat-model.md">Read the threat model</a></p>
+      </div>
+      <ul class="pillars">
+        <li>
+          <h3>Argon2id + XChaCha20-Poly1305 vault</h3>
+          <p>Your master password is stretched with Argon2id, calibrated to about 500 ms on your machine. The derived key wraps a random data key; nothing is stored that could decrypt without the password. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0002-vault-cryptography.md">ADR-0002</a></p>
+        </li>
+        <li>
+          <h3>Per-field authenticated encryption</h3>
+          <p>Every secret field is sealed on its own and bound to its record and field name. A value copied into another row or column fails to decrypt instead of leaking.</p>
+        </li>
+        <li>
+          <h3>Hash-chained audit log</h3>
+          <p>Unlocks, credential use, password copies, host-key decisions and sessions go into a SHA-256 chain you can verify in the app. A deleted or edited entry breaks the chain visibly.</p>
+        </li>
+        <li class="hot">
+          <h3>Strict SSH, and a hard stop on changed host keys</h3>
+          <p>Only modern key exchange, ciphers and MACs are offered: no SHA-1, no CBC, no <code>ssh-rsa</code>, Terrapin strict-kex on. New host keys need your approval with the SHA-256 fingerprint. A changed key ends the connection, with no "continue anyway". <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0007-ssh-trust-and-algorithms.md">ADR-0007</a></p>
+        </li>
+        <li>
+          <h3>Zeroized secrets that never reach the UI</h3>
+          <p>Keys and decrypted values live in zeroizing memory and are dropped on lock. The interface only ever handles credential IDs, so secrets stay out of the WebView, logs and error messages. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0003-trust-boundaries.md">ADR-0003</a></p>
+        </li>
+        <li>
+          <h3>Memory-safe Rust core</h3>
+          <p>Every crate is built with <code>#![forbid(unsafe_code)]</code>. Cryptography comes only from RustCrypto and <code>ring</code>; parsers for untrusted input are size-capped and property-tested.</p>
+        </li>
+        <li>
+          <h3>Open source, MIT licensed</h3>
+          <p>Source, threat model, architecture decisions and every phase's security review are public. No telemetry, no account, no cloud service required.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="features-title">Features</h2>
+        <p>Status is taken from the project README and changes as work lands. Nothing marked planned works yet.</p>
+      </div>
+      <div class="filter" role="group" aria-label="Filter features by status">
+        <button type="button" aria-pressed="true" data-filter="all">All</button>
+        <button type="button" aria-pressed="false" data-filter="available">Available</button>
+        <button type="button" aria-pressed="false" data-filter="progress">In progress</button>
+        <button type="button" aria-pressed="false" data-filter="planned">Planned</button>
+      </div>
+      <div class="feature-groups" id="feature-groups">
+        <section class="fgroup" aria-labelledby="fg-vault"><h3 id="fg-vault">Vault</h3><ul>
+          <li data-status="available"><span>Create, unlock, lock and change the master password</span></li>
+          <li data-status="available"><span>Argon2id cost calibrated to the host, parameters authenticated in the header</span></li>
+          <li data-status="progress"><span>Auto-lock on idle, screen lock and sleep</span></li>
+          <li data-status="progress"><span>Unlock with Touch ID or Windows Hello (opt-in)</span></li>
+          <li data-status="progress"><span>Portable backup readable with the <code>age</code> CLI</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-org"><h3 id="fg-org">Organise</h3><ul>
+          <li data-status="available"><span>Folder tree with drag and drop, tags and full-text search</span></li>
+          <li data-status="available"><span>Credential inheritance down the tree, per-connection override</span></li>
+          <li data-status="available"><span>Command palette: open any connection by name, host or tag</span></li>
+          <li data-status="planned" data-phase="A4"><span>Import from Royal TS, Termius, mRemoteNG and PuTTY</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-ssh"><h3 id="fg-ssh">SSH</h3><ul>
+          <li data-status="available"><span>Terminal with WebGL rendering, resize and streaming</span></li>
+          <li data-status="available"><span>Password, public key, keyboard-interactive and ssh-agent auth</span></li>
+          <li data-status="available"><span>Host-key TOFU, OpenSSH <code>known_hosts</code> compatible</span></li>
+          <li data-status="progress"><span>Local, remote and SOCKS5 port forwarding</span></li>
+          <li data-status="progress"><span>SFTP browser with transfer progress</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-cred"><h3 id="fg-cred">Credentials and audit</h3><ul>
+          <li data-status="available"><span>Password, SSH key with passphrase, certificate</span></li>
+          <li data-status="available"><span>Copy password, cleared after 30 s and on lock, audited</span></li>
+          <li data-status="available"><span>Audit log viewer with chain verification</span></li>
+          <li data-status="planned" data-phase="A1"><span>Typed model with 15 credential kinds</span></li>
+          <li data-status="planned"><span>Syslog mirror</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-proto"><h3 id="fg-proto">Desktops and web</h3><ul>
+          <li data-status="planned" data-phase="A2"><span>RDP via IronRDP with NLA, certificate TOFU, clipboard</span></li>
+          <li data-status="planned" data-phase="A2"><span>VNC: RFB 3.8, Tight/ZRLE, VeNCrypt TLS, view-only</span></li>
+          <li data-status="planned" data-phase="A2"><span>Isolated web sessions per connection</span></li>
+          <li data-status="planned" data-phase="A2"><span>Detach a tab into its own window</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-infra"><h3 id="fg-infra">Infrastructure</h3><ul>
+          <li data-status="planned" data-phase="A3"><span>vSphere inventory import, VM console, power state</span></li>
+          <li data-status="planned" data-phase="A3"><span>Kubernetes contexts, pod exec shells, logs (read-only)</span></li>
+          <li data-status="planned" data-phase="A3"><span>HashiCorp Vault / OpenBao secret references</span></li>
+          <li data-status="planned" data-phase="A3"><span>Client-side encrypted vault sync</span></li>
+        </ul></section>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="screenshots" aria-labelledby="shots-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="shots-title">Screenshots</h2>
+        <p>Taken against the app's mock backend with demo data and <code>example.test</code> hosts. Select one to enlarge.</p>
+      </div>
+      <ul class="gallery" id="gallery">
+        <li><button type="button" data-full="assets/shots/04-tofu-prompt-dark.webp"><img src="assets/shots/04-tofu-prompt-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Host-key verification dialog showing the SHA-256 fingerprint of an unknown host"></button><p>Host-key verification</p></li>
+        <li><button type="button" data-full="assets/shots/03-palette-dark.webp"><img src="assets/shots/03-palette-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Command palette searching connections by name"></button><p>Command palette</p></li>
+        <li><button type="button" data-full="assets/shots/07-audit-dark.webp"><img src="assets/shots/07-audit-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Audit log view with an intact hash chain"></button><p>Audit log with chain verification</p></li>
+        <li><button type="button" data-full="assets/shots/06-inspector-dark.webp"><img src="assets/shots/06-inspector-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Inspector showing a connection and its inherited credential with a clipboard countdown"></button><p>Inspector and inherited credential</p></li>
+        <li><button type="button" data-full="assets/shots/02-shell-empty-dark.webp"><img src="assets/shots/02-shell-empty-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Empty workspace next to the connection tree"></button><p>Workspace</p></li>
+        <li><button type="button" data-full="assets/shots/05-shell-ssh-light.webp"><img src="assets/shots/05-shell-ssh-light-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Light theme with an SSH session open"></button><p>Light theme</p></li>
+      </ul>
+    </div>
+    <dialog class="lightbox" id="lightbox" aria-label="Screenshot viewer">
+      <img id="lightbox-img" src="data:," alt="">
+      <p id="lightbox-cap"></p>
+      <div class="lightbox-bar">
+        <button type="button" class="btn btn-ghost btn-s" data-step="-1">Previous</button>
+        <button type="button" class="btn btn-ghost btn-s" data-step="1">Next</button>
+        <button type="button" class="btn btn-primary btn-s" id="lightbox-close">Close</button>
+      </div>
+    </dialog>
+  </section>
+
+  <section class="section" id="credentials" aria-labelledby="cred-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="cred-title">Fifteen credential kinds, one vault</h2>
+        <p>The typed credential model (<a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0009-credential-model.md">ADR-0009</a>) is next on the roadmap. Each kind declares which protocols accept it, so a VNC password can never be sent to an SSH server. Today the vault stores passwords, SSH keys and certificates.</p>
+      </div>
+      <ul class="kinds" aria-label="Planned credential kinds">
+        <li data-now>user_password</li><li>domain_user</li><li data-now>ssh_key</li><li>ssh_agent</li><li data-now>x509</li>
+        <li>api_token</li><li>oauth_client</li><li>kubeconfig</li><li>kube_token</li><li>vsphere_user</li>
+        <li>vnc_password</li><li>vnc_user_password</li><li>prompt</li><li>external_ref</li><li>sudo_become</li>
+      </ul>
+      <p class="fine">Highlighted kinds map onto what the vault stores today: password, SSH key and certificate.</p>
+    </div>
+  </section>
+
+  <section class="section" id="download" aria-labelledby="dl-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="dl-title">Download</h2>
+        <p id="dl-status" role="status">Checking GitHub for the latest release.</p>
+      </div>
+      <div class="platforms">
+        <section class="platform hud" id="os-macos" aria-labelledby="pl-mac">
+          <h3 id="pl-mac">macOS</h3>
+          <p class="req">macOS 11 or later, Apple silicon and Intel</p>
+          <ul class="assets" data-os="macos">
+            <li data-kind="dmg"><span>Disk image</span><code>.dmg</code></li>
+            <li data-kind="pkg"><span>Installer package</span><code>.pkg</code></li>
+          </ul>
+          <p class="cmd-label">Homebrew</p>
+          <pre class="cmd"><code>brew install --cask yyasar21/mooring/mooring</code></pre>
+        </section>
+        <section class="platform hud" id="os-windows" aria-labelledby="pl-win">
+          <h3 id="pl-win">Windows</h3>
+          <p class="req">Windows 10 1809 or later, x64</p>
+          <ul class="assets" data-os="windows">
+            <li data-kind="exe"><span>Installer, per user</span><code>.exe</code></li>
+            <li data-kind="msi"><span>MSI, per machine</span><code>.msi</code></li>
+          </ul>
+          <p class="cmd-label">winget</p>
+          <p class="fine">Planned after v0.1.0.</p>
+        </section>
+        <section class="platform hud" id="os-linux" aria-labelledby="pl-linux">
+          <h3 id="pl-linux">Linux</h3>
+          <p class="req">glibc 2.35+, x86_64 and arm64</p>
+          <ul class="assets" data-os="linux">
+            <li data-kind="deb"><span>Debian, Ubuntu</span><code>.deb</code></li>
+            <li data-kind="rpm"><span>Fedora, RHEL</span><code>.rpm</code></li>
+            <li data-kind="appimage"><span>Portable</span><code>.AppImage</code></li>
+          </ul>
+        </section>
+      </div>
+      <p class="fine">Check every download against the Sigstore-signed <code>SHA256SUMS</code>: <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/release.md#verify-a-download">how to verify</a>. Prefer to build it yourself? Follow the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/building.md">build guide</a>.</p>
+    </div>
+  </section>
+
+  <section class="section" id="compare" aria-labelledby="cmp-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="cmp-title">How Mooring compares</h2>
+        <p>The established tools do much more today. This is here to help you decide whether Mooring fits, based on each vendor's public documentation as of November 2026. Check the vendor's site for current details.</p>
+      </div>
+      <div class="table-scroll" tabindex="0" role="region" aria-labelledby="cmp-title">
+        <table class="compare">
+          <thead><tr><th scope="col"><span class="sr">Capability</span></th><th scope="col" class="us">Mooring</th><th scope="col">Royal TS / TSX</th><th scope="col">Devolutions RDM</th><th scope="col">mRemoteNG</th><th scope="col">Termius</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">License</th><td class="us">MIT</td><td>Proprietary</td><td>Proprietary</td><td>GPL-2.0</td><td>Proprietary</td></tr>
+            <tr><th scope="row">Price</th><td class="us">Free</td><td>Paid; limited free edition</td><td>Paid; free edition</td><td>Free</td><td>Freemium</td></tr>
+            <tr><th scope="row">macOS</th><td class="us">Yes</td><td>Yes (Royal TSX)</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+            <tr><th scope="row">Windows</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><th scope="row">Linux</th><td class="us">Yes</td><td>No</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+            <tr><th scope="row">Mobile</th><td class="us">No</td><td>Yes</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+            <tr><th scope="row">SSH</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><th scope="row">RDP and VNC</th><td class="us">Planned (A2)</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+            <tr><th scope="row">vSphere console</th><td class="us">Planned (A3)</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+            <tr><th scope="row">Team sharing</th><td class="us">Planned (sync in A3)</td><td>Yes</td><td>Yes</td><td>Shared file</td><td>Yes</td></tr>
+            <tr><th scope="row">Public source code</th><td class="us">Yes</td><td>No</td><td>No</td><td>Yes</td><td>No</td></tr>
+            <tr><th scope="row">Public threat model and reviews</th><td class="us">Yes</td><td>No</td><td>No</td><td>No</td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="roadmap" aria-labelledby="rm-title">
+    <div class="wrap split">
+      <div class="split-head">
+        <h2 id="rm-title">Roadmap</h2>
+        <p>Phases ship in order; dates are not promised. Every phase ends with exit criteria and a written security review.</p>
+        <p><a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/roadmap.md">Full roadmap</a></p>
+      </div>
+      <ol class="timeline">
+        <li data-state="done"><h3>A0 <span>Foundation</span></h3><p class="state">Done</p><p>Workspace, Tauri shell with strict CSP, vault cryptography, audit log, CI on three operating systems.</p></li>
+        <li data-state="now"><h3>A1 <span>Vault, connection tree and SSH</span></h3><p class="state">In progress</p><p>Vault, tree, inheritance, SSH with TOFU and the audit viewer are done. Forwarding, SFTP and the typed credential model are next.</p></li>
+        <li><h3>A2 <span>RDP, VNC and web sessions</span></h3><p class="state">Planned</p><p>IronRDP with NLA and certificate TOFU, VNC with VeNCrypt, isolated web sessions, detachable tabs.</p></li>
+        <li><h3>A3 <span>Infrastructure integrations</span></h3><p class="state">Planned</p><p>vSphere inventory and consoles, read-only Kubernetes, external secrets, encrypted sync.</p></li>
+        <li><h3>A4 <span>Release v0.1.0</span></h3><p class="state">Planned</p><p>Signed installers for every platform, SBOMs, provenance, importers from other tools.</p></li>
+        <li><h3>B <span>Agent and relay</span></h3><p class="state">Planned</p><p>Mooring's own remote-desktop agent and an end-to-end encrypted relay.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="faq" aria-labelledby="faq-title">
+    <div class="wrap narrow">
+      <h2 id="faq-title">Questions</h2>
+      <div class="faq">
+        <details><summary>Is Mooring free?</summary><p>Yes. It is open source under the MIT License. There is no paid tier, no account and no telemetry.</p></details>
+        <details><summary>Is it ready for production use?</summary><p>Not yet. Mooring is pre-release software: the vault, connection tree and SSH work and have been reviewed, but there are no signed releases until v0.1.0. Keep your existing tool alongside it for now.</p></details>
+        <details><summary>Does Mooring send my data anywhere?</summary><p>No. The vault, database, audit log and trusted host keys stay on your machine. Mooring connects only to the hosts you open. Optional sync, planned for A3, encrypts on your device before upload.</p></details>
+        <details><summary>What if I forget my master password?</summary><p>Your secrets cannot be recovered, by you or by the developers. Names, hosts and tags remain readable so you can rebuild the tree, but passwords and keys are gone. Keep the master password in a password manager or a safe written copy.</p></details>
+        <details><summary>Can I use my existing SSH keys and known_hosts?</summary><p>Paste a private key into an SSH key credential, or use your ssh-agent. Mooring reads the OpenSSH <code>known_hosts</code> format. Importing from <code>~/.ssh</code> with a file picker is planned.</p></details>
+        <details><summary>When will RDP, VNC, Kubernetes and vSphere work?</summary><p>RDP, VNC and web sessions are phase A2; vSphere and Kubernetes are phase A3. Follow progress on the roadmap.</p></details>
+        <details><summary>How do I report a security problem?</summary><p>Privately, through GitHub Security Advisories, as described in the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/SECURITY.md">security policy</a>. Please do not open a public issue.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="section ai" aria-labelledby="ai-title">
+    <div class="wrap narrow">
+      <h2 id="ai-title">Built with AI-assisted agents</h2>
+      <p>Mooring is written with AI coding agents working in defined roles (architect, Rust core, UI, QA, security reviewer, release engineer) under a human maintainer who approves every decision and merge. Every change passes the same gates as human code: tests, lints, dependency and secret scanning, and a written security review. The decision records, reviews and handoff notes in the repository are the audit trail.</p>
+      <p><a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/ai-assisted-workflow.md">How the workflow is run</a></p>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap foot-grid">
+    <div>
+      <p class="wordmark wordmark-foot">Mooring</p>
+      <p class="fine">MIT License. Copyright Yunus Yaşar.<br>Screenshots show demo data only.</p>
+    </div>
+    <nav aria-label="Project">
+      <ul>
+        <li><a href="https://github.com/yyasar21/Mooring">Source code</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/releases">Releases</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/discussions">Discussions</a></li>
+      </ul>
+    </nav>
+    <nav aria-label="Policies">
+      <ul>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/LICENSE">License</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/SECURITY.md">Security policy</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/CODE_OF_CONDUCT.md">Code of conduct</a></li>
+      </ul>
+    </nav>
+    <nav aria-label="Documentation">
+      <ul>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/docs/user-guide/README.md">User guide</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/README.md">Developer guide</a></li>
+        <li><a href="https://github.com/yyasar21/Mooring/blob/main/docs/release.md">Install and verify</a></li>
+        <li><a href="#top">Back to top</a></li>
+      </ul>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

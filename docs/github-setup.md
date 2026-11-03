@@ -13,7 +13,7 @@ Repository → ⚙ next to **About**.
 > Encrypted Argon2id + XChaCha20-Poly1305 vault, hash-chained audit log, Rust + Tauri.
 > macOS, Windows, Linux.
 
-**Website**: leave empty until GitHub Pages is live, then set it to the Pages URL (see §7).
+**Website**: `https://yyasar21.github.io/Mooring/` once the Pages workflow has run (see §7).
 Tick **Releases**; untick **Packages** and **Deployments** unless used.
 
 **Topics** (add exactly these; GitHub allows 20):
@@ -91,12 +91,40 @@ Add a tag ruleset for `v*`: restrict creation, update and deletion to maintainer
   reviewers, not as repository secrets.
 - Mark `v0.x` releases as *pre-release* until the A4 exit criteria are met.
 
-## 7. GitHub Pages (later)
+## 7. GitHub Pages
 
-When the docs are ready for a site: Settings → Pages → *GitHub Actions* as source, build
-`docs/` with a static site generator (mdBook or MkDocs Material both work with the current
-Markdown), and set the About **Website** field to the Pages URL. Add a custom domain only with
-DNS you control and enforce HTTPS.
+The product site is plain HTML, CSS and a little JavaScript in `site/`, with no build step.
+`.github/workflows/pages.yml` uploads that folder as-is and deploys it. The workflow runs on a
+push to `main` that changes `site/**` or the workflow itself, and on manual dispatch.
+
+One-time setup:
+
+1. Settings → **Pages** → *Build and deployment* → **Source: GitHub Actions**. Do not pick
+   "Deploy from a branch".
+2. Settings → **Environments** → `github-pages` is created on the first run. Its default
+   deployment rule allows only `main`. Keep it that way.
+3. Run the workflow once: Actions → **pages** → *Run workflow* on `main`, or push a change
+   under `site/`.
+4. The site is live at **<https://yyasar21.github.io/Mooring/>**. Set that URL as the About
+   **Website** (§1) and tick *Use your GitHub Pages website*.
+
+Path rules: the site is served under `/Mooring/`, not at the domain root. Every link in
+`site/index.html` is relative (`css/site.css`, `assets/hero.webp`, `#download`), so it works
+under that prefix and from a local file. The exception is `site/404.html`, which GitHub serves
+at any missing path, so it uses absolute `/Mooring/...` URLs. Absolute URLs that must stay
+absolute: `canonical`, `og:url`, `og:image`, JSON-LD, `robots.txt` and `sitemap.xml`, which
+all point at `https://yyasar21.github.io/Mooring/`.
+
+At runtime the page calls the public GitHub REST API without a token: `GET /repos/yyasar21/Mooring`
+for the star count, and `/releases` for the download matrix. Responses are cached in
+`sessionStorage` for 10 minutes to stay inside the unauthenticated limit of 60 requests per hour
+per visitor IP. When the API is unreachable, the page links to the Releases page.
+
+Custom domain (optional, later): add the domain under Settings → Pages, create the DNS record
+GitHub asks for (a `CNAME` to `yyasar21.github.io` for a subdomain), verify the domain for the
+account to prevent takeover, and tick **Enforce HTTPS**. Then replace
+`https://yyasar21.github.io/Mooring/` in `site/index.html`, `site/robots.txt` and
+`site/sitemap.xml`, and change the `/Mooring/` prefix in `site/404.html` to `/`.
 
 ## 8. Launch checklist
 
