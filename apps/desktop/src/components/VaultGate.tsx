@@ -30,7 +30,7 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
           void submit();
         }} className="w-[380px] rounded-[var(--radius-m)] border border-line bg-surface p-7">
         <h1 className="text-[length:var(--fs-xl)] font-semibold tracking-tight">
-          {mode === "create" ? "Create your vault" : "Unlock Nexus"}
+          {mode === "create" ? "Create your vault" : "Unlock Mooring"}
         </h1>
         <p className="mt-1 text-text-muted">
           {mode === "create"
@@ -75,7 +75,7 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
         <button
           type="submit"
           disabled={!canSubmit}
-          className="mt-2 w-full rounded-[var(--radius-s)] bg-accent px-3 py-2 font-medium text-accent-ink disabled:opacity-40"
+          className="btn btn-primary mt-2 h-9 w-full justify-center"
         >
           {busy ? "Deriving key…" : mode === "create" ? "Create vault" : "Unlock"}
         </button>

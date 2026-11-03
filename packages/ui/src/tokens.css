@@ -1,4 +1,4 @@
-/* Nexus Remote design tokens. One source of truth for both themes.
+/* Mooring design tokens. One source of truth for both themes.
    Dark is the default (a remote-access console lives next to terminals); light is opt-in. */
 @import "@fontsource/ibm-plex-sans/400.css";
 @import "@fontsource/ibm-plex-sans/500.css";
@@ -28,17 +28,39 @@
 
   --ok: #6fcf97;
   --warn: #f2c94c;
+  --warn-soft: rgba(242, 201, 76, 0.12);
   --danger: #eb6b5e;
+  --danger-soft: rgba(235, 107, 94, 0.12);
+
+  /* the mooring line under each tab: taut = connected, slack = connecting, frayed = closed */
+  --line-taut: var(--accent);
+  --line-slack: var(--text-faint);
+  --line-frayed: var(--line-strong);
+
+  /* terminal surface follows the theme but stays darker than the chrome in dark mode */
+  --term-bg: #0e1218;
+  --term-fg: #d6dde7;
+  --term-cursor: var(--accent);
+  --term-selection: rgba(92, 200, 184, 0.28);
 
   --radius-s: 4px;
   --radius-m: 8px;
   --shadow-pop: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
+  --scrim: rgba(5, 8, 12, 0.55);
 
+  --row-h: 26px;
+  --bar-h: 36px;
+  --status-h: 22px;
+  --indent: 14px;
+
+  --fs-2xs: 10.5px;
   --fs-xs: 11.5px;
   --fs-s: 12.5px;
-  --fs-m: 13.5px;
-  --fs-l: 16px;
-  --fs-xl: 22px;
+  --fs-m: 13px;
+  --fs-l: 15px;
+  --fs-xl: 21px;
+
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   color-scheme: dark;
 }
@@ -51,12 +73,21 @@
   --line: #d9dfe7;
   --line-strong: #c3ccd8;
   --text: #16202c;
-  --text-muted: #5b6778;
-  --text-faint: #8b97a8;
-  --accent: #1e9c8b;
+  --text-muted: #4f5b6b;
+  --text-faint: #7d8a9b;
+  --accent: #157f71;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(30, 156, 139, 0.12);
+  --accent-soft: rgba(21, 127, 113, 0.12);
+  --ok: #23824e;
+  --warn: #9a6b00;
+  --warn-soft: rgba(154, 107, 0, 0.1);
+  --danger: #c2392b;
+  --danger-soft: rgba(194, 57, 43, 0.09);
+  --term-bg: #fbfcfd;
+  --term-fg: #1d2733;
+  --term-selection: rgba(21, 127, 113, 0.22);
   --shadow-pop: 0 18px 48px rgba(20, 30, 45, 0.18), 0 0 0 1px var(--line);
+  --scrim: rgba(30, 40, 55, 0.28);
   color-scheme: light;
 }
 
