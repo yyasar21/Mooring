@@ -210,9 +210,15 @@ jobs:
           Remove-Item $pfx -Force
           "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
+      # RISK (security review 3, L-13): `artifact-signing-cli` is a community crate
+      # (levminer/trusted-signing-cli) without a security review. It runs with
+      # AZURE_CLIENT_SECRET in its environment and signs the Windows binaries. It is pinned to an
+      # exact version with `--locked` (crates.io checksums from its lockfile); bump it only with
+      # security-reviewer approval. Replacement candidates: Azure/trusted-signing-action
+      # (SHA-pinned) or the .NET Foundation `sign` tool. This job has `contents: read` only.
       - name: Install Azure Artifact Signing CLI
         if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
-        run: cargo install artifact-signing-cli --version 0.12.0 --locked
+        run: cargo install artifact-signing-cli --version =0.12.0 --locked
 
       - name: Compose CI-only Tauri config
         id: cfg
