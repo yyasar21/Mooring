@@ -12,6 +12,13 @@ ignore = [
   # rsa Marvin timing side channel: no fixed release exists; Mooring only *signs* client-side
   # (publickey auth), never decrypts, so there is no oracle. Accepted risk R-RSA (a1-review-2).
   { id = "RUSTSEC-2023-0071", reason = "rsa used for SSH client signing only; no decryption oracle (R-RSA)" },
+  # basic-toml: compile-time only, via age -> i18n-embed-fl proc-macro; goes away with age 0.13.
+  { id = "RUSTSEC-2026-0374", reason = "build-time proc-macro dependency of age (i18n-embed-fl); not in the binary" },
+  # zbus / zvariant: Secret Service transport of the `keyring` crate on Linux (keyring commands are on HOLD, see ADR-0006);
+  # revisit when keyring moves to a maintained zbus release.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant via keyring secret-service backend; keyring unlock not wired yet" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names via keyring secret-service backend; keyring unlock not wired yet" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via keyring secret-service backend; keyring unlock not wired yet" },
 ]
 
 [licenses]
@@ -26,7 +33,8 @@ deny = [
   { crate = "openssl", reason = "rustls only (ADR-0001)" },
   { crate = "openssl-sys", reason = "rustls only (ADR-0001)" },
   { crate = "native-tls", reason = "rustls only (ADR-0001)" },
-  { crate = "md5", reason = "weak hash" },
+  # russh needs md5 only to render legacy MD5 host-key fingerprints; Mooring never hashes with it.
+  { crate = "md5", reason = "weak hash", wrappers = ["russh"] },
 ]
 
 [sources]

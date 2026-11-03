@@ -1,0 +1,6 @@
+# Normalise line endings so cargo fmt --check and gitleaks behave the same on Windows runners.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.age binary
