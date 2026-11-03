@@ -107,6 +107,7 @@ async fn rename_and_remove() {
 async fn local_escapes_are_rejected() {
     let mut f = fixture().await;
     let sftp = f.s.sftp().await.expect("sftp");
+    let _ = &sftp; // only the unix block below downloads through it
     std::fs::write(f.remote.path().join("r"), b"remote").expect("write");
     assert!(LocalPath::new(f.local.path(), "../escape").is_err());
     assert!(LocalPath::new(f.local.path(), "a/../../escape").is_err());

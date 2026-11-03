@@ -36,8 +36,8 @@ Each release on <https://github.com/yyasar21/Mooring/releases> carries:
 
 Every file also has a GitHub build-provenance (SLSA) attestation.
 
-Note: the AppImage bundler does not accept pre-release versions such as `0.1.0-rc.1`, so
-pre-releases ship `.deb` and `.rpm` only on Linux; stable releases add the AppImage.
+Note: the rpm and AppImage bundlers do not accept pre-release versions such as `0.1.0-rc.1`,
+so pre-releases ship the `.deb` only on Linux; stable releases add `.rpm` and the AppImage.
 
 ## Install
 

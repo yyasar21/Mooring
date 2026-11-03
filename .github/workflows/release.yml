@@ -236,11 +236,11 @@ jobs:
           bundle = {}
           if env("TAURI_SIGNING_PRIVATE_KEY"):
               bundle["createUpdaterArtifacts"] = True
-          # The AppImage bundler rejects '-' in a version and Tauri rejects '~' (not semver), so
-          # pre-releases ship deb + rpm only on Linux; stable releases add the AppImage.
+          # The rpm and AppImage bundlers reject '-' in a version and Tauri rejects '~' (not
+          # semver), so pre-releases ship the .deb only on Linux; stable releases add rpm + AppImage.
           bundles = env("BUNDLES")
           if "-" in env("VERSION") and env("RUNNER_OS") == "Linux":
-              bundles = ",".join(b for b in bundles.split(",") if b != "appimage")
+              bundles = ",".join(b for b in bundles.split(",") if b not in ("appimage", "rpm"))
           win = {}
           if "-" in env("VERSION"):
               # MSI ProductVersion is numeric; 0.2.0-rc.1 ships as MSI 0.2.0.
