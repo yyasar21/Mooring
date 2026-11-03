@@ -25,7 +25,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.89"  # rusqlite 0.41 / keyring 4 floor; sysinfo pinned to 0.38 (0.39+ needs 1.95)
 license = "MIT"
 authors = ["Yunus Yaşar"]
 repository = "https://github.com/yunusyasar/nexus-remote"
@@ -40,7 +40,7 @@ zeroize = { version = "1.8", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
 age = { version = "0.12", features = ["armor"] }          # ADR-0006: age-compatible export (RustCrypto, pure Rust)
 keyring = "4"                                             # ADR-0006: OS keyring wrap (Keychain / Credential Manager / Secret Service via zbus), opt-in; used by nexus-app only
-sysinfo = { version = "0.40", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
+sysinfo = { version = "0.38", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
 # data
 rusqlite = { version = "0.41", features = ["bundled"] } # ADR-0005: single SQLite store, bundled for 3-OS parity
 serde = { version = "1", features = ["derive"] }
