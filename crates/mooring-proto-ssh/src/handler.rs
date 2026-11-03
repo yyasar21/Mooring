@@ -1,12 +1,16 @@
 //! The russh client handler: host-key trust decision (ADR-0007 §Host-key trust).
 //!
-//! Also routes server-opened `forwarded-tcpip` channels to their remote forward.
+//! Also routes server-opened `forwarded-tcpip` channels to their remote forward. Every other
+//! server-opened channel kind (`session`, `x11`, `auth-agent@openssh.com`, `direct-tcpip`,
+//! `direct-streamlocal`, `forwarded-streamlocal`) is rejected: we never request them, and
+//! russh's default would accept each one (security review 2, L-1).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use russh::client;
+use russh::client::{self, ChannelOpenHandle, Msg};
 use russh::keys::{PublicKey, PublicKeyOrCertificate};
+use russh::{Channel, ChannelOpenFailure};
 use secrecy::ExposeSecret;
 
 use crate::audit::TrustEvent;
@@ -117,6 +121,14 @@ impl ClientHandler {
     }
 }
 
+/// Refuse a server-opened channel we never asked for. The reply is sent from its own task so
+/// the russh session loop is never blocked inside the handler.
+fn refuse(kind: &'static str, channel: Channel<Msg>, reply: ChannelOpenHandle) {
+    tracing::warn!(kind, "server-opened channel rejected");
+    drop(channel);
+    tokio::spawn(reply.reject(ChannelOpenFailure::AdministrativelyProhibited));
+}
+
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
 
@@ -143,6 +155,74 @@ impl client::Handler for ClientHandler {
     ) -> Result<(), Self::Error> {
         let route = self.shared.forwards.route(connected_address, connected_port);
         crate::forward_io::accept_forwarded(route, channel, reply);
+        Ok(())
+    }
+
+    async fn server_channel_open_session(
+        &mut self,
+        channel: Channel<Msg>,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        refuse("session", channel, reply);
+        Ok(())
+    }
+
+    async fn server_channel_open_x11(
+        &mut self,
+        channel: Channel<Msg>,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        refuse("x11", channel, reply);
+        Ok(())
+    }
+
+    async fn server_channel_open_agent_forward(
+        &mut self,
+        channel: Channel<Msg>,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        refuse("auth-agent", channel, reply);
+        Ok(())
+    }
+
+    async fn server_channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        _host_to_connect: &str,
+        _port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        refuse("direct-tcpip", channel, reply);
+        Ok(())
+    }
+
+    async fn server_channel_open_direct_streamlocal(
+        &mut self,
+        channel: Channel<Msg>,
+        _socket_path: &str,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        refuse("direct-streamlocal", channel, reply);
+        Ok(())
+    }
+
+    async fn server_channel_open_forwarded_streamlocal(
+        &mut self,
+        channel: Channel<Msg>,
+        _socket_path: &str,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        refuse("forwarded-streamlocal", channel, reply);
         Ok(())
     }
 

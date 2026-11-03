@@ -82,6 +82,9 @@ pub struct Seen {
     pub direct: Vec<(String, u32)>,
     /// `cancel-tcpip-forward` requests honoured.
     pub cancelled_forwards: Vec<(String, u32)>,
+    /// Server-side handle of the last connection, so a test can open channels toward the
+    /// client (x11, agent, session ...).
+    pub handle: Option<server::Handle>,
 }
 
 pub struct TestServer {
@@ -228,8 +231,9 @@ impl server::Handler for Handler {
         &mut self,
         channel: Channel<Msg>,
         reply: server::ChannelOpenHandle,
-        _session: &mut ServerSession,
+        session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
+        self.seen.lock().expect("lock").handle = Some(session.handle());
         self.sessions.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
