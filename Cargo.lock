@@ -3161,7 +3161,7 @@ name = "mooring-app"
 version = "0.1.0"
 dependencies = [
  "arboard",
- "base64 0.22.1",
+ "base64 0.23.1",
  "keyring",
  "mooring-app",
  "mooring-audit",
@@ -3173,7 +3173,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tauri",
  "tauri-build",
  "tempfile",
@@ -3193,7 +3193,7 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tempfile",
  "thiserror 2.0.21",
  "time",
@@ -5483,9 +5483,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.38.4"
+version = "0.40.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92ab6a2f8bfe508deb3c6406578252e491d299cbbf3bc0529ecc3313aee4a52f"
+checksum = "0e8a3edbe0394ce115f3917a00349dd242be09eb5a091ed509eaf67b55cfb8a8"
 dependencies = [
  "libc",
  "memchr",

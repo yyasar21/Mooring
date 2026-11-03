@@ -34,13 +34,13 @@ repository = "https://github.com/yyasar21/Mooring"
 # crypto (RustCrypto only — see ADR-0002)
 argon2 = { version = "0.5", features = ["std"] }
 chacha20poly1305 = { version = "0.10", features = ["std"] }
-sha2 = "0.10"
+sha2 = "0.11"
 rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = { version = "1.8", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
 age = { version = "0.12", features = ["armor"] }          # ADR-0006: age-compatible export (RustCrypto, pure Rust)
 keyring = "4"                                             # ADR-0006: OS keyring wrap (Keychain / Credential Manager / Secret Service via zbus), opt-in; used by mooring-app only
-sysinfo = { version = "0.38", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
+sysinfo = { version = "0.40", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
 # ssh (ADR-0007): ring backend only, aws-lc-rs off
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3"
@@ -51,7 +51,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 hex = { version = "0.4", features = ["serde"] }
-base64 = "0.22"                                          # ADR-0008: base64 byte payloads on the IPC wire (already in the tree via tauri/russh)
+base64 = "0.23"                                          # ADR-0008: base64 byte payloads on the IPC wire (already in the tree via tauri/russh)
 arboard = { version = "3.7", default-features = false }   # A1: Rust-side clipboard for credential_copy_password (pure Rust, MIT/Apache-2.0, text only, no plugin/capability)
 # credentials (ADR-0009)
 ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["alloc", "ecdsa"] } # OpenSSH public key / certificate fingerprints; same pinned version russh already pulls in
