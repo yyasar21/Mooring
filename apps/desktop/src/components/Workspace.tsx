@@ -1,9 +1,12 @@
+import { lazy, Suspense } from "react";
 import { Kbd } from "@nexus/ui";
 import { useSessions, type Tab } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";
-import { TerminalView } from "./terminal/TerminalView";
 import { PromptModal } from "./terminal/PromptModal";
+
+// xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
+const TerminalView = lazy(() => import("./terminal/TerminalView").then((m) => ({ default: m.TerminalView })));
 
 /** Centre pane: tab strip and the session panels. Every terminal stays mounted; only one shows. */
 export function Workspace() {
@@ -37,7 +40,9 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       className="absolute inset-0"
     >
       {terminal ? (
-        <TerminalView tabId={tab.id} active={active} />
+        <Suspense fallback={<div className="term-host" />}>
+          <TerminalView tabId={tab.id} active={active} />
+        </Suspense>
       ) : (
         <div className="grid h-full place-items-center p-6 text-center">
           <div className="max-w-sm">
