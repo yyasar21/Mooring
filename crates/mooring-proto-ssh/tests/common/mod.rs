@@ -1,10 +1,14 @@
 //! In-process russh server for the SSH integration tests (loopback only, no lab).
 //!
 //! Supports password, publickey and keyboard-interactive auth, and a PTY shell that echoes
-//! input and reports `window_change` as `RESIZE <cols>x<rows>\r\n`.
+//! input and reports `window_change` as `RESIZE <cols>x<rows>\r\n`. Also `direct-tcpip`,
+//! `tcpip-forward` (→ `forwarded-tcpip` channels).
 
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod forwarding;
+
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -63,6 +67,10 @@ pub struct Seen {
     pub resizes: Vec<(u32, u32)>,
     pub pty: Option<(String, u32, u32)>,
     pub kbd_responses: Vec<String>,
+    /// `direct-tcpip` targets requested.
+    pub direct: Vec<(String, u32)>,
+    /// `cancel-tcpip-forward` requests honoured.
+    pub cancelled_forwards: Vec<(String, u32)>,
 }
 
 pub struct TestServer {
@@ -87,11 +95,23 @@ pub async fn start(spec: ServerSpec) -> TestServer {
     let seen2 = Arc::clone(&seen);
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
-            let handler = Handler { spec: spec.clone(), seen: Arc::clone(&seen2), kbd_step: 0 };
+            let listeners = forwarding::Listeners::default();
+            let handler = Handler {
+                spec: spec.clone(),
+                seen: Arc::clone(&seen2),
+                kbd_step: 0,
+                sessions: HashMap::new(),
+                shells: Vec::new(),
+                listeners: Arc::clone(&listeners),
+            };
             let config = Arc::clone(&config);
             tokio::spawn(async move {
                 if let Ok(running) = server::run_stream(config, stream, handler).await {
                     let _ = running.await;
+                }
+                // Like sshd: remote-forward listeners die with the connection.
+                for (_, task) in listeners.lock().expect("lock").drain() {
+                    task.abort();
                 }
             });
         }
@@ -103,6 +123,11 @@ struct Handler {
     spec: ServerSpec,
     seen: Arc<Mutex<Seen>>,
     kbd_step: u8,
+    /// Session channels not yet claimed by a subsystem.
+    sessions: HashMap<ChannelId, Channel<Msg>>,
+    /// Channels running the echo shell.
+    shells: Vec<ChannelId>,
+    listeners: forwarding::Listeners,
 }
 
 fn reject() -> Auth {
@@ -190,12 +215,50 @@ impl server::Handler for Handler {
 
     async fn channel_open_session(
         &mut self,
-        _channel: Channel<Msg>,
+        channel: Channel<Msg>,
         reply: server::ChannelOpenHandle,
         _session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
+        self.sessions.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: server::ChannelOpenHandle,
+        _session: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        self.seen.lock().expect("lock").direct.push((host_to_connect.to_owned(), port_to_connect));
+        forwarding::direct(channel, host_to_connect.to_owned(), port_to_connect, reply);
+        Ok(())
+    }
+
+    async fn tcpip_forward(
+        &mut self,
+        address: &str,
+        port: &mut u32,
+        session: &mut ServerSession,
+    ) -> Result<bool, Self::Error> {
+        Ok(forwarding::listen(&self.listeners, session.handle(), address, port).await)
+    }
+
+    async fn cancel_tcpip_forward(
+        &mut self,
+        address: &str,
+        port: u32,
+        _session: &mut ServerSession,
+    ) -> Result<bool, Self::Error> {
+        let ok = forwarding::cancel(&self.listeners, address, port);
+        if ok {
+            self.seen.lock().expect("lock").cancelled_forwards.push((address.to_owned(), port));
+        }
+        Ok(ok)
     }
 
     async fn pty_request(
@@ -218,6 +281,9 @@ impl server::Handler for Handler {
         channel: ChannelId,
         session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
+        // The shell is served through handler callbacks; an unread `Channel` would fill up.
+        self.sessions.remove(&channel);
+        self.shells.push(channel);
         session.channel_success(channel)?;
         session.data(channel, b"welcome\r\n".to_vec())
     }
@@ -237,6 +303,10 @@ impl server::Handler for Handler {
         data: &[u8],
         session: &mut ServerSession,
     ) -> Result<(), Self::Error> {
+        // Only the shell echoes; forwarded and subsystem channels are served by their streams.
+        if !self.shells.contains(&channel) {
+            return Ok(());
+        }
         if data == b"exit\r" {
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
@@ -343,4 +413,17 @@ pub fn trust(kh: &std::path::Path, port: u16, key: &PublicKey) {
     let mut store = mooring_proto_ssh::KnownHosts::new();
     store.add_hashed("127.0.0.1", port, key).expect("add");
     store.save(kh).expect("save");
+}
+
+/// A password session against `spec`, connected with the shell banner consumed.
+pub async fn connected(spec: ServerSpec) -> (SshSession, TestServer, tempfile::TempDir) {
+    let server = start(spec).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let kh = dir.path().join("known_hosts");
+    trust(&kh, server.port, &server.host_public);
+    let secret = ConnectSecret::Password(SecretString::from(PASSWORD));
+    let mut s = connect(server.port, secret, &kh).await;
+    expect_connected(&mut s).await;
+    read_until(&mut s, "welcome").await;
+    (s, server, dir)
 }
