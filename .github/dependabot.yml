@@ -11,6 +11,15 @@ updates:
       prefix: build
       include: scope
     labels: [dependencies, rust]
+    ignore:
+      # sysinfo ≥ 0.39 requires rustc 1.95; the workspace MSRV is 1.89 (see Cargo.toml).
+      - dependency-name: sysinfo
+        versions: [">= 0.39"]
+      # sha2 0.11 is consumed through the `sha2-next` alias until the whole RustCrypto stack moves.
+      - dependency-name: sha2
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # age is pinned to a git revision via [patch.crates-io] until 0.13 ships.
+      - dependency-name: age
     groups:
       rust-crypto:
         patterns: [argon2, chacha20poly1305, sha2, rand_core, zeroize, secrecy, hmac, sha1]
@@ -30,6 +39,14 @@ updates:
       prefix: build
       include: scope
     labels: [dependencies, javascript]
+    ignore:
+      # Major tooling bumps are taken deliberately, not by bot.
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
     groups:
       react:
         patterns: [react, react-dom, "@types/react*"]
