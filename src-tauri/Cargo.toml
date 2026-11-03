@@ -19,6 +19,13 @@ tauri = { version = "2", features = [] }
 mooring-core = { path = "../crates/mooring-core", version = "0.1.0" }
 mooring-vault = { path = "../crates/mooring-vault", version = "0.1.0" }
 mooring-audit = { path = "../crates/mooring-audit", version = "0.1.0" }
+mooring-store = { path = "../crates/mooring-store", version = "0.1.0" }
+mooring-proto-ssh = { path = "../crates/mooring-proto-ssh", version = "0.1.0" }
+uuid = { workspace = true }
+time = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+arboard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 secrecy = { workspace = true }
@@ -28,6 +35,10 @@ tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
 keyring = { workspace = true }
 zeroize = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+russh = { workspace = true }   # in-process SSH server for session_open tests (already a workspace dep)
 
 [lints]
 workspace = true

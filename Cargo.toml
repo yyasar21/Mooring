@@ -51,6 +51,8 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 hex = { version = "0.4", features = ["serde"] }
+base64 = "0.22"                                          # ADR-0008: base64 byte payloads on the IPC wire (already in the tree via tauri/russh)
+arboard = { version = "3.7", default-features = false }   # A1: Rust-side clipboard for credential_copy_password (pure Rust, MIT/Apache-2.0, text only, no plugin/capability)
 # errors / logging
 thiserror = "2"
 tracing = "0.1"
