@@ -81,11 +81,20 @@ impl Store {
 
     /// Record the owning vault's id (text UUID). Idempotent for the same id; a different id
     /// is refused because A1 supports exactly one vault per app.
+    ///
+    /// The nil UUID is refused: a v1 vault header reports nil until its first password unlock
+    /// assigns a real id, and binding to nil would pin the store to a value no vault will ever
+    /// have again (A1-QA-2). Bind only after the vault has been unlocked.
     pub fn set_vault_id(&self, vault_id: &str) -> Result<()> {
-        let id = uuid::Uuid::parse_str(vault_id.trim())
-            .map_err(|_| error::invalid("vault_id", "not a UUID"))?
-            .hyphenated()
-            .to_string();
+        let uuid = uuid::Uuid::parse_str(vault_id.trim())
+            .map_err(|_| error::invalid("vault_id", "not a UUID"))?;
+        if uuid.is_nil() {
+            return Err(error::invalid(
+                "vault_id",
+                "nil UUID (vault header not upgraded yet; unlock the vault first)",
+            ));
+        }
+        let id = uuid.hyphenated().to_string();
         let tx = self.conn.unchecked_transaction()?;
         match schema::get_setting(&tx, schema::KEY_VAULT_ID)? {
             Some(existing) if existing == id => return Ok(()),
@@ -106,6 +115,9 @@ mod tests {
         let s = Store::open_in_memory().expect("open");
         assert_eq!(s.vault_id().expect("get"), None);
         assert!(s.set_vault_id("not-a-uuid").is_err());
+        let nil = uuid::Uuid::nil().to_string();
+        assert!(matches!(s.set_vault_id(&nil), Err(StoreError::Invalid { field: "vault_id", .. })));
+        assert_eq!(s.vault_id().expect("get"), None, "nil is not recorded");
         let id = uuid::Uuid::new_v4().to_string();
         s.set_vault_id(&id).expect("set");
         s.set_vault_id(&id.to_uppercase()).expect("same id, other case");
