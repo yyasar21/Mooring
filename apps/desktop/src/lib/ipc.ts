@@ -4,7 +4,7 @@
 // session events/inputs use the mooring_core serde shapes (snake_case fields, `kind` tag) with
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AuditEntry, Ipc, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
+import type { AuditEntry, Ipc, PromptAccount, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockTransport } from "./ipc.mock";
 
@@ -81,6 +81,7 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
         message: str(w.message),
         secret: w.secret === true,
         purpose: promptPurpose(w.purpose),
+        account: w.purpose === "credential" ? promptAccount(w.account) : null,
       };
     case "closed":
       return { kind: "closed", reason: str(w.reason) };
@@ -91,7 +92,18 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
 
 /** Unknown or missing purposes fall back to "other": never the trust dialog. */
 function promptPurpose(v: unknown): PromptPurpose {
-  return v === "host_key_trust" || v === "keyboard_interactive" ? v : "other";
+  return v === "host_key_trust" || v === "keyboard_interactive" || v === "credential" ? v : "other";
+}
+
+/** `account` of a credential prompt (snake_case on the wire). Missing = ask for everything. */
+function promptAccount(raw: unknown): PromptAccount {
+  const w = (typeof raw === "object" && raw !== null ? raw : {}) as WireRecord;
+  return {
+    username: typeof w.username === "string" ? w.username : null,
+    domain: typeof w.domain === "string" ? w.domain : null,
+    needsUsername: w.needs_username !== false,
+    needsDomain: w.needs_domain === true,
+  };
 }
 
 export function encodeSessionInput(input: SessionInput): WireRecord {
@@ -146,13 +158,17 @@ export class TauriTransport implements Ipc {
   connectionMove: Ipc["connectionMove"] = (a) => call("connection_move", { ...a });
   connectionDelete: Ipc["connectionDelete"] = (a) => call("connection_delete", { ...a });
   connectionSearch: Ipc["connectionSearch"] = (a) => call("connection_search", { ...a });
+  connectionSetRoleCredential: Ipc["connectionSetRoleCredential"] = (a) => call("connection_set_role_credential", { ...a });
 
+  credentialKinds: Ipc["credentialKinds"] = () => call("credential_kinds");
   credentialList: Ipc["credentialList"] = () => call("credential_list");
   credentialCreate: Ipc["credentialCreate"] = (a) => call("credential_create", { ...a });
-  credentialUpdateMeta: Ipc["credentialUpdateMeta"] = (a) => call("credential_update_meta", { ...a });
-  credentialReplaceSecret: Ipc["credentialReplaceSecret"] = (a) => call("credential_replace_secret", { ...a });
+  credentialUpdateFields: Ipc["credentialUpdateFields"] = (a) => call("credential_update_fields", { ...a });
+  credentialReplaceSecrets: Ipc["credentialReplaceSecrets"] = (a) => call("credential_replace_secrets", { ...a });
   credentialDelete: Ipc["credentialDelete"] = (a) => call("credential_delete", { ...a });
-  credentialCopyPassword: Ipc["credentialCopyPassword"] = (a) => call("credential_copy_password", { ...a });
+  credentialCopySecret: Ipc["credentialCopySecret"] = (a) => call("credential_copy_secret", { ...a });
+  credentialCopyOtp: Ipc["credentialCopyOtp"] = (a) => call("credential_copy_otp", { ...a });
+  credentialParseAccount: Ipc["credentialParseAccount"] = (a) => call("credential_parse_account", { ...a });
 
   sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent }) => {
     const channel = new Channel<unknown>();

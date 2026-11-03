@@ -1,4 +1,4 @@
-// In-memory implementation of the ADR-0008 contract for `vite dev` (no Tauri) and vitest.
+// In-memory implementation of the ADR-0008 / ADR-0009 contract for `vite dev` (no Tauri) and vitest.
 // Hosts are fake (*.example.test); no credential secret is ever stored, only discarded.
 // Session/audit methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
@@ -6,7 +6,7 @@ import type {
   AuditEntry,
   ConnectionFields,
   ConnectionSummary,
-  CredentialMeta,
+  CredentialRole,
   Folder,
   Ipc,
   SessionEventHandler,
@@ -15,6 +15,9 @@ import type {
 } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { bestScore } from "./fuzzy";
+import { MockCredentials, parseAccountOrThrow } from "./ipc.mock.creds";
+import { echo } from "./ipc.mock.shell";
+import { credentialValidFor, supportsOverride } from "./credentials";
 
 import { T0, seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
 const enc = new TextEncoder();
@@ -24,8 +27,10 @@ interface MockSession {
   info: SessionInfo;
   host: string;
   emit: SessionEventHandler;
-  pending: "tofu" | "otp" | null;
+  pending: "tofu" | "otp" | "credential" | null;
   needsOtp: boolean;
+  /** The connection's effective credential is `prompt`: ask for the account after TOFU. */
+  askCredential: { username: string | null; domain: string | null; needsDomain: boolean } | null;
   line: string;
 }
 
@@ -38,7 +43,7 @@ export interface MockOptions {
 export class MockTransport implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
-  credentials = seedCredentials();
+  creds = new MockCredentials(seedCredentials());
   audit: AuditEntry[] = [];
   trustedHosts = new Set<string>();
   sessions = new Map<string, MockSession>();
@@ -98,15 +103,19 @@ export class MockTransport implements Ipc {
     return t;
   }
 
-  private resolve(c: ConnectionSummary): ConnectionSummary {
-    let cred = c.credentialId;
-    let fid: string | null = c.folderId;
+  private effective(credentialId: string | null, folderId: string): string | null {
+    let cred = credentialId;
+    let fid: string | null = folderId;
     while (!cred && fid) {
       const f = this.folders.find((x) => x.id === fid);
       cred = f?.defaultCredentialId ?? null;
       fid = f?.parentId ?? null;
     }
-    return { ...c, tags: [...c.tags], effectiveCredentialId: cred };
+    return cred;
+  }
+
+  private resolve(c: ConnectionSummary): ConnectionSummary {
+    return { ...c, tags: [...c.tags], effectiveCredentialId: this.effective(c.credentialId, c.folderId) };
   }
 
   private isDescendant(id: string, of: string): boolean {
@@ -185,9 +194,7 @@ export class MockTransport implements Ipc {
   folderSetDefaultCredential: Ipc["folderSetDefaultCredential"] = async ({ id, credentialId }) => {
     await this.unlocked();
     const f = this.folder(id);
-    if (credentialId && !this.credentials.some((c) => c.id === credentialId)) {
-      throw new IpcError("credential.not_found", "credential not found");
-    }
+    if (credentialId) this.creds.get(credentialId);
     f.defaultCredentialId = credentialId;
     return { ...f };
   };
@@ -206,6 +213,25 @@ export class MockTransport implements Ipc {
     this.name(a.name);
     if (a.host.trim().length === 0) throw new IpcError("input.invalid", "host is required");
     if (a.port !== null && (a.port < 1 || a.port > 65535)) throw new IpcError("input.invalid", "port out of range");
+    const roles: [string | null, CredentialRole][] = [
+      [a.credentialId, "primary"],
+      [a.gatewayCredentialId, "gateway"],
+      [a.becomeCredentialId, "become"],
+    ];
+    for (const [id, role] of roles) if (id) this.compatible(id, a.protocol, role);
+    const effective = this.effective(a.credentialId, a.folderId);
+    const kind = effective ? this.creds.get(effective).kind : null;
+    for (const which of ["username", "domain"] as const) {
+      const v = which === "username" ? a.usernameOverride : a.domainOverride;
+      if (v === null) continue;
+      if (v.trim() === "" || v.length > 256) throw new IpcError("input.invalid", `${which} override must be 1 to 256 characters`);
+      if (kind && !supportsOverride(kind, which)) throw new IpcError("input.invalid", `the credential has no ${which} to override`);
+    }
+  }
+
+  private compatible(credentialId: string, protocol: ConnectionSummary["protocol"], role: CredentialRole): void {
+    const r = credentialValidFor(this.creds.kinds, this.creds.get(credentialId), protocol, role);
+    if (!r.ok) throw new IpcError("credential.incompatible", r.reason);
   }
 
   connectionCreate: Ipc["connectionCreate"] = async (a) => {
@@ -260,56 +286,83 @@ export class MockTransport implements Ipc {
       .map(({ c }) => ({ id: c.id, name: c.name, host: c.host, folderId: c.folderId, protocol: c.protocol }));
   };
 
-  // ---------- credentials ----------
+  connectionSetRoleCredential: Ipc["connectionSetRoleCredential"] = async ({ id, role, credentialId }) => {
+    await this.unlocked();
+    const c = this.connection(id);
+    if (credentialId) this.compatible(credentialId, c.protocol, role);
+    if (role === "gateway") c.gatewayCredentialId = credentialId;
+    else c.becomeCredentialId = credentialId;
+    c.updatedAt = new Date().toISOString();
+    return this.resolve(c);
+  };
+
+  // ---------- credentials (ADR-0009) ----------
+
+  credentialKinds: Ipc["credentialKinds"] = async () => structuredClone(this.creds.kinds);
 
   credentialList: Ipc["credentialList"] = async () => {
     await this.unlocked();
-    return this.credentials.map((c) => ({ ...c }));
+    return this.creds.items.map((c) => this.creds.clone(c));
   };
 
-  credentialCreate: Ipc["credentialCreate"] = async ({ name, kind, username, secret }) => {
+  credentialCreate: Ipc["credentialCreate"] = async (a) => {
     await this.unlocked();
-    if (secret.length === 0) throw new IpcError("input.invalid", "secret is required");
-    const now = new Date().toISOString();
-    const m: CredentialMeta = { id: this.id("cr"), name: this.name(name), kind, username: username.trim(), createdAt: now, updatedAt: now };
-    this.credentials.push(m);
-    return { ...m };
+    return this.creds.create(a, this.name(a.name));
   };
 
-  credentialUpdateMeta: Ipc["credentialUpdateMeta"] = async ({ id, name, username }) => {
+  credentialUpdateFields: Ipc["credentialUpdateFields"] = async ({ id, name, fields }) => {
     await this.unlocked();
-    const m = this.credentials.find((c) => c.id === id);
-    if (!m) throw new IpcError("credential.not_found", "credential not found");
-    Object.assign(m, { name: this.name(name), username: username.trim(), updatedAt: new Date().toISOString() });
-    return { ...m };
+    return this.creds.updateFields(id, this.name(name), fields);
   };
 
-  credentialReplaceSecret: Ipc["credentialReplaceSecret"] = async ({ id, secret }) => {
+  credentialReplaceSecrets: Ipc["credentialReplaceSecrets"] = async (a) => {
     await this.unlocked();
-    if (!this.credentials.some((c) => c.id === id)) throw new IpcError("credential.not_found", "credential not found");
-    if (secret.length === 0) throw new IpcError("input.invalid", "secret is required");
+    this.creds.replaceSecrets(a);
   };
 
   credentialDelete: Ipc["credentialDelete"] = async ({ id }) => {
     await this.unlocked();
-    if (!this.credentials.some((c) => c.id === id)) throw new IpcError("credential.not_found", "credential not found");
-    this.credentials = this.credentials.filter((c) => c.id !== id);
-    for (const c of this.connections) if (c.credentialId === id) c.credentialId = null;
+    this.creds.remove(id);
+    for (const c of this.connections) {
+      if (c.credentialId === id) c.credentialId = null;
+      if (c.gatewayCredentialId === id) c.gatewayCredentialId = null;
+      if (c.becomeCredentialId === id) c.becomeCredentialId = null;
+    }
     for (const f of this.folders) if (f.defaultCredentialId === id) f.defaultCredentialId = null;
   };
 
-  credentialCopyPassword: Ipc["credentialCopyPassword"] = async ({ id }) => {
+  credentialCopySecret: Ipc["credentialCopySecret"] = async ({ id, name }) => {
     await this.unlocked();
-    if (!this.credentials.some((c) => c.id === id)) throw new IpcError("credential.not_found", "credential not found");
-    this.record("credential_used", { credential: id, purpose: "copy" });
+    this.creds.copySecret(id, name);
+    this.record("credential_copied", { credential: id, name });
     return { clearsInMs: 30_000 };
   };
+
+  credentialCopyOtp: Ipc["credentialCopyOtp"] = async ({ id }) => {
+    await this.unlocked();
+    const r = this.creds.copyOtp(id, Date.now());
+    this.record("credential_copied", { credential: id, name: "otp" });
+    return r;
+  };
+
+  credentialParseAccount: Ipc["credentialParseAccount"] = async ({ input }) => parseAccountOrThrow(input);
 
   // ---------- sessions ----------
 
   sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, onEvent }) => {
     await this.unlocked();
-    const c = this.connection(connectionId);
+    const c = this.resolve(this.connection(connectionId));
+    const cred = c.effectiveCredentialId ? this.creds.get(c.effectiveCredentialId) : null;
+    if (cred) this.compatible(cred.id, c.protocol, "primary");
+    const str = (v: unknown) => (typeof v === "string" ? v : null);
+    const askCredential =
+      cred?.kind === "prompt"
+        ? {
+            username: c.usernameOverride ?? str(cred.fields.username),
+            domain: c.domainOverride ?? str(cred.fields.domain),
+            needsDomain: c.protocol === "rdp",
+          }
+        : null;
     const sessionId = this.id("s");
     const s: MockSession = {
       info: { sessionId, connectionId, protocol: c.protocol, state: "connecting", openedAt: new Date().toISOString() },
@@ -317,6 +370,7 @@ export class MockTransport implements Ipc {
       emit: onEvent,
       pending: null,
       needsOtp: c.tags.includes("otp"),
+      askCredential,
       line: "",
     };
     this.sessions.set(sessionId, s);
@@ -329,6 +383,7 @@ export class MockTransport implements Ipc {
           message: `The authenticity of host ${c.host} can't be established.\nED25519 key fingerprint is SHA256:mock-${c.name}.\nTrust this host and continue?`,
           secret: false,
           purpose: "host_key_trust",
+          account: null,
         });
       } else this.afterTrust(s);
     });
@@ -336,9 +391,22 @@ export class MockTransport implements Ipc {
   };
 
   private afterTrust(s: MockSession): void {
+    if (s.askCredential) {
+      const a = s.askCredential;
+      s.pending = "credential";
+      s.emit({
+        kind: "prompt",
+        id: 3,
+        message: `Sign in to ${s.host}`,
+        secret: true,
+        purpose: "credential",
+        account: { username: a.username, domain: a.domain, needsUsername: true, needsDomain: a.needsDomain },
+      });
+      return;
+    }
     if (s.needsOtp) {
       s.pending = "otp";
-      s.emit({ kind: "prompt", id: 2, message: "Verification code:", secret: true, purpose: "keyboard_interactive" });
+      s.emit({ kind: "prompt", id: 2, message: "Verification code:", secret: true, purpose: "keyboard_interactive", account: null });
       return;
     }
     this.connect(s);
@@ -363,6 +431,13 @@ export class MockTransport implements Ipc {
     const s = this.sessions.get(sessionId);
     if (!s) throw new IpcError("session.not_found", "session not found");
     switch (input.kind) {
+      case "credential_answer": {
+        if (s.pending !== "credential" || input.id !== 3) throw new IpcError("input.invalid", "no such prompt");
+        const ok = input.username.trim() !== "" && input.password.length > 0;
+        this.record("credential_prompted", { connection: s.info.connectionId, username: input.username.trim() });
+        this.later(() => { if (ok) this.connect(s); else this.end(s, "authentication failed"); });
+        return;
+      }
       case "answer": {
         const yes = /^(y|yes|accept)$/i.test(input.text.trim());
         if (s.pending === "tofu" && input.id === 1) {
@@ -377,28 +452,9 @@ export class MockTransport implements Ipc {
         return;
       }
       case "bytes": {
-        const text = dec.decode(input.data);
-        let out = "";
-        for (const ch of text) {
-          if (ch === "\r") {
-            const cmd = s.line.trim();
-            s.line = "";
-            if (cmd === "exit") {
-              this.later(() => { this.end(s, "remote closed the session"); });
-              return;
-            }
-            out += `\r\n${cmd ? `${cmd}\r\n` : ""}$ `;
-          } else if (ch === "\x7f") {
-            if (s.line.length > 0) {
-              s.line = s.line.slice(0, -1);
-              out += "\b \b";
-            }
-          } else {
-            s.line += ch;
-            out += ch;
-          }
-        }
-        if (out) this.later(() => { s.emit({ kind: "bytes", data: enc.encode(out) }); });
+        const { out, exit } = echo(s, dec.decode(input.data));
+        if (exit) this.later(() => { this.end(s, "remote closed the session"); });
+        else if (out) this.later(() => { s.emit({ kind: "bytes", data: enc.encode(out) }); });
         return;
       }
       default:
