@@ -10,6 +10,7 @@
 //!   `auth`/`agent` — login methods
 //! * `channel` — PTY shell pump; `driver` — per-connection task; [`session`] — the front
 //! * [`forward`] (+ `forward_io`, [`socks`]) — local / remote / dynamic port forwarding
+//! * [`sftp`] (+ `sftp_transfer`, [`LocalPath`]) — SFTP client on the same connection.
 
 #![forbid(unsafe_code)]
 
@@ -23,7 +24,10 @@ pub mod forward;
 mod forward_io;
 mod handler;
 pub mod known_hosts;
+mod local_path;
 pub mod session;
+pub mod sftp;
+mod sftp_transfer;
 mod shared;
 pub mod socks;
 
@@ -32,4 +36,6 @@ pub use channel::{MAX_CHUNK, TERM};
 pub use forward::{ForwardId, ForwardInfo, ForwardKind};
 pub use handler::ClientHandler;
 pub use known_hosts::{KnownHosts, TrustDecision};
+pub use local_path::{LocalPath, MAX_LOCAL_PATH};
 pub use session::{SshOptions, SshSession};
+pub use sftp::{Entry, EntryKind, Listing, SftpClient};
