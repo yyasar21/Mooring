@@ -1,96 +1,156 @@
-/* Mooring design tokens. One source of truth for both themes.
-   Dark is the default (a remote-access console lives next to terminals); light is opt-in. */
+/* Mooring design tokens: the "bridge console" system. One source of truth for both themes.
+   Dark is the default (a remote-access console lives next to terminals); light is opt-in and quiet.
+
+   Colour semantics (do not overload):
+   - signal (electric cyan)  selection, focus, live links / connected. The only cool hue.
+   - hot (magenta)           danger and "needs you now" (prompts, rejected keys, broken chain).
+   Everything else is ink on near-black. Glow exists only on things that are active. */
 @import "@fontsource/ibm-plex-sans/400.css";
 @import "@fontsource/ibm-plex-sans/500.css";
 @import "@fontsource/ibm-plex-sans/600.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
+/* Display face: squared, chamfered letterforms that echo the bevelled HUD frames. Latin only. */
+@import "@fontsource/chakra-petch/latin-500.css";
+@import "@fontsource/chakra-petch/latin-600.css";
+@import "@fontsource/chakra-petch/latin-ext-500.css";
+@import "@fontsource/chakra-petch/latin-ext-600.css";
 
 :root {
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Chakra Petch", "IBM Plex Sans", system-ui, sans-serif;
 
-  /* graphite-navy base, not neutral black: screens full of terminals need a cool, lifted ground */
-  --bg: #151a22;
-  --bg-sunken: #10141b;
-  --surface: #1b222d;
-  --surface-raised: #222b38;
-  --line: #2a3444;
-  --line-strong: #3a475b;
-  --text: #e6eaf0;
-  --text-muted: #8b97a8;
-  --text-faint: #5b6778;
+  /* ---- ground: near-black with a blue-teal cast, stepping up in tiny increments ---- */
+  --void: #03070a;
+  --bg: #060c11;
+  --bg-sunken: #04090d;
+  --surface: #0a141b;
+  --surface-raised: #0e1a23;
+  --glass: rgba(8, 18, 25, 0.72);
+  --line: #11262f;
+  --line-strong: #1b3a46;
+  --text: #d5eef2;
+  --text-muted: #7c9ca5;
+  --text-faint: #4b6670;
 
-  /* one accent: sea-teal. It marks focus, the selected row and "connected". Nothing else is teal. */
-  --accent: #5cc8b8;
-  --accent-ink: #0b2a26;
-  --accent-soft: rgba(92, 200, 184, 0.14);
+  /* ---- signal: electric cyan ---- */
+  --accent: #29e6f2;
+  --accent-ink: #011417;
+  --accent-soft: rgba(41, 230, 242, 0.1);
+  --accent-line: rgba(41, 230, 242, 0.45);
+  --accent-dim: rgba(41, 230, 242, 0.22);
 
-  --ok: #6fcf97;
-  --warn: #f2c94c;
-  --warn-soft: rgba(242, 201, 76, 0.12);
-  --danger: #eb6b5e;
-  --danger-soft: rgba(235, 107, 94, 0.12);
+  /* ---- hot: magenta ---- */
+  --hot: #ff3b8d;
+  --hot-soft: rgba(255, 59, 141, 0.12);
+  --hot-line: rgba(255, 59, 141, 0.5);
 
-  /* the mooring line under each tab: taut = connected, slack = connecting, frayed = closed */
+  /* legacy semantic names map onto the two hues so every screen stays consistent */
+  --ok: var(--accent);
+  --warn: var(--hot);
+  --warn-soft: var(--hot-soft);
+  --danger: var(--hot);
+  --danger-soft: var(--hot-soft);
+
+  /* ---- light and glow: only on active elements ---- */
+  --glow-accent: 0 0 0 1px var(--accent-line), 0 0 14px -2px rgba(41, 230, 242, 0.45);
+  --glow-accent-s: 0 0 8px rgba(41, 230, 242, 0.55);
+  --glow-hot: 0 0 0 1px var(--hot-line), 0 0 14px -2px rgba(255, 59, 141, 0.5);
+  --text-glow: 0 0 10px rgba(41, 230, 242, 0.45);
+  --focus-ring: 0 0 0 1px var(--accent), 0 0 0 3px rgba(41, 230, 242, 0.18), 0 0 12px rgba(41, 230, 242, 0.35);
+
+  /* ---- texture: static, painted once ---- */
+  --grid-line: rgba(41, 230, 242, 0.035);
+  --grid-size: 24px;
+  --scanline: rgba(255, 255, 255, 0.018);
+  --bracket: var(--line-strong);
+  --bracket-len: 9px;
+
+  /* the state rail under each tab: taut = connected, pulse = connecting, frayed = closed */
   --line-taut: var(--accent);
-  --line-slack: var(--text-faint);
+  --line-slack: var(--accent-dim);
   --line-frayed: var(--line-strong);
 
-  /* terminal surface follows the theme but stays darker than the chrome in dark mode */
-  --term-bg: #0e1218;
-  --term-fg: #d6dde7;
+  /* terminal surface: darker than the chrome, no tint on the glyphs */
+  --term-bg: #020609;
+  --term-fg: #cfe3e7;
   --term-cursor: var(--accent);
-  --term-selection: rgba(92, 200, 184, 0.28);
+  --term-selection: rgba(41, 230, 242, 0.24);
+  --term-bezel: #0b1820;
 
-  --radius-s: 4px;
-  --radius-m: 8px;
-  --shadow-pop: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
-  --scrim: rgba(5, 8, 12, 0.55);
+  --radius-s: 2px;
+  --radius-m: 3px;
+  --bevel: 8px;
+  --shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--line-strong);
+  --scrim: rgba(1, 4, 6, 0.66);
+  --blur: blur(14px) saturate(140%);
 
   --row-h: 26px;
   --bar-h: 36px;
-  --status-h: 22px;
+  --status-h: 24px;
   --indent: 14px;
 
-  --fs-2xs: 10.5px;
+  --fs-2xs: 10px;
   --fs-xs: 11.5px;
   --fs-s: 12.5px;
   --fs-m: 13px;
   --fs-l: 15px;
-  --fs-xl: 21px;
+  --fs-xl: 22px;
+  --fs-2xl: 34px;
+  --track-micro: 0.14em;
+  --track-display: 0.08em;
 
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-snap: cubic-bezier(0.3, 1.4, 0.5, 1);
+  --dur-fast: 120ms;
+  --dur-mid: 220ms;
+  --dur-slow: 700ms;
 
   color-scheme: dark;
 }
 
+/* Light: daylight console. Same structure, glows switched off, ink does the work. */
 :root[data-theme="light"] {
-  --bg: #f3f5f8;
-  --bg-sunken: #e9edf2;
+  --void: #dfe7ea;
+  --bg: #f2f6f7;
+  --bg-sunken: #e8eef0;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --line: #d9dfe7;
-  --line-strong: #c3ccd8;
-  --text: #16202c;
-  --text-muted: #4f5b6b;
-  --text-faint: #7d8a9b;
-  --accent: #157f71;
+  --glass: rgba(246, 250, 251, 0.82);
+  --line: #d3dee2;
+  --line-strong: #b6c8ce;
+  --text: #0a1a21;
+  --text-muted: #44606a;
+  --text-faint: #7a939b;
+  --accent: #007f8c;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(21, 127, 113, 0.12);
-  --ok: #23824e;
-  --warn: #9a6b00;
-  --warn-soft: rgba(154, 107, 0, 0.1);
-  --danger: #c2392b;
-  --danger-soft: rgba(194, 57, 43, 0.09);
-  --term-bg: #fbfcfd;
-  --term-fg: #1d2733;
-  --term-selection: rgba(21, 127, 113, 0.22);
-  --shadow-pop: 0 18px 48px rgba(20, 30, 45, 0.18), 0 0 0 1px var(--line);
-  --scrim: rgba(30, 40, 55, 0.28);
+  --accent-soft: rgba(0, 127, 140, 0.09);
+  --accent-line: rgba(0, 127, 140, 0.55);
+  --accent-dim: rgba(0, 127, 140, 0.3);
+  --hot: #c4105c;
+  --hot-soft: rgba(196, 16, 92, 0.08);
+  --hot-line: rgba(196, 16, 92, 0.5);
+  --glow-accent: 0 0 0 1px var(--accent-line);
+  --glow-accent-s: none;
+  --glow-hot: 0 0 0 1px var(--hot-line);
+  --text-glow: none;
+  --focus-ring: 0 0 0 1px var(--accent), 0 0 0 3px rgba(0, 127, 140, 0.2);
+  --grid-line: rgba(0, 60, 70, 0.035);
+  --scanline: transparent;
+  --term-bg: #fbfdfd;
+  --term-fg: #12232b;
+  --term-selection: rgba(0, 127, 140, 0.2);
+  --term-bezel: #e3eaec;
+  --shadow-pop: 0 20px 48px rgba(10, 30, 40, 0.16), 0 0 0 1px var(--line-strong);
+  --scrim: rgba(20, 40, 50, 0.24);
   color-scheme: light;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
