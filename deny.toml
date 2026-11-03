@@ -30,3 +30,5 @@ deny = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# One approved git source: age pinned to str4d/rage until age 0.13 ships (see root Cargo.toml [patch]).
+allow-git = ["https://github.com/str4d/rage"]

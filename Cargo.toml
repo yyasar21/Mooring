@@ -90,3 +90,9 @@ panic = "abort"
 # The export path runs real scrypt (log N = 18, ADR-0006); keep debug test runs fast.
 [profile.dev.package.scrypt]
 opt-level = 3
+
+# age 0.12.1 on crates.io pins ml-kem 0.2; russh 0.65 needs ml-kem 0.3 (kem 0.3). age's main
+# already migrated (str4d/rage f7c95f4), pinned to a commit of the official repository with the
+# owner's approval (2026-11-03). Drop this when age 0.13 is published.
+[patch.crates-io]
+age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }
