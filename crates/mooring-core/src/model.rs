@@ -152,15 +152,36 @@ fn invalid(field: &'static str, reason: String) -> MooringError {
     MooringError::Invalid { field, reason }
 }
 
+/// Unicode bidi controls (Trojan Source class, CVE-2021-42574) and invisible format
+/// characters: they make a stored value render differently from what it is.
+#[must_use]
+pub const fn is_bidi_or_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
+}
+
+/// Control characters plus [`is_bidi_or_invisible`]: never allowed in names, hosts or tags.
+fn is_forbidden(c: char) -> bool {
+    c.is_control() || is_bidi_or_invisible(c)
+}
+
 /// Validate a display name (folder, connection, credential) and return it trimmed:
-/// 1..=[`MAX_NAME`] characters, no control characters. The error never echoes the input.
+/// 1..=[`MAX_NAME`] characters, no control, bidi or invisible format characters. The error never echoes the input.
 pub fn validate_name(name: &str) -> Result<String> {
     let n = name.trim();
     if n.is_empty() || n.chars().count() > MAX_NAME {
         return Err(invalid("name", format!("must be 1..={MAX_NAME} characters")));
     }
-    if n.chars().any(char::is_control) {
-        return Err(invalid("name", "contains control characters".into()));
+    if n.chars().any(is_forbidden) {
+        return Err(invalid("name", "contains control or invisible formatting characters".into()));
     }
     Ok(n.to_owned())
 }
@@ -169,7 +190,7 @@ pub fn validate_name(name: &str) -> Result<String> {
 /// no whitespace or control characters.
 pub fn validate_host(host: &str) -> Result<String> {
     let h = host.trim();
-    if h.is_empty() || h.len() > MAX_HOST || h.chars().any(|c| c.is_whitespace() || c.is_control())
+    if h.is_empty() || h.len() > MAX_HOST || h.chars().any(|c| c.is_whitespace() || is_forbidden(c))
     {
         return Err(invalid(
             "host",
@@ -186,8 +207,8 @@ pub fn validate_tag(tag: &str) -> Result<String> {
     if t.is_empty() || t.chars().count() > MAX_TAG {
         return Err(invalid("tag", format!("must be 1..={MAX_TAG} characters")));
     }
-    if t.chars().any(char::is_control) {
-        return Err(invalid("tag", "contains control characters".into()));
+    if t.chars().any(is_forbidden) {
+        return Err(invalid("tag", "contains control or invisible formatting characters".into()));
     }
     Ok(t.to_owned())
 }
@@ -269,6 +290,29 @@ mod tests {
         // errors never echo the rejected value
         let e = validate_host("secret-looking host").expect_err("spaces");
         assert!(!e.to_string().contains("secret-looking"));
+    }
+
+    #[test]
+    fn bidi_and_invisible_format_characters_are_refused() {
+        let bad = [
+            '\u{00AD}', '\u{061C}', '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}',
+            '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}', '\u{2060}', '\u{2061}',
+            '\u{2062}', '\u{2063}', '\u{2064}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+            '\u{FEFF}',
+        ];
+        for c in bad {
+            let v = format!("db{c}x");
+            assert!(validate_name(&v).is_err(), "name U+{:04X}", u32::from(c));
+            assert!(validate_host(&v).is_err(), "host U+{:04X}", u32::from(c));
+            assert!(validate_tag(&v).is_err(), "tag U+{:04X}", u32::from(c));
+        }
+        // neighbours and ordinary non-ASCII text stay accepted
+        for ok in
+            ["Sunucu \u{0130}stanbul", "\u{00E9}t\u{00E9}", "\u{2065}x", "a\u{2070}", "\u{202F}n"]
+        {
+            assert!(validate_name(ok).is_ok(), "{ok:?}");
+        }
+        assert!(validate_tag("\u{0130}zmir").is_ok());
     }
 
     #[test]

@@ -200,14 +200,11 @@ async fn hostile_input_on_a_live_ssh_session() {
     assert_state_healthy(st);
 }
 
-/// A1-QA-4: `validate_name` / `validate_host` / `validate_tag` reject `char::is_control` (Cc)
-/// only, so Unicode bidi overrides and invisible format characters (Cf: U+202E, U+2066..2069,
-/// U+200B, U+FEFF) are stored and shown in the tree, palette and tab titles. A shared or
-/// imported tree can then display `prod-db` for a connection whose host is something else
-/// (Trojan-Source-style spoofing, CVE-2021-42574 class). Fix in mooring-core: also refuse bidi
-/// controls and zero-width format characters, then drop the `#[ignore]`.
+/// A1-QA-4 (fixed): Unicode bidi overrides and invisible format characters (Cf: U+202E,
+/// U+2066..2069, U+200B, U+FEFF, ...) in names, hosts and tags would let a shared or imported
+/// tree display `prod-db` for a connection whose host is something else (Trojan-Source-style
+/// spoofing, CVE-2021-42574 class). The shared `mooring-core` validators refuse them.
 #[test]
-#[ignore = "bug A1-QA-4: bidi/format characters accepted in names, hosts and tags"]
 fn bidi_and_invisible_format_characters_are_refused() {
     let f = testing::unlocked();
     let st = &f.state;
