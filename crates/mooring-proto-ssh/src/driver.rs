@@ -84,7 +84,7 @@ impl Driver {
             return "closed by user".to_owned();
         }
 
-        let end = pump(channel, &mut commands, &shared.events, r#become).await;
+        let end = pump(channel, &mut commands, &shared.events, &shared.audit, r#become).await;
         let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
         end.reason()
     }

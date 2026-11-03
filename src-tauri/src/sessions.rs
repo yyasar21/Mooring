@@ -210,7 +210,7 @@ pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcRes
     Ok(())
 }
 
-fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
+fn audit_trust(audit: &Mutex<AuditLog>, connection: &str, events: Vec<TrustEvent>) {
     for e in events {
         let (host, fingerprint, decision, expected) = match e {
             TrustEvent::HostKeyAdded { host, port, fingerprint, stored, .. } => {
@@ -230,6 +230,10 @@ fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
             }
             TrustEvent::AuthFailed => {
                 tracing::info!("ssh authentication failed");
+                continue;
+            }
+            TrustEvent::BecomeFailed => {
+                record_audit(audit, AuditEvent::BecomeFailed { connection: connection.to_owned() });
                 continue;
             }
             // Forwards are not exposed over IPC yet; `mooring-audit` gains dedicated
@@ -284,7 +288,7 @@ async fn run(
                 }
             },
             event = session.next_event() => {
-                audit_trust(&ctx.audit, session.take_audit_events());
+                audit_trust(&ctx.audit, &ctx.connection_id, session.take_audit_events());
                 match event {
                     Ok(Some(event)) => {
                         let last = matches!(event, SessionEvent::Closed { .. });
@@ -326,7 +330,7 @@ async fn run(
         }
     }
     phase.store(Phase::Closed as u8, Ordering::Relaxed);
-    audit_trust(&ctx.audit, session.take_audit_events());
+    audit_trust(&ctx.audit, &ctx.connection_id, session.take_audit_events());
     if let Ok(mut map) = ctx.registry.lock() {
         map.remove(&ctx.session_id);
     }
@@ -379,5 +383,16 @@ mod tests {
             assert_eq!(Phase::from_u8(p as u8), p);
         }
         assert_eq!(Phase::Connecting.as_str(), "connecting");
+    }
+
+    #[test]
+    fn become_failure_is_audited_with_the_connection() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let path = dir.path().join("audit.jsonl");
+        let log = Mutex::new(AuditLog::open(&path).expect("open"));
+        audit_trust(&log, "conn-1", vec![TrustEvent::BecomeFailed]);
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(text.contains(r#""event":"become_failed""#), "{text}");
+        assert!(text.contains(r#""connection":"conn-1""#), "{text}");
     }
 }

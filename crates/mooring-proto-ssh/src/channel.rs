@@ -5,7 +5,8 @@ use russh::client::{Handle, Msg};
 use russh::{Channel, ChannelMsg, ChannelReadHalf, ChannelWriteHalf};
 use tokio::sync::mpsc;
 
-use crate::become_::{self, Watcher};
+use crate::audit::{AuditLog, TrustEvent};
+use crate::become_::{self, Action, Watcher};
 use crate::handler::ClientHandler;
 
 /// Largest `SessionEvent::Bytes` payload.
@@ -81,11 +82,14 @@ async fn on_command(write: &ChannelWriteHalf<Msg>, cmd: Option<Command>) -> Opti
 }
 
 /// Run the shell until either side ends it. With `become`, the escalation command is typed
-/// first and the password answers the remote prompt once (see [`crate::become_`]).
+/// first and the password answers the remote prompt once (see [`crate::become_`]). A failed
+/// escalation is interrupted with `^C`, shown as a notice line and audited; the session stays
+/// the login user.
 pub(crate) async fn pump(
     channel: Channel<Msg>,
     commands: &mut mpsc::Receiver<Command>,
     events: &mpsc::Sender<SessionEvent>,
+    audit: &AuditLog,
     r#become: Option<Become>,
 ) -> PumpEnd {
     let (mut read, write): (ChannelReadHalf, ChannelWriteHalf<Msg>) = channel.split();
@@ -100,6 +104,11 @@ pub(crate) async fn pump(
     loop {
         tokio::select! {
             cmd = commands.recv() => {
+                if matches!(cmd, Some(Command::Data(_))) {
+                    if let Some(w) = watcher.as_mut() {
+                        w.user_input();
+                    }
+                }
                 if let Some(end) = on_command(&write, cmd).await {
                     if end == PumpEnd::ClosedByUser || end == PumpEnd::UiGone {
                         let _ = write.eof().await;
@@ -117,14 +126,29 @@ pub(crate) async fn pump(
                     };
                 }
                 Some(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. }) => {
-                    if let Some(line) = watcher.as_mut().and_then(|w| w.feed(&data)) {
-                        if write.data_bytes(line.to_vec()).await.is_err() {
-                            return PumpEnd::ConnectionLost;
-                        }
+                    let action = watcher.as_mut().map_or(Action::None, |w| w.feed(&data));
+                    if !watcher.as_ref().is_some_and(Watcher::active) {
                         watcher = None;
                     }
                     if !forward(events, &data).await {
                         return PumpEnd::UiGone;
+                    }
+                    match action {
+                        Action::None => {}
+                        Action::Send(line) => {
+                            if write.data_bytes(line.to_vec()).await.is_err() {
+                                return PumpEnd::ConnectionLost;
+                            }
+                        }
+                        Action::Failed => {
+                            audit.push(TrustEvent::BecomeFailed);
+                            if write.data_bytes(become_::CTRL_C.to_vec()).await.is_err() {
+                                return PumpEnd::ConnectionLost;
+                            }
+                            if !forward(events, become_::FAILED_NOTICE).await {
+                                return PumpEnd::UiGone;
+                            }
+                        }
                     }
                 }
                 Some(ChannelMsg::ExitStatus { exit_status: code }) => exit_status = Some(code),

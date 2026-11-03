@@ -106,8 +106,38 @@ async fn become_types_sudo_and_answers_the_prompt_once() {
     let out = read_until(&mut s, "root# ").await;
     assert!(!out.contains("test-become-pw"), "password never reaches the UI stream: {out:?}");
     let lines = srv.seen.lock().expect("lock").shell_lines.clone();
-    assert!(lines[0].starts_with("sudo -p '[mooring] become password: ' -i -u root"), "{lines:?}");
+    assert!(
+        lines[0].starts_with("sudo -p '[mooring]%% become password: ' -i -u root"),
+        "{lines:?}"
+    );
     assert_eq!(lines.iter().filter(|l| l.as_str() == "test-become-pw\n").count(), 1, "{lines:?}");
+    assert!(!s.take_audit_events().iter().any(|e| matches!(e, TrustEvent::BecomeFailed)));
+}
+
+#[tokio::test]
+async fn become_failure_interrupts_once_notifies_and_keeps_the_login_user() {
+    let mut spec = ServerSpec::new(&[MethodKind::Password]);
+    spec.become_prompt = true;
+    spec.become_wrong = true;
+    let mut p = params(0, ConnectSecret::Password(SecretString::from(PASSWORD)));
+    p.r#become = Some(Become {
+        method: BecomeMethod::Sudo,
+        user: "root".into(),
+        password: Some(SecretString::from("test-wrong-become-pw")),
+    });
+    let (mut s, srv, _d) = trusted_with(spec, p).await;
+    expect_connected(&mut s).await;
+    let out = read_until(&mut s, "alice$ ").await;
+    assert!(out.contains("Sorry, try again."), "{out:?}");
+    assert!(out.contains("[mooring] become failed"), "notice line in the stream: {out:?}");
+    assert!(!out.contains("test-wrong-become-pw"), "password never reaches the UI stream");
+    let lines = srv.seen.lock().expect("lock").shell_lines.clone();
+    assert_eq!(lines.iter().filter(|l| l.contains("test-wrong-become-pw")).count(), 1, "{lines:?}");
+    assert_eq!(lines.iter().filter(|l| l.as_str() == "\x03").count(), 1, "one ^C: {lines:?}");
+    assert_eq!(lines.last().map(String::as_str), Some("\x03"), "nothing after ^C: {lines:?}");
+    assert!(s.take_audit_events().iter().any(|e| matches!(e, TrustEvent::BecomeFailed)));
+    // the session is still open, as the login user
+    s.send(SessionInput::Bytes { data: b"id\n".to_vec() }).await.expect("still usable");
 }
 
 #[tokio::test]

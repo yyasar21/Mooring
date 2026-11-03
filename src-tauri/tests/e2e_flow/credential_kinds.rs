@@ -151,7 +151,7 @@ async fn become_types_the_escalation_command_after_login() {
     let opened = sess::open(st, &conn, SIZE, sk).await.expect("open");
     assert_eq!(next(&mut rx).await["kind"], "connected");
     // the echo shell sends back the line Mooring typed
-    read_until(&mut rx, "sudo -p '[mooring] become password: ' -i -u root").await;
+    read_until(&mut rx, "sudo -p '[mooring]%% become password: ' -i -u root").await;
     sess::close(st, &opened.session_id).await.expect("close");
     wait_until_empty(st).await;
     let log = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("log");

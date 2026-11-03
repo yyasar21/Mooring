@@ -98,6 +98,9 @@ pub enum TrustEvent {
         /// Target.
         target: String,
     },
+    /// Privilege escalation (`become`) was refused by the server (wrong password, not in
+    /// sudoers); it was interrupted and the session continues as the login user (review 3, M-6).
+    BecomeFailed,
 }
 
 impl TrustEvent {
@@ -111,6 +114,7 @@ impl TrustEvent {
             Self::AuthFailed => "session.auth.failed",
             Self::ForwardOpened { .. } => "session.forward.open",
             Self::ForwardClosed { .. } => "session.forward.close",
+            Self::BecomeFailed => "session.become.failed",
         }
     }
 }
