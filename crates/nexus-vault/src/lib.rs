@@ -25,5 +25,8 @@ mod vault;
 
 pub use error::VaultError;
 pub use format::{Header, Sealed, FORMAT_VERSION, MAGIC};
-pub use kdf::KdfParams;
+pub use kdf::{
+    calibrate_with, HostLimits, KdfParams, CALIBRATION_CANDIDATES_MIB, CALIBRATION_T,
+    CALIBRATION_TARGET,
+};
 pub use vault::{Vault, VaultState};
