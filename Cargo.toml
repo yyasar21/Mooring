@@ -83,3 +83,7 @@ lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# The export path runs real scrypt (log N = 18, ADR-0006); keep debug test runs fast.
+[profile.dev.package.scrypt]
+opt-level = 3
