@@ -1,14 +1,16 @@
 # Threat model — Mooring (v1, Phase A1)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
-Last change: A1 items 3–5. These cover the ADR-0007 SSH core, forwarding and SFTP, the ADR-0008
-Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
-[a1-review-2.md](a1-review-2.md). Earlier: A1 items 1–2, [a1-review.md](a1-review.md).
+Last change: ADR-0009 typed credentials, the public release pipeline and the public scrub; see
+review [a1-review-3.md](a1-review-3.md). Earlier: A1 items 3–5 (SSH core, forwarding, SFTP,
+ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1–2 in
+[a1-review.md](a1-review.md).
 
 ## Assets
 | Asset | Where it lives | Impact if lost |
 | --- | --- | --- |
-| Vault secrets (passwords, keys, tokens) | `credential.secret`/`secret2` in `mooring.db`, sealed per field; DEK in RAM while unlocked | Compromise of every managed host |
+| Vault secrets (passwords, keys, tokens, TOTP seeds, kubeconfigs, become passwords) | `credential_secret(credential_id, name, sealed)` in `mooring.db`, one row per secret, AAD = credential id ‖ 0x1F ‖ secret name (ADR-0009); migrated v2 rows keep legacy names `secret`/`secret2` until the reseal; DEK in RAM while unlocked | Compromise of every managed host; with `otp_seed` stored beside the password, of the second factor too |
+| Credential metadata (`credential.fields_json`) | `mooring.db` **plaintext**, served to the WebView: usernames, domains, UPNs, OAuth client ids and token URLs, kubeconfig context names, SSH public keys and certificates, X.509 certificates, fingerprints, external references, become user, secret *names* | Account enumeration and key linkage (R-INV-CRED) |
 | Master password | Nowhere (derived into KEK, zeroized) | Vault compromise |
 | Vault header (`vault.header.json`) | Plaintext, authenticated; the only copy of the wrapped DEK | Loss = vault loss (availability); tamper = unlock fails |
 | Keyring `WrapKey` (opt-in) | OS keyring, service `io.github.yyasar21.mooring`, account = `vault_id` | With the header: DEK (see R-T2-KR) |
@@ -18,7 +20,8 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 | Audit log | `audit.jsonl`, hash-chained, carries `vault_id` | Loss of accountability |
 | SSH trust store (`known_hosts`) | `$APP_DATA/known_hosts` in OpenSSH format. New entries are written `\|1\|`-hashed, mode 0600. **Not** in the vault | Tamper (T2): MITM keys silently accepted for the hosts the attacker picks. Read: the host list (hashing hides the names of new entries) |
 | RDP/TLS cert pins | Vault (A2) | MITM |
-| Copied password | OS clipboard for ≤ 30 s, excluded from clipboard history where the OS allows | While it is there, any process in the same session and any clipboard manager can read it |
+| Copied secret or OTP code | OS clipboard for ≤ 30 s (OTP: at most the code's remaining validity), excluded from history and cloud sync where the OS allows; cleared on lock and on exit | While it is there, any process in the same session and any clipboard manager can read it |
+| Release signing identity | GitHub OIDC → Sigstore certificate for `release.yml` in this repo (cosign keyless); Apple, Azure, RPM and updater keys as GitHub secrets | Whoever can sign as `release.yml` ships trusted binaries to every user (R-REL) |
 | Live port forwards | Loopback listeners in our process; remote listeners on the server | Anyone who reaches the bound address uses the tunnel into the target network |
 
 ## Attackers
@@ -29,7 +32,7 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 | T3 | Network MITM | Intercepts/alters SSH, RDP, VNC, HTTPS, LDAPS traffic |
 | T4 | Malicious remote server / hostile file | Sends hostile protocol bytes to our parsers: SSH transport, keyboard-interactive prompts, terminal escape sequences (OSC 8), SFTP replies and `limits`, server-opened channels. Hands the user a crafted export or header |
 | T5 | Compromised WebView (XSS, malicious remote page in A2) | Runs JS inside the app, calls any exposed IPC command |
-| T6 | Poisoned dependency (cargo/npm) or CI | Code execution at build time |
+| T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
 
 ## Mitigations (STRIDE)
 | Threat | Mitigation | Status |
@@ -46,7 +49,11 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 | Repudiation | Audit entries for vault + credential + session + trust events; `vault.lock` carries `reason ∈ {user, idle, screen_lock, sleep, window_hidden}` | A0 ✓ / A1 partial (lock reasons ✓; keyring/export/credential events with wiring) |
 | Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `mooring_audit::redact` on sinks; no `println!` (lint); `SessionInput::Answer` is redacted in `Debug` and `Serialize` and is a `SecretString` end to end; IPC DTOs have no secret field (tested) | A0 ✓ / A1 ✓ |
 | Information disclosure: SSH credentials in flight (T2) | Vault → `Zeroizing` → `SecretString` → `ConnectParams`, which is moved into the auth round and dropped after it. Auth failure is reported generically | A1 ✓ (R-SSH-STR: russh keeps internal `String` copies; N-1: one extra copy on our side) |
-| Information disclosure: clipboard (T2) | Rust-side only (`arboard`), password credentials only, history and cloud exclusion, cleared after 30 s if unchanged (digest compare), audited as `credential_used{copy}` | A1 partial: **M-1** open (not cleared on exit or lock); manual check on each OS owed |
+| Information disclosure: clipboard (T2) | Rust side only (`arboard`). Copyable: secrets the kind schema flags `copyable` (passwords, passphrase, become password, tokens, client secret) and computed TOTP codes. Never copyable: `private_key`, `key_pem`, `kubeconfig_yaml`, `otp_seed`, `refresh_token`. History and cloud exclusion. Cleared if unchanged (digest compare) after 30 s (OTP: at expiry), on lock and on exit. Audited as `credential_copied {credential, name}` | A1 ✓ (M-1 fixed). Manual check on each OS owed |
+| Information disclosure: credential fields (T1, T2, T5) | Fields are typed, `deny_unknown_fields`, and re-validated on every read. Secrets are never in `fields_json`. Derived values (fingerprint, contexts) cannot be set over IPC | A1: **B-3 open**. `x509.cert_pem` accepts non-certificate PEM blocks, so a private key can land in plaintext; the legacy reseal can be steered to write a secret into that field |
+| Elevation: an imported kubeconfig runs code or reads files (T4) | Event-level YAML parser with caps: 1 MiB, depth 32, 100k nodes, one document. Refused: anchors, aliases, tags, duplicate keys, `exec`, `auth-provider`, `tokenFile`, cert/key paths and CA paths. The whole file is sealed | A1 partial: **M-5** (merge key `<<`, case variants) and **L-10** (quadratic duplicate check); fuzz target owed. Gate: no Kubernetes consumer before all three |
+| Elevation / disclosure: `become` (T4) | Target user is shell-safe and checked before connect; the command is fixed; the password is sent once, only on a detected prompt, within 4 KiB, and never echoed by us | A1 partial: **M-6** (prompt matched in the command echo; failed escalation not detected) |
+| Spoofing: a credential used with the wrong protocol (T5) | The compatibility matrix in `mooring-core` is enforced in Rust on connection create and update, on role set, and at resolve time (inherited credentials included). UI filtering is advisory | A1 ✓ |
 | Information disclosure: SFTP local writes (T4, T5) | `LocalPath` confined to a caller-chosen base: no `..` or absolute paths, canonical prefix check, symlink and directory targets refused, temp file persisted only on success | A1 ✓ on unix (L-7 open: Windows alternate data streams and device names; gate for SFTP IPC) |
 | Information disclosure / elevation: remote content in the WebView (T4) | No remote content in `main`; terminal output is rendered by xterm only | A1 partial: **M-4** open (xterm's default OSC 8 handler opens links with `window.open`) |
 | Information disclosure: memory (T2) | `Zeroizing` for DEK/KEK/WrapKey/plaintexts; DEK dropped on lock; pure auto-lock clock (idle 15 min, screen lock, sleep, window hidden) | A1 partial: clock ✓, Argon2 `zeroize` ✓ (L3); Tauri tick + OS signals open; `mlock` open |
@@ -59,7 +66,8 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 | Elevation: port forwards expose internal networks (T5, LAN) | Dynamic forwards bind to loopback only unless the user opts in; local and remote forwards must follow the same rule (M-2). All forwards close with the session; open and close are audited | A1 latent (no IPC yet): **M-2** gate |
 | Injection: store (T5 via future IPC) | Parameterised SQL only; FTS input quoted per token, operator-only tokens dropped, 256 chars / 16 tokens / limit ≤ 200; names/hosts/tags validated and capped | A1 ✓ |
 | Elevation: WebView → OS (T5) | Capabilities `core:default` only (re-checked for A1 items 3–5: 30 app commands, no plugin); CSP unchanged; `freezePrototype`; every command validates and caps its input and maps errors to `IpcError`; `invoke()` only in `ipc.ts`; no `innerHTML`; remote content in a separate window and capability | A0 ✓ / A1 ✓ (M-4 navigation guard open) / A2 |
-| Supply chain (T6) | cargo-deny (licenses, bans, advisories), cargo-audit, lockfiles, Dependabot, pinned Actions by SHA, SBOM + provenance; exactly one allowed git source (age). A1 dependencies reviewed: age, keyring 4, sysinfo, rusqlite (bundled), russh (ring only; no aws-lc in the lockfile), russh-sftp, hmac/sha1, arboard, base64, @xterm/*, @fontsource/chakra-petch | A0 (CI) / A1 reviewed (R-AGE-PIN, R-RSA) / A4 |
+| Supply chain (T6) | cargo-deny (licenses, bans, advisories), cargo-audit, lockfiles, Dependabot (cargo, npm, actions); exactly one allowed git source (age). Reviewed in A1: age, keyring 4, sysinfo, rusqlite (bundled), russh (ring only; no aws-lc in the lockfile), russh-sftp, hmac/sha1, arboard, base64, @xterm/*, @fontsource/chakra-petch. Reviewed for ADR-0009: saphyr-parser (+ arraydeque, R-YAML-DEQ), ssh-key rc, pem-rfc7468, data-encoding, hmac 0.13, sha1 0.11, sha2 0.11 (`sha2-next`) | A1 reviewed (R-AGE-PIN, R-RSA, R-YAML-DEQ). `ci.yml`/`security.yml` still tag-pinned (L-14) |
+| Supply chain: release pipeline (T6) | Releases are drafts, published by hand. Every release action pinned by SHA; no cache; `persist-credentials: false`; secrets exported only when set and never echoed. `SHA256SUMS` signed with cosign keyless (Rekor), SLSA provenance per file, CycloneDX SBOMs. The Homebrew bump cosign-verifies before rendering; the tap PAT is scoped to one repo | A4 prep: **M-7** (build jobs hold `contents: write`; `finalize` runs `cargo install` and syft with `id-token: write`), L-12, L-13. Workflows not yet executed |
 
 ## Risks
 
@@ -138,6 +146,53 @@ RUSTSEC-2023-0071 affects every `rsa` version and has no fix. russh uses `rsa` i
 Mooring has no RSA decryption oracle. `deny.toml` needs an `ignore` entry with this reason.
 Revisit when a patched `rsa` ships. Docs should recommend Ed25519 keys.
 
+### R-INV-CRED — credential metadata in plaintext (accepted, ADR-0009)
+Extends R-INV. `credential.fields_json` is readable by T1/T2 and served to the WebView (T5). It
+holds:
+- usernames, NetBIOS domains, UPNs and vSphere accounts;
+- OAuth `client_id`, `token_url` and `scope`, and API header names;
+- the become method and user, and kubeconfig context names;
+- OpenSSH public keys and certificates (principals, key id, signing CA);
+- X.509 certificates (subject and SANs, often internal host names);
+- `SHA256:` fingerprints, which link one key across hosts and services;
+- `external_ref` references (vault paths, item names);
+- OTP parameters, and `secretNames` (which accounts have a second factor or a passphrase).
+
+A stolen `mooring.db` therefore gives account enumeration and identity linkage, not only
+topology.
+
+Conditions:
+- No key material, token or password may ever be a plain field. B-3 is the test case:
+  `cert_pem` holds certificates only.
+- `fields_json` is not authenticated. A DB writer can change a username or a kind, but cannot
+  read or move a secret: the AAD binds id and name, and kind and name are re-validated on read.
+  A MAC over fields is a candidate ADR before A3 sync.
+- Revisit together with R-INV before the DB leaves the device.
+
+### R-YAML-DEQ — `arraydeque` unsafe in the YAML scanner (accepted, ADR-0009)
+`saphyr-parser` has no `unsafe` of its own. Its lookahead buffer, `arraydeque` 0.5.1, has 72
+`unsafe` sites and is rarely released. It parses hostile kubeconfigs (T4).
+
+Mitigations:
+- The input is capped at 1 MiB before parsing.
+- The parser runs only on an explicit user import.
+- A cargo-fuzz target under ASan is owed before any Kubernetes consumer.
+
+Removal: when saphyr drops the dependency.
+
+### R-REL — release signing trust (accepted with conditions, A4 prep)
+Users trust what `release.yml` in `yyasar21/Mooring` signs: `verify-release.sh` and the
+Homebrew job accept the Sigstore identity `release.yml@refs/tags/<tag>` or `@refs/heads/main`.
+Anything that runs inside a job with `id-token: write` can sign as that identity. The platform
+signing secrets sit in the environment of the bundling step, and so in the environment of npm
+and cargo build scripts (Tauri's bundler reads them from there).
+
+Conditions:
+- M-7: split the jobs by privilege; no third-party installs in the signing job.
+- L-12: the verifier fails closed.
+- L-13: review or replace `artifact-signing-cli`.
+- A human publishes each draft, after running `verify-release.sh`.
+
 ### R-IPC-BUF — inward secrets pass through the IPC JSON buffer (accepted, A1)
 `vault_unlock.password`, `credential_create.secret` and `session_send`'s `Answer.text` arrive
 as JSON strings. The WebView's JS heap and Tauri's deserialisation buffer hold them unwiped
@@ -154,7 +209,9 @@ the user types them anyway.
   out a local syscall. `age` pulls unused recipient code (hpke, ml-kem, p256).
 - Password change does not rotate the DEK (ADR-0002): an old header + old password still opens
   records sealed before the change. The keyring wrap is dropped on change for the same reason.
-- R-AGE-PIN, R-SSH-STR, R-RSA and R-IPC-BUF (above).
+- R-AGE-PIN, R-SSH-STR, R-RSA, R-IPC-BUF, R-INV-CRED, R-YAML-DEQ and R-REL (above).
+- A TOTP seed stored beside the password (ADR-0009): whoever opens the vault holds both
+  factors. The UI warns on attach, and `credential_otp_attached` is audited.
 - TOFU itself: the first connection to a host is unauthenticated. A T5 can answer "yes" on the
   user's behalf; that is audited and cannot override a mismatch. The mitigation is to pre-seed
   `known_hosts`.
@@ -167,10 +224,27 @@ the user types them anyway.
   makes that visible in the audit log.
 
 ## Open items
+- [ ] **ADR-0009 (review 3):**
+      - **B-3 (blocker):** `cert_pem` holds certificates only; `move_certificate` fails
+        closed; a UI paste of certificate + key is split.
+      - M-5 (kubeconfig merge keys and case variants) and L-10 (quadratic duplicate check;
+        sync commands on the main thread). Gate: no Kubernetes session or kubeconfig import
+        before both are fixed and a fuzz target exists.
+      - M-6: the `become` prompt is matched in the command echo; detect a failed escalation.
+      - L-11: call `reseal_legacy` from `vault_unlock`, before the first public release.
+      - Fuzz targets: `kubeconfig_parse`, `ssh_public_key`, `ssh_certificate`,
+        `ssh_private_key`, `x509_pem`, `otp_decode_seed`, `parse_account`.
+      - N-5..N-7.
+- [ ] **Release (review 3):**
+      - M-7: split the jobs by privilege before the first signed release.
+      - L-12, L-13, L-14, N-8, N-9.
+      - **G-1:** publish from a fresh repository with one squashed commit. Never make the
+        existing repository public: its history still holds the scrubbed lab identifiers.
 - [x] **A1 blockers:** B1, B2 fixed and tested (re-review, `1e76c3a`).
 - [ ] **A1 exit (review 2):**
-      - M-1: clear the clipboard on exit and on lock.
-      - M-4: xterm `linkHandler` and a navigation guard.
+      - [x] M-1: clear the clipboard on exit and on lock (confirmed fixed in review 3).
+      - [x] M-4: xterm `linkHandler`. The inert handler was seen in review 3; the navigation
+        guard still needs confirming.
       - L-1..L-6 and N-1..N-4, as scheduled in [a1-review-2.md](a1-review-2.md).
       - `deny.toml` ignore entry for RUSTSEC-2023-0071 (R-RSA).
 - [ ] **Wiring gates (review 2):** no forwarding IPC before M-2 is fixed; no SFTP IPC before M-3
