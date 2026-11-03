@@ -92,7 +92,8 @@ print_stdout = "deny"             # logging goes through tracing with redaction
 print_stderr = "deny"
 todo = "deny"
 duration_suboptimal_units = "allow" # from_mins/from_hours would raise the MSRV; `15 * 60` reads fine
-unused_async = "allow"              # async trait impls (russh Handler, Session) must keep the signature even without .await
+unused_async = "allow"              # async trait impls must keep the signature even without .await
+unused_async_trait_impl = "allow"   # same, the 1.99 name for trait impls (russh Handler, Session)
 assert_is_empty = "allow"           # style only; assert!(x.is_empty()) reads fine in tests
 
 [profile.release]
