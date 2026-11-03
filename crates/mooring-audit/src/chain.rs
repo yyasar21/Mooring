@@ -75,10 +75,14 @@ pub enum AuditEvent {
     TrustDecision {
         /// Host.
         host: String,
-        /// Fingerprint.
+        /// Fingerprint presented by the host.
         fingerprint: String,
-        /// `accepted` | `rejected` | `changed`.
+        /// `accepted` | `accepted_session_only` | `rejected` | `changed`.
         decision: String,
+        /// For `changed`: the stored fingerprint the host no longer matches (review 2, L-6).
+        /// Absent otherwise, so older entries keep their canonical bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected: Option<String>,
     },
 }
 
@@ -224,6 +228,32 @@ mod tests {
         log.record(AuditEvent::VaultCreated).expect("1");
         log.record(AuditEvent::VaultUnlocked).expect("2");
         log.record(AuditEvent::VaultLocked { reason: "idle".into() }).expect("3");
+    }
+
+    #[test]
+    fn trust_decision_expected_is_optional_and_keeps_old_lines_verifiable() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let p = dir.path().join("audit.jsonl");
+        let mut log = AuditLog::open(&p).expect("open");
+        log.record(AuditEvent::TrustDecision {
+            host: "h:22".into(),
+            fingerprint: "SHA256:new".into(),
+            decision: "accepted".into(),
+            expected: None,
+        })
+        .expect("1");
+        log.record(AuditEvent::TrustDecision {
+            host: "h:22".into(),
+            fingerprint: "SHA256:new".into(),
+            decision: "changed".into(),
+            expected: Some("SHA256:old".into()),
+        })
+        .expect("2");
+        let text = fs::read_to_string(&p).expect("read");
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(!lines[0].contains("expected"), "{}", lines[0]);
+        assert!(lines[1].contains(r#""expected":"SHA256:old""#), "{}", lines[1]);
+        assert!(AuditLog::verify(&p).expect("verify").ok());
     }
 
     #[test]

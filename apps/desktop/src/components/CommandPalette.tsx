@@ -85,8 +85,11 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="pop fixed left-1/2 top-[12vh] z-50 w-[640px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden"
+        className="pop m-hud fixed left-1/2 top-[12vh] z-50 w-[660px] max-w-[calc(100vw-32px)] -translate-x-1/2"
+        data-active
       >
+        <div className="palette-input-row">
+        <span aria-hidden className="palette-caret">&gt;</span>
         <input
           ref={inputRef}
           value={query}
@@ -116,8 +119,10 @@ export function CommandPalette() {
               setPalette(false);
             } else if (e.key === "Tab") e.preventDefault();
           }}
-          className="h-11 w-full border-b border-line bg-transparent px-4 text-[length:var(--fs-l)] text-text placeholder:text-text-faint focus:outline-none"
+          className="h-12 min-w-0 flex-1 bg-transparent font-mono text-[length:var(--fs-l)] text-text placeholder:font-sans placeholder:text-text-faint focus:shadow-none focus:outline-none"
         />
+        <span className="m-micro tnum">{items.length} results</span>
+        </div>
         <ul id="palette-list" role="listbox" aria-label="Results" className="max-h-[52vh] overflow-y-auto py-1">
           {items.length === 0 && (
             <li className="px-4 py-6 text-center text-text-faint">No connection or command matches “{query}”.</li>
@@ -130,27 +135,28 @@ export function CommandPalette() {
               aria-selected={i === cursor}
               onMouseMove={() => { if (cursor !== i) setCursor(i); }}
               onClick={() => { run(i); }}
-              className={`flex h-8 cursor-default items-center gap-3 px-4 ${i === cursor ? "bg-accent-soft" : ""}`}
+              className="palette-opt"
+              style={{ "--i": i } as React.CSSProperties}
             >
               {it.kind === "conn" ? (
                 <>
                   <ProtocolPip protocol={it.hit.protocol} />
                   <span className="font-medium">{it.hit.name}</span>
                   <span className="mono truncate text-text-muted">{it.hit.host}</span>
-                  <span className="ml-auto truncate text-[length:var(--fs-xs)] text-text-faint">
+                  <span className="m-micro ml-auto truncate">
                     {folderPath(folders, it.hit.folderId).join(" / ")}
                   </span>
                 </>
               ) : (
                 <>
-                  <span aria-hidden className="w-[30px] text-center text-text-faint">›</span>
+                  <span aria-hidden className="w-[31px] text-center font-mono text-accent">::</span>
                   <span>{it.action.label}</span>
                 </>
               )}
             </li>
           ))}
         </ul>
-        <div className="flex gap-4 border-t border-line px-4 py-2 text-[length:var(--fs-xs)] text-text-faint">
+        <div className="flex gap-5 border-t border-line px-4 py-2.5 text-[length:var(--fs-xs)] text-text-faint">
           <span><Kbd>↑↓</Kbd> move</span>
           <span><Kbd>↵</Kbd> open</span>
           <span><Kbd>mod ↵</Kbd> open in new tab</span>

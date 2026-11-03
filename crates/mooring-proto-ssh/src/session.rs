@@ -59,7 +59,7 @@ impl SshOptions {
 
 /// A live SSH session.
 pub struct SshSession {
-    shared: Arc<Shared>,
+    pub(crate) shared: Arc<Shared>,
     events: mpsc::Receiver<SessionEvent>,
     commands: mpsc::Sender<Command>,
     task: Option<JoinHandle<()>>,

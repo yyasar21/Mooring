@@ -110,8 +110,10 @@ fn check_username(u: Option<&str>) -> Result<Option<String>> {
     let Some(u) = u.map(str::trim).filter(|u| !u.is_empty()) else {
         return Ok(None);
     };
-    if u.chars().count() > MAX_USERNAME || u.chars().any(char::is_control) {
-        return Err(invalid("username", "at most 256 characters, no control characters"));
+    if u.chars().count() > MAX_USERNAME
+        || u.chars().any(|c| c.is_control() || mooring_core::is_bidi_or_invisible(c))
+    {
+        return Err(invalid("username", "at most 256 characters, no control or format characters"));
     }
     Ok(Some(u.to_owned()))
 }
@@ -304,5 +306,16 @@ mod tests {
         let m = CredentialMeta::new(" lab ", CredentialKind::SshKey, Some("  ")).expect("ok");
         assert_eq!(m.name, "lab");
         assert_eq!(m.username, None);
+    }
+
+    #[test]
+    fn names_and_usernames_refuse_bidi_and_invisible_characters() {
+        for bad in ["root\u{202e}", "ad\u{200b}min", "\u{feff}u", "a\u{2066}b"] {
+            assert!(CredentialMeta::new(bad, CredentialKind::Password, None).is_err(), "{bad:?}");
+            assert!(
+                CredentialMeta::new("x", CredentialKind::Password, Some(bad)).is_err(),
+                "{bad:?}"
+            );
+        }
     }
 }

@@ -7,11 +7,13 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mooring_core::session::SessionEvent;
+use mooring_core::session::{PromptPurpose, SessionEvent};
 use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::audit::AuditLog;
+use crate::forward::ForwardRegistry;
+use crate::sftp::SftpSlot;
 
 /// Longest prompt text shown to the user, in characters.
 pub(crate) const MAX_PROMPT_CHARS: usize = 256;
@@ -51,6 +53,7 @@ impl PromptBroker {
         events: &mpsc::Sender<SessionEvent>,
         message: String,
         secret: bool,
+        purpose: PromptPurpose,
     ) -> Option<SecretString> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         let (tx, rx) = oneshot::channel();
@@ -61,7 +64,7 @@ impl PromptBroker {
             }
             *slot = Some((id, tx));
         }
-        events.send(SessionEvent::Prompt { id, message, secret }).await.ok()?;
+        events.send(SessionEvent::Prompt { id, message, secret, purpose }).await.ok()?;
         rx.await.ok()
     }
 
@@ -91,6 +94,8 @@ pub(crate) struct Shared {
     pub(crate) events: mpsc::Sender<SessionEvent>,
     pub(crate) broker: PromptBroker,
     pub(crate) audit: AuditLog,
+    pub(crate) forwards: ForwardRegistry,
+    pub(crate) sftp: SftpSlot,
     reason: Mutex<Option<String>>,
     peer: Mutex<Option<String>>,
     closing: AtomicBool,
@@ -102,6 +107,8 @@ impl Shared {
             events,
             broker: PromptBroker::default(),
             audit: AuditLog::default(),
+            forwards: ForwardRegistry::default(),
+            sftp: SftpSlot::default(),
             reason: Mutex::new(None),
             peer: Mutex::new(None),
             closing: AtomicBool::new(false),
@@ -131,6 +138,14 @@ impl Shared {
     pub(crate) fn begin_close(&self) {
         self.closing.store(true, Ordering::Release);
         self.broker.shutdown();
+        self.release_channels();
+    }
+
+    /// Close every forward and the SFTP session. Called when the session closes for any
+    /// reason (user close, remote end, connection loss). Idempotent.
+    pub(crate) fn release_channels(&self) {
+        self.forwards.close_all(&self.audit);
+        self.sftp.close();
     }
 
     pub(crate) fn is_closing(&self) -> bool {
@@ -154,11 +169,13 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(4);
         let broker = PromptBroker::default();
         let b2 = broker.clone();
-        let task = tokio::spawn(async move { b2.ask(&tx, "q".into(), true).await });
-        let Some(SessionEvent::Prompt { id, secret, .. }) = rx.recv().await else {
+        let kbd = PromptPurpose::KeyboardInteractive;
+        let task = tokio::spawn(async move { b2.ask(&tx, "q".into(), true, kbd).await });
+        let Some(SessionEvent::Prompt { id, secret, purpose, .. }) = rx.recv().await else {
             panic!("expected prompt");
         };
         assert!(secret);
+        assert_eq!(purpose, kbd);
         assert!(!broker.answer(id + 1, SecretString::from("no")));
         assert!(broker.answer(id, SecretString::from("yes")));
         let got = task.await.expect("join").expect("answered");
@@ -172,10 +189,11 @@ mod tests {
         let broker = PromptBroker::default();
         let b2 = broker.clone();
         let tx2 = tx.clone();
-        let task = tokio::spawn(async move { b2.ask(&tx2, "q".into(), false).await });
+        let other = PromptPurpose::Other;
+        let task = tokio::spawn(async move { b2.ask(&tx2, "q".into(), false, other).await });
         let _ = rx.recv().await;
         broker.shutdown();
         assert!(task.await.expect("join").is_none());
-        assert!(broker.ask(&tx, "q2".into(), false).await.is_none());
+        assert!(broker.ask(&tx, "q2".into(), false, other).await.is_none());
     }
 }

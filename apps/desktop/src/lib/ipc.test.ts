@@ -21,6 +21,14 @@ describe("ipc wire codec", () => {
     expect(decodeSessionEvent({ kind: "nonsense" }).kind).toBe("closed");
   });
 
+  it("decodes the prompt purpose and falls back to other, never to trust (L-2)", () => {
+    const base = { kind: "prompt", id: 1, message: "Trust this host?", secret: false };
+    expect(decodeSessionEvent({ ...base, purpose: "host_key_trust" })).toMatchObject({ purpose: "host_key_trust" });
+    expect(decodeSessionEvent({ ...base, purpose: "keyboard_interactive" })).toMatchObject({ purpose: "keyboard_interactive" });
+    expect(decodeSessionEvent({ ...base, purpose: "HostKeyTrust" })).toMatchObject({ purpose: "other" });
+    expect(decodeSessionEvent(base)).toMatchObject({ purpose: "other" });
+  });
+
   it("encodes bytes input as base64 and leaves answers alone", () => {
     expect(encodeSessionInput({ kind: "bytes", data: new TextEncoder().encode("ls") })).toEqual({ kind: "bytes", data: "bHM=" });
     expect(encodeSessionInput({ kind: "answer", id: 1, text: "yes" })).toEqual({ kind: "answer", id: 1, text: "yes" });

@@ -9,6 +9,9 @@ yanked = "deny"
 ignore = [
   # proc-macro-error is pulled in transitively by the Tauri toolchain (compile-time only); tracked for A4
   { id = "RUSTSEC-2024-0370", reason = "transitive via tauri build deps, proc-macro only" },
+  # rsa Marvin timing side channel: no fixed release exists; Mooring only *signs* client-side
+  # (publickey auth), never decrypts, so there is no oracle. Accepted risk R-RSA (a1-review-2).
+  { id = "RUSTSEC-2023-0071", reason = "rsa used for SSH client signing only; no decryption oracle (R-RSA)" },
 ]
 
 [licenses]

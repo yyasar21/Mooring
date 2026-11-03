@@ -40,14 +40,17 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       className="absolute inset-0"
     >
       {terminal ? (
-        <Suspense fallback={<div className="term-host" />}>
-          <TerminalView tabId={tab.id} active={active} />
-        </Suspense>
+        <div className="term-bezel m-hud" data-active={active && tab.state === "connected" ? true : undefined}>
+          <Suspense fallback={<div className="term-host" />}>
+            <TerminalView tabId={tab.id} active={active} />
+          </Suspense>
+        </div>
       ) : (
-        <div className="grid h-full place-items-center p-6 text-center">
+        <div className="panel-note m-hud">
           <div className="max-w-sm">
-            <p className="text-[length:var(--fs-l)] font-medium">{c?.name}</p>
-            <p className="mono mt-1 text-text-muted select-text">{c?.host}</p>
+            <p className="m-micro">{c?.protocol.toUpperCase()} session</p>
+            <p className="m-display mt-2 text-[length:var(--fs-xl)]">{c?.name}</p>
+            <p className="readout-host mt-1 select-text">{c?.host}</p>
             <p className="mt-4 text-[length:var(--fs-s)] text-text-faint">
               {c?.protocol.toUpperCase()} display arrives with the graphical protocols. The session itself is open and
               audited.
@@ -56,7 +59,8 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
         </div>
       )}
       {tab.state === "closed" && (
-        <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-[var(--radius-m)] border border-line-strong bg-surface-raised px-3 py-2 text-[length:var(--fs-s)]">
+        <div className="dropped m-hud" data-tone="hot">
+          <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>
           <span className="text-text-muted">Disconnected: {tab.reason ?? "session ended"}</span>
           <button type="button" className="btn" onClick={() => void reconnect(tab.id)}>
             Reconnect
@@ -70,10 +74,15 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
 
 function EmptyState() {
   return (
-    <div className="grid h-full place-items-center">
-      <div className="text-center">
-        <p className="text-[length:var(--fs-l)] font-medium">Nothing open yet</p>
-        <p className="mt-2 text-text-muted">
+    <div className="panel-note">
+      <svg className="reticle absolute" width="260" height="260" viewBox="0 0 260 260" fill="none" stroke="currentColor" aria-hidden>
+        <circle cx="130" cy="130" r="120" strokeDasharray="2 6" />
+        <circle cx="130" cy="130" r="72" />
+        <path d="M130 0v40M130 220v40M0 130h40M220 130h40" />
+      </svg>
+      <div className="relative text-center">
+        <p className="m-display text-[length:var(--fs-xl)]">Nothing open yet</p>
+        <p className="mt-3 text-text-muted">
           Press <Kbd>mod K</Kbd> and type a host, a name or a tag.
         </p>
       </div>

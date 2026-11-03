@@ -49,7 +49,13 @@ session_close({ sessionId })                       -> void
 session_list()                                     -> { sessionId, connectionId, protocol, state, openedAt }[]
 ```
 `SessionEvent` and `SessionInput` are the `mooring_core::session` serde shapes (`kind`-tagged
-snake_case). `Bytes.data` is base64 on the wire (Tauri channels serialise JSON).
+snake_case). Byte payloads (`SessionEvent::Bytes.data`, `SessionInput::Bytes.data`) are base64
+strings on the wire in both directions (Tauri channels and command arguments serialise JSON).
+`SessionInput::Answer { id, text }` carries a user-typed answer inward; `text` is a
+`SecretString` on the Rust side and never serialised back.
+`window_detach({ sessionId })` (UI tab "detach to window") is reserved: it needs its own window
+label + capability (ADR-0003) and a security review, so it ships in A2; until then it returns
+`ipc.unknown` and the UI keeps the tab.
 
 ### Audit
 ```
@@ -63,6 +69,10 @@ vault_change_password({ current, next })         -> VaultStatus
 vault_status()                                   -> "missing" | "locked" | "unlocked"
 ```
 Keyring and export commands are held (ADR-0006 / security review) and are not part of A1 UI.
+
+### Wire conventions
+Command arguments and returned objects use camelCase keys (Tauri's default `rename_all`).
+`folder_delete` cascades without a typed confirmation; the UI confirms once in a dialog.
 
 ### Error codes used by the UI
 `vault.locked`, `vault.unlock`, `vault.weak_password`, `tree.root`, `tree.cycle`,

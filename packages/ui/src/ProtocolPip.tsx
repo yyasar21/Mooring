@@ -9,23 +9,13 @@ const LABEL: Record<ProtocolName, string> = {
   "vsphere-console": "VMK",
 };
 
-/** Small protocol marker used in the tree and tabs. Monochrome on purpose: colour is reserved for state. */
-export function ProtocolPip({ protocol }: { protocol: ProtocolName }) {
+/**
+ * Protocol marker for the tree, tabs and palette. Monochrome at rest; it lights up in the signal
+ * colour only when `live` (a session to that host is connected), so colour still means state.
+ */
+export function ProtocolPip({ protocol, live = false }: { protocol: ProtocolName; live?: boolean }) {
   return (
-    <span
-      aria-label={protocol}
-      style={{
-        font: `500 10px/1 var(--font-mono)`,
-        letterSpacing: "0.02em",
-        color: "var(--text-muted)",
-        border: "1px solid var(--line-strong)",
-        borderRadius: 3,
-        padding: "2px 4px",
-        minWidth: 30,
-        textAlign: "center",
-        display: "inline-block",
-      }}
-    >
+    <span aria-label={protocol} className="m-pip" data-live={live || undefined}>
       {LABEL[protocol]}
     </span>
   );

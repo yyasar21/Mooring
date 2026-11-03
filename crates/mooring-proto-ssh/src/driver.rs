@@ -37,6 +37,8 @@ impl Driver {
         let shared = Arc::clone(&self.shared);
         let reason = self.run_inner().await;
         tracing::debug!("ssh session ended");
+        // Forwards and SFTP never outlive the session, however it ended.
+        shared.release_channels();
         let _ = shared.events.send(SessionEvent::Closed { reason }).await;
     }
 

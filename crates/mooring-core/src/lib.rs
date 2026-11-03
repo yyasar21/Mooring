@@ -18,8 +18,8 @@ pub mod tree;
 
 pub use error::MooringError;
 pub use model::{
-    validate_host, validate_name, validate_tag, Connection, ConnectionId, CredentialId, Folder,
-    FolderId, Protocol, MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS,
+    is_bidi_or_invisible, validate_host, validate_name, validate_tag, Connection, ConnectionId,
+    CredentialId, Folder, FolderId, Protocol, MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS,
 };
-pub use session::{Session, SessionEvent, SessionInput};
+pub use session::{PromptPurpose, Session, SessionEvent, SessionInput};
 pub use tree::ConnectionTree;

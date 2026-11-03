@@ -19,6 +19,16 @@ export interface TermOptions {
   fontFamily: string;
 }
 
+/**
+ * OSC 8 hyperlinks come from remote terminal output (untrusted). xterm's default activation
+ * would `window.open` them inside the app WebView, so activation is a no-op until A2 adds an
+ * audited Rust `open_url` (security review 2, M-4). Rust also blocks navigation off-origin.
+ */
+export const inertLinkHandler = {
+  activate: () => {},
+  allowNonHttpProtocols: false,
+} as const;
+
 export function createTerminal(host: HTMLElement, opts: TermOptions): TermHandle {
   const term = new Terminal({
     fontFamily: opts.fontFamily,
@@ -28,6 +38,7 @@ export function createTerminal(host: HTMLElement, opts: TermOptions): TermHandle
     scrollback: 5000,
     allowProposedApi: false,
     theme: opts.theme,
+    linkHandler: inertLinkHandler,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
