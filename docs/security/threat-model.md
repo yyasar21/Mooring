@@ -33,15 +33,15 @@ Last change: A1 items 1–2 (ADR-0005 store, ADR-0006 vault lifecycle), review
 | Spoofing: server identity (T3) | TLS 1.2+/rustls with system + lab CA; SSH host-key TOFU with change = hard stop; RDP NLA default on | A2 |
 | Tampering: vault header (T1) | Header v2 is AAD of the DEK wrap, including `vault_id` and `keyring_wrap`; v1 AAD unchanged; v1↔v2 relabel fails; KDF floor on read | A0 ✓ / A1 ✓ |
 | Tampering: sealed fields (T1) | XChaCha20-Poly1305 per field, random 24 B nonce, AAD = record id ‖ 0x1F ‖ field; store binds credential id + column (row/column swap → `Tampered`) | A0 ✓ / A1 ✓ |
-| Tampering: keyring wrap (T1, T2) | Second wrap's AAD = header AAD (without wrap) ‖ 0x1F ‖ `keyring`; bound to KDF params, salt, vault id; enable/disable need master password | A1 ✓ (B1 fix pending: failed enable/disable must not leave DEK in RAM) |
+| Tampering: keyring wrap (T1, T2) | Second wrap's AAD = header AAD (without wrap) ‖ 0x1F ‖ `keyring`; bound to KDF params, salt, vault id; enable/disable need master password | A1 ✓ (B1 fixed; OS commands on HOLD per R-T2-KR) |
 | Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; syslog mirror to xlog01 optional | A0 ✓ (mirror open) |
 | Repudiation | Audit entries for vault + credential + session + trust events; `vault.lock` carries `reason ∈ {user, idle, screen_lock, sleep, window_hidden}` | A0 ✓ / A1 partial (lock reasons ✓; keyring/export/credential events with wiring) |
 | Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `nexus_audit::redact` on sinks; no `println!` (lint) | A0 ✓ / A1 ✓ |
-| Information disclosure: memory (T2) | `Zeroizing` for DEK/KEK/WrapKey/plaintexts; DEK dropped on lock; pure auto-lock clock (idle 15 min, screen lock, sleep, window hidden) | A1 partial: clock ✓, Tauri tick + OS signals open; Argon2 internals not wiped (L3); `mlock` open |
-| Information disclosure: inventory at rest (T1, T2) | Accepted plaintext (R-INV); data dir 0700 / db 0600 required (M2); `secure_delete=ON`; FTS rebuilt on open | A1 partial (M2, L4 open) |
-| Information disclosure: export (T1) | age v1 scrypt (cap 2^20 on import; export pinned 2^18 — L5), passphrase ≥ 12 chars, fields stay sealed inside | A1 ✓ (L5 open) |
+| Information disclosure: memory (T2) | `Zeroizing` for DEK/KEK/WrapKey/plaintexts; DEK dropped on lock; pure auto-lock clock (idle 15 min, screen lock, sleep, window hidden) | A1 partial: clock ✓, Argon2 `zeroize` ✓ (L3); Tauri tick + OS signals open; `mlock` open |
+| Information disclosure: inventory at rest (T1, T2) | Accepted plaintext (R-INV); data dir 0700 / db 0600 (M2); `secure_delete=ON`; FTS5 `optimize` + WAL truncate on close, rebuild on open (L4) | A1 ✓ (residue bound: deleted rows may persist in FTS segments until close / next open) |
+| Information disclosure: export (T1) | age v1 scrypt (cap 2^20 on import; export pinned 2^18 — L5), passphrase ≥ 12 chars, fields stay sealed inside | A1 ✓ |
 | Brute force on stolen header (T1) | Argon2id; calibrated cost 64 MiB–1 GiB (≤ RAM/4, never below floor 8 MiB/1/1), `t=3`, `p≤4` | A1 ✓ (calibration not yet wired into `vault_create`) |
-| Denial of service: hostile header / import (T4) | Header ≤ 64 KiB; import ≤ 64 MiB in and out; scrypt `log_n ≤ 20` checked before work; **KDF ceiling missing (B2)** | A1 **blocker B2** |
+| Denial of service: hostile header / import (T4) | Header ≤ 64 KiB; import ≤ 64 MiB in and out; scrypt `log_n ≤ 20` checked before work; KDF ceiling 4 GiB / t 16 / p 16 on read, `m ≤ RAM/2` before derive | A1 ✓ (B2 fixed) |
 | Denial of service: hostile protocol parsers (T4) | `forbid(unsafe)`, size caps, fuzz targets per parser | A2 |
 | Injection: store (T5 via future IPC) | Parameterised SQL only; FTS input quoted per token, operator-only tokens dropped, 256 chars / 16 tokens / limit ≤ 200; names/hosts/tags validated and capped | A1 ✓ |
 | Elevation: WebView → OS (T5) | Capabilities `core:default` only; CSP strict; `freezePrototype`; no new commands in A1-1/2; remote content in separate window/capability | A0 ✓ / A2 |
@@ -65,8 +65,8 @@ The vault-side wrap is approved.
 ### R-CAL — Calibration and hostile cost parameters
 Calibration keeps creation-time cost between 64 MiB and 1 GiB. The *reader* accepts any
 parameters above the floor, though: a planted or imported header with a 4 TiB memory cost
-aborts the process (B2). Fix: a ceiling of 4 GiB / t 16 / p 16 in `validate`, plus a host-RAM
-check in `derive_kek`. A header calibrated on a big machine may then refuse to unlock on a
+aborted the process (B2, fixed in the A1 fix round): a ceiling of 4 GiB / t 16 / p 16 in
+`validate`, plus a host-RAM check in `derive_kek`. A header calibrated on a big machine may then refuse to unlock on a
 small one. That is intended: it gives a clear error instead of swapping, and the user can
 re-encrypt with the master password on the big machine.
 
@@ -75,7 +75,8 @@ re-encrypt with the master password on the big machine.
 names and usernames in clear text. A T1 or T2 attacker gets the lab topology and the
 usernames without any password. Accepted per ADR-0005: the SQLCipher alternative duplicates
 the vault AEAD and adds C crypto. Conditions: the file and directory modes from M2, FTS5
-secure-delete (L4), and a revisit if T1 is upgraded (for example, for a laptop-loss policy) or
+secure-delete / merge on close (L4; deleted rows may persist in FTS segments until close or
+next open), and a revisit if T1 is upgraded (for example, for a laptop-loss policy) or
 before A3 S3 sync uploads the DB.
 
 ## Accepted risks (revisit)
@@ -89,14 +90,14 @@ before A3 S3 sync uploads the DB.
   records sealed before the change. The keyring wrap is dropped on change for the same reason.
 
 ## Open items
-- [ ] **A1 blockers:** B1 (state restore on failed keyring enable/disable), B2 (KDF ceiling on
-      read). Both must be fixed before the keyring, export and import commands are wired.
+- [x] **A1 blockers:** B1, B2 fixed and tested (re-review, `1e76c3a`).
 - [ ] A1: Tauri auto-lock tick + OS sleep/lock/window signals; calibration in `vault_create`
       and change password (blocking thread); keyring commands per R-T2-KR; export/import
       commands with the `vault_id` merge policy; clipboard clear (30 s); `mlock` best effort.
-- [ ] A1: M1 (`keyring-core` + explicit stores, `persistence=Local`), M2 (0700/0600), L1
-      (lock on header-persist failure), L2 (durable header write + `.bak`), L3 (argon2
-      `zeroize`), L4 (FTS5 secure-delete, WAL checkpoint on close), L5 (export log N = 18).
+- [x] A1: M2, L1, L3, L4, L5, N1, N2, N4 fixed (re-review).
+- [ ] A1: M1 (`keyring-core` + explicit stores, `persistence=Local`), L2 (durable header write
+      + `.bak`), N3 (in the `vault_export` PR), N5 (KDF refusal surfaced as `Unlock`), N6
+      (double checkpoint on close); `Store::close()` from `RunEvent::Exit` when wired.
 - [ ] A1: `cargo-fuzz` targets for `import_age` and `Header::from_bytes` (proptest stand-in
       only today); `.gitleaks.toml` allow-list for `crates/nexus-vault/tests/vectors/`.
 - [ ] A1 exit: cargo-deny, cargo-audit, gitleaks green in CI (not run in the A1-1/2 review

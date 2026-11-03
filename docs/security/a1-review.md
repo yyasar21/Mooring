@@ -3,7 +3,7 @@
 Reviewer: security-reviewer · 2026-11-03 · Range `240f611..6a0acd0` (`crates`, `src-tauri`,
 `Cargo.toml`, `Cargo.lock`). `nexus-app` was **not compiled** (no WebView toolchain here).
 
-## Verdict: `BLOCKER`
+## Verdict: `BLOCKER` (superseded: see [Re-review](#re-review--fix-round-b256dcd1e76c3a), now `APPROVE WITH NITS`)
 
 There are two blockers, B1 and B2. Both are latent. No IPC command reaches either path yet: the
 keyring and import commands are not wired. Both break a guarantee that the next A1 step (Tauri
@@ -244,3 +244,123 @@ scratch crate against HEAD (outside the repo): B1 and B2 reproduced (output abov
 ```
 Not run: cargo-deny, cargo-audit, cargo-geiger, gitleaks and semgrep (not installed); the
 nexus-app build; the macOS/Windows keyring backends.
+
+## Re-review — fix round `b256dcd..1e76c3a`
+
+Reviewer: security-reviewer · 2026-11-03.
+- Range: `git diff b256dcd..1e76c3a -- crates src-tauri Cargo.toml`. That is the fix commits
+  `77342e2..399911e`, the merge `fb7cebf` and the build tweak `1e76c3a`.
+- Also read: `docs/handoff/a1-rust-core-fixes.md`.
+- `nexus-app` was again **not compiled** (no WebView toolchain). The src-tauri changes were
+  checked by reading only.
+
+### Verdict: `APPROVE WITH NITS`
+
+This covers the A1 items 1–2 code on `main` (vault lifecycle, `nexus-store`). Both blockers are
+fixed. Each fix has a test that starts from the failing condition. The nits below do not block.
+
+Wiring gates after this round:
+- **Export and import commands:** may now be wired. N3 must land in the same PR as
+  `vault_export`.
+- **Keyring commands:** stay on **HOLD**, per ruling (a), M1 and R-T2-KR. B1 was one of the
+  conditions; the others still stand.
+- **L2** (durable header write): must land before A1 exit, and before any further command that
+  rewrites the header (keyring enable/disable, change password).
+
+### Per-finding results
+
+| ID | Result | Evidence (code · test) |
+| --- | --- | --- |
+| **B1** | **Fixed** | `keyring.rs:103-122`, `with_password_kek`: snapshots `(state, header)` before `unlock_with_kek`. It restores the header on every `Err`, and the lock state on every exit. The body runs inside `and_then`, so a `?` can no longer skip the restore. Both `enable_keyring_unlock` and `disable_keyring_unlock` use it. Tests: `failed_enable_on_locked_vault_stays_locked` and `failed_disable_on_locked_vault_stays_locked` (state `Locked`, header unchanged, `seal` refused); `failed_keyring_change_on_v1_header_keeps_v1_header` (no in-memory upgrade, plus the successful upgrade-and-enable from a locked v1 vault). |
+| **B2** | **Fixed** | `kdf.rs:51`: `CEILING = {4 GiB, 16, 16}`. It is enforced in `validate` (`kdf.rs:54`), which `Header::from_bytes`, `import_age` and `derive_kek` all call. `derive_kek_with_ram` (`kdf.rs:196-205`) refuses `m_kib > RAM/2` before Argon2 allocates. Tests: `ceiling_is_enforced`, `derive_refuses_more_than_half_of_ram`, `structural_checks` (+3 cases), `import_refuses_hostile_kdf_cost_in_header` (raw age file, bypasses the export-side check), `calibrate_output_always_validates`, and QA `header_with_absurd_kdf_cost_is_refused_at_parse` (no longer ignored). The worst case a header can force is now 4 GiB × 16 passes: bounded, on the order of tens of seconds. See N5. |
+| **L1** | **Fixed** (src-tauri uncompiled) | `Vault::unlock_persisting` (`vault.rs:130`): if the header needed an upgrade and `persist` fails, it restores the v1 header and **locks**. `commands.rs:132` calls it via `save_header_bytes`. Test: `unlock_persisting_locks_and_restores_when_persist_fails` (failure, retry, v2 with no persist, wrong password with no persist). |
+| **L3** | **Fixed** | `argon2` has `features = ["zeroize"]` in `crates/nexus-vault/Cargo.toml` only. `argon2_zeroize_feature_is_enabled` is a compile-time proof: `Block: Zeroize` exists only with the feature. The work area is still not wiped, which the original review allowed as optional. |
+| **L4** | **Fixed; deviation accepted (ruling below)** | Migration `0002` sets FTS5 `secure-delete` (test: `fts_secure_delete_is_on`). `Store::checkpoint` runs `optimize`, then `wal_checkpoint(TRUNCATE)` (`schema.rs:109-125`). It runs from `close()`, and best effort from `Drop` (file stores only). Test: `deleted_rows_do_not_linger_after_close` searches the closed db file for a marker string and asserts an empty `-wal`. |
+| **L5** | **Fixed** | `EXPORT_SCRYPT_LOG_N = 18` (`export.rs:31`), used by `export_age` (`export.rs:65`). Tests: `export_age_writes_pinned_work_factor` (parses the de-armored stanza), `export_pins_work_factor_below_import_cap` (const assert 18 < 20). |
+| **M2** | **Fixed** (app dir uncompiled) | `restrict_db_file` (`nexus-store/src/lib.rs:126`) creates the db file with mode `0600` at `O_CREAT`, so there is no window at the default umask, and it tightens an existing file. SQLite copies that mode to `-wal`/`-shm`. `create_private_dir` (`src-tauri/src/lib.rs:47`) uses `DirBuilder` mode `0700`, then `set_permissions` for an existing dir. Test: `database_files_are_owner_only` (db, sidecars, loose file tightened). `create_private_dir` has no test yet; add one when `nexus-app` gets a test harness. |
+| **N1** | **Fixed** | `seal_with`/`seal_with_nonce` return `Result`. Failure is `VaultError::Seal` (fixed message, IPC code `vault.seal`). All callers propagate it. Test: `seal_returns_ciphertext_or_error`. The failure branch (> 256 GiB) is not exercised, which is acceptable. |
+| **N2** | **Fixed** | `v2_header_downgraded_to_v1_is_refused`: the stripped header parses as v1, fails with `Unlock`, stays `Locked`, and is not upgraded. |
+| **N3** | **Deferred, accepted** | There is no call site yet. Condition: implement it in the `vault_export` PR. Compare the `Zeroizing` UTF-8 bytes with `subtle::ConstantTimeEq`, and refuse equality with a fixed-string error. `subtle` is **pre-approved** as a direct dependency of `nexus-app` or `nexus-vault`: it is RustCrypto, already in the lockfile, and adds no new transitive crate. |
+| **N4** | **Fixed (doc)** | The doc now says "tests only, never a fallback". Not gating it behind a feature is accepted, because the `nexus-store` integration tests use it. Condition: once the keyring commands are wired, `src-tauri` must not reference it (0 references today, grepped). |
+| A1-QA-2 | **Fixed** | `set_vault_id` refuses nil and records nothing. Unit test and `nil_vault_id_is_refused` (no longer ignored). |
+| Validators (store decision 2) | **Approved** | A single implementation in `nexus-core`. Hosts now refuse control characters, which closes a terminal-escape vector (`host\x1b[31m`) for the A2 terminal UI. Errors never echo the input (tested). `store_and_core_agree_on_limits` guards against drift between the two crates. |
+| `[profile.dev.package.scrypt] opt-level = 3` | **Approved** | Dev profile only; release unchanged. No code or dependency change. |
+
+### Ruling — L4: `contentless_delete = 1` versus FTS5 `secure-delete`
+
+I confirmed the rust-core finding in a scratch script outside the repo (Python `sqlite3`,
+SQLite 3.53.1):
+
+```
+mode                      after delete    after optimize   still matches
+contentless_delete=1      token present   gone             no
+contentless + 'delete'    gone            gone             no
+external content          gone            gone             no
+crash path (no optimize; next open runs 'delete-all' + rebuild): marker gone from the file
+```
+
+**Decision: keep as-is.** That is `contentless_delete = 1`, plus `optimize` +
+`wal_checkpoint(TRUNCATE)` on close/drop, plus the existing full rebuild on open.
+
+- **Drop `contentless_delete`: rejected.** Every delete would then go through the FTS5
+  `'delete'` command, which needs the exact old token values. Three triggers would have to
+  rebuild the old tag string at the right moment: the update trigger, the tag-delete trigger,
+  and the FK-cascaded tag delete. If they get it wrong, FTS5 does not raise an error. It
+  silently corrupts the index. That would trade a correctness risk for confidentiality on data
+  that is already plaintext.
+- **`optimize` after every delete: rejected.** It rewrites the whole index (O(index)) on every
+  delete. Renames and tag edits are delete + insert through triggers, so that would be most
+  edits. It would shorten the residue window from "the session" to "one statement", and that
+  buys nothing against the relevant threat. The residue is the tokens of a deleted
+  connection's name, host and tags: **the same class of data as the live inventory, which is
+  accepted plaintext at rest (R-INV)**. An attacker who can read `nexus.db` during a session
+  (T1 with the device on, or T2) already reads the whole current topology.
+- **The bound:** residue lasts one session at most.
+  - A clean exit runs `optimize`; the `secure_delete` pragma then wipes the freed pages, and
+    the WAL is truncated.
+  - A crash or `panic = "abort"` skips `Drop`. The next open then runs `'delete-all'` and a
+    rebuild, and I verified that removes the residue from the file.
+
+Conditions:
+1. When the store is wired, src-tauri must call `Store::close()` from `RunEvent::Exit` and own
+   the store's lifetime explicitly. Do not rely on the `Drop` of a value in Tauri managed state,
+   which may never run.
+2. Architect: add one line to ADR-0005 and R-INV: "deleted inventory may persist in FTS
+   segments until close or next open".
+
+Freed filesystem blocks of the truncated `-wal` are a filesystem-level matter, out of scope,
+and covered by R-INV.
+
+### New findings (non-blocking)
+
+| ID | Sev | Where | Finding | Fix |
+| --- | --- | --- | --- | --- |
+| N5 | Nit | `crates/nexus-vault/src/vault.rs:155-156` | `unlock_with_kek` maps **every** `derive_kek` error to `VaultError::Unlock`. The new B2 RAM refusal ("needs more memory than this host has") therefore reaches the user as "wrong password". There is no OOM any more, but the user cannot tell why unlock fails and may keep retrying or reset the vault. No test covers it. | `.map_err(\|e\| match e { VaultError::KdfParams(_) => e, _ => VaultError::Unlock })`. This is safe: `KdfParams` depends only on the public header, never on the password, so it is no oracle. Test it through a RAM hook (for example a `cfg(test)` `unlock_with_ram`) and assert `KdfParams`. |
+| N6 | Nit | `crates/nexus-store/src/lib.rs:83-85`, `:146` | `close(self)` runs `checkpoint()`, and then `Drop` runs it again: a second `optimize` and a second truncate. Harmless, but it doubles the close cost, and an error on the second run is only logged. | Set a `closed` flag in `close()` that `Drop` checks, or keep `conn` in an `Option` that `close` takes. |
+
+### Still open (carried forward)
+
+- **M1** (`keyring-core` + explicit stores, Windows `persistence=Local`, macOS ACL). It blocks
+  the keyring commands only.
+- **L2** (`sync_all` + `.bak` on the header write). `save_header_bytes`
+  (`src-tauri/src/state.rs:58-65`) still does `write` + `rename` without `sync_all`. Required
+  before A1 exit.
+- `cargo-fuzz` targets for `Header::from_bytes` and `import_age`. Owed for A1 exit.
+- cargo-deny, cargo-audit, gitleaks and semgrep are not installed here. CI `make check` must be
+  green, and `nexus-app` must be built on macOS, Windows and Linux.
+
+### Test evidence (re-review)
+
+```
+worktree agent-a4fd903c4e7869598, HEAD 1e76c3a, Linux, 2026-11-03
+cargo test -p nexus-vault -p nexus-store                                         exit 0
+  nexus-store  lib 18 · credentials 7 · crud 7 · migrations 6 · search 4
+               tree_edges 8 · vault_store_integration 6 (0 ignored)
+  nexus-vault  lib 52 (2 ignored, intentional: calibrate_real_host_smoke, regenerate_vectors)
+               autolock_table 3 · calibration_props 7 (0 ignored) · proptest_round_trip 2
+               vectors 3
+cargo clippy -p nexus-vault -p nexus-store -p nexus-core --all-targets -- -D warnings   clean
+cargo fmt --all -- --check                                                               clean
+FTS5 experiment (scratchpad, outside the repo): table above
+```
+Not run: cargo-deny, cargo-audit, gitleaks, semgrep (not installed); the `nexus-app` build.
