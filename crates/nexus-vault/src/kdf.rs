@@ -243,6 +243,14 @@ mod tests {
         assert!(KdfParams::DEFAULT.validate().is_ok());
     }
 
+    /// Review L3: `argon2/zeroize` wipes the password-derived initial and final block hashes.
+    /// `Block: Zeroize` only exists with that feature, so this does not compile without it.
+    #[test]
+    fn argon2_zeroize_feature_is_enabled() {
+        fn is_zeroize<T: zeroize::Zeroize>() {}
+        is_zeroize::<argon2::Block>();
+    }
+
     #[test]
     fn ceiling_is_enforced() {
         assert!(KdfParams::CEILING.validate().is_ok());
