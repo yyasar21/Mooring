@@ -32,7 +32,7 @@ Each release on <https://github.com/yyasar21/Mooring/releases> carries:
 | `Mooring_<v>_amd64.AppImage`, `_aarch64.AppImage` | Portable Linux build |
 | `SHA256SUMS`, `SHA256SUMS.sigstore.json` | Checksums of every file plus their Sigstore (cosign keyless) signature |
 | `mooring-<v>-cargo.cdx.json`, `mooring-<v>-source.cdx.json` | CycloneDX SBOMs (Rust tree; full source tree incl. npm) |
-| `latest.json`, `*.sig`, `*.app.tar.gz` | Tauri updater manifest and signatures (only once updater signing is configured) |
+| `*.app.tar.gz` | macOS app archives per architecture (updater manifest is not produced yet — see Update channel) |
 
 Every file also has a GitHub build-provenance (SLSA) attestation.
 
@@ -155,8 +155,7 @@ If a release was rebuilt by hand (workflow_dispatch), its certificate identity e
 
 ## Updates
 
-Mooring builds Tauri updater artifacts (`latest.json`, `*.sig`) once the updater signing key
-is configured. The update channel is the newest **published, non-pre-release** GitHub Release:
+In-app updates are **not enabled yet**: the updater plugin, its public key and the capability change need a security review (tracked in the roadmap). Until then, install new releases from the Releases page or your package manager. When enabled, the manifest will be published at
 `https://github.com/yyasar21/Mooring/releases/latest/download/latest.json`. Each update is
 verified against the public key compiled into the app before it is installed, independently of
 TLS. Pre-releases (`v1.2.0-rc.1`) never reach that channel.
