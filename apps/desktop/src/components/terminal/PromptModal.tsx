@@ -40,7 +40,7 @@ export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: Pe
         }}
       >
         <h2 id={headingId} className="flex items-center gap-2 text-[length:var(--fs-l)] font-medium">
-          <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: isTrust ? "var(--warn)" : "var(--accent)" }} />
+          <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: "var(--warn)" }} />
           {isTrust ? "Verify host identity" : `${host} asks`}
         </h2>
         <p id={bodyId} className="mono mt-3 whitespace-pre-wrap rounded-[var(--radius-s)] bg-bg-sunken p-3 text-text select-text">

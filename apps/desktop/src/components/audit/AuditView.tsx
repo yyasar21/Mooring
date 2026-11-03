@@ -77,19 +77,19 @@ export function AuditView() {
   return (
     <section aria-label="Audit log" className="flex h-full min-w-0 flex-col bg-bg">
       <header className="flex h-[var(--bar-h)] flex-none items-center gap-3 border-b border-line bg-bg-sunken px-4">
-        <h1 className="font-medium">Audit log</h1>
+        <h1 className="whitespace-nowrap font-medium">Audit log</h1>
         <VerifyBadge v={verify} />
         <input
           aria-label="Filter audit entries"
           placeholder="Filter by event, host, credential"
-          className="field ml-auto h-[26px] w-[280px]"
+          className="field ml-auto h-[26px] w-[240px] min-w-[120px] shrink"
           value={filter}
           onChange={(e) => { setFilter(e.target.value); }}
         />
-        <button type="button" className="btn" onClick={() => { void load(null); void runVerify(); }}>
+        <button type="button" className="btn flex-none" onClick={() => { void load(null); void runVerify(); }}>
           Refresh
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => { setView("workspace"); }}>
+        <button type="button" className="btn btn-ghost flex-none" onClick={() => { setView("workspace"); }}>
           Back to sessions
         </button>
       </header>
@@ -125,7 +125,7 @@ export function AuditView() {
 function VerifyBadge({ v }: { v: AuditVerify | null }) {
   if (!v) return <span className="text-[length:var(--fs-xs)] text-text-faint">checking chain…</span>;
   return v.ok ? (
-    <span role="status" className="inline-flex items-center gap-1.5 text-[length:var(--fs-xs)] text-text-muted">
+    <span role="status" className="inline-flex items-center gap-1.5 whitespace-nowrap text-[length:var(--fs-xs)] text-text-muted">
       <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" /> Chain intact, {v.entries} entries
     </span>
   ) : (

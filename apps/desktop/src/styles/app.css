@@ -105,8 +105,9 @@ input, textarea, select { user-select: text; }
 }
 .btn:hover:not(:disabled) { border-color: var(--text-faint); }
 .btn:disabled { opacity: 0.45; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn-primary:hover:not(:disabled) { border-color: var(--accent); filter: brightness(1.08); }
+/* Primary actions are high-contrast neutral: the accent is reserved for state. */
+.btn-primary { background: var(--text); border-color: var(--text); color: var(--bg); }
+.btn-primary:hover:not(:disabled) { border-color: var(--text); background: var(--text-muted); }
 .btn-danger { color: var(--danger); }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--text-muted); }
 .btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--surface); border-color: transparent; }
@@ -146,7 +147,7 @@ input, textarea, select { user-select: text; }
 .countdown-ring { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 
 /* ---------- terminal ---------- */
-.term-host { position: absolute; inset: 0; padding: 6px 0 0 10px; background: var(--term-bg); }
+.term-host { position: absolute; inset: 0; padding: 6px 0 4px 10px; background: var(--term-bg); overflow: hidden; }
 .term-host .xterm { height: 100%; }
 .term-host .xterm-viewport { background: var(--term-bg) !important; }
 

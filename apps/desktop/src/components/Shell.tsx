@@ -28,7 +28,7 @@ export function Shell() {
         <Sidebar />
         <PaneHandle label="Resize connection tree" value={ui.sidebarWidth} min={SIDEBAR.min} max={SIDEBAR.max} sign={1} onChange={ui.setSidebarWidth} />
         {/* Workspace stays mounted under the audit view so terminals keep their scrollback. */}
-        <div className="relative min-w-0">
+        <div className="relative min-w-0 overflow-hidden">
           <div className="absolute inset-0" hidden={ui.view !== "workspace"}>
             <Workspace />
           </div>
@@ -109,8 +109,11 @@ function StatusBar() {
         <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Vault unlocked
       </span>
       <span className="tnum flex items-center gap-1.5">
-        <StateDot state={live > 0 ? "connected" : "closed"} /> {live} connected
-        {pending > 0 && <span className="text-text-faint">, {pending} connecting</span>}
+        <StateDot state={live > 0 ? "connected" : "closed"} />
+        <span>
+          {live} connected
+          {pending > 0 && <span className="text-text-faint">, {pending} connecting</span>}
+        </span>
       </span>
       {info && (
         <span className="ml-auto text-text-faint">
