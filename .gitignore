@@ -31,3 +31,4 @@ fuzz/corpus/
 *.rvf
 *.rvf.idmap.json
 ruvector.db
+.claude/worktrees/
