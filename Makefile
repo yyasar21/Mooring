@@ -46,6 +46,9 @@ app-check: ## clippy + tests including the Tauri crate (needs the OS WebView too
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
 
+e2e-ipc: ## A1 E2E flow + hostile IPC input through the command layer (needs the WebView toolchain)
+	cargo test -p mooring-app --test e2e_flow
+
 e2e: ## Playwright E2E through tauri-driver (A1+)
 	pnpm --filter @mooring/desktop exec playwright test tests/e2e
 
@@ -59,4 +62,4 @@ sbom: ## CycloneDX SBOMs into build/
 	mkdir -p build && cargo cyclonedx --format json --override-filename build/sbom-cargo 2>/dev/null || echo "cargo install cargo-cyclonedx"
 	pnpm dlx @cyclonedx/cyclonedx-npm --output-file build/sbom-npm.json >/dev/null 2>&1 || true
 
-.PHONY: help setup dev fmt lint test test-vectors audit check app-check e2e fuzz bundle sbom
+.PHONY: help setup dev fmt lint test test-vectors audit check app-check e2e-ipc e2e fuzz bundle sbom
