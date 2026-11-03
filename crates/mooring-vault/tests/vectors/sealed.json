@@ -1,0 +1,56 @@
+[
+  {
+    "record_id": "cred-0001",
+    "field": "password",
+    "plaintext_hex": "68756e74657232",
+    "sealed": {
+      "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000001",
+      "ciphertext": "73379d38b26b480bfe5e5a4f012a44753615233586a6eb"
+    }
+  },
+  {
+    "record_id": "cred-0001",
+    "field": "username",
+    "plaintext_hex": "61646d696e",
+    "sealed": {
+      "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000002",
+      "ciphertext": "ed7b4c712ed8a24b5905615e4d6a0e79271e65e723"
+    }
+  },
+  {
+    "record_id": "cred-0002",
+    "field": "private_key",
+    "plaintext_hex": "2d2d2d2d2d424547494e2054455354204b45592d2d2d2d2d0a6e6f742061207265616c206b65790a",
+    "sealed": {
+      "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000003",
+      "ciphertext": "66eb2180b52aa2c925499b59425f357b239865f4d6f0dd28d0a36df2846bc401a4626b0178255f65e3116ad8bb845a8c635bde2d7cdf93c6"
+    }
+  },
+  {
+    "record_id": "cred-0003",
+    "field": "token",
+    "plaintext_hex": "",
+    "sealed": {
+      "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000004",
+      "ciphertext": "1c117faeb6b0f7a60d3b6401ce859209"
+    }
+  },
+  {
+    "record_id": "cred-0004",
+    "field": "note",
+    "plaintext_hex": "c3bc6ec3af63c3b664c3a920e29c9320f09f9490",
+    "sealed": {
+      "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000005",
+      "ciphertext": "6d8edfe5088cb0853afa25af3652d0d4c9a336ea48714c02ee48955bad2df9ef1d81b086"
+    }
+  },
+  {
+    "record_id": "cred-0005",
+    "field": "binary",
+    "plaintext_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+    "sealed": {
+      "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000006",
+      "ciphertext": "14b2e849c297037925acd432ad205515d9ab79b372459eb9717875592334d01dd1f2ddcc7a8c4a2497e71a00e0f8fa831f2eb1220c9c0ba163d90f2151d4cc6176a22684c5a8c0e61d02861e9a88084061825ce3d3ce29c7423a46ea8966ff3942f2ecb56595ec1f0b00efab176a31d866f5c96b0cf20b8a5aef6cfe2672eb17052b681f48a92d1ff900bfcfada393abd86017ca713c28722c075b76700849ff879a85731294c464820466867e2034a4b5f27a165687a1bb9798c57d5c64b8371c96cb618ef8bed3fa271abe299b7894333b57727fa75278c025fb5611c920ef8538dca5aab7806e83efa5d0d44702eb8583ca5bfb8a759ff678698d0a5c250211c17ff941748a52be44e1564c658a67"
+    }
+  }
+]

@@ -1,0 +1,34 @@
+[graph]
+all-features = false
+targets = ["x86_64-apple-darwin", "aarch64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = [
+  # proc-macro-error is pulled in transitively by the Tauri toolchain (compile-time only); tracked for A4
+  { id = "RUSTSEC-2024-0370", reason = "transitive via tauri build deps, proc-macro only" },
+]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0", "CC0-1.0", "BSL-1.0", "OpenSSL", "CDLA-Permissive-2.0"]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true   # path deps inside the workspace
+deny = [
+  { crate = "openssl", reason = "rustls only (ADR-0001)" },
+  { crate = "openssl-sys", reason = "rustls only (ADR-0001)" },
+  { crate = "native-tls", reason = "rustls only (ADR-0001)" },
+  { crate = "md5", reason = "weak hash" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# One approved git source: age pinned to str4d/rage until age 0.13 ships (see root Cargo.toml [patch]).
+allow-git = ["https://github.com/str4d/rage"]

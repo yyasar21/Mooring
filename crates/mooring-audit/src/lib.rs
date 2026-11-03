@@ -1,0 +1,14 @@
+//! Audit log and log redaction.
+//!
+//! * [`AuditLog`] — append-only JSON Lines, each entry carrying the SHA-256 of the previous
+//!   entry, so a deleted or edited line breaks the chain at verification time.
+//! * [`redact`] — scrubs values of well-known secret keys (`password=`, `token:`, PEM blocks,
+//!   `Authorization:` headers) from free text before it reaches any log sink.
+
+#![forbid(unsafe_code)]
+
+mod chain;
+mod redact;
+
+pub use chain::{AuditEntry, AuditError, AuditEvent, AuditLog, VerifyReport};
+pub use redact::redact;

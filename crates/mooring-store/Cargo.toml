@@ -1,0 +1,27 @@
+[package]
+name = "mooring-store"
+description = "Mooring local store: SQLite schema, migrations, queries and vault-sealed credential columns (ADR-0005)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0" }
+mooring-vault = { path = "../mooring-vault", version = "0.1.0" }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+secrecy = { workspace = true }

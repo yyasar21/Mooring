@@ -1,0 +1,31 @@
+[package]
+name = "mooring-proto-ssh"
+description = "Mooring SSH session (russh): trust store, authentication, PTY shell (ADR-0007)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0" }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+russh = { workspace = true }
+# SFTP for part b (ADR-0007); declared now so the module can land without a manifest change.
+russh-sftp = { workspace = true }
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+tempfile = { workspace = true }
+rand_core = { workspace = true }
+# OpenSSH |1| hashed known_hosts compatibility (not for security). Same versions russh already pulls in.
+hmac = "0.13"
+# OpenSSH |1| hashed known_hosts compatibility (not for security). Same version russh already pulls in.
+sha1 = "0.11"
+
+[dev-dependencies]
+proptest = { workspace = true }
