@@ -31,7 +31,9 @@ pub trait WrapKeyStore {
     fn delete(&self, vault_id: Uuid) -> Result<(), VaultError>;
 }
 
-/// In-memory store for tests and for platforms without a keyring.
+/// In-memory store for **tests only**. Never use it as a production fallback on a platform
+/// without a keyring: the wrap key would live next to the header in the same process, which
+/// silently turns keyring unlock into a no-op. Such platforms must refuse keyring unlock.
 #[derive(Default)]
 pub struct MemoryWrapKeyStore {
     keys: Mutex<HashMap<Uuid, Zeroizing<[u8; KEY_LEN]>>>,
@@ -128,8 +130,8 @@ impl Vault {
         self.with_password_kek(password, |v, kek, dek| {
             let wrap_key = Zeroizing::new(random::<KEY_LEN>());
             let mut header = v.header.clone();
-            header.keyring_wrap = Some(seal_with(&wrap_key, &keyring_aad(&header), dek));
-            rewrap_password(&mut header, kek, dek);
+            header.keyring_wrap = Some(seal_with(&wrap_key, &keyring_aad(&header), dek)?);
+            rewrap_password(&mut header, kek, dek)?;
             // Store first: if the OS keyring refuses, the header is not replaced.
             store.put(header.vault_id, &wrap_key)?;
             v.header = header;
@@ -165,7 +167,7 @@ impl Vault {
             store.delete(v.header.vault_id)?;
             let mut header = v.header.clone();
             header.keyring_wrap = None;
-            rewrap_password(&mut header, kek, dek);
+            rewrap_password(&mut header, kek, dek)?;
             v.header = header;
             Ok(())
         })?;
@@ -277,7 +279,7 @@ mod tests {
             keyring_wrap: None,
         };
         let kek = derive_kek(PW.as_bytes(), &salt, KdfParams::TEST).expect("kdf");
-        rewrap_password(&mut h, &kek, &dek);
+        rewrap_password(&mut h, &kek, &dek).expect("wrap");
         h
     }
 

@@ -69,7 +69,8 @@ pub(crate) fn build() -> (Header, Vec<SealedVector>) {
     };
     let kek = derive_kek(VECTOR_PASSWORD.as_bytes(), &SALT, KdfParams::TEST)
         .expect("TEST params are valid");
-    header.wrapped_dek = seal_with_nonce(&kek, nonce(0), &header.aad(), &DEK);
+    header.wrapped_dek =
+        seal_with_nonce(&kek, nonce(0), &header.aad(), &DEK).expect("small input seals");
 
     let sealed = cases()
         .into_iter()
@@ -78,7 +79,8 @@ pub(crate) fn build() -> (Header, Vec<SealedVector>) {
             record_id: record_id.to_owned(),
             field: field.to_owned(),
             plaintext_hex: hex::encode(&plaintext),
-            sealed: seal_with_nonce(&DEK, nonce(tag), &field_aad(record_id, field), &plaintext),
+            sealed: seal_with_nonce(&DEK, nonce(tag), &field_aad(record_id, field), &plaintext)
+                .expect("small input seals"),
         })
         .collect();
     (header, sealed)

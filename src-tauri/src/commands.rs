@@ -35,6 +35,7 @@ impl From<nexus_vault::VaultError> for IpcError {
             V::KeyringUnavailable => "vault.keyring_unavailable",
             V::Keyring(_) => "vault.keyring",
             V::Export(_) => "vault.export",
+            V::Seal => "vault.seal",
         };
         Self::new(code, e.to_string())
     }

@@ -49,8 +49,13 @@ pub(crate) fn check_password(password: &SecretString) -> Result<(), VaultError> 
 }
 
 /// Re-seal the DEK under the KEK with the header's current AAD (fresh nonce).
-pub(crate) fn rewrap_password(header: &mut Header, kek: &[u8; KEY_LEN], dek: &[u8; KEY_LEN]) {
-    header.wrapped_dek = seal_with(kek, &header.aad(), dek);
+pub(crate) fn rewrap_password(
+    header: &mut Header,
+    kek: &[u8; KEY_LEN],
+    dek: &[u8; KEY_LEN],
+) -> Result<(), VaultError> {
+    header.wrapped_dek = seal_with(kek, &header.aad(), dek)?;
+    Ok(())
 }
 
 impl Vault {
@@ -71,7 +76,7 @@ impl Vault {
             keyring_wrap: None,
         };
         let kek = derive_kek(password.expose_secret().as_bytes(), &salt, params)?;
-        rewrap_password(&mut header, &kek, &dek);
+        rewrap_password(&mut header, &kek, &dek)?;
         tracing::info!(m_kib = params.m_kib, t = params.t, p = params.p, "vault created");
         Ok(Self { header, dek: Some(dek) })
     }
@@ -156,7 +161,7 @@ impl Vault {
             header.version = FORMAT_VERSION;
             header.vault_id = Uuid::new_v4();
             header.keyring_wrap = None;
-            rewrap_password(&mut header, &kek, &dek);
+            rewrap_password(&mut header, &kek, &dek)?;
             self.header = header;
             tracing::info!(version = FORMAT_VERSION, "vault header upgraded");
         }
@@ -201,7 +206,7 @@ impl Vault {
             tracing::info!("keyring unlock disabled by password change");
         }
         let kek = derive_kek(new.expose_secret().as_bytes(), &salt, params)?;
-        rewrap_password(&mut header, &kek, dek);
+        rewrap_password(&mut header, &kek, dek)?;
         self.header = header;
         tracing::info!("vault password changed");
         Ok(())
@@ -216,7 +221,7 @@ impl Vault {
         plaintext: &[u8],
     ) -> Result<Sealed, VaultError> {
         let dek = self.dek.as_ref().ok_or(VaultError::Locked)?;
-        Ok(seal_with(dek, &field_aad(record_id, field), plaintext))
+        seal_with(dek, &field_aad(record_id, field), plaintext)
     }
 
     /// Decrypt one field. The returned buffer is zeroized on drop.
@@ -330,7 +335,7 @@ mod tests {
             keyring_wrap: None,
         };
         let kek = derive_kek(password.as_bytes(), &salt, KdfParams::TEST).expect("kdf");
-        rewrap_password(&mut header, &kek, &dek);
+        rewrap_password(&mut header, &kek, &dek).expect("wrap");
         (header, dek)
     }
 
@@ -341,7 +346,7 @@ mod tests {
         assert!(!String::from_utf8_lossy(&bytes).contains("vault_id"), "v1 shape on disk");
         let mut v = Vault::from_header_bytes(&bytes).expect("v1 parses");
         assert!(v.header().needs_upgrade());
-        let s = crate::crypto::seal_with(&dek, &field_aad("r", "f"), b"legacy");
+        let s = crate::crypto::seal_with(&dek, &field_aad("r", "f"), b"legacy").expect("seal");
 
         v.unlock(&pw(PW)).expect("unlock v1");
         assert!(!v.header().needs_upgrade());
@@ -360,6 +365,25 @@ mod tests {
         forged.version = 2;
         forged.vault_id = Uuid::new_v4();
         assert_eq!(Vault::from_header(forged).unlock(&pw(PW)), Err(VaultError::Unlock));
+    }
+
+    /// Review N2: a v2 header relabelled v1 with `vault_id` and `keyring_wrap` stripped parses
+    /// (it is a well-formed v1 header) but must not unlock: the v1 AAD differs from the one the
+    /// DEK was wrapped under.
+    #[test]
+    fn v2_header_downgraded_to_v1_is_refused() {
+        let store = crate::keyring::MemoryWrapKeyStore::new();
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        v.enable_keyring_unlock(&store, &pw(PW)).expect("enable");
+        let mut down = v.header().clone();
+        down.version = 1;
+        down.vault_id = Uuid::nil();
+        down.keyring_wrap = None;
+        let bytes = down.to_bytes().expect("bytes");
+        let mut forged = Vault::from_header_bytes(&bytes).expect("well-formed v1 parses");
+        assert_eq!(forged.unlock(&pw(PW)), Err(VaultError::Unlock));
+        assert_eq!(forged.state(), VaultState::Locked);
+        assert_eq!(forged.header(), &down, "no upgrade on a failed unlock");
     }
 
     #[test]
