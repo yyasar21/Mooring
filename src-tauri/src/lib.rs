@@ -13,6 +13,7 @@ mod error;
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 #[allow(dead_code)]
 mod keyring_store;
+mod navigation;
 mod sessions;
 mod state;
 #[cfg(test)]
@@ -34,6 +35,9 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;
             app.manage(AppState::new(data_dir, Settings::production())?);
+            // `"create": false` in tauri.conf.json: the main window is built here so it gets
+            // the navigation and new-window guard (security review 2, M-4).
+            navigation::create_main_window(app)?;
             tracing::info!("mooring started");
             Ok(())
         })
