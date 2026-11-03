@@ -153,12 +153,12 @@ mod tests {
     use crate::model::Protocol;
 
     fn lab() -> (ConnectionTree, FolderId, FolderId, ConnectionId) {
-        let (mut t, root) = ConnectionTree::new("Home lab").expect("root");
+        let (mut t, root) = ConnectionTree::new("All connections").expect("root");
         let mut servers = Folder::new(Some(root), "servers").expect("folder");
         let cred = CredentialId::new();
         servers.default_credential = Some(cred);
         let servers_id = t.add_folder(servers).expect("add");
-        let c = Connection::new(servers_id, "xinfra01", Protocol::Ssh, "10.10.20.5").expect("conn");
+        let c = Connection::new(servers_id, "web01", Protocol::Ssh, "192.0.2.5").expect("conn");
         let cid = t.add_connection(c).expect("add");
         (t, root, servers_id, cid)
     }
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn refuses_cycles_and_second_root() {
         let (mut t, root, servers, _) = lab();
-        let sub = t.add_folder(Folder::new(Some(servers), "okd").expect("f")).expect("add");
+        let sub = t.add_folder(Folder::new(Some(servers), "kube").expect("f")).expect("add");
         assert!(t.move_folder(servers, sub).is_err());
         assert!(t.move_folder(root, servers).is_err());
         assert!(t.add_folder(Folder::new(None, "another root").expect("f")).is_err());
@@ -183,11 +183,11 @@ mod tests {
     #[test]
     fn search_matches_name_host_and_tags() {
         let (mut t, _, servers, _) = lab();
-        let mut c = Connection::new(servers, "xmon01", Protocol::Ssh, "10.10.20.30").expect("c");
+        let mut c = Connection::new(servers, "mon01", Protocol::Ssh, "192.0.2.30").expect("c");
         c.tags.push("observability".into());
         t.add_connection(c).expect("add");
         assert_eq!(t.search("OBSERV").len(), 1);
-        assert_eq!(t.search("10.10.20").len(), 2);
+        assert_eq!(t.search("192.0.2").len(), 2);
         assert!(t.search("  ").is_empty());
     }
 }

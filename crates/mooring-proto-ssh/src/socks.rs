@@ -187,8 +187,8 @@ mod tests {
 
     #[test]
     fn parses_each_address_type() {
-        let v4 = parse_request(&[5, 1, 0, 1, 10, 0, 0, 7, 0x1F, 0x90]).expect("v4");
-        assert_eq!(v4, SocksTarget { host: "10.0.0.7".into(), port: 8080 });
+        let v4 = parse_request(&[5, 1, 0, 1, 192, 0, 2, 7, 0x1F, 0x90]).expect("v4");
+        assert_eq!(v4, SocksTarget { host: "192.0.2.7".into(), port: 8080 });
         let mut v6 = vec![5, 1, 0, 4];
         v6.extend_from_slice(&Ipv6Addr::LOCALHOST.octets());
         v6.extend_from_slice(&[0, 22]);

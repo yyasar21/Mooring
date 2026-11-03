@@ -8,10 +8,10 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 ## Assets
 | Asset | Where it lives | Impact if lost |
 | --- | --- | --- |
-| Vault secrets (passwords, keys, tokens) | `credential.secret`/`secret2` in `mooring.db`, sealed per field; DEK in RAM while unlocked | Full lab compromise |
+| Vault secrets (passwords, keys, tokens) | `credential.secret`/`secret2` in `mooring.db`, sealed per field; DEK in RAM while unlocked | Compromise of every managed host |
 | Master password | Nowhere (derived into KEK, zeroized) | Vault compromise |
 | Vault header (`vault.header.json`) | Plaintext, authenticated; the only copy of the wrapped DEK | Loss = vault loss (availability); tamper = unlock fails |
-| Keyring `WrapKey` (opt-in) | OS keyring, service `xyz.homelab.mooring`, account = `vault_id` | With the header: DEK (see R-T2-KR) |
+| Keyring `WrapKey` (opt-in) | OS keyring, service `io.github.yyasar21.mooring`, account = `vault_id` | With the header: DEK (see R-T2-KR) |
 | Export file (`*.age`) | Wherever the user puts it; age scrypt + per-field sealing inside | Offline guessing of export passphrase, then master password |
 | Open sessions (terminal, screen) | Process memory, WebView | Live access to targets |
 | Connection inventory (hosts, IPs, names, usernames, tags, topology) | `mooring.db` **plaintext** (ADR-0005) | Reconnaissance |
@@ -35,14 +35,14 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 | Threat | Mitigation | Status |
 | --- | --- | --- |
 | Spoofing: SSH server identity (T3) | TOFU through `SessionEvent::Prompt`; only `yes` stores the key. A changed or `@revoked` key is a hard stop with no prompt. Host certificates are refused. A re-key accepts only the key already accepted in this connection. Audited as `trust_decision` | A1 ✓ (open: L-5 concurrent-write race, L-6 expected fingerprint in the audit entry, N-3 session-only trust visibility) |
-| Spoofing: TLS/RDP server identity (T3) | TLS 1.2+/rustls with system + lab CA; RDP NLA default on | A2 |
+| Spoofing: TLS/RDP server identity (T3) | TLS 1.2+/rustls with system + optional private CA; RDP NLA default on | A2 |
 | Spoofing: trust UI (T4) | Server prompt text is sanitised (control characters stripped, 256 chars). The trust dialog must be chosen by prompt purpose, not by message text | A1 partial (L-2 open) |
 | Tampering: SSH algorithms / downgrade (T3) | Only the ADR-0007 set is offered: mlkem768x25519, curve25519, ecdh and DH16/DH14-sha256 kex; ed25519, ecdsa and rsa-sha2 host keys; chacha20, AES-GCM and AES-CTR; SHA-2 (ETM) MACs. Strict kex (Terrapin) is on. No compression, CBC, SHA-1 or `ssh-rsa`. A test asserts the deny-list | A1 ✓ |
 | Tampering: `known_hosts` file (T1, T2) | Atomic write, mode 0600; a file that hit a cap is never rewritten. Parser caps: 8 KiB per line, 10 000 lines. Property-tested | A1 ✓ (fuzz target owed). A same-user T2 can still edit the file; accepted, as with OpenSSH |
 | Tampering: vault header (T1) | Header v2 is AAD of the DEK wrap, including `vault_id` and `keyring_wrap`; v1 AAD unchanged; v1↔v2 relabel fails; KDF floor on read | A0 ✓ / A1 ✓ |
 | Tampering: sealed fields (T1) | XChaCha20-Poly1305 per field, random 24 B nonce, AAD = record id ‖ 0x1F ‖ field; store binds credential id + column (row/column swap → `Tampered`) | A0 ✓ / A1 ✓ |
 | Tampering: keyring wrap (T1, T2) | Second wrap's AAD = header AAD (without wrap) ‖ 0x1F ‖ `keyring`; bound to KDF params, salt, vault id; enable/disable need master password | A1 ✓ (B1 fixed; OS commands on HOLD per R-T2-KR) |
-| Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; syslog mirror to xlog01 optional | A0 ✓ (mirror open) |
+| Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; syslog mirror to a syslog server optional | A0 ✓ (mirror open) |
 | Repudiation | Audit entries for vault + credential + session + trust events; `vault.lock` carries `reason ∈ {user, idle, screen_lock, sleep, window_hidden}` | A0 ✓ / A1 partial (lock reasons ✓; keyring/export/credential events with wiring) |
 | Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `mooring_audit::redact` on sinks; no `println!` (lint); `SessionInput::Answer` is redacted in `Debug` and `Serialize` and is a `SecretString` end to end; IPC DTOs have no secret field (tested) | A0 ✓ / A1 ✓ |
 | Information disclosure: SSH credentials in flight (T2) | Vault → `Zeroizing` → `SecretString` → `ConnectParams`, which is moved into the auth round and dropped after it. Auth failure is reported generically | A1 ✓ (R-SSH-STR: russh keeps internal `String` copies; N-1: one extra copy on our side) |
@@ -56,7 +56,7 @@ Tauri commands, UI v1/v2 and the Nexus→Mooring rename; see review
 | Denial of service: hostile header / import (T4) | Header ≤ 64 KiB; import ≤ 64 MiB in and out; scrypt `log_n ≤ 20` checked before work; KDF ceiling 4 GiB / t 16 / p 16 on read, `m ≤ RAM/2` before derive | A1 ✓ (B2 fixed) |
 | Denial of service: hostile SSH server (T4) | Bounded event mpsc(256) for back-pressure, `Bytes` ≤ 64 KiB; keepalive 30 s × 3; keyboard-interactive 8 rounds × 16 prompts; SFTP listing cap 10 000; forward caps (64 forwards, 128 connections each, 32 KiB buffers); SOCKS handshake 10 s | A1 partial. Open: **M-3** (SFTP `limits` drive request fan-out); L-1 (russh's defaults accept server-opened x11, agent and session channels); no handshake timeout (the UI applies one) |
 | Denial of service: hostile protocol parsers (T4) | `forbid(unsafe)`, size caps, fuzz targets per parser | A1: proptest only for known_hosts and SOCKS (fuzz targets owed). RDP/VNC: A2 |
-| Elevation: port forwards expose the lab (T5, LAN) | Dynamic forwards bind to loopback only unless the user opts in; local and remote forwards must follow the same rule (M-2). All forwards close with the session; open and close are audited | A1 latent (no IPC yet): **M-2** gate |
+| Elevation: port forwards expose internal networks (T5, LAN) | Dynamic forwards bind to loopback only unless the user opts in; local and remote forwards must follow the same rule (M-2). All forwards close with the session; open and close are audited | A1 latent (no IPC yet): **M-2** gate |
 | Injection: store (T5 via future IPC) | Parameterised SQL only; FTS input quoted per token, operator-only tokens dropped, 256 chars / 16 tokens / limit ≤ 200; names/hosts/tags validated and capped | A1 ✓ |
 | Elevation: WebView → OS (T5) | Capabilities `core:default` only (re-checked for A1 items 3–5: 30 app commands, no plugin); CSP unchanged; `freezePrototype`; every command validates and caps its input and maps errors to `IpcError`; `invoke()` only in `ipc.ts`; no `innerHTML`; remote content in a separate window and capability | A0 ✓ / A1 ✓ (M-4 navigation guard open) / A2 |
 | Supply chain (T6) | cargo-deny (licenses, bans, advisories), cargo-audit, lockfiles, Dependabot, pinned Actions by SHA, SBOM + provenance; exactly one allowed git source (age). A1 dependencies reviewed: age, keyring 4, sysinfo, rusqlite (bundled), russh (ring only; no aws-lc in the lockfile), russh-sftp, hmac/sha1, arboard, base64, @xterm/*, @fontsource/chakra-petch | A0 (CI) / A1 reviewed (R-AGE-PIN, R-RSA) / A4 |
@@ -86,7 +86,7 @@ re-encrypt with the master password on the big machine.
 
 ### R-INV — Inventory metadata in plaintext (accepted, A1)
 `mooring.db` holds connection names, hosts, ports, protocols, tags, folder names and credential
-names and usernames in clear text. A T1 or T2 attacker gets the lab topology and the
+names and usernames in clear text. A T1 or T2 attacker gets the network topology and the
 usernames without any password. Accepted per ADR-0005: the SQLCipher alternative duplicates
 the vault AEAD and adds C crypto. Conditions: the file and directory modes from M2, FTS5
 secure-delete / merge on close (L4; deleted rows may persist in FTS segments until close or

@@ -41,8 +41,8 @@ fn full_lifecycle_create_store_lock_unlock() {
         .expect("ssh key cred");
 
     s.set_folder_default_credential(root.id, Some(pw_meta.id)).expect("root default");
-    let inherited = s.create_connection(&ssh(servers.id, "xinfra01", "10.10.20.5")).expect("c1");
-    let mut own = ssh(servers.id, "xmon01", "10.10.20.30");
+    let inherited = s.create_connection(&ssh(servers.id, "web01", "192.0.2.5")).expect("c1");
+    let mut own = ssh(servers.id, "mon01", "192.0.2.30");
     own.credential = Some(key_meta.id);
     let own = s.create_connection(&own).expect("c2");
 

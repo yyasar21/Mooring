@@ -131,7 +131,7 @@ fn inheritance_resolution() {
     let root_cred = password(s, &v, "root default");
     let servers_cred = password(s, &v, "servers default");
     let own = password(s, &v, "own");
-    let c = conn(s, &l.okd, "okd-master", "10.10.30.10", &[]);
+    let c = conn(s, &l.kube, "kube-cp", "198.51.100.10", &[]);
 
     // nothing set anywhere → None
     assert_eq!(s.effective_credential(c.id).expect("none"), None);

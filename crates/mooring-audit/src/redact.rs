@@ -138,12 +138,12 @@ mod tests {
 
     #[test]
     fn scrubs_common_shapes() {
-        let s = "user=yunus password=hunter2 token: abc.def Authorization: Bearer eyJ.x.y";
+        let s = "user=alice password=hunter2 token: abc.def Authorization: Bearer eyJ.x.y";
         let r = redact(s);
         assert!(!r.contains("hunter2"));
         assert!(!r.contains("abc.def"));
         assert!(!r.contains("eyJ.x.y"));
-        assert!(r.contains("user=yunus"));
+        assert!(r.contains("user=alice"));
     }
 
     #[test]

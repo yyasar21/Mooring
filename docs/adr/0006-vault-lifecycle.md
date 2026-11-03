@@ -34,7 +34,7 @@ that an independent tool (`age`) can read.
   stored in the header as `keyring_wrap: Option<Sealed>` (AAD = header AAD ‖ "keyring"). The
   `WrapKey` is stored in the OS keyring (`keyring` crate: macOS Keychain with
   `kSecAccessControlBiometryCurrentSet`, Windows Credential Manager, Secret Service on Linux)
-  under service `xyz.homelab.mooring`, account = `vault_id`.
+  under service `io.github.yyasar21.mooring`, account = `vault_id`.
 - A1 ships the vault-side wrap only. The OS keyring commands stay unwired until the item
   carries a biometric/user-presence ACL on macOS (data-protection keychain,
   `BiometryCurrentSet`), uses Local persistence on Windows, and is explicit opt-in with a

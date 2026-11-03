@@ -14,3 +14,25 @@ description = "mooring-vault public test vectors (ADR-0006)"
 paths = [
   '''^crates/mooring-vault/tests/vectors/''',
 ]
+
+# Generic infrastructure-leak guard (not a secret rule): a private IPv4 address (RFC 1918) in
+# code or docs usually means a real host slipped in. Tests and examples use RFC 5737
+# documentation ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) and RFC 2606/6761
+# names (`*.example.test`); real lab values belong only in the local, gitignored `.env`
+# (see `.env.example`). Test files are exempt so parser tests may still use RFC 1918 inputs.
+[[rules]]
+id = "private-ipv4-outside-tests"
+description = "Private (RFC 1918) IPv4 address outside tests; use RFC 5737 ranges or MOORING_LAB_* env vars"
+regex = '''\b(10\.(?:25[0-5]|2[0-4]\d|1?\d?\d)|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\b'''
+keywords = ["10.", "172.", "192.168."]
+tags = ["infrastructure", "privacy"]
+
+[rules.allowlist]
+description = "tests, test fixtures and lockfiles"
+paths = [
+  '''(^|/)tests/''',
+  '''_tests?\.rs$''',
+  '''\.test\.tsx?$''',
+  '''(^|/)Cargo\.lock$''',
+  '''(^|/)pnpm-lock\.yaml$''',
+]

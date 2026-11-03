@@ -17,16 +17,16 @@ pub struct Lab {
     pub store: Store,
     pub root: Folder,
     pub servers: Folder,
-    pub okd: Folder,
+    pub kube: Folder,
 }
 
-/// root ─ servers ─ okd
+/// root ─ servers ─ kube
 pub fn lab() -> Lab {
     let store = Store::open_in_memory().expect("open");
     let root = store.create_folder(None, "Home lab").expect("root");
     let servers = store.create_folder(Some(root.id), "servers").expect("servers");
-    let okd = store.create_folder(Some(servers.id), "okd").expect("okd");
-    Lab { store, root, servers, okd }
+    let kube = store.create_folder(Some(servers.id), "kube").expect("kube");
+    Lab { store, root, servers, kube }
 }
 
 pub fn conn(store: &Store, folder: &Folder, name: &str, host: &str, tags: &[&str]) -> Connection {

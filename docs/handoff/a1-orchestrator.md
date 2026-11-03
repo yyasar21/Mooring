@@ -40,7 +40,7 @@
 
 ## Left open
 - `make dev` on macOS/Windows: manual checks owed — clipboard clear + history exclusion, OSC 8
-  link guard, real ssh-agent, lab SSH (`MOORING_LAB=1`), keyring round trip.
+  link guard, real ssh-agent, lab SSH (`MOORING_LAB_HOST`), keyring round trip.
 - Not wired yet: `src-tauri/src/autolock.rs` (5 s tick + OS signals), keyring/export IPC
   commands (held by security until biometric ACL exists), `vault_create` still uses
   `KdfParams::DEFAULT` instead of calibrating.
@@ -52,7 +52,7 @@
 
 ## Decision needed
 - GitHub repository (CI assumes Actions; `repository` in Cargo.toml points at
-  `yunusyasar/mooring-remote`).
+  a placeholder repository; now `yyasar21/Mooring`).
 - Keyring unlock on Linux: off by default with explicit opt-in warning (reviewer's ruling) — confirm.
 
 ## Test evidence
