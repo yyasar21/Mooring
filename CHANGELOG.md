@@ -8,6 +8,8 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
+## [0.1.0-rc.1] - 2026-11-04
+
 Work towards v0.1.0: Phase A0 (foundation) and Phase A1 (vault, connection tree, SSH).
 Details per team role are in [docs/handoff/](docs/handoff/index.md).
 
@@ -71,4 +73,5 @@ Details per team role are in [docs/handoff/](docs/handoff/index.md).
 - SFTP local paths reject Windows alternate data streams and reserved device names.
 - Host-key mismatch audit entries record both the expected and the presented fingerprint.
 
-[Unreleased]: https://github.com/yyasar21/Mooring/commits/main
+[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.0-rc.1...HEAD
+[0.1.0-rc.1]: https://github.com/yyasar21/Mooring/compare/v0.1.0...v0.1.0-rc.1

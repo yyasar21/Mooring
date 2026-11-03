@@ -3158,7 +3158,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-app"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "arboard",
  "base64 0.23.1",
@@ -3188,7 +3188,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-audit"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "hex",
  "serde",
@@ -3203,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-core"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
  "data-encoding",
@@ -3226,7 +3226,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-rdp"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
  "mooring-core",
@@ -3236,7 +3236,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-ssh"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
  "hmac",
@@ -3255,7 +3255,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-vnc"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
  "mooring-core",
@@ -3265,7 +3265,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-store"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "mooring-core",
  "mooring-vault",
@@ -3283,7 +3283,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-vault"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "age",
  "argon2 0.5.3",
