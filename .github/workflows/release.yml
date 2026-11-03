@@ -69,7 +69,8 @@ jobs:
           set -euo pipefail
           [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]] || { echo "::error::tag '$TAG' is not vMAJOR.MINOR.PATCH"; exit 1; }
           version="${BASH_REMATCH[1]}"
-          cargo_v=$(python3 -I -c 'import tomllib;print(tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"])')
+          # ubuntu-22.04 ships Python 3.10 (no tomllib): read the workspace version with sed.
+          cargo_v=$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p}' Cargo.toml | head -1)
           tauri_v=$(python3 -I -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
           for pair in "Cargo.toml:$cargo_v" "tauri.conf.json:$tauri_v"; do
             [[ "${pair#*:}" == "$version" ]] || { echo "::error::${pair%%:*} says ${pair#*:}, tag says $version (run make bump)"; exit 1; }
