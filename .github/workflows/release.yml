@@ -1,48 +1,353 @@
-# Phase A0 stub: builds UNSIGNED bundles as workflow artifacts on tags.
-# Phase A4 adds signing/notarization (secrets only in CI), updater manifests, SBOM, provenance.
+# Release pipeline (docs/release.md). A `vX.Y.Z` tag builds every installer into a DRAFT
+# GitHub Release; a maintainer reviews and publishes it by hand.
+#
+#   macOS   .dmg + .app (+ .pkg via pkgbuild/productbuild): aarch64, x86_64, universal
+#   Windows .exe (NSIS, per-user) + .msi (WiX): x64
+#   Linux   .deb + .rpm + .AppImage: x86_64 (ubuntu-22.04), aarch64 (ubuntu-22.04-arm)
+#   All     SHA256SUMS + Sigstore bundle (cosign keyless), CycloneDX SBOMs, SLSA provenance,
+#           Tauri updater artifacts + latest.json only when TAURI_SIGNING_PRIVATE_KEY is set.
+#
+# Signing is opt-in per secret: a fork without secrets still produces unsigned installers.
+# Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
+# APPLE_CERTIFICATE as "sign with this" and fails. Nothing here echoes a secret.
+# No build cache on purpose: release builds must not consume caches written by PR runs.
 name: release
+
 on:
-  push: { tags: ["v*"] }
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   workflow_dispatch:
-permissions: { contents: write }
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0. Uploads into its draft release."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
 
 jobs:
-  bundle:
+  create-release:
+    name: draft release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Tag matches the declared versions
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]] || { echo "::error::tag '$TAG' is not vMAJOR.MINOR.PATCH"; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          cargo_v=$(python3 -I -c 'import tomllib;print(tomllib.load(open("Cargo.toml","rb"))["workspace"]["package"]["version"])')
+          tauri_v=$(python3 -I -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
+          for pair in "Cargo.toml:$cargo_v" "tauri.conf.json:$tauri_v"; do
+            [[ "${pair#*:}" == "$version" ]] || { echo "::error::${pair%%:*} says ${pair#*:}, tag says $version (run make bump)"; exit 1; }
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create or reuse the draft release
+        id: draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name == \"$TAG\")][0] | select(. != null) | \"\(.id) \(.draft)\"")
+          if [[ -n "$existing" ]]; then
+            read -r id draft <<<"$existing"
+            [[ "$draft" == true ]] || { echo "::error::$TAG is already published; cut a new version"; exit 1; }
+            echo "reusing draft release $id"
+          else
+            flags=(--draft --verify-tag --generate-notes --title "Mooring $VERSION")
+            [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
+            gh release create "$TAG" "${flags[@]}" --repo "$GITHUB_REPOSITORY"
+            id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq "[.[] | select(.tag_name == \"$TAG\")][0].id")
+          fi
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # upload assets to the draft release
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, target: aarch64-apple-darwin }
-          - { os: macos-14, target: x86_64-apple-darwin }
-          - { os: windows-2022, target: x86_64-pc-windows-msvc }
-          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-    runs-on: ${{ matrix.os }}
+          - { name: macos-arm64, os: macos-14, target: aarch64-apple-darwin, rust: aarch64-apple-darwin, arch: aarch64, bundles: "app,dmg", updater: false }
+          - { name: macos-x64, os: macos-14, target: x86_64-apple-darwin, rust: x86_64-apple-darwin, arch: x64, bundles: "app,dmg", updater: false }
+          # The universal build feeds the updater manifest for both macOS architectures.
+          - { name: macos-universal, os: macos-14, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin", arch: universal, bundles: "app,dmg", updater: true }
+          - { name: windows-x64, os: windows-2022, target: x86_64-pc-windows-msvc, rust: x86_64-pc-windows-msvc, arch: x64, bundles: "nsis,msi", updater: true }
+          - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, rust: x86_64-unknown-linux-gnu, arch: amd64, bundles: "deb,rpm,appimage", updater: true }
+          # linuxdeploy cannot cross-build AppImages; GitHub's native arm64 runner is free for public repos.
+          - { name: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, rust: aarch64-unknown-linux-gnu, arch: arm64, bundles: "deb,rpm,appimage", updater: true }
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: "${{ matrix.target }}" }
-      - uses: Swatinem/rust-cache@v2
-      - uses: pnpm/action-setup@v4
-        with: { version: 10 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
-      - name: Linux WebView toolchain
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust }}
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (version from package.json)
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Linux WebView + bundler toolchain
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf file libfuse2
+
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @mooring/desktop build
-      - run: cargo install tauri-cli --version "^2" --locked
-      - run: cargo tauri build --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+
+      - name: Export signing material that exists
+        id: secrets
+        shell: bash
+        env:
+          UPDATER: ${{ matrix.updater }}
+          S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          S_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          S_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          S_APPLE_ID: ${{ secrets.APPLE_ID }}
+          S_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          S_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          S_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          S_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          S_APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          S_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          S_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          S_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          S_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          S_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          S_TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}
+          S_TAURI_SIGNING_RPM_KEY_PASSPHRASE: ${{ secrets.TAURI_SIGNING_RPM_KEY_PASSPHRASE }}
+          S_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          S_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          put() { local d; d="EOF_$(openssl rand -hex 16)"; printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"; }
+          has() { local v="S_$1"; [[ -n "${!v:-}" ]]; }
+          case "$RUNNER_OS" in
+            macOS) names=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY) ;;
+            Windows) names=(AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD) ;;
+            Linux) names=(TAURI_SIGNING_RPM_KEY TAURI_SIGNING_RPM_KEY_PASSPHRASE) ;;
+          esac
+          for n in "${names[@]}"; do if has "$n"; then v="S_$n"; put "$n" "${!v}"; fi; done
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            if ! has APPLE_CERTIFICATE; then put APPLE_SIGNING_IDENTITY "-"; fi  # ad-hoc: consistent bundle signature
+            if has APPLE_API_KEY && has APPLE_API_KEY_P8; then
+              p8="$RUNNER_TEMP/AuthKey_${S_APPLE_API_KEY}.p8"
+              printf '%s\n' "$S_APPLE_API_KEY_P8" > "$p8"; chmod 600 "$p8"; put APPLE_API_KEY_PATH "$p8"
+            fi
+          fi
+          updater=false
+          if [[ "$UPDATER" == true ]] && has TAURI_SIGNING_PRIVATE_KEY; then
+            put TAURI_SIGNING_PRIVATE_KEY "$S_TAURI_SIGNING_PRIVATE_KEY"
+            put TAURI_SIGNING_PRIVATE_KEY_PASSWORD "${S_TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+            updater=true
+          fi
+          signed=false
+          case "$RUNNER_OS" in
+            macOS) has APPLE_CERTIFICATE && signed=true ;;
+            Windows) { has AZURE_CLIENT_ID || has WINDOWS_CERTIFICATE; } && signed=true ;;
+            Linux) has TAURI_SIGNING_RPM_KEY && signed=true ;;
+          esac
+          echo "updater=$updater" >> "$GITHUB_OUTPUT"
+          echo "signed=$signed" >> "$GITHUB_OUTPUT"
+
+      - name: Import Authenticode certificate (PFX)
+        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE != '' && env.AZURE_CLIENT_ID == ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx -Force
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Install Azure Artifact Signing CLI
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        run: cargo install artifact-signing-cli --version 0.12.0 --locked
+
+      - name: Compose CI-only Tauri config
+        id: cfg
+        shell: python
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          import json, os, pathlib
+          env = os.environ.get
+          bundle = {}
+          if env("TAURI_SIGNING_PRIVATE_KEY"):
+              bundle["createUpdaterArtifacts"] = True
+          win = {}
+          if "-" in env("VERSION"):
+              # MSI ProductVersion is numeric; 0.2.0-rc.1 ships as MSI 0.2.0.
+              win["wix"] = {"version": env("VERSION").split("-")[0]}
+          azure = [env("AZURE_SIGNING_ENDPOINT"), env("AZURE_SIGNING_ACCOUNT"), env("AZURE_SIGNING_PROFILE")]
+          if env("AZURE_CLIENT_ID"):
+              if not all(azure):
+                  raise SystemExit("AZURE_CLIENT_ID is set but vars AZURE_SIGNING_ENDPOINT/ACCOUNT/PROFILE are not")
+              win["signCommand"] = {"cmd": "artifact-signing-cli",
+                                    "args": ["-e", azure[0], "-a", azure[1], "-c", azure[2], "-d", "Mooring", "%1"]}
+          elif env("WINDOWS_CERT_THUMBPRINT"):
+              win.update(certificateThumbprint=env("WINDOWS_CERT_THUMBPRINT"),
+                         timestampUrl="http://timestamp.digicert.com")
+          if win:
+              bundle["windows"] = win
+          path = pathlib.Path(env("RUNNER_TEMP")) / "tauri.ci.json"
+          path.write_text(json.dumps({"bundle": bundle} if bundle else {}))
+          with open(env("GITHUB_OUTPUT"), "a") as out:
+              out.write(f"path={path.as_posix()}\n")
+
+      - name: Build and upload with tauri-action
+        id: tauri
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
-          name: mooring-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/release/bundle/**/*.dmg
-            target/${{ matrix.target }}/release/bundle/**/*.msi
-            target/${{ matrix.target }}/release/bundle/**/*.exe
-            target/${{ matrix.target }}/release/bundle/**/*.deb
-            target/${{ matrix.target }}/release/bundle/**/*.rpm
-            target/${{ matrix.target }}/release/bundle/**/*.AppImage
-          if-no-files-found: warn
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          releaseDraft: true
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ steps.cfg.outputs.path }}
+          uploadUpdaterJson: ${{ steps.secrets.outputs.updater }}
+          uploadUpdaterSignatures: ${{ steps.secrets.outputs.updater }}
+          updaterJsonPreferNsis: true
+          retryAttempts: 1
+
+      - name: Build .pkg from the .app
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+          APPLE_INSTALLER_SIGNING_IDENTITY: ${{ secrets.APPLE_INSTALLER_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          app="target/${{ matrix.target }}/release/bundle/macos/Mooring.app"
+          pkg="$RUNNER_TEMP/Mooring_${VERSION}_${{ matrix.arch }}.pkg"
+          scripts/release/macos-pkg.sh "$app" "$VERSION" "$pkg"
+          gh release upload "$TAG" "$pkg" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        env:
+          PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: |
+          {
+            echo "### ${{ matrix.name }}"
+            echo "signed: ${{ steps.secrets.outputs.signed }} · updater artifacts: ${{ steps.secrets.outputs.updater }}"
+            echo '```'; echo "$PATHS" | tr ',' '\n' | sed 's/[][]//g;s/"//g'; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  finalize:
+    name: checksums, signature, SBOM, provenance
+    needs: [create-release, build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # upload SHA256SUMS, bundle and SBOMs
+      id-token: write # Sigstore keyless signing + attestations
+      attestations: write
+    env:
+      VERSION: ${{ needs.create-release.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11
+        with:
+          toolchain: stable
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download every release asset
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist
+          # A re-run must not checksum the previous run's outputs.
+          rm -f dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json
+          ls -la dist
+
+      - name: Rust SBOM (CycloneDX, cargo-cyclonedx)
+        run: |
+          set -euo pipefail
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          cargo cyclonedx --manifest-path src-tauri/Cargo.toml --format json --spec-version 1.5 \
+            --target all --override-filename mooring-app.cdx
+          mv src-tauri/mooring-app.cdx.json "dist/mooring-${VERSION}-cargo.cdx.json"
+          rm -f crates/*/mooring-app.cdx.json # cargo-cyclonedx also writes one per workspace member
+
+      - name: Source SBOM incl. npm (CycloneDX, syft)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/mooring-${{ env.VERSION }}-source.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: SHA256SUMS + cosign keyless signature
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          find . -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum -- > SHA256SUMS
+          cat SHA256SUMS
+          cosign sign-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json --yes
+
+      - name: SLSA build provenance for every artifact
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Upload checksums, signature and SBOMs
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" \
+            dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json
+          url=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
+          {
+            echo "### Draft ready: $url"
+            echo "Review the notes and assets, then publish. Verify with:"
+            echo '```'; echo "scripts/release/verify-release.sh $TAG $GITHUB_REPOSITORY"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
