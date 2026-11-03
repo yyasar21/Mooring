@@ -24,6 +24,8 @@ customer estates later). Host-key handling and algorithm choice are the security
   - key matches a stored entry → accept silently.
   - host unknown → emit `SessionEvent::Prompt { id, message: "<host>:<port> <key type> SHA256:<fp>  — trust this host?", secret: false }`; the UI answers via `SessionInput::Answer { id, text: "yes" | "no" }`; `yes` stores the key and proceeds, anything else aborts with `Closed { reason: "host key not trusted" }`. Audit `trust.host_key.added` with host, type, fingerprint.
   - host known, key differs → **hard stop**, no prompt: `Closed { reason: "HOST KEY CHANGED for <host>: expected <fp-old>, got <fp-new>" }` and audit `trust.host_key.mismatch`. Removal is an explicit UI action (A1 item 4) that audits `trust.host_key.removed`.
+- `SessionEvent::Prompt` gains `purpose: PromptPurpose { HostKeyTrust, KeyboardInteractive, Other }`
+  so the UI picks the dialog by a typed field, never by matching server-controlled text (L-2).
 - `SessionEvent::Connected.peer_identity` carries `"<key type> SHA256:<fingerprint>"`.
 
 ### Authentication (in order, first success wins; the user may restrict)
@@ -59,8 +61,10 @@ customer estates later). Host-key handling and algorithm choice are the security
   (`xterm-256color`, size from `ConnectParams.size`, `Resize` → `window_change`). Output is
   forwarded as `SessionEvent::Bytes` in ≤ 64 KiB chunks; a bounded `tokio::mpsc` (256)
   applies back-pressure. Keepalive `ServerAliveInterval` 30 s, 3 misses → `Closed`.
-- Port forwarding: `SshSession::forward_local(bind, target)`, `forward_remote`,
-  `forward_dynamic(bind)` (SOCKS5, no auth, loopback bind only by default); each returns a
+- Port forwarding: `SshSession::forward_local(bind, target, exposure)`, `forward_remote`,
+  `forward_dynamic(bind, exposure)` (SOCKS5, no auth, CONNECT only). `Exposure { Loopback,
+  External }` applies to all three kinds; `Loopback` is the default and a non-loopback bind
+  with `Loopback` is refused; `External` is audited (security review 2, M-2). Each returns a
   `ForwardId` and audits `session.forward.open/close`.
 - SFTP: `SshSession::sftp()` opens one `russh-sftp` session on demand; `list`, `stat`, `mkdir`,
   `rename`, `remove`, `download(remote, local, progress)`, `upload` with a progress callback
