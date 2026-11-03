@@ -5,8 +5,8 @@
 //! Until [`Store::reseal_legacy`] runs (first unlock), the fixed alias table below lets every
 //! reader find them under their new names. The reseal opens each legacy secret under its old
 //! AAD, writes it under the new name (or, for x509, moves the public certificate into
-//! `fields_json.cert_pem`), and deletes the legacy row: one transaction per credential,
-//! idempotent, and the pending flag is cleared once none remain.
+//! `fields_json.cert_pem`), and deletes the legacy row. One run is one transaction (every
+//! converted credential plus the cleared flag, or nothing); it is idempotent.
 
 use mooring_core::credential::fingerprint;
 use mooring_core::{CredentialFields, CredentialId, CredentialKind, SecretName};
@@ -100,13 +100,18 @@ impl Store {
     }
 
     /// [`Store::reseal_legacy`] limited to `max` credentials (tests simulate a crash with it).
+    ///
+    /// One call is one transaction: every converted credential and the cleared flag commit
+    /// together, or nothing does (a wrong vault or a damaged row leaves the store untouched and
+    /// the alias table keeps the legacy secrets readable).
     #[doc(hidden)]
     pub fn reseal_legacy_step(&self, vault: &Vault, max: usize) -> Result<usize> {
         if !self.reseal_pending()? {
             return Ok(0);
         }
+        let tx = self.conn.unchecked_transaction()?;
         let ids: Vec<String> = {
-            let mut stmt = self.conn.prepare(
+            let mut stmt = tx.prepare(
                 "SELECT DISTINCT credential_id FROM credential_secret
                  WHERE name IN ('secret', 'secret2') ORDER BY credential_id",
             )?;
@@ -115,72 +120,71 @@ impl Store {
         };
         let mut done = 0;
         for id in ids.iter().take(max) {
-            self.reseal_one(vault, parse_id(id)?)?;
+            reseal_one(&tx, vault, parse_id(id)?)?;
             done += 1;
         }
-        let left: bool = self.conn.query_row(
+        let left: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM credential_secret WHERE name IN ('secret', 'secret2'))",
             [],
             |r| r.get(0),
         )?;
         if !left {
-            self.conn.execute("DELETE FROM setting WHERE key = ?1", [KEY_RESEAL_PENDING])?;
+            tx.execute("DELETE FROM setting WHERE key = ?1", [KEY_RESEAL_PENDING])?;
+        }
+        tx.commit()?;
+        if !left {
             tracing::info!("legacy credential secrets resealed");
         }
         Ok(done)
     }
+}
 
-    fn reseal_one(&self, vault: &Vault, id: CredentialId) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        let (kind, json): (String, String) = tx.query_row(
-            "SELECT kind, fields_json FROM credential WHERE id = ?1",
-            [id.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
-        let kind =
-            CredentialKind::parse(&kind).ok_or(StoreError::Corrupt { what: "credential kind" })?;
-        let mut fields = CredentialFields::from_stored(kind, &json)
-            .map_err(|_| StoreError::Corrupt { what: "credential fields" })?;
-        for legacy in LEGACY {
-            let blob: Option<Vec<u8>> = tx
-                .query_row(
-                    "SELECT sealed FROM credential_secret WHERE credential_id = ?1 AND name = ?2",
-                    params![id.to_string(), legacy],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            let Some(blob) = blob else { continue };
-            let plain = unseal(vault, id, legacy, &blob)?;
-            match target(kind, legacy).ok_or(StoreError::Corrupt { what: "legacy secret" })? {
-                Target::Secret(name) => {
-                    if self.secret_blob(id, name.as_str())?.is_none() {
-                        put_secret(
-                            &tx,
-                            id,
-                            name.as_str(),
-                            &seal(vault, id, name.as_str(), &plain)?,
-                        )?;
-                    }
-                    if name == SecretName::PrivateKey {
-                        // best effort: a v2 key that is not PEM keeps no fingerprint
-                        let _ = fields.derive_from_secret(name, &plain);
-                    }
+fn reseal_one(tx: &rusqlite::Connection, vault: &Vault, id: CredentialId) -> Result<()> {
+    let (kind, json): (String, String) = tx.query_row(
+        "SELECT kind, fields_json FROM credential WHERE id = ?1",
+        [id.to_string()],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let kind =
+        CredentialKind::parse(&kind).ok_or(StoreError::Corrupt { what: "credential kind" })?;
+    let mut fields = CredentialFields::from_stored(kind, &json)
+        .map_err(|_| StoreError::Corrupt { what: "credential fields" })?;
+    for legacy in LEGACY {
+        let Some(blob) = blob_of(tx, id, legacy)? else { continue };
+        let plain = unseal(vault, id, legacy, &blob)?;
+        match target(kind, legacy).ok_or(StoreError::Corrupt { what: "legacy secret" })? {
+            Target::Secret(name) => {
+                if blob_of(tx, id, name.as_str())?.is_none() {
+                    put_secret(tx, id, name.as_str(), &seal(vault, id, name.as_str(), &plain)?)?;
                 }
-                Target::CertPem => move_certificate(&mut fields, &plain)?,
+                if name == SecretName::PrivateKey {
+                    // best effort: a v2 key that is not PEM keeps no fingerprint
+                    let _ = fields.derive_from_secret(name, &plain);
+                }
             }
-            tx.execute(
-                "DELETE FROM credential_secret WHERE credential_id = ?1 AND name = ?2",
-                params![id.to_string(), legacy],
-            )?;
+            Target::CertPem => move_certificate(&mut fields, &plain)?,
         }
         tx.execute(
-            "UPDATE credential SET fields_json = ?2, updated_at = ?3 WHERE id = ?1",
-            params![id.to_string(), fields.to_json()?, fmt_ts(now())?],
+            "DELETE FROM credential_secret WHERE credential_id = ?1 AND name = ?2",
+            params![id.to_string(), legacy],
         )?;
-        tx.commit()?;
-        tracing::debug!(credential = %id, "legacy credential resealed");
-        Ok(())
     }
+    tx.execute(
+        "UPDATE credential SET fields_json = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id.to_string(), fields.to_json()?, fmt_ts(now())?],
+    )?;
+    tracing::debug!(credential = %id, "legacy credential resealed");
+    Ok(())
+}
+
+fn blob_of(tx: &rusqlite::Connection, id: CredentialId, name: &str) -> Result<Option<Vec<u8>>> {
+    Ok(tx
+        .query_row(
+            "SELECT sealed FROM credential_secret WHERE credential_id = ?1 AND name = ?2",
+            params![id.to_string(), name],
+            |r| r.get(0),
+        )
+        .optional()?)
 }
 
 /// The v2 certificate (public) becomes `cert_pem`, with its fingerprint when it parses.

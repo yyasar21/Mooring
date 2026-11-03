@@ -20,6 +20,8 @@ mod legacy;
 mod roles;
 pub mod schema;
 mod search;
+#[doc(hidden)]
+pub mod testing;
 mod util;
 
 use std::path::{Path, PathBuf};

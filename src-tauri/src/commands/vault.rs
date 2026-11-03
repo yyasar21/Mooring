@@ -99,7 +99,28 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
         return Err(e);
     }
     state.audit(AuditEvent::VaultUnlocked);
+    reseal_legacy(state);
     Ok(VaultStatus::Unlocked)
+}
+
+/// Re-seal secrets migrated from schema v2 under their ADR-0009 names (ADR-0009 §4). Runs on
+/// every unlock and is a no-op once done. A failure never fails or re-locks the unlock: it is
+/// logged, the store is unchanged (one transaction), and the alias table keeps the legacy
+/// secrets usable until a later unlock succeeds.
+fn reseal_legacy(state: &AppState) {
+    // StoreError's Display names the failing layer (SQLite, vault tag, corrupt row), never a
+    // secret value.
+    match state.with_ready(|vault, store| Ok(store.reseal_legacy(vault))) {
+        Ok(Ok(0)) => {}
+        Ok(Ok(count)) => {
+            tracing::info!(count, "legacy credentials resealed");
+            state.audit(AuditEvent::CredentialResealed { count: count as u64 });
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "legacy credential reseal failed; legacy reads stay available");
+        }
+        Err(e) => tracing::warn!(code = e.code, "legacy credential reseal skipped"),
+    }
 }
 
 /// Wipe the key from memory and clear a copied password still on the clipboard (review 2,
@@ -277,6 +298,80 @@ mod tests {
         let e = unlock(&again, pw(MASTER)).expect_err("mismatch");
         assert_eq!(e.code, "store.vault_mismatch");
         assert_eq!(status(&again).expect("s"), VaultStatus::Locked, "re-locked on bind failure");
+    }
+
+    /// A data dir holding a vault header and a schema-v2 database whose secrets were sealed by
+    /// `sealer` (the vault itself, or another one to make the reseal fail).
+    fn v2_state(sealer: Option<&Vault>) -> (Fixture, mooring_store::testing::V2Credentials) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let v = Vault::create(&pw(MASTER), mooring_vault::KdfParams::TEST).expect("vault");
+        std::fs::write(
+            dir.path().join(AppState::HEADER_FILE),
+            v.header().to_bytes().expect("header"),
+        )
+        .expect("write header");
+        let db = dir.path().join(AppState::DB_FILE);
+        let ids = mooring_store::testing::write_v2_database(&db, sealer.unwrap_or(&v))
+            .expect("v2 database");
+        let clipboard = std::sync::Arc::new(crate::clipboard::MemoryClipboard::default());
+        let state = AppState::new(dir.path().to_path_buf(), settings(clipboard.clone()))
+            .expect("state migrates v2");
+        (Fixture { dir, state, clipboard }, ids)
+    }
+
+    #[test]
+    fn unlock_reseals_legacy_credentials_once() {
+        use mooring_core::credential::testdata::CERT_PEM;
+        use mooring_core::CredentialFields;
+        use mooring_store::testing::{legacy_secret_rows, LEGACY_PASSPHRASE, LEGACY_PW};
+        use mooring_store::SecretName;
+
+        let (f, ids) = v2_state(None);
+        let db = f.dir.path().join(AppState::DB_FILE);
+        assert_eq!(legacy_secret_rows(&db).expect("rows"), 5, "pw 1 + key 2 + cert 2");
+        assert_eq!(unlock(&f.state, pw(MASTER)).expect("unlock"), VaultStatus::Unlocked);
+        assert_eq!(legacy_secret_rows(&db).expect("rows"), 0, "legacy names gone");
+        f.state
+            .with_ready(|v, s| {
+                assert!(!s.reseal_pending()?);
+                assert_eq!(s.open_secret(v, ids.pw, SecretName::Password)?.as_slice(), LEGACY_PW);
+                assert_eq!(
+                    s.open_secret(v, ids.key, SecretName::Passphrase)?.as_slice(),
+                    LEGACY_PASSPHRASE
+                );
+                let cert = s.get_credential(ids.cert)?;
+                let CredentialFields::X509(x) = &cert.fields else { panic!("kind") };
+                assert_eq!(x.cert_pem, CERT_PEM, "placeholder replaced by the real PEM");
+                assert_eq!(cert.secret_names, [SecretName::KeyPem]);
+                Ok(())
+            })
+            .expect("read back");
+        let resealed = |s: &AppState| {
+            let text = std::fs::read_to_string(s.data_dir.join(AppState::AUDIT_FILE)).expect("a");
+            text.lines().filter(|l| l.contains(r#""event":"credential_resealed""#)).count()
+        };
+        assert_eq!(resealed(&f.state), 1);
+        let audit = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("a");
+        assert!(audit.contains(r#""count":3"#), "count recorded");
+        // second unlock reseals nothing and writes no second entry
+        lock(&f.state, None).expect("lock");
+        unlock(&f.state, pw(MASTER)).expect("again");
+        assert_eq!(resealed(&f.state), 1, "no entry for a reseal of 0");
+        assert_eq!(f.state.with_ready(|v, s| Ok(s.reseal_legacy(v)?)).expect("noop"), 0);
+    }
+
+    #[test]
+    fn reseal_failure_does_not_fail_unlock() {
+        use mooring_store::testing::legacy_secret_rows;
+        // Secrets sealed by a different vault: the reseal cannot open them.
+        let other = Vault::create(&pw(MASTER), mooring_vault::KdfParams::TEST).expect("other");
+        let (f, _) = v2_state(Some(&other));
+        assert_eq!(unlock(&f.state, pw(MASTER)).expect("unlock"), VaultStatus::Unlocked);
+        assert_eq!(status(&f.state).expect("s"), VaultStatus::Unlocked, "not re-locked");
+        let db = f.dir.path().join(AppState::DB_FILE);
+        assert_eq!(legacy_secret_rows(&db).expect("rows"), 5, "transaction rolled back");
+        assert!(f.state.with_ready(|_, s| Ok(s.reseal_pending()?)).expect("flag"));
+        assert!(!audit_events(&f.state).contains(&"credential_resealed".to_owned()));
     }
 
     #[test]

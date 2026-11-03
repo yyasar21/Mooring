@@ -87,6 +87,12 @@ pub enum AuditEvent {
         /// Username typed.
         username: String,
     },
+    /// Credentials migrated from schema v2 were re-sealed under their ADR-0009 secret names
+    /// on unlock. Written only when `count > 0`.
+    CredentialResealed {
+        /// How many credentials were converted.
+        count: u64,
+    },
     /// Vault exported (`format`: `age`, `json`, ...).
     VaultExported {
         /// Export format.
@@ -292,6 +298,7 @@ mod tests {
                 AuditEvent::CredentialPrompted { connection: "x".into(), username: "u".into() },
                 "credential_prompted",
             ),
+            (AuditEvent::CredentialResealed { count: 3 }, "credential_resealed"),
         ];
         for (e, name) in cases {
             let v = serde_json::to_value(&e).expect("json");
