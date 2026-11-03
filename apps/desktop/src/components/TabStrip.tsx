@@ -21,7 +21,7 @@ export function TabStrip() {
   };
 
   return (
-    <div className="flex h-[var(--bar-h)] items-stretch border-b border-line bg-bg-sunken">
+    <div className="tabstrip">
       <div ref={listRef} role="tablist" aria-label="Open sessions" className="flex min-w-0 items-stretch overflow-x-auto">
         {tabs.map((t, i) => (
           <TabItem
@@ -124,9 +124,9 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
         }
       }}
     >
-      {c && <ProtocolPip protocol={c.protocol} />}
-      <span className="min-w-0 flex-1 truncate">{name}</span>
-      {tab.prompt && <span aria-hidden className="h-1.5 w-1.5 flex-none rounded-full bg-warn" />}
+      {c && <ProtocolPip protocol={c.protocol} live={tab.state === "connected"} />}
+      <span className="tab-name min-w-0 flex-1 truncate">{name}</span>
+      {tab.prompt && <span aria-hidden className="tab-attn" />}
       <button
         type="button"
         className="tab-action icon-btn flex-none"

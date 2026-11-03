@@ -1,0 +1,83 @@
+/* The airlock: vault create / unlock. The one dramatic screen in the app. Its motion is a single
+   sweep on arrival and a seal-break when the key is being derived; nothing loops while idle. */
+
+.airlock {
+  position: relative; height: 100%; display: grid; place-items: center; overflow: hidden;
+  background-color: var(--void);
+  background-image:
+    radial-gradient(ellipse 60% 50% at 50% 50%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+  background-position: center;
+}
+/* Concentric rings drawn once behind the hatch. */
+.airlock-rings {
+  position: absolute; left: 50%; top: 50%; width: 820px; height: 820px; translate: -50% -50%;
+  pointer-events: none; color: var(--line-strong); opacity: 0.7;
+}
+.airlock-rings .tick { color: var(--accent-dim); }
+
+/* Arrival sweep: one bright line crosses the screen top to bottom, then is gone. */
+.airlock-sweep {
+  position: absolute; left: 0; right: 0; top: 0; height: 120px; pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 9%, transparent) 85%, var(--accent) 100%);
+  opacity: 0; animation: sweep 1.6s var(--ease-out) 120ms 1 both;
+}
+@keyframes sweep {
+  0% { transform: translateY(-120px); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* Blast doors: two panels that sit closed at the edges and slide apart into the hatch. */
+.airlock-hatch {
+  position: relative; width: 440px; max-width: calc(100vw - 32px); padding: 34px 38px 30px;
+  background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border-color: var(--line-strong);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+  animation: hatch-in var(--dur-slow) var(--ease-out) backwards;
+}
+.airlock-hatch.m-hud { --bracket-len: 18px; }
+:root[data-theme="light"] .airlock-hatch { box-shadow: 0 30px 80px rgba(10, 40, 50, 0.14); }
+@keyframes hatch-in {
+  /* the doors part from the centre seam outwards */
+  from { opacity: 0.2; clip-path: inset(-20px 50% -20px 50%); }
+  to { opacity: 1; clip-path: inset(-20px 0 -20px 0); }
+}
+
+.airlock-kicker { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.airlock-title { font: 600 var(--fs-2xl)/1 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
+.airlock-title::after {
+  content: ""; display: block; width: 56px; height: 2px; margin-top: 14px; background: var(--accent); box-shadow: var(--glow-accent-s);
+}
+.airlock-copy { margin-top: 12px; color: var(--text-muted); font-size: var(--fs-s); line-height: 1.5; max-width: 34ch; }
+
+.airlock-field { position: relative; margin-top: 26px; }
+.airlock-input {
+  width: 100%; height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); background: var(--bg-sunken);
+  color: var(--text); font: 500 16px/1 var(--font-mono); letter-spacing: 0.2em;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-mid);
+}
+.airlock-input:focus { outline: none; border-color: var(--accent); box-shadow: inset 0 0 18px var(--accent-soft); }
+.airlock-input:focus-visible { box-shadow: inset 0 0 18px var(--accent-soft); }
+
+.airlock-submit {
+  position: relative; width: 100%; height: 44px; margin-top: 8px; overflow: hidden;
+  border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent);
+  font: 600 var(--fs-s)/1 var(--font-display); letter-spacing: 0.3em; text-transform: uppercase;
+  transition: box-shadow var(--dur-mid), color var(--dur-fast), background-color var(--dur-mid);
+}
+.airlock-submit:hover:not(:disabled), .airlock-submit:focus-visible {
+  color: var(--accent-ink); background: var(--accent); box-shadow: 0 0 24px var(--accent-dim);
+}
+.airlock-submit:disabled { opacity: 0.4; }
+/* Key derivation in progress: the seal pressure bar runs while Argon2id works. */
+.airlock-submit[data-busy]::after {
+  content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: rail-pulse 0.9s linear infinite;
+}
+
+.airlock-error { margin-top: 12px; min-height: 18px; font-size: var(--fs-s); color: var(--hot); }
+.airlock-foot { display: flex; justify-content: space-between; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }

@@ -31,7 +31,8 @@ export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: Pe
         aria-modal="true"
         aria-labelledby={headingId}
         aria-describedby={bodyId}
-        className="pop w-[460px] max-w-[calc(100%-32px)] p-4"
+        className="pop m-hud w-[480px] max-w-[calc(100%-32px)] p-5"
+        data-tone="hot"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.stopPropagation();
@@ -39,11 +40,14 @@ export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: Pe
           }
         }}
       >
-        <h2 id={headingId} className="flex items-center gap-2 text-[length:var(--fs-l)] font-medium">
-          <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: "var(--warn)" }} />
+        <p aria-hidden className="m-micro mb-2" style={{ color: "var(--hot)" }}>
+          {isTrust ? "Unknown host key" : "Remote prompt"}
+        </p>
+        <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
+          <span aria-hidden className="tab-attn" />
           {isTrust ? "Verify host identity" : `${host} asks`}
         </h2>
-        <p id={bodyId} className="mono mt-3 whitespace-pre-wrap rounded-[var(--radius-s)] bg-bg-sunken p-3 text-text select-text">
+        <p id={bodyId} className="mono mt-3 whitespace-pre-wrap border-l-2 border-[var(--hot-line)] bg-bg-sunken p-3 text-text select-text">
           {prompt.message}
         </p>
         {isTrust ? (

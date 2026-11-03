@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ProtocolPip, StateDot } from "@mooring/ui";
+import { HudLabel, ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, CredentialMeta, Folder } from "../../lib/ipc";
 import { folderPath, useTree } from "../../stores/tree";
 import { KIND_LABEL, useCredentials } from "../../stores/credentials";
@@ -14,9 +14,10 @@ export function Inspector() {
   const folder = useTree((s) => (selected?.kind === "folder" ? s.folders.find((f) => f.id === selected.id) : undefined));
 
   return (
-    <aside aria-label="Details" className="flex h-full min-w-0 flex-col overflow-y-auto bg-bg-sunken">
-      <div className="flex h-[var(--bar-h)] flex-none items-center border-b border-line px-3.5 text-[length:var(--fs-xs)] font-medium text-text-muted">
-        Details
+    <aside aria-label="Details" className="deck-pane flex h-full flex-col overflow-y-auto">
+      <div className="deck-head">
+        <span className="m-micro flex-1">Details</span>
+        {selected && <span className="m-micro tnum">{selected.kind === "folder" ? "Folder" : "Host"}</span>}
       </div>
       {connection ? (
         <ConnectionDetails c={connection} />
@@ -40,12 +41,16 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
 
   return (
     <div>
-      <header className="flex items-start gap-2 px-3.5 pt-3.5">
-        <ProtocolPip protocol={c.protocol} />
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[length:var(--fs-l)] font-medium leading-tight">{c.name}</h2>
-          <p className="truncate text-[length:var(--fs-xs)] text-text-faint">{path.join(" / ") || "Top level"}</p>
+      <header className="m-hud mx-3.5 mt-3.5 px-3 pb-3 pt-2.5" data-active={tab?.state === "connected" ? true : undefined}>
+        <div className="flex items-center gap-2">
+          <ProtocolPip protocol={c.protocol} live={tab?.state === "connected"} />
+          <p className="m-micro min-w-0 flex-1 truncate">{path.join(" / ") || "Top level"}</p>
         </div>
+        <h2 className="readout-title mt-2 truncate">{c.name}</h2>
+        <p className="readout-host mt-1 truncate select-text">
+          {c.host}
+          {c.port !== null && <span className="text-text-faint">:{c.port}</span>}
+        </p>
       </header>
       <div className="flex gap-2 px-3.5 pt-3">
         <button type="button" className="btn btn-primary" onClick={() => void useSessions.getState().open(c.id)}>
@@ -56,25 +61,29 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
         </button>
       </div>
 
-      <h3 className="section-title">Connection</h3>
-      <dl className="prop-grid px-3.5">
-        <Prop k="Host" mono>{c.host}</Prop>
-        <Prop k="Port" mono>{c.port ?? "default"}</Prop>
-        <Prop k="Protocol">{c.protocol.toUpperCase()}</Prop>
-        <Prop k="Tags">{c.tags.length ? c.tags.join(", ") : <span className="text-text-faint">none</span>}</Prop>
-        {tab && (
-          <Prop k="Session">
-            <span className="inline-flex items-center gap-1.5">
-              <StateDot state={tab.state} /> {tab.prompt ? "waiting for you" : tab.state}
-            </span>
-          </Prop>
-        )}
-        {tab?.peerIdentity && <Prop k="Host key" mono>{tab.peerIdentity}</Prop>}
-      </dl>
+      <section className="readout-section">
+        <HudLabel>Connection</HudLabel>
+        <dl className="prop-grid">
+          <Prop k="Host" mono>{c.host}</Prop>
+          <Prop k="Port" mono>{c.port ?? "default"}</Prop>
+          <Prop k="Protocol">{c.protocol.toUpperCase()}</Prop>
+          <Prop k="Tags">{c.tags.length ? c.tags.join(", ") : <span className="text-text-faint">none</span>}</Prop>
+          {tab && (
+            <Prop k="Session">
+              <span className="inline-flex items-center gap-2" style={{ color: tab.prompt ? "var(--hot)" : undefined }}>
+                <StateDot state={tab.state} /> {tab.prompt ? "waiting for you" : tab.state}
+              </span>
+            </Prop>
+          )}
+          {tab?.peerIdentity && <Prop k="Host key" mono>{tab.peerIdentity}</Prop>}
+        </dl>
+      </section>
 
-      <h3 className="section-title">Credential</h3>
-      <CredentialRef cred={cred} inheritedFrom={source} />
-      <p className="px-3.5 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
+      <section className="readout-section">
+        <HudLabel>Credential</HudLabel>
+        <CredentialRef cred={cred} inheritedFrom={source} />
+      </section>
+      <p className="px-3.5 pb-4 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
         Copying writes an audit entry. Mooring clears the clipboard after 30 seconds.
       </p>
     </div>
@@ -90,9 +99,9 @@ function FolderDetails({ f }: { f: Folder }) {
 
   return (
     <div>
-      <header className="px-3.5 pt-3.5">
-        <h2 className="truncate text-[length:var(--fs-l)] font-medium leading-tight">{f.name}</h2>
-        <p className="truncate text-[length:var(--fs-xs)] text-text-faint">{folderPath(folders, f.parentId).join(" / ") || "Top level"}</p>
+      <header className="m-hud mx-3.5 mt-3.5 px-3 pb-3 pt-2.5">
+        <p className="m-micro truncate">{folderPath(folders, f.parentId).join(" / ") || "Top level"}</p>
+        <h2 className="readout-title mt-2 truncate">{f.name}</h2>
       </header>
       <div className="flex flex-wrap gap-2 px-3.5 pt-3">
         <button type="button" className="btn" onClick={() => { openDialog({ kind: "connection", folderId: f.id }); }}>
@@ -104,20 +113,24 @@ function FolderDetails({ f }: { f: Folder }) {
           </button>
         )}
       </div>
-      <h3 className="section-title">Folder</h3>
-      <dl className="prop-grid px-3.5">
-        <Prop k="Connections">{count}</Prop>
-      </dl>
-      <h3 className="section-title">Default credential</h3>
-      <CredentialRef cred={cred} inheritedFrom={null} />
+      <section className="readout-section">
+        <HudLabel>Folder</HudLabel>
+        <dl className="prop-grid">
+          <Prop k="Hosts"><span className="tnum">{count}</span></Prop>
+        </dl>
+      </section>
+      <section className="readout-section">
+        <HudLabel>Default credential</HudLabel>
+        <CredentialRef cred={cred} inheritedFrom={null} />
+      </section>
     </div>
   );
 }
 
 function CredentialRef({ cred, inheritedFrom: from }: { cred: CredentialMeta | undefined; inheritedFrom: string | null }) {
-  if (!cred) return <p className="px-3.5 text-text-faint">None. The session will ask when it connects.</p>;
+  if (!cred) return <p className="text-text-faint">None. The session will ask when it connects.</p>;
   return (
-    <div className="mx-3.5 rounded-[var(--radius-s)] border border-line bg-bg px-3 py-2.5">
+    <div className="cred-card m-hud">
       <dl className="prop-grid">
         <Prop k="Name">{cred.name}</Prop>
         <Prop k="Kind">{KIND_LABEL[cred.kind]}</Prop>

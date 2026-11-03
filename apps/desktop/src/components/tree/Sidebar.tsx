@@ -88,10 +88,10 @@ export function Sidebar() {
   };
 
   return (
-    <nav aria-label="Connection tree" className="flex h-full min-w-0 flex-col bg-bg-sunken">
+    <nav aria-label="Connection tree" className="deck-pane flex h-full flex-col">
       <SidebarToolbar />
       {error && (
-        <p role="alert" className="mx-2 mb-1 rounded-[var(--radius-s)] bg-danger-soft px-2 py-1 text-[length:var(--fs-xs)] text-danger">
+        <p role="alert" className="mx-2 my-1 border border-[var(--hot-line)] bg-danger-soft px-2 py-1 text-[length:var(--fs-xs)] text-danger">
           {error}
         </p>
       )}
@@ -99,7 +99,7 @@ export function Sidebar() {
         role="tree"
         aria-label="Connections"
         aria-activedescendant={undefined}
-        className="min-h-0 flex-1 overflow-y-auto pb-4"
+        className="min-h-0 flex-1 overflow-y-auto py-1.5 pb-4"
         onKeyDown={onKeyDown}
         onFocus={(e) => {
           if (e.target === e.currentTarget && rows[focusIndex]) select(rows[focusIndex].ref);
@@ -155,8 +155,8 @@ function SidebarToolbar() {
       : (connections.find((c) => c.id === selected?.id)?.folderId ?? folders.find((f) => f.parentId === null)?.id ?? "");
 
   return (
-    <div className="flex h-[var(--bar-h)] flex-none items-center gap-1 border-b border-line px-2">
-      <span className="flex-1 pl-1 text-[length:var(--fs-xs)] font-medium text-text-muted">Connections</span>
+    <div className="deck-head">
+      <span className="m-micro flex-1">Connections</span>
       <button
         type="button"
         className="icon-btn"

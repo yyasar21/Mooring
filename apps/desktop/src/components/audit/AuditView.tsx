@@ -76,8 +76,8 @@ export function AuditView() {
 
   return (
     <section aria-label="Audit log" className="flex h-full min-w-0 flex-col bg-bg">
-      <header className="flex h-[var(--bar-h)] flex-none items-center gap-3 border-b border-line bg-bg-sunken px-4">
-        <h1 className="whitespace-nowrap font-medium">Audit log</h1>
+      <header className="flex h-[52px] flex-none items-center gap-3 border-b border-line bg-bg-sunken px-4">
+        <h1 className="m-display whitespace-nowrap text-[length:var(--fs-l)]">Audit log</h1>
         <VerifyBadge v={verify} />
         <input
           aria-label="Filter audit entries"
@@ -94,7 +94,7 @@ export function AuditView() {
         </button>
       </header>
       {error && <p role="alert" className="bg-danger-soft px-4 py-1.5 text-danger">{error}</p>}
-      <div className="audit-row border-b border-line text-[length:var(--fs-xs)] text-text-faint" aria-hidden>
+      <div className="audit-row audit-head border-b border-line-strong py-2" aria-hidden>
         <span className="text-right">#</span>
         <span>Time (local)</span>
         <span>Event</span>
@@ -105,7 +105,7 @@ export function AuditView() {
           <li key={e.seq} className="audit-row">
             <span className="mono tnum text-right text-text-faint">{e.seq}</span>
             <time className="mono tnum text-text-muted" dateTime={e.at}>{formatTime(e.at)}</time>
-            <span className={e.details.decision === "rejected" ? "text-danger" : ""}>{EVENT_LABEL[e.event] ?? e.event}</span>
+            <span className="audit-event" data-tone={e.details.decision === "rejected" ? "hot" : undefined}>{EVENT_LABEL[e.event] ?? e.event}</span>
             <span className="mono truncate text-text-muted select-text" title={describe(e)}>{describe(e)}</span>
           </li>
         ))}
@@ -123,13 +123,13 @@ export function AuditView() {
 }
 
 function VerifyBadge({ v }: { v: AuditVerify | null }) {
-  if (!v) return <span className="text-[length:var(--fs-xs)] text-text-faint">checking chain…</span>;
+  if (!v) return <span className="chip">checking chain…</span>;
   return v.ok ? (
-    <span role="status" className="inline-flex items-center gap-1.5 whitespace-nowrap text-[length:var(--fs-xs)] text-text-muted">
-      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ok" /> Chain intact, {v.entries} entries
+    <span role="status" className="chip tnum" data-tone="ok">
+      <span aria-hidden className="state-dot" data-state="connected" /> Chain intact, {v.entries} entries
     </span>
   ) : (
-    <span role="status" className="inline-flex items-center gap-1.5 rounded-[var(--radius-s)] bg-danger-soft px-2 py-0.5 text-[length:var(--fs-xs)] text-danger">
+    <span role="status" className="chip" data-tone="hot">
       Chain broken at entry {v.brokenAt ?? "?"}. Entries from there on cannot be trusted.
     </span>
   );
