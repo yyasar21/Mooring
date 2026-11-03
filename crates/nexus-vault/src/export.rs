@@ -238,6 +238,27 @@ mod tests {
         );
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Stand-in until a cargo-fuzz target exists: arbitrary bytes never panic either parser.
+        #[test]
+        fn arbitrary_input_never_panics(
+            bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..2048),
+            prefix in proptest::sample::select(vec![
+                &b""[..],
+                b"-----BEGIN AGE ENCRYPTED FILE-----\n",
+                b"age-encryption.org/v1\n-> scrypt ",
+                b"{\"magic\":\"NEXUSVAULT\",\"version\":2,",
+            ]),
+        ) {
+            let mut input = prefix.to_vec();
+            input.extend_from_slice(&bytes);
+            let _ = import_age(&input, &s(PASS));
+            let _ = Header::from_bytes(&input);
+        }
+    }
+
     #[test]
     fn payload_must_be_a_valid_document() {
         let pass = s(PASS);
