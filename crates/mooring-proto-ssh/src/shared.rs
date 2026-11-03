@@ -12,6 +12,8 @@ use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::audit::AuditLog;
+use crate::forward::ForwardRegistry;
+use crate::sftp::SftpSlot;
 
 /// Longest prompt text shown to the user, in characters.
 pub(crate) const MAX_PROMPT_CHARS: usize = 256;
@@ -91,6 +93,8 @@ pub(crate) struct Shared {
     pub(crate) events: mpsc::Sender<SessionEvent>,
     pub(crate) broker: PromptBroker,
     pub(crate) audit: AuditLog,
+    pub(crate) forwards: ForwardRegistry,
+    pub(crate) sftp: SftpSlot,
     reason: Mutex<Option<String>>,
     peer: Mutex<Option<String>>,
     closing: AtomicBool,
@@ -102,6 +106,8 @@ impl Shared {
             events,
             broker: PromptBroker::default(),
             audit: AuditLog::default(),
+            forwards: ForwardRegistry::default(),
+            sftp: SftpSlot::default(),
             reason: Mutex::new(None),
             peer: Mutex::new(None),
             closing: AtomicBool::new(false),
@@ -131,6 +137,14 @@ impl Shared {
     pub(crate) fn begin_close(&self) {
         self.closing.store(true, Ordering::Release);
         self.broker.shutdown();
+        self.release_channels();
+    }
+
+    /// Close every forward and the SFTP session. Called when the session closes for any
+    /// reason (user close, remote end, connection loss). Idempotent.
+    pub(crate) fn release_channels(&self) {
+        self.forwards.close_all(&self.audit);
+        self.sftp.close();
     }
 
     pub(crate) fn is_closing(&self) -> bool {

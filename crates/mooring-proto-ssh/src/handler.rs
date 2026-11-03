@@ -1,6 +1,6 @@
 //! The russh client handler: host-key trust decision (ADR-0007 §Host-key trust).
 //!
-//! Part b (forwarding) extends this type with `server_channel_open_forwarded_tcpip`.
+//! Also routes server-opened `forwarded-tcpip` channels to their remote forward.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -129,6 +129,21 @@ impl client::Handler for ClientHandler {
             return Ok(false);
         };
         Ok(self.decide(key).await)
+    }
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        let route = self.shared.forwards.route(connected_address, connected_port);
+        crate::forward_io::accept_forwarded(route, channel, reply);
+        Ok(())
     }
 
     async fn kex_done(
