@@ -299,6 +299,7 @@ jobs:
           while IFS= read -r line; do [[ -n "$line" ]] && files+=("$line"); done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
           [[ -n "${PKG_PATH:-}" ]] && files+=("$PKG_PATH")
           for f in "${files[@]}"; do
+            f="${f//\\//}" # Windows runners report D:\a\... paths; Git Bash wants forward slashes
             [[ -f "$f" ]] || continue # .app bundles are directories; the .dmg / .app.tar.gz carry them
             name=$(basename "$f")
             # updater archives share a name across macOS targets: add the arch, as tauri-action did
