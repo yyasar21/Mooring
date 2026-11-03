@@ -1,0 +1,38 @@
+# Verifies the nexus-vault test vectors with the reference `age` CLI, independently of the
+# Rust code that produced them (ADR-0006 test plan: "vectors decrypt with the age CLI in CI").
+# Actions are pinned by major tag in A0; release-engineer pins them by commit SHA in A4.
+name: test-vectors
+on:
+  push:
+    branches: [main]
+    paths: ["crates/nexus-vault/**", "tests/vectors/**", ".github/workflows/test-vectors.yml"]
+  pull_request:
+    paths: ["crates/nexus-vault/**", "tests/vectors/**", ".github/workflows/test-vectors.yml"]
+  workflow_dispatch:
+concurrency:
+  group: test-vectors-${{ github.ref }}
+  cancel-in-progress: true
+permissions: { contents: read }
+
+jobs:
+  age-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the age CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends age jq
+          age --version
+      - name: Decrypt export.age with age and compare to header.json / sealed.json
+        run: python3 tests/vectors/verify_age_export.py
+      - name: Header matches the export (jq, as documented in the vectors README)
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mktemp)"
+          python3 crates/nexus-vault/tests/vectors/age_decrypt.py \
+            crates/nexus-vault/tests/vectors/export.age > "$out"
+          diff <(jq -S .header "$out") <(jq -S . crates/nexus-vault/tests/vectors/header.json)
+          rm -f "$out"

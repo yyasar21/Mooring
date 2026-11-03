@@ -31,6 +31,9 @@ test: ## unit tests (pure crates + ui)
 	cargo test $(PURE)
 	pnpm test
 
+test-vectors: ## verify nexus-vault vectors with the reference age CLI (needs `age`)
+	python3 tests/vectors/verify_age_export.py
+
 audit: ## dependency + secret scanning
 	cargo deny check
 	cargo audit
@@ -56,4 +59,4 @@ sbom: ## CycloneDX SBOMs into build/
 	mkdir -p build && cargo cyclonedx --format json --override-filename build/sbom-cargo 2>/dev/null || echo "cargo install cargo-cyclonedx"
 	pnpm dlx @cyclonedx/cyclonedx-npm --output-file build/sbom-npm.json >/dev/null 2>&1 || true
 
-.PHONY: help setup dev fmt lint test audit check app-check e2e fuzz bundle sbom
+.PHONY: help setup dev fmt lint test test-vectors audit check app-check e2e fuzz bundle sbom
