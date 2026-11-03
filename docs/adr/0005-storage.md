@@ -26,6 +26,9 @@ needs a stable home too.
   - `setting(key PK, value)` — `schema_version`, `vault_id`.
   - `search` FTS5 virtual table (contentless, `connection` name + host + tags), kept in sync by
     triggers.
+- Deleted search tokens may linger in the FTS index until the store is closed (`optimize` +
+  WAL truncate on close) or next opened (rebuild); the app must call `Store::close()` on exit.
+  Retention bound: one session. Inventory metadata is accepted plaintext at rest (R-INV).
 - Sealed columns use the vault's record/field AAD: record id = credential id, field name =
   column name. A sealed value cannot be moved between rows or columns.
 - Migrations: numbered SQL scripts embedded with `include_str!`, applied inside one transaction,
