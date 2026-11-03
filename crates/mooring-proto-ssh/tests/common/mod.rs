@@ -51,6 +51,10 @@ pub struct ServerSpec {
     pub kbd_two_step: bool,
     /// Root of the SFTP subsystem; `None` refuses the subsystem.
     pub sftp_root: Option<PathBuf>,
+    /// Advertise `limits@openssh.com` with this max read/write length.
+    pub sftp_limits: Option<u64>,
+    /// Request counters of the SFTP subsystem.
+    pub sftp_stats: Arc<Mutex<sftp_server::SftpStats>>,
 }
 
 impl ServerSpec {
@@ -62,6 +66,8 @@ impl ServerSpec {
             authorized_key: None,
             kbd_two_step: true,
             sftp_root: None,
+            sftp_limits: None,
+            sftp_stats: Arc::default(),
         }
     }
 }
@@ -239,7 +245,9 @@ impl server::Handler for Handler {
         match (name, root, self.sessions.remove(&channel)) {
             ("sftp", Some(root), Some(ch)) => {
                 session.channel_success(channel)?;
-                russh_sftp::server::run(ch.into_stream(), sftp_server::SftpFs::new(root)).await;
+                let stats = Arc::clone(&self.spec.sftp_stats);
+                let fs = sftp_server::SftpFs::new(root, self.spec.sftp_limits, stats);
+                russh_sftp::server::run(ch.into_stream(), fs).await;
                 Ok(())
             }
             _ => session.channel_failure(channel),

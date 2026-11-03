@@ -4,9 +4,12 @@
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
+use russh_sftp::extensions::{LimitsExtension, LIMITS};
 use russh_sftp::protocol::{
-    Attrs, Data, File, FileAttributes, Handle, Name, OpenFlags, Status, StatusCode, Version,
+    Attrs, Data, ExtendedReply, File, FileAttributes, Handle, Name, OpenFlags, Packet, Status,
+    StatusCode, Version,
 };
 
 /// Entries returned per READDIR reply.
@@ -17,15 +20,27 @@ enum Open {
     Dir(Vec<File>),
 }
 
+/// What the SFTP server saw (read/write request counts and largest lengths).
+#[derive(Debug, Default)]
+pub struct SftpStats {
+    pub reads: usize,
+    pub writes: usize,
+    pub max_read_len: u32,
+    pub max_write_len: usize,
+}
+
 pub struct SftpFs {
     root: PathBuf,
     handles: HashMap<String, Open>,
     next: u64,
+    /// `limits@openssh.com` max read/write length to advertise, if any.
+    limits: Option<u64>,
+    stats: Arc<Mutex<SftpStats>>,
 }
 
 impl SftpFs {
-    pub fn new(root: PathBuf) -> Self {
-        Self { root, handles: HashMap::new(), next: 0 }
+    pub fn new(root: PathBuf, limits: Option<u64>, stats: Arc<Mutex<SftpStats>>) -> Self {
+        Self { root, handles: HashMap::new(), next: 0, limits, stats }
     }
 
     fn map(&self, path: &str) -> Result<PathBuf, StatusCode> {
@@ -85,7 +100,32 @@ impl russh_sftp::server::Handler for SftpFs {
         _version: u32,
         _extensions: HashMap<String, String>,
     ) -> Result<Version, Self::Error> {
-        Ok(Version::new())
+        let mut v = Version::new();
+        if self.limits.is_some() {
+            v.extensions.insert(LIMITS.to_owned(), "1".to_owned());
+        }
+        Ok(v)
+    }
+
+    async fn extended(
+        &mut self,
+        id: u32,
+        request: String,
+        _data: Vec<u8>,
+    ) -> Result<Packet, Self::Error> {
+        match (request.as_str(), self.limits) {
+            (LIMITS, Some(len)) => {
+                let limits = LimitsExtension {
+                    max_packet_len: 256 * 1024,
+                    max_read_len: len,
+                    max_write_len: len,
+                    max_open_handles: 0,
+                };
+                let data = russh_sftp::ser::to_bytes(&limits).map_err(|_| StatusCode::Failure)?;
+                Ok(Packet::ExtendedReply(ExtendedReply { id, data: data.to_vec() }))
+            }
+            _ => Err(StatusCode::OpUnsupported),
+        }
     }
 
     async fn open(
@@ -117,6 +157,10 @@ impl russh_sftp::server::Handler for SftpFs {
         offset: u64,
         len: u32,
     ) -> Result<Data, Self::Error> {
+        if let Ok(mut s) = self.stats.lock() {
+            s.reads += 1;
+            s.max_read_len = s.max_read_len.max(len);
+        }
         let Some(Open::File(f)) = self.handles.get_mut(&handle) else {
             return Err(StatusCode::Failure);
         };
@@ -136,6 +180,10 @@ impl russh_sftp::server::Handler for SftpFs {
         offset: u64,
         data: Vec<u8>,
     ) -> Result<Status, Self::Error> {
+        if let Ok(mut s) = self.stats.lock() {
+            s.writes += 1;
+            s.max_write_len = s.max_write_len.max(data.len());
+        }
         let Some(Open::File(f)) = self.handles.get_mut(&handle) else {
             return Err(StatusCode::Failure);
         };

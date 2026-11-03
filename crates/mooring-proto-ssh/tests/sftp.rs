@@ -6,7 +6,7 @@ mod common;
 use common::*;
 use mooring_core::session::Session;
 use mooring_core::MooringError;
-use mooring_proto_ssh::sftp::{MAX_LIST_ENTRIES, MAX_REMOTE_PATH, TRANSFER_BLOCK};
+use mooring_proto_ssh::sftp::{MAX_IN_FLIGHT, MAX_LIST_ENTRIES, MAX_REMOTE_PATH, TRANSFER_BLOCK};
 use mooring_proto_ssh::{EntryKind, LocalPath, SshSession};
 use russh::MethodKind;
 
@@ -178,5 +178,49 @@ async fn refused_subsystem_is_an_error() {
     let (mut s, _srv, _d) = connected(ServerSpec::new(&[MethodKind::Password])).await;
     let err = s.sftp().await.expect_err("no sftp root");
     assert!(matches!(err, MooringError::Protocol { protocol: "sftp", .. }), "{err:?}");
+    s.close().await.expect("close");
+}
+
+/// Security review 2 M-3: a server advertising `limits@openssh.com` with 1-byte reads and
+/// writes must not make one block fan out into `TRANSFER_BLOCK` requests. Each progress tick
+/// is one block; the server's request counter may grow by at most `MAX_IN_FLIGHT` per tick.
+#[tokio::test]
+async fn one_byte_server_limits_keep_requests_in_flight_bounded() {
+    let remote = tempfile::tempdir().expect("remote root");
+    let local = tempfile::tempdir().expect("local base");
+    let mut spec = ServerSpec::new(&[MethodKind::Password]);
+    spec.sftp_root = Some(remote.path().to_path_buf());
+    spec.sftp_limits = Some(1);
+    let stats = std::sync::Arc::clone(&spec.sftp_stats);
+    let (mut s, _srv, _kh) = connected(spec).await;
+    let sftp = s.sftp().await.expect("sftp");
+
+    let data = pattern(1024);
+    std::fs::write(local.path().join("up.bin"), &data).expect("write local");
+    let src = LocalPath::new(local.path(), "up.bin").expect("path");
+    let mut writes = Vec::new();
+    let sent = sftp
+        .upload(&src, "/up.bin", |_, _| writes.push(stats.lock().expect("stats").writes))
+        .await
+        .expect("upload");
+    assert_eq!(sent, 1024);
+    assert_eq!(std::fs::read(remote.path().join("up.bin")).expect("remote"), data);
+    assert!(writes.windows(2).all(|w| w[1] - w[0] <= MAX_IN_FLIGHT), "writes per block");
+
+    let dst = LocalPath::new(local.path(), "down.bin").expect("path");
+    let mut reads = Vec::new();
+    let got = sftp
+        .download("/up.bin", &dst, |_, _| reads.push(stats.lock().expect("stats").reads))
+        .await
+        .expect("download");
+    assert_eq!(got, 1024);
+    assert_eq!(std::fs::read(local.path().join("down.bin")).expect("local"), data);
+    assert!(reads.windows(2).all(|w| w[1] - w[0] <= MAX_IN_FLIGHT), "reads per block");
+
+    let max = {
+        let st = stats.lock().expect("stats");
+        (st.max_read_len, st.max_write_len)
+    };
+    assert_eq!(max, (1, 1), "server limits honoured");
     s.close().await.expect("close");
 }
