@@ -1,4 +1,4 @@
-# A1 — orchestrator handoff (items 1–2)
+# A1 — orchestrator handoff
 
 ## Done
 - ADR-0005 (SQLite store) and ADR-0006 (vault lifecycle) accepted; ADR-0006 amended after the
@@ -18,16 +18,37 @@
 - Security: initial BLOCKER (B1 keyring error path, B2 KDF ceiling) fixed in the fix round;
   re-review recorded in `docs/security/a1-review.md`; threat model v1.
 
+## Round 2 (same day)
+- Product renamed Nexus Remote → Mooring (`refactor!`), MIT LICENSE, repo `yyasar21/Mooring`.
+- ADR-0007 (SSH trust/algorithms) and ADR-0008 (A1 IPC contract) accepted and amended after
+  reviews (`Exposure`, `Prompt.purpose`, base64 both ways, `window_detach` → A2).
+- Item 3: SSH core (TOFU/known_hosts, 4 auth methods, PTY shell, keepalive) and part b (local /
+  remote / dynamic SOCKS5 forwarding, SFTP with confined local paths) — in-process russh test
+  server, 71 crate tests.
+- Tauri layer: all 30 ADR-0008 commands, store bound to the vault id after unlock, header write
+  with fsync + `.bak`, clipboard copy via `arboard` with 30 s clear (also on lock/shutdown),
+  navigation guard, `test-util` feature; the app compiles and tests on Linux (WebView toolchain
+  installed in the cloud workspace).
+- Item 4: UI v1 (ADR-0008, mock transport) then v2 bridge-console redesign (cyan = live /
+  selection / focus, magenta = danger; Chakra Petch; CSS motion; 46 vitest tests).
+- `age` pinned to `str4d/rage@b5b68c4` (ml-kem 0.3) with the owner's approval (R-AGE-PIN);
+  RUSTSEC-2023-0071 accepted (R-RSA).
+- QA pass 2: e2e IPC flow (vault → tree → credential → SSH → lock), ~3 000 hostile inputs;
+  security review 2: APPROVE WITH NITS; fix round 2 closed QA-4, M-1..M-4, L-1, L-2, L-5..L-7, N-3.
+- Gate (cloud Linux): 290 Rust tests / 0 failed / 3 intentionally ignored, clippy + fmt clean,
+  46 UI tests, build clean, vectors verified with the `age` CLI.
+
 ## Left open
-- `mooring-app` (src-tauri) has not been compiled since A0: no WebView toolchain in the cloud
-  workspace. First `cargo build -p mooring-app` on the Mac may surface API mismatches in
-  `commands.rs`, `state.rs`, `lib.rs`, `keyring_store.rs`.
+- `make dev` on macOS/Windows: manual checks owed — clipboard clear + history exclusion, OSC 8
+  link guard, real ssh-agent, lab SSH (`MOORING_LAB=1`), keyring round trip.
 - Not wired yet: `src-tauri/src/autolock.rs` (5 s tick + OS signals), keyring/export IPC
   commands (held by security until biometric ACL exists), `vault_create` still uses
   `KdfParams::DEFAULT` instead of calibrating.
 - Security L2 (fsync + `.bak` on header write), M1 (Windows keyring persistence), N3, fuzz
   targets for `Header::from_bytes` / `import_age` (needs nightly + cargo-fuzz).
-- A1 items 3–6 (SSH session, UI, audit viewer, E2E) not started.
+- A1 exit still owes: auto-lock wiring (idle/OS signals), keyring commands (HOLD until
+  biometric ACL), forwarding + SFTP IPC and UI, syslog mirror (item 5), cargo-fuzz targets and
+  nightly job, Playwright/tauri-driver E2E, 3-OS CI run after push, review-2 lows L-3/L-4/N-*.
 
 ## Decision needed
 - GitHub repository (CI assumes Actions; `repository` in Cargo.toml points at
