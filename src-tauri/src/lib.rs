@@ -7,6 +7,9 @@
 #![forbid(unsafe_code)]
 
 mod commands;
+// Wired into keyring enable/unlock/disable commands in the next A1 step (needs capability review).
+#[allow(dead_code)]
+mod keyring_store;
 mod state;
 
 use tauri::Manager;

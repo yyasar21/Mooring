@@ -23,6 +23,7 @@ mod crypto;
 mod error;
 mod format;
 mod kdf;
+mod keyring;
 mod vault;
 
 pub use autolock::{AutoLockClock, AutoLockPolicy, LockEvent, LockReason};
@@ -32,4 +33,6 @@ pub use kdf::{
     calibrate_with, HostLimits, KdfParams, CALIBRATION_CANDIDATES_MIB, CALIBRATION_T,
     CALIBRATION_TARGET,
 };
+pub use keyring::{MemoryWrapKeyStore, WrapKeyStore};
+pub use uuid::Uuid;
 pub use vault::{Vault, VaultState};
