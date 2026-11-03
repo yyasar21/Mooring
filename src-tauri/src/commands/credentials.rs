@@ -1,7 +1,7 @@
 //! Credential commands (ADR-0008 §Credentials). Metadata goes out; secrets only come in and are
 //! sealed straight into the store. `credential_copy_password` writes the clipboard from Rust.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mooring_audit::AuditEvent;
@@ -180,8 +180,11 @@ pub fn copy_password(state: &AppState, id: &str) -> IpcResult<CopyResult> {
         .map_err(|_| IpcError::new("clipboard.unavailable", "the clipboard is not available"))?;
     let expected = clipboard::digest(&text);
     drop(text);
+    if let Ok(mut pending) = state.pending_clipboard.lock() {
+        *pending = Some(expected);
+    }
     let delay = state.settings.clipboard_clear_after;
-    tokio::spawn(clear_later(clipboard, expected, delay));
+    tokio::spawn(clear_later(clipboard, Arc::clone(&state.pending_clipboard), expected, delay));
     state.audit(AuditEvent::CredentialUsed {
         credential: cred.to_string(),
         purpose: "copy".to_owned(),
@@ -192,10 +195,18 @@ pub fn copy_password(state: &AppState, id: &str) -> IpcResult<CopyResult> {
 
 async fn clear_later(
     clipboard: Arc<dyn Clipboard>,
+    pending: Arc<Mutex<Option<clipboard::ValueDigest>>>,
     expected: clipboard::ValueDigest,
     delay: Duration,
 ) {
     tokio::time::sleep(delay).await;
+    // Forget the pending digest unless a newer copy replaced it; shutdown/lock may have
+    // already taken it, in which case the clear below finds a different value or nothing.
+    if let Ok(mut p) = pending.lock() {
+        if p.as_ref() == Some(&expected) {
+            *p = None;
+        }
+    }
     let result =
         tokio::task::spawn_blocking(move || clipboard::clear_if_unchanged(&*clipboard, &expected))
             .await;
@@ -353,6 +364,40 @@ mod tests {
         copy_password(&f.state, &c.id).expect("copy");
         f.clipboard.set("user copied this").expect("set");
         tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(f.clipboard.peek().as_deref(), Some("user copied this"));
+    }
+
+    /// M-1: a fixture whose timer never fires during the test, so only lock/shutdown can clear.
+    fn copied_with_slow_timer() -> Fixture {
+        let mut f = unlocked();
+        f.state.settings.clipboard_clear_after = Duration::from_secs(3600);
+        let c = create(&f.state, new("password", "test-only clip")).expect("create");
+        copy_password(&f.state, &c.id).expect("copy");
+        assert_eq!(f.clipboard.peek().as_deref(), Some("test-only clip"));
+        f
+    }
+
+    #[tokio::test]
+    async fn vault_lock_clears_a_pending_copy_synchronously() {
+        let f = copied_with_slow_timer();
+        crate::commands::vault::lock(&f.state, None).expect("lock");
+        assert_eq!(f.clipboard.peek(), None, "lock clears the copied password");
+    }
+
+    #[tokio::test]
+    async fn shutdown_clears_a_pending_copy_synchronously() {
+        let f = copied_with_slow_timer();
+        f.state.shutdown();
+        assert_eq!(f.clipboard.peek(), None, "exit clears the copied password");
+    }
+
+    #[tokio::test]
+    async fn lock_leaves_a_newer_clipboard_value_alone() {
+        let f = copied_with_slow_timer();
+        f.clipboard.set("user copied this").expect("set");
+        crate::commands::vault::lock(&f.state, None).expect("lock");
+        assert_eq!(f.clipboard.peek().as_deref(), Some("user copied this"));
+        f.state.shutdown();
         assert_eq!(f.clipboard.peek().as_deref(), Some("user copied this"));
     }
 
