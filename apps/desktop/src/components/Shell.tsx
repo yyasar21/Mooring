@@ -6,6 +6,7 @@ import { Workspace } from "./Workspace";
 import { Inspector } from "./inspector/Inspector";
 import { CommandPalette } from "./CommandPalette";
 import { AuditView } from "./audit/AuditView";
+import { CredentialsView } from "./credentials/CredentialsView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
 import { Telemetry } from "./Telemetry";
@@ -35,6 +36,11 @@ export function Shell() {
           {ui.view === "audit" && (
             <div className="absolute inset-0">
               <AuditView />
+            </div>
+          )}
+          {ui.view === "credentials" && (
+            <div className="absolute inset-0">
+              <CredentialsView />
             </div>
           )}
         </div>
@@ -72,6 +78,14 @@ function TitleBar() {
         <Kbd>mod K</Kbd>
       </button>
       <nav aria-label="Views" className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={view === "credentials"}
+          className="btn btn-ghost"
+          onClick={() => { if (view === "credentials") setView("workspace"); else useUi.getState().showCredentials(); }}
+        >
+          Credentials
+        </button>
         <button
           type="button"
           aria-pressed={view === "audit"}

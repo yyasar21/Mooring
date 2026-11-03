@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
+import { accountSummary } from "../../lib/credentials";
 import { DialogFooter, Modal } from "./Modal";
 
 /** Create or edit a folder: name and the default credential inherited by everything below it. */
@@ -58,7 +59,7 @@ export function FolderDialog({ id, parentId, onClose }: { id?: string; parentId:
             <select id="folder-cred" className="field" value={cred} onChange={(e) => { setCred(e.target.value); }}>
               <option value="">None (inherit from parent)</option>
               {creds.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} · {c.username || c.kind}</option>
+                <option key={c.id} value={c.id}>{c.name}{accountSummary(c) ? ` (${accountSummary(c)})` : ""}</option>
               ))}
             </select>
             <p className="field-hint">Connections in this folder use it unless they set their own.</p>

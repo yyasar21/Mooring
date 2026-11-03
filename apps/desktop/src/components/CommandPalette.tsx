@@ -50,7 +50,7 @@ export function CommandPalette() {
     return [
       { id: "new-conn", label: "New connection", run: () => { ui.openDialog({ kind: "connection", folderId: root }); } },
       { id: "new-folder", label: "New folder", run: () => { ui.openDialog({ kind: "folder", parentId: root }); } },
-      { id: "creds", label: "Manage credentials", run: () => { ui.openDialog({ kind: "credentials" }); } },
+      { id: "creds", label: "Manage credentials", run: () => { ui.showCredentials(); } },
       { id: "audit", label: "Show audit log", run: () => { ui.setView("audit"); } },
       { id: "theme", label: "Toggle light and dark theme", run: () => { ui.toggleTheme(); close(); } },
       { id: "lock", label: "Lock vault", run: () => { close(); void useApp.getState().lock(); } },

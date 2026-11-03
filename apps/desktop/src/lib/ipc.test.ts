@@ -29,6 +29,17 @@ describe("ipc wire codec", () => {
     expect(decodeSessionEvent(base)).toMatchObject({ purpose: "other" });
   });
 
+  it("decodes a credential prompt's account and ignores it for other purposes", () => {
+    const base = { kind: "prompt", id: 3, message: "Sign in", secret: true };
+    expect(
+      decodeSessionEvent({ ...base, purpose: "credential", account: { username: "ops", domain: null, needs_username: true, needs_domain: true } }),
+    ).toMatchObject({ purpose: "credential", account: { username: "ops", domain: null, needsUsername: true, needsDomain: true } });
+    expect(decodeSessionEvent({ ...base, purpose: "credential" })).toMatchObject({
+      account: { username: null, domain: null, needsUsername: true, needsDomain: false },
+    });
+    expect(decodeSessionEvent({ ...base, purpose: "other", account: { username: "x" } })).toMatchObject({ account: null });
+  });
+
   it("encodes bytes input as base64 and leaves answers alone", () => {
     expect(encodeSessionInput({ kind: "bytes", data: new TextEncoder().encode("ls") })).toEqual({ kind: "bytes", data: "bHM=" });
     expect(encodeSessionInput({ kind: "answer", id: 1, text: "yes" })).toEqual({ kind: "answer", id: 1, text: "yes" });
@@ -73,11 +84,50 @@ describe("MockTransport", () => {
     expect(second[0]?.kind).toBe("connected");
   });
 
-  it("copy password audits and reports a 30 s clear", async () => {
+  it("copy secret audits {id, name} and reports a 30 s clear", async () => {
     const m = new MockTransport();
-    await expect(m.credentialCopyPassword({ id: "cr-ops" })).resolves.toEqual({ clearsInMs: 30000 });
+    await expect(m.credentialCopySecret({ id: "cr-deploy", name: "password" })).resolves.toEqual({ clearsInMs: 30000 });
     const [newest] = await m.auditTail({ limit: 1, before: null });
-    expect(newest).toMatchObject({ event: "credential_used", details: { credential: "cr-ops", purpose: "copy" } });
+    expect(newest).toMatchObject({ event: "credential_copied", details: { credential: "cr-deploy", name: "password" } });
+  });
+
+  it("copy OTP reports how long the code stays valid", async () => {
+    const m = new MockTransport();
+    const r = await m.credentialCopyOtp({ id: "cr-deploy" });
+    expect(r.validForMs).toBeGreaterThan(0);
+    expect(r.validForMs).toBeLessThanOrEqual(30_000);
+    expect(r.clearsInMs).toBeLessThanOrEqual(r.validForMs);
+    await expect(m.credentialCopyOtp({ id: "cr-ops" })).rejects.toMatchObject({ code: "credential.secret_missing" });
+  });
+
+  it("serves all 15 kinds with English labels and the ADR matrix", async () => {
+    const kinds = await new MockTransport().credentialKinds();
+    expect(kinds.map((k) => k.kind).sort()).toHaveLength(15);
+    const of = (k: string) => kinds.find((x) => x.kind === k);
+    expect(of("user_password")?.protocols).toContainEqual({ protocol: "rdp", roles: ["primary", "gateway"] });
+    expect(of("sudo_become")?.protocols).toEqual([{ protocol: "ssh", roles: ["become"] }]);
+    expect(of("vnc_password")?.fields.find((f) => f.name === "password")?.validation.maxBytes).toBe(8);
+    expect(of("kubeconfig")?.fields.find((f) => f.name === "kubeconfig_yaml")?.secret).toBe(true);
+  });
+
+  it("rejects a kubeconfig with an exec plugin", async () => {
+    const m = new MockTransport();
+    const yaml = "apiVersion: v1\nkind: Config\nclusters: []\nusers:\n- name: u\n  user:\n    exec:\n      command: aws\n";
+    await expect(
+      m.credentialCreate({ name: "k", kind: "kubeconfig", fields: {}, secrets: { kubeconfig_yaml: yaml } }),
+    ).rejects.toMatchObject({ code: "credential.kubeconfig_rejected" });
+  });
+
+  it("asks for the account when the credential is prompt", async () => {
+    const m = new MockTransport();
+    m.trustedHosts.add("jump.stage.example.test");
+    const events: SessionEvent[] = [];
+    const { sessionId } = await m.sessionOpen({ connectionId: "c-jump", size: { width: 80, height: 24 }, onEvent: (e) => events.push(e) });
+    await tick();
+    expect(events[0]).toMatchObject({ kind: "prompt", purpose: "credential", account: { username: "ops", needsUsername: true } });
+    await m.sessionSend({ sessionId, input: { kind: "credential_answer", id: 3, username: "ops", domain: null, password: "x" } });
+    await tick();
+    expect(events.some((e) => e.kind === "connected")).toBe(true);
   });
 
   it("search ranks by fuzzy score", async () => {
