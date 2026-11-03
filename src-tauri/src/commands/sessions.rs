@@ -193,7 +193,7 @@ fn plan(state: &AppState, connection_id: &str, size: Size) -> IpcResult<Plan> {
                 (meta.username, secret, Some(cred.to_string()))
             }
         };
-        let params = ConnectParams { host: c.host, port, username, secret, size };
+        let params = ConnectParams { host: c.host, port, username, secret, r#become: None, size };
         Ok(Plan { params, credential })
     })
 }

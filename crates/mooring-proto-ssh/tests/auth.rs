@@ -83,7 +83,7 @@ async fn keyboard_interactive_autofills_password_and_prompts_for_otp() {
     let secret = ConnectSecret::Password(SecretString::from(PASSWORD));
     let (mut s, srv, _d) =
         trusted(ServerSpec::new(&[MethodKind::KeyboardInteractive]), secret).await;
-    let SessionEvent::Prompt { id, message, secret, purpose } = next(&mut s).await else {
+    let SessionEvent::Prompt { id, message, secret, purpose, .. } = next(&mut s).await else {
         panic!("expected the OTP prompt");
     };
     assert_eq!(purpose, PromptPurpose::KeyboardInteractive);
@@ -102,7 +102,7 @@ async fn keyboard_interactive_without_vault_password_prompts_secretly() {
     let mut spec = ServerSpec::new(&[MethodKind::KeyboardInteractive]);
     spec.kbd_two_step = false;
     let (mut s, _srv, _d) = trusted(spec, ConnectSecret::None).await;
-    let SessionEvent::Prompt { id, message, secret, purpose } = next(&mut s).await else {
+    let SessionEvent::Prompt { id, message, secret, purpose, .. } = next(&mut s).await else {
         panic!("expected password prompt");
     };
     assert_eq!(purpose, PromptPurpose::KeyboardInteractive, "server text never sets purpose");

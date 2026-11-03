@@ -35,6 +35,7 @@ async fn lab_host_uname() {
         port,
         username: Some(user),
         secret: ConnectSecret::None,
+        r#become: None,
         size: Size { width: 120, height: 40 },
     };
     let mut s = SshSession::connect(params, SshOptions::new(kh)).await.expect("tcp");

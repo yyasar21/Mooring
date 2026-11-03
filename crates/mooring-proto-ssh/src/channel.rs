@@ -1,10 +1,11 @@
 //! The interactive shell channel: PTY `xterm-256color`, output streaming, resize.
 
-use mooring_core::session::{SessionEvent, Size};
+use mooring_core::session::{Become, SessionEvent, Size};
 use russh::client::{Handle, Msg};
 use russh::{Channel, ChannelMsg, ChannelReadHalf, ChannelWriteHalf};
 use tokio::sync::mpsc;
 
+use crate::become_::{self, Watcher};
 use crate::handler::ClientHandler;
 
 /// Largest `SessionEvent::Bytes` payload.
@@ -79,14 +80,23 @@ async fn on_command(write: &ChannelWriteHalf<Msg>, cmd: Option<Command>) -> Opti
     }
 }
 
-/// Run the shell until either side ends it.
+/// Run the shell until either side ends it. With `become`, the escalation command is typed
+/// first and the password answers the remote prompt once (see [`crate::become_`]).
 pub(crate) async fn pump(
     channel: Channel<Msg>,
     commands: &mut mpsc::Receiver<Command>,
     events: &mpsc::Sender<SessionEvent>,
+    r#become: Option<Become>,
 ) -> PumpEnd {
     let (mut read, write): (ChannelReadHalf, ChannelWriteHalf<Msg>) = channel.split();
     let mut exit_status = None;
+    let mut watcher = None;
+    if let Some(b) = r#become {
+        if write.data_bytes(become_::command(&b).into_bytes()).await.is_err() {
+            return PumpEnd::ConnectionLost;
+        }
+        watcher = Some(Watcher::new(b));
+    }
     loop {
         tokio::select! {
             cmd = commands.recv() => {
@@ -107,6 +117,12 @@ pub(crate) async fn pump(
                     };
                 }
                 Some(ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. }) => {
+                    if let Some(line) = watcher.as_mut().and_then(|w| w.feed(&data)) {
+                        if write.data_bytes(line.to_vec()).await.is_err() {
+                            return PumpEnd::ConnectionLost;
+                        }
+                        watcher = None;
+                    }
                     if !forward(events, &data).await {
                         return PumpEnd::UiGone;
                     }

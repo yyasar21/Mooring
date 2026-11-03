@@ -22,7 +22,7 @@ use crate::auth::Credentials;
 use crate::channel::Command;
 use crate::driver::{Driver, HandleSlot};
 use crate::handler::ClientHandler;
-use crate::shared::Shared;
+use crate::shared::{CredentialReply, Reply, Shared};
 
 /// Capacity of the event and command channels (ADR-0007 back-pressure bound).
 pub const CHANNEL_CAPACITY: usize = 256;
@@ -86,14 +86,21 @@ impl SshSession {
     /// Open TCP and start the handshake. The secret in `params` moves into the auth round
     /// and is dropped (zeroized) when it ends.
     pub async fn connect(params: ConnectParams, options: SshOptions) -> Result<Self, MooringError> {
-        let ConnectParams { host, port, username, secret, size } = params;
+        let ConnectParams { host, port, username, secret, r#become, size } = params;
         let host = validate_host(&host)?;
         if port == 0 {
             return Err(invalid("port", "must be 1-65535"));
         }
-        let user = username
-            .filter(|u| !u.is_empty() && !u.chars().any(char::is_control))
-            .ok_or_else(|| invalid("username", "required for ssh"))?;
+        let user = username.filter(|u| !u.is_empty() && !u.chars().any(char::is_control));
+        // A `prompt` credential may leave the username to the connect-time form.
+        let user = match (&secret, user) {
+            (_, Some(u)) => u,
+            (mooring_core::session::ConnectSecret::Prompt(_), None) => String::new(),
+            (_, None) => return Err(invalid("username", "required for ssh")),
+        };
+        if let Some(b) = &r#become {
+            crate::become_::check(b)?;
+        }
 
         let stream = tokio::time::timeout(
             options.connect_timeout,
@@ -113,6 +120,7 @@ impl SshSession {
             config: client_config(options.keepalive, options.keepalive_max),
             handler: ClientHandler::new(host, port, options.known_hosts_path, Arc::clone(&shared)),
             creds: Credentials { user, secret, allow_agent: options.allow_agent },
+            r#become,
             size,
             shared: Arc::clone(&shared),
             commands: command_rx,
@@ -155,7 +163,15 @@ impl Session for SshSession {
         }
         let command = match input {
             SessionInput::Answer { id, text } => {
-                return if self.shared.broker.answer(id, text) {
+                return if self.shared.broker.answer(id, Reply::Text(text)) {
+                    Ok(())
+                } else {
+                    Err(invalid("prompt id", "no open prompt with this id"))
+                };
+            }
+            SessionInput::CredentialAnswer { id, username, domain, password } => {
+                let form = CredentialReply { username, domain, password };
+                return if self.shared.broker.answer(id, Reply::Credential(form)) {
                     Ok(())
                 } else {
                     Err(invalid("prompt id", "no open prompt with this id"))
