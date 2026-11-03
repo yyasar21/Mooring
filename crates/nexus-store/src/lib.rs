@@ -69,6 +69,22 @@ impl Store {
         Ok(Self { conn, path })
     }
 
+    /// Purge deleted search tokens (FTS merge), then checkpoint the WAL into the main file and
+    /// truncate `-wal` (file stores only). Also runs, best effort, when the store is dropped.
+    pub fn checkpoint(&self) -> Result<()> {
+        if self.path.is_some() {
+            schema::purge_search(&self.conn)?;
+            schema::checkpoint_truncate(&self.conn)?;
+        }
+        Ok(())
+    }
+
+    /// Close the store: checkpoint the WAL, then drop the connection. Use this instead of a
+    /// plain drop when the caller wants to see a checkpoint error.
+    pub fn close(self) -> Result<()> {
+        self.checkpoint()
+    }
+
     /// Schema version of the open database.
     pub fn schema_version(&self) -> Result<u32> {
         schema::current_version(&self.conn)
@@ -103,6 +119,14 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        if let Err(e) = self.checkpoint() {
+            tracing::warn!(error = %e, "store checkpoint on close failed");
+        }
     }
 }
 
