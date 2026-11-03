@@ -34,7 +34,7 @@ repository = "https://github.com/yyasar21/Mooring"
 # crypto (RustCrypto only — see ADR-0002)
 argon2 = { version = "0.5", features = ["std"] }
 chacha20poly1305 = { version = "0.10", features = ["std"] }
-sha2 = "0.10"
+sha2 = "0.11"
 rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = { version = "1.8", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
