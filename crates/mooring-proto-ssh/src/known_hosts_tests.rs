@@ -14,12 +14,12 @@ fn key_line(k: &PublicKey) -> String {
 #[test]
 fn plain_entry_known_unknown_mismatch() {
     let k1 = key(1);
-    let text = format!("example.org,10.0.0.1 {}\n", key_line(&k1));
+    let text = format!("example.org,192.0.2.10 {}\n", key_line(&k1));
     let store = KnownHosts::parse_bytes(text.as_bytes());
     assert_eq!(store.len(), 1);
     assert_eq!(store.check("example.org", 22, &k1), TrustDecision::Known);
     assert_eq!(store.check("EXAMPLE.org", 22, &k1), TrustDecision::Known);
-    assert_eq!(store.check("10.0.0.1", 22, &k1), TrustDecision::Known);
+    assert_eq!(store.check("192.0.2.10", 22, &k1), TrustDecision::Known);
     assert_eq!(store.check("other.org", 22, &k1), TrustDecision::Unknown);
     // Non-default port is a different host for OpenSSH.
     assert_eq!(store.check("example.org", 2222, &k1), TrustDecision::Unknown);

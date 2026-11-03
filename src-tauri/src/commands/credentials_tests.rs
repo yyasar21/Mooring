@@ -136,3 +136,36 @@ fn credential_kinds_snapshot_matches_the_ui_table() {
         serde_json::from_str(include_str!("kinds.snapshot.json")).expect("snapshot json");
     assert_eq!(ours, snapshot, "credential_kinds() drifted from the UI table");
 }
+
+#[tokio::test]
+async fn large_inputs_run_off_the_calling_thread_and_keep_ipc_errors() {
+    let caller = std::thread::current().id();
+    let inline = offload((), OFFLOAD_BYTES - 1, |()| Ok(std::thread::current().id())).await.expect("ok");
+    assert_eq!(inline, caller, "small inputs stay inline");
+    let moved = offload((), OFFLOAD_BYTES, |()| Ok(std::thread::current().id())).await.expect("ok");
+    assert_ne!(moved, caller, ">= 64 KiB runs on the blocking pool");
+    // the command's own IpcError passes through unchanged
+    let e = offload((), OFFLOAD_BYTES, |()| -> IpcResult<()> { Err(IpcError::invalid("kubeconfig_yaml", "x")) })
+        .await
+        .expect_err("err");
+    assert_eq!(e.code, "input.invalid");
+    // a panic becomes a detail-free internal error
+    let e = offload((), OFFLOAD_BYTES, |()| -> IpcResult<()> { panic!("test-only panic detail") })
+        .await
+        .expect_err("panic");
+    assert_eq!((e.code, e.message.as_str()), ("internal", "internal error"));
+}
+
+#[tokio::test]
+async fn a_large_kubeconfig_is_created_through_the_offload_path() {
+    let f = std::sync::Arc::new(unlocked());
+    let mut yaml = String::from(KUBECONFIG);
+    while yaml.len() < OFFLOAD_BYTES {
+        yaml.push_str("# padding comment line to cross the offload threshold\n");
+    }
+    let bytes = yaml.len();
+    let c = new("kubeconfig", json!({}), &[("kubeconfig_yaml", &yaml)]);
+    let dto = offload(f.clone(), bytes, move |f| create(&f.state, c)).await.expect("create");
+    assert_eq!(dto.kind, "kubeconfig");
+    assert!(!serde_json::to_string(&dto).expect("json").contains("test-only-token"));
+}

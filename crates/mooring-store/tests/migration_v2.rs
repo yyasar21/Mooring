@@ -305,3 +305,37 @@ fn v3_placeholder_becomes_an_empty_migrated_username() {
     };
     assert_eq!((n.username.as_str(), n.migrated), ("ops", false));
 }
+
+#[test]
+fn kind_flipped_to_x509_never_moves_a_private_key_into_fields() {
+    // T2 (same-user DB writer) flips the migrated ssh_key row to x509: the reseal would open the
+    // legacy `secret` (a private key) under its valid AAD and treat it as the certificate.
+    let v = vault();
+    let f = v2_database(&v);
+    let s = Store::open(&f.path).expect("migrate");
+    let raw = Connection::open(&f.path).expect("raw");
+    raw.execute(
+        "UPDATE credential SET kind = 'x509', fields_json = ?2 WHERE id = ?1",
+        params![f.key.to_string(), r#"{"cert_pem":"(sealed until the next unlock)"}"#],
+    )
+    .expect("tamper");
+    assert!(
+        matches!(s.reseal_legacy(&v), Err(StoreError::Corrupt { what: "legacy certificate" })),
+        "fails closed"
+    );
+    assert!(s.reseal_pending().expect("flag kept"));
+    let json: String = raw
+        .query_row("SELECT fields_json FROM credential WHERE id = ?1", [f.key.to_string()], |r| {
+            r.get(0)
+        })
+        .expect("row");
+    assert!(!json.contains("PRIVATE KEY"), "no key material in plaintext fields");
+    let legacy: i64 = raw
+        .query_row(
+            "SELECT count(*) FROM credential_secret WHERE credential_id = ?1 AND name = 'secret'",
+            [f.key.to_string()],
+            |r| r.get(0),
+        )
+        .expect("count");
+    assert_eq!(legacy, 1, "the legacy secret stays sealed");
+}

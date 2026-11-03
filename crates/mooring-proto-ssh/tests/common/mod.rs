@@ -57,8 +57,12 @@ pub struct ServerSpec {
     pub sftp_stats: Arc<Mutex<sftp_server::SftpStats>>,
     /// Password-auth user name the server accepts (default [`USER`]).
     pub password_user: String,
-    /// Shell answers a `sudo -p '<prompt>' …` line with `<prompt>` (become tests).
+    /// Shell acts like `sudo -p '<prompt>' …` on a tty: echoes the typed line, then prints
+    /// `<prompt>` with `%%` expanded to `%` (become tests).
     pub become_prompt: bool,
+    /// With `become_prompt`: refuse every password with "Sorry, try again." and prompt again,
+    /// like sudo with a wrong password; `^C` ends it with a shell prompt.
+    pub become_wrong: bool,
 }
 
 impl ServerSpec {
@@ -74,6 +78,7 @@ impl ServerSpec {
             sftp_stats: Arc::default(),
             password_user: USER.to_owned(),
             become_prompt: false,
+            become_wrong: false,
         }
     }
 }
@@ -353,8 +358,17 @@ impl server::Handler for Handler {
             let line = String::from_utf8_lossy(data).into_owned();
             self.seen.lock().expect("lock").shell_lines.push(line.clone());
             if let Some(rest) = line.strip_prefix("sudo -p '") {
-                let prompt = rest.split('\'').next().unwrap_or_default().to_owned();
-                return session.data(channel, prompt.into_bytes());
+                let prompt = rest.split('\'').next().unwrap_or_default().replace("%%", "%");
+                // tty echo of the typed command, then the prompt sudo prints
+                let echo = format!("{}\r\n{prompt}", line.trim_end());
+                return session.data(channel, echo.into_bytes());
+            }
+            if data == b"\x03" {
+                return session.data(channel, b"^C\r\nalice$ ".to_vec());
+            }
+            if self.spec.become_wrong {
+                let again = "\r\nSorry, try again.\r\n[mooring]% become password: ";
+                return session.data(channel, again.as_bytes().to_vec());
             }
             // the password line is not echoed (tty echo off), like a real sudo prompt
             return session.data(channel, b"\r\nroot# ".to_vec());

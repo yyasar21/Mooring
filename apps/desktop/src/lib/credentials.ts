@@ -94,22 +94,66 @@ export function hasForbidden(s: string, multiline: boolean): boolean {
 
 // ---------- paste detection ----------
 
+/** One piece of a pasted blob and the form field it belongs in. */
+export interface PastePart {
+  field: string;
+  text: string;
+}
+
 export interface Detected {
   kind: CredentialKind;
+  /** The field the paste is mainly for (the first of `parts`). */
   field: string;
   label: string;
+  /**
+   * Where each piece goes. A certificate + private key bundle is split (review 3, B-3): the
+   * certificate blocks go to the public `cert_pem`, the key to the secret `key_pem`. A private
+   * key never lands in a non-secret field.
+   */
+  parts: PastePart[];
+}
+
+const PEM_BLOCK = /-----BEGIN ([A-Z0-9 ]+)-----[\s\S]*?-----END \1-----/g;
+
+/** Split PEM text into its certificate blocks and its private-key blocks. */
+export function splitPem(text: string): { certs: string[]; keys: string[] } {
+  const certs: string[] = [];
+  const keys: string[] = [];
+  for (const m of text.matchAll(PEM_BLOCK)) {
+    const label = m[1] ?? "";
+    if (label === "CERTIFICATE") certs.push(m[0]);
+    else if (label.endsWith("PRIVATE KEY")) keys.push(m[0]);
+  }
+  return { certs, keys };
+}
+
+function x509Paste(text: string): Detected {
+  const { certs, keys } = splitPem(text);
+  const parts: PastePart[] = [];
+  if (certs.length > 0) parts.push({ field: "cert_pem", text: `${certs.join("\n")}\n` });
+  if (keys.length > 0) parts.push({ field: "key_pem", text: `${keys.join("\n")}\n` });
+  // Unparsable framing: anything that mentions a private key is treated as secret, never public.
+  if (parts.length === 0) parts.push({ field: /PRIVATE KEY/.test(text) ? "key_pem" : "cert_pem", text });
+  const [first] = parts;
+  const label = keys.length > 0 && certs.length > 0 ? "X.509 certificate and private key" : "X.509 certificate";
+  return { kind: "x509", field: first?.field ?? "cert_pem", label, parts };
+}
+
+function one(kind: CredentialKind, field: string, label: string, text: string): Detected {
+  return { kind, field, label, parts: [{ field, text }] };
 }
 
 /** Guess the kind from a pasted blob. Only unambiguous headers count. */
 export function detectKind(text: string): Detected | null {
   const t = text.trimStart();
+  // A certificate anywhere makes it an X.509 paste, even with a key first (cert+key bundles).
+  if (/-----BEGIN CERTIFICATE-----/.test(t)) return x509Paste(text);
   if (/-----BEGIN (OPENSSH|RSA|EC|DSA) PRIVATE KEY-----/.test(t)) {
-    return { kind: "ssh_key", field: "private_key", label: "SSH private key" };
+    return one("ssh_key", "private_key", "SSH private key", text);
   }
-  if (/-----BEGIN CERTIFICATE-----/.test(t)) return { kind: "x509", field: "cert_pem", label: "X.509 certificate" };
-  if (/-----BEGIN (ENCRYPTED )?PRIVATE KEY-----/.test(t)) return { kind: "x509", field: "key_pem", label: "PKCS#8 private key" };
+  if (/-----BEGIN (ENCRYPTED )?PRIVATE KEY-----/.test(t)) return one("x509", "key_pem", "PKCS#8 private key", text);
   if (/^(apiVersion:\s*v1|kind:\s*Config)\b/m.test(t) && /^clusters:/m.test(t)) {
-    return { kind: "kubeconfig", field: "kubeconfig_yaml", label: "kubeconfig" };
+    return one("kubeconfig", "kubeconfig_yaml", "kubeconfig", text);
   }
   return null;
 }

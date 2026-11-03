@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HudLabel } from "@mooring/ui";
 import type { CredentialKind, CredentialMeta, KindSchema } from "../../lib/ipc";
-import { OTP_SEED_SCHEMA, detectKind, looksLikeDomainAccount } from "../../lib/credentials";
+import { OTP_SEED_SCHEMA, detectKind, looksLikeDomainAccount, type PastePart } from "../../lib/credentials";
 import { useCredentials } from "../../stores/credentials";
 import {
   OTP_SEED,
@@ -23,6 +23,14 @@ import {
 import { AccountField, DerivedReadout, KindBadge, MatrixStrip, OtpSection, PlainField, SecretField } from "./fields";
 import { KIND_BLURB, PROVIDERS } from "./kindMeta";
 import { usePublicKeyFingerprint } from "./usePublicKeyFingerprint";
+
+const PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+
+/** The parts of a picker paste that belong to `kind` (a bundle is split; anything else is one part). */
+function partsFor(text: string, kind: CredentialKind, fallback: PastePart): PastePart[] {
+  const d = detectKind(text);
+  return d?.kind === kind ? d.parts : [fallback];
+}
 
 export interface Seed {
   name?: string;
@@ -74,18 +82,34 @@ export function CredentialEditor({
   const acct = accountField(schema);
   const pubFp = usePublicKeyFingerprint(s.values.public_key ?? "");
 
-  // A blob pasted on the picker lands in its field once the input exists, then is forgotten.
-  const pasted = useRef(seed?.paste);
+  // A blob pasted on the picker lands in its field(s) once the inputs exist, then is forgotten.
+  // A certificate + key bundle is split: the key only ever goes to a secret input (B-3).
+  const pending = useRef<PastePart[] | undefined>(seed?.paste ? partsFor(seed.paste.text, schema.kind, seed.paste) : undefined);
   useEffect(() => {
-    const p = pasted.current;
-    pasted.current = undefined;
-    const el = p ? inputs.current.get(p.field) : undefined;
-    const f = schema.fields.find((x) => x.name === p?.field);
-    if (!p || !el || !f) return;
-    el.value = p.text;
-    setS((cur) => withSecretTyped(cur, f, p.text));
-    el.focus();
-  }, [schema]);
+    const parts = pending.current;
+    if (!parts) return;
+    pending.current = undefined;
+    place(parts, true);
+  });
+
+  /** Put each pasted part into its field: secrets into their uncontrolled input, never state. */
+  function place(parts: PastePart[], focus: boolean) {
+    let first: HTMLInputElement | HTMLTextAreaElement | undefined;
+    for (const p of parts) {
+      const f = schema.fields.find((x) => x.name === p.field);
+      if (!f) continue;
+      if (f.secret) {
+        const el = inputs.current.get(f.name);
+        if (!el) continue;
+        el.value = p.text;
+        first ??= el;
+        setS((cur) => withSecretTyped(cur, f, p.text));
+      } else if (!PRIVATE_KEY.test(p.text)) {
+        setValue(f.name, p.text);
+      }
+    }
+    if (focus) first?.focus();
+  }
 
   const set = (patch: Partial<FormState>) => { setS((cur) => ({ ...cur, ...patch })); };
   const setValue = (name: string, v: string) => { setS((cur) => ({ ...cur, values: { ...cur.values, [name]: v } })); };
@@ -103,6 +127,36 @@ export function CredentialEditor({
     if (!d || d.kind === schema.kind) return false;
     onSwitchKind(d.kind, { name: s.name, paste: { field: d.field, text } });
     return true;
+  };
+
+  /**
+   * Any paste in the form that holds a private key and lands outside a secret input, or a
+   * certificate + key bundle for this kind, is split and routed instead (review 3, B-3).
+   */
+  const onPasteCapture = (e: React.ClipboardEvent<HTMLFormElement>) => {
+    const text = e.clipboardData.getData("text");
+    const target = e.target as HTMLElement;
+    const intoSecret = target.hasAttribute("data-secret");
+    const d = detectKind(text);
+    const bundle = d?.kind === schema.kind && d.parts.length > 1;
+    const keyIntoPlain = !intoSecret && PRIVATE_KEY.test(text);
+    if (!bundle && !keyIntoPlain) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (d && d.kind !== schema.kind && !editing) {
+      onSwitchKind(d.kind, { name: s.name, paste: { field: d.field, text } });
+      return;
+    }
+    const parts = d && d.kind === schema.kind ? d.parts : [];
+    const placeable = parts.filter((p) => {
+      const f = schema.fields.find((x) => x.name === p.field);
+      return f && (!f.secret || inputs.current.has(f.name));
+    });
+    if (keyIntoPlain && !placeable.some((p) => schema.fields.find((x) => x.name === p.field)?.secret)) {
+      setError("A private key goes into a secret field only. Paste it into the private key input.");
+      return;
+    }
+    place(placeable, true);
   };
 
   function wipeInputs() {
@@ -144,6 +198,7 @@ export function CredentialEditor({
       className="cred-editor"
       autoComplete="off"
       aria-label={editing ? `Edit ${meta.name}` : `New ${schema.label}`}
+      onPasteCapture={onPasteCapture}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();

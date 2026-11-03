@@ -4,18 +4,32 @@
 #   scripts/release/verify-release.sh v0.1.0              # yyasar21/Mooring
 #   scripts/release/verify-release.sh v0.1.0 owner/fork   # a fork's release
 #   DIR=./dl scripts/release/verify-release.sh v0.1.0     # keep the downloads
+#   scripts/release/verify-release.sh v0.1.0 --allow-unlisted   # manual: extra files only warn
 #
 # Checks, in order:
 #   1. SHA256SUMS is signed by the release workflow of that repo at that tag
 #      (cosign keyless: Sigstore certificate identity + GitHub OIDC issuer, Rekor entry).
 #   2. Every file listed in SHA256SUMS matches its hash.
-#   3. (optional, if `gh` supports it) GitHub build-provenance attestation per artifact.
+#   3. No file on the release is left out of SHA256SUMS (unless --allow-unlisted).
+#   4. GitHub build-provenance attestation per artifact (when `gh attestation` exists).
+# Fails closed: any missing asset, signature, hash or provenance exits non-zero.
 # Needs: gh (authenticated for draft releases), cosign >= 3.0, sha256sum or shasum.
 set -euo pipefail
 
-TAG="${1:-}"
-REPO="${2:-yyasar21/Mooring}"
-[[ -z "$TAG" || "$TAG" == -h || "$TAG" == --help ]] && { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+ALLOW_UNLISTED=0
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --allow-unlisted) ALLOW_UNLISTED=1 ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    -*) echo "error: unknown option $a" >&2; exit 1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+((${#ARGS[@]} <= 2)) || { echo "error: too many arguments" >&2; exit 1; }
+TAG="${ARGS[0]:-}"
+REPO="${ARGS[1]:-yyasar21/Mooring}"
+[[ -z "$TAG" ]] && { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "error: tag must look like v1.2.3" >&2; exit 1; }
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "error: repo must be owner/name" >&2; exit 1; }
 
@@ -52,13 +66,19 @@ echo "==> sha256: every listed artifact"
 
 # Files on the release that SHA256SUMS does not cover (other than the signature itself).
 mapfile -t LISTED < <(awk '{sub(/^\*/,"",$2); print $2}' SHA256SUMS)
+((${#LISTED[@]})) || { echo "error: SHA256SUMS lists no files" >&2; exit 1; }
 UNLISTED=()
 for f in *; do
   [[ "$f" == SHA256SUMS || "$f" == SHA256SUMS.sigstore.json ]] && continue
   printf '%s\n' "${LISTED[@]}" | grep -qxF -- "$f" || UNLISTED+=("$f")
 done
 if ((${#UNLISTED[@]})); then
-  echo "warning: not covered by SHA256SUMS: ${UNLISTED[*]}" >&2
+  if ((ALLOW_UNLISTED)); then
+    echo "warning: not covered by SHA256SUMS: ${UNLISTED[*]}" >&2
+  else
+    echo "error: not covered by SHA256SUMS: ${UNLISTED[*]} (--allow-unlisted to accept)" >&2
+    exit 1
+  fi
 fi
 
 if gh attestation --help >/dev/null 2>&1; then
@@ -69,6 +89,9 @@ if gh attestation --help >/dev/null 2>&1; then
     else failed=$((failed + 1)); echo "  no valid provenance: $f" >&2; fi
   done
   echo "  provenance verified for $ok file(s), $failed without"
+  ((failed == 0)) || { echo "error: $failed file(s) without valid build provenance" >&2; exit 1; }
+else
+  echo "warning: this gh has no 'attestation' command; build provenance not checked" >&2
 fi
 
 echo

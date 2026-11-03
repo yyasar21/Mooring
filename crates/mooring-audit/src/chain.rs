@@ -93,6 +93,12 @@ pub enum AuditEvent {
         /// How many credentials were converted.
         count: u64,
     },
+    /// A `become` (sudo / su / doas) escalation was refused by the server and interrupted; the
+    /// session stayed the login user (review 3, M-6).
+    BecomeFailed {
+        /// Connection id.
+        connection: String,
+    },
     /// Vault exported (`format`: `age`, `json`, ...).
     VaultExported {
         /// Export format.
@@ -299,6 +305,7 @@ mod tests {
                 "credential_prompted",
             ),
             (AuditEvent::CredentialResealed { count: 3 }, "credential_resealed"),
+            (AuditEvent::BecomeFailed { connection: "x".into() }, "become_failed"),
         ];
         for (e, name) in cases {
             let v = serde_json::to_value(&e).expect("json");

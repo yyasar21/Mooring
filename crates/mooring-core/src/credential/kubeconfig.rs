@@ -3,11 +3,13 @@
 //! type magic, no anchors/aliases, no tags, at most one document.
 //!
 //! Rejected: `exec`, `auth-provider`, `tokenFile`, `client-certificate`, `client-key` (file
-//! paths) anywhere under `users[].user`, and any cluster `certificate-authority` file path.
+//! paths) in any mapping under `users[]`, and any cluster `certificate-authority` file path,
+//! compared ASCII case-insensitively (lenient decoders match JSON field names that way), and
+//! YAML merge keys (`<<`) anywhere: go-yaml applies them, so a merge could smuggle `exec` in.
 //! Running a command or reading a file named by imported YAML is code execution / disclosure.
 //! Extracted: context names (capped) and `current-context`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use saphyr_parser::{Event, Parser};
 
@@ -23,6 +25,8 @@ pub const MAX_CONTEXT_NAME: usize = 253;
 const MAX_DEPTH: usize = 32;
 /// Most YAML nodes accepted (bounds memory independently of byte size).
 const MAX_NODES: usize = 100_000;
+/// Most entries in one mapping (review 3, L-10).
+const MAX_MAP_ENTRIES: usize = 4096;
 
 /// Keys that make a kubeconfig run something or read a file.
 const FORBIDDEN_USER_KEYS: &[&str] =
@@ -114,15 +118,23 @@ impl<'a> Builder<'a> {
                     return Err(rejected("kubeconfig may not use YAML anchors or tags"));
                 }
                 let mut entries: Vec<(String, Node)> = Vec::new();
+                // duplicate check in O(1) per key (was a linear scan: quadratic per mapping)
+                let mut keys: HashSet<String> = HashSet::new();
                 loop {
                     let key = match self.next()? {
                         Event::MappingEnd => return Ok(Node::Map(entries)),
                         Event::Scalar(k, _, 0, None) => k.into_owned(),
                         _ => return Err(rejected("kubeconfig keys must be plain text")),
                     };
+                    if key == "<<" {
+                        return Err(rejected("kubeconfig may not use YAML merge keys"));
+                    }
                     let ev = self.next()?;
                     let value = self.node(ev, depth + 1)?;
-                    if entries.iter().any(|(k, _)| *k == key) {
+                    if entries.len() >= MAX_MAP_ENTRIES {
+                        return Err(rejected("kubeconfig has too many keys in one mapping"));
+                    }
+                    if !keys.insert(key.clone()) {
                         return Err(rejected("kubeconfig has a duplicate key"));
                     }
                     entries.push((key, value));
@@ -150,23 +162,36 @@ fn parse_tree(yaml: &str) -> Result<Node, CredentialError> {
     Ok(root)
 }
 
+/// The first forbidden key (canonical spelling) in any mapping inside `node`, compared ASCII
+/// case-insensitively.
+fn find_forbidden(node: &Node, keys: &[&'static str]) -> Option<&'static str> {
+    match node {
+        Node::Scalar(_) => None,
+        Node::Seq(items) => items.iter().find_map(|n| find_forbidden(n, keys)),
+        Node::Map(entries) => entries.iter().find_map(|(k, v)| {
+            keys.iter()
+                .copied()
+                .find(|f| f.eq_ignore_ascii_case(k))
+                .or_else(|| find_forbidden(v, keys))
+        }),
+    }
+}
+
 fn check_forbidden(
     section: &Node,
     inner: &str,
-    keys: &[&str],
+    keys: &[&'static str],
     what: &str,
 ) -> Result<(), CredentialError> {
     for item in section.items() {
-        if let Some(body) = item.get(inner) {
-            if let Node::Map(entries) = body {
-                if let Some((k, _)) = entries.iter().find(|(k, _)| keys.contains(&k.as_str())) {
-                    return Err(rejected(&format!(
-                        "{what} uses `{k}`; only self-contained kubeconfigs (inline data, tokens) are accepted"
-                    )));
-                }
-            } else {
-                return Err(rejected(&format!("{what} entry is malformed")));
-            }
+        if item.get(inner).is_some_and(|body| !matches!(body, Node::Map(_))) {
+            return Err(rejected(&format!("{what} entry is malformed")));
+        }
+        // every mapping under the entry, not only the `user` / `cluster` body
+        if let Some(k) = find_forbidden(item, keys) {
+            return Err(rejected(&format!(
+                "{what} uses `{k}`; only self-contained kubeconfigs (inline data, tokens) are accepted"
+            )));
         }
     }
     Ok(())
@@ -254,6 +279,36 @@ mod tests {
     }
 
     #[test]
+    fn rejects_merge_keys_and_case_variants() {
+        let user = "    token: test-only-token";
+        for (replacement, why) in [
+            ("    <<: {exec: {command: /bin/sh}}", "merge key with an inline mapping"),
+            ("    token: x\n    <<: {name: y}", "merge key anywhere, harmless body"),
+            ("    Exec:\n      command: /bin/sh", "Exec"),
+            ("    AUTH-PROVIDER:\n      name: oidc", "AUTH-PROVIDER"),
+            ("    TokenFile: /var/run/token", "TokenFile"),
+            ("    token: x\n    nested:\n      exec: {command: /bin/sh}", "nested under user"),
+        ] {
+            let yaml = KUBECONFIG.replace(user, replacement);
+            let e = parse(yaml.as_bytes()).expect_err(why);
+            assert!(matches!(e, CredentialError::KubeconfigRejected(_)), "{why}: {e:?}");
+            assert!(!e.to_string().contains("/bin/sh"), "{why}: no value echo");
+        }
+        let top = KUBECONFIG
+            .replace("users:\n- name: ops\n", "users:\n- name: ops\n  exec: {command: x}\n");
+        assert!(parse(top.as_bytes()).is_err(), "a key beside `user` under users[]");
+        let merge_top = format!("{KUBECONFIG}<<: {{preferences: {{}}}}\n");
+        let e = parse(merge_top.as_bytes()).expect_err("top-level merge");
+        assert!(e.to_string().contains("merge"), "{e}");
+        let ca = KUBECONFIG.replace(
+            "    certificate-authority-data: AAAA",
+            "    Certificate-Authority: /etc/ca.crt",
+        );
+        assert!(parse(ca.as_bytes()).is_err(), "cluster key case variant");
+        assert!(parse(KUBECONFIG.as_bytes()).is_ok(), "certificate-authority-data still fine");
+    }
+
+    #[test]
     fn rejects_yaml_tricks() {
         let alias =
             KUBECONFIG.replace("users:\n- name: ops\n  user:", "users:\n- name: ops\n  user: &u");
@@ -270,6 +325,32 @@ mod tests {
         assert!(parse(&vec![b'#'; MAX_YAML + 1]).is_err(), "size");
         assert!(parse(b"a: !!binary AAAA\ncontexts: [{name: x}]\n").is_err(), "tag");
         assert!(parse(&[0xff, 0xfe]).is_err(), "utf-8");
+    }
+
+    #[test]
+    fn wide_mappings_are_capped_and_checked_in_n_log_n() {
+        use std::fmt::Write as _;
+        // ~1 MiB, one flat mapping: rejected by the per-mapping cap, fast (review 3, L-10)
+        let mut yaml = String::with_capacity(MAX_YAML);
+        let mut i = 0;
+        while yaml.len() < MAX_YAML - 32 {
+            let _ = writeln!(yaml, "k{i}: v");
+            i += 1;
+        }
+        let t = std::time::Instant::now();
+        let e = parse(yaml.as_bytes()).expect_err("too many keys");
+        assert!(e.to_string().contains("too many keys"), "{e}");
+        // debug build bound; the review's release-mode target is < 200 ms
+        assert!(t.elapsed() < std::time::Duration::from_secs(2), "{:?}", t.elapsed());
+        // the largest accepted mapping still parses and still finds a late duplicate
+        let mut wide = String::from("contexts: [{name: x}]\nm:\n");
+        for i in 0..MAX_MAP_ENTRIES - 1 {
+            let _ = writeln!(wide, "  k{i}: v");
+        }
+        assert!(parse(wide.as_bytes()).is_ok(), "{MAX_MAP_ENTRIES} entries are fine");
+        wide.push_str("  k0: again\n");
+        let e = parse(wide.as_bytes()).expect_err("duplicate");
+        assert!(e.to_string().contains("duplicate key"), "{e}");
     }
 
     #[test]

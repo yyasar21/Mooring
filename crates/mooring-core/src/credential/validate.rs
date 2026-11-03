@@ -2,7 +2,9 @@
 //! and on every read of a stored row.
 
 use super::account::{MAX_DNS, MAX_USER};
-use super::fingerprint::{is_sha256_fingerprint, MAX_PEM, MAX_PUBLIC_KEY};
+use super::fingerprint::{
+    is_sha256_fingerprint, x509_pem, MAX_PEM, MAX_PUBLIC_KEY, X509_MIGRATION_PLACEHOLDER,
+};
 use super::kubeconfig::MAX_CONTEXT_NAME;
 use super::structs::KubeconfigFields;
 use super::text::{line, multiline, opt_line};
@@ -104,6 +106,11 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
         CredentialFields::X509(f) => {
             set_opt(&mut f.username, "username", MAX_USER)?;
             multiline("cert_pem", &f.cert_pem, MAX_PEM)?;
+            // B-3: certificates only, and they must parse (the v2 placeholder is the one
+            // exception, as that exact literal, until the reseal replaces it).
+            if f.cert_pem != X509_MIGRATION_PLACEHOLDER {
+                x509_pem(&f.cert_pem)?;
+            }
             if f.fingerprint.as_deref().is_some_and(|fp| !is_sha256_fingerprint(fp)) {
                 return Err(CredentialError::invalid("fingerprint", "malformed"));
             }
