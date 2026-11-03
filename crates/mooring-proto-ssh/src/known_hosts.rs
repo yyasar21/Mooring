@@ -7,9 +7,11 @@
 //! entries are always written hashed. Lines are kept verbatim so a rewrite never loses entries
 //! Mooring does not understand.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use hmac::{KeyInit, Mac};
 use rand_core::{OsRng, RngCore};
@@ -241,6 +243,22 @@ impl KnownHosts {
         Ok(())
     }
 
+    /// Load `path`, add a hashed entry for `host:port` and save, holding a process-wide lock
+    /// for that path so concurrent TOFU accepts never lose an entry (security review 2, L-5).
+    /// Blocking: call from `spawn_blocking`.
+    pub fn add_and_save(
+        path: &Path,
+        host: &str,
+        port: u16,
+        key: &PublicKey,
+    ) -> Result<(), KnownHostsError> {
+        let lock = path_lock(path);
+        let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut store = Self::load(path)?;
+        store.add_hashed(host, port, key)?;
+        store.save(path)
+    }
+
     /// File content, one entry per line, newline-terminated.
     pub fn to_file_string(&self) -> String {
         let mut out = String::new();
@@ -268,6 +286,13 @@ impl KnownHosts {
         tmp.persist(path).map_err(|e| KnownHostsError::Io(e.error))?;
         Ok(())
     }
+}
+
+/// One mutex per `known_hosts` path, shared by every session in the process.
+fn path_lock(path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut map = LOCKS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(map.entry(path.to_path_buf()).or_default())
 }
 
 enum LineParse {

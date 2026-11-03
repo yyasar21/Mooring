@@ -192,3 +192,31 @@ proptest! {
         }
     }
 }
+
+/// Security review 2 L-5: concurrent TOFU accepts (load → add → save) must not lose entries.
+#[test]
+fn concurrent_adds_keep_every_entry() {
+    const N: u8 = 24;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("known_hosts");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(usize::from(N)));
+    let threads: Vec<_> = (0..N)
+        .map(|i| {
+            let (path, barrier) = (path.clone(), std::sync::Arc::clone(&barrier));
+            std::thread::spawn(move || {
+                barrier.wait();
+                KnownHosts::add_and_save(&path, &format!("h{i}.example"), 22, &key(i + 10))
+                    .expect("add");
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().expect("join");
+    }
+    let store = KnownHosts::load(&path).expect("load");
+    assert_eq!(store.len(), usize::from(N), "no entry lost");
+    for i in 0..N {
+        let host = format!("h{i}.example");
+        assert_eq!(store.check(&host, 22, &key(i + 10)), TrustDecision::Known, "{host}");
+    }
+}

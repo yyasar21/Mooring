@@ -103,12 +103,9 @@ impl ClientHandler {
         }
         let (path, host, port, k) =
             (self.known_hosts_path.clone(), self.host.clone(), self.port, key.clone());
-        let saved = tokio::task::spawn_blocking(move || {
-            let mut store = KnownHosts::load(&path)?;
-            store.add_hashed(&host, port, &k)?;
-            store.save(&path)
-        })
-        .await;
+        let saved =
+            tokio::task::spawn_blocking(move || KnownHosts::add_and_save(&path, &host, port, &k))
+                .await;
         if !matches!(saved, Ok(Ok(()))) {
             tracing::warn!("host key trusted for this session but could not be stored");
         }
