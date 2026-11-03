@@ -9,7 +9,7 @@
 //! Running a command or reading a file named by imported YAML is code execution / disclosure.
 //! Extracted: context names (capped) and `current-context`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use saphyr_parser::{Event, Parser};
 
@@ -25,6 +25,8 @@ pub const MAX_CONTEXT_NAME: usize = 253;
 const MAX_DEPTH: usize = 32;
 /// Most YAML nodes accepted (bounds memory independently of byte size).
 const MAX_NODES: usize = 100_000;
+/// Most entries in one mapping (review 3, L-10).
+const MAX_MAP_ENTRIES: usize = 4096;
 
 /// Keys that make a kubeconfig run something or read a file.
 const FORBIDDEN_USER_KEYS: &[&str] =
@@ -116,6 +118,8 @@ impl<'a> Builder<'a> {
                     return Err(rejected("kubeconfig may not use YAML anchors or tags"));
                 }
                 let mut entries: Vec<(String, Node)> = Vec::new();
+                // duplicate check in O(1) per key (was a linear scan: quadratic per mapping)
+                let mut keys: HashSet<String> = HashSet::new();
                 loop {
                     let key = match self.next()? {
                         Event::MappingEnd => return Ok(Node::Map(entries)),
@@ -127,7 +131,10 @@ impl<'a> Builder<'a> {
                     }
                     let ev = self.next()?;
                     let value = self.node(ev, depth + 1)?;
-                    if entries.iter().any(|(k, _)| *k == key) {
+                    if entries.len() >= MAX_MAP_ENTRIES {
+                        return Err(rejected("kubeconfig has too many keys in one mapping"));
+                    }
+                    if !keys.insert(key.clone()) {
                         return Err(rejected("kubeconfig has a duplicate key"));
                     }
                     entries.push((key, value));
@@ -318,6 +325,32 @@ mod tests {
         assert!(parse(&vec![b'#'; MAX_YAML + 1]).is_err(), "size");
         assert!(parse(b"a: !!binary AAAA\ncontexts: [{name: x}]\n").is_err(), "tag");
         assert!(parse(&[0xff, 0xfe]).is_err(), "utf-8");
+    }
+
+    #[test]
+    fn wide_mappings_are_capped_and_checked_in_n_log_n() {
+        use std::fmt::Write as _;
+        // ~1 MiB, one flat mapping: rejected by the per-mapping cap, fast (review 3, L-10)
+        let mut yaml = String::with_capacity(MAX_YAML);
+        let mut i = 0;
+        while yaml.len() < MAX_YAML - 32 {
+            let _ = writeln!(yaml, "k{i}: v");
+            i += 1;
+        }
+        let t = std::time::Instant::now();
+        let e = parse(yaml.as_bytes()).expect_err("too many keys");
+        assert!(e.to_string().contains("too many keys"), "{e}");
+        // debug build bound; the review's release-mode target is < 200 ms
+        assert!(t.elapsed() < std::time::Duration::from_secs(2), "{:?}", t.elapsed());
+        // the largest accepted mapping still parses and still finds a late duplicate
+        let mut wide = String::from("contexts: [{name: x}]\nm:\n");
+        for i in 0..MAX_MAP_ENTRIES - 1 {
+            let _ = writeln!(wide, "  k{i}: v");
+        }
+        assert!(parse(wide.as_bytes()).is_ok(), "{MAX_MAP_ENTRIES} entries are fine");
+        wide.push_str("  k0: again\n");
+        let e = parse(wide.as_bytes()).expect_err("duplicate");
+        assert!(e.to_string().contains("duplicate key"), "{e}");
     }
 
     #[test]

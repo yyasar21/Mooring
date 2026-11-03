@@ -10,7 +10,7 @@ use mooring_core::SecretName;
 use mooring_store::{Secrets, MAX_NAME};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::dto::{self, CredentialDto};
 use crate::error::{IpcError, IpcResult};
@@ -25,6 +25,8 @@ pub const MAX_SECRETS: usize = 8;
 pub const MAX_FIELDS_BYTES: usize = mooring_core::credential::MAX_FIELDS_JSON;
 /// Longest account input for `credential_parse_account` (bytes).
 pub const MAX_ACCOUNT_INPUT: usize = 512;
+/// Inputs at least this large are parsed off the IPC thread (review 3, L-10).
+pub const OFFLOAD_BYTES: usize = 64 * 1024;
 
 /// Secrets as they cross IPC: `{ [name]: string }`, wrapped at once.
 #[derive(Default, Deserialize)]
@@ -38,6 +40,11 @@ impl std::fmt::Debug for WireSecrets {
 }
 
 impl WireSecrets {
+    /// Total bytes of all values (no secret is exposed beyond its length).
+    fn byte_len(&self) -> usize {
+        self.0.values().map(|v| v.expose_secret().len()).sum()
+    }
+
     /// Synthetic secrets for tests.
     #[cfg(any(test, feature = "test-util"))]
     pub fn of(pairs: &[(&str, &str)]) -> Self {
@@ -186,6 +193,24 @@ pub fn parse_account_input(input: &str) -> IpcResult<Account> {
     Ok(parse_account(input)?)
 }
 
+/// Run `f` on Tokio's blocking pool when the input is at least [`OFFLOAD_BYTES`]: parsing a large
+/// kubeconfig or PEM and sealing it must not block the thread that serves IPC. Small inputs run
+/// inline. A panic in `f` becomes an `internal` [`IpcError`] without detail.
+pub async fn offload<H, T, F>(handle: H, input_bytes: usize, f: F) -> IpcResult<T>
+where
+    H: Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(H) -> IpcResult<T> + Send + 'static,
+{
+    if input_bytes < OFFLOAD_BYTES {
+        return f(handle);
+    }
+    tokio::task::spawn_blocking(move || f(handle)).await.unwrap_or_else(|_| {
+        tracing::error!("credential command task failed");
+        Err(IpcError::new("internal", "internal error"))
+    })
+}
+
 // ------------------------------------------------------------------ Tauri wrappers
 
 /// `credential_kinds()`.
@@ -202,37 +227,44 @@ pub fn credential_list(state: State<'_, AppState>) -> IpcResult<Vec<CredentialDt
 
 /// `credential_create({ name, kind, fields, secrets })`.
 #[tauri::command]
-pub fn credential_create(
-    state: State<'_, AppState>,
+pub async fn credential_create(
+    app: AppHandle,
     name: String,
     kind: String,
     fields: Option<serde_json::Value>,
     secrets: Option<WireSecrets>,
 ) -> IpcResult<CredentialDto> {
     let fields = fields.unwrap_or_else(|| serde_json::json!({}));
-    create(&state, NewCredential { name, kind, fields, secrets: secrets.unwrap_or_default() })
+    let secrets = secrets.unwrap_or_default();
+    let bytes = secrets.byte_len() + fields.to_string().len();
+    offload(app, bytes, move |app| create(&app.state::<AppState>(), NewCredential { name, kind, fields, secrets }))
+        .await
 }
 
 /// `credential_update_fields({ id, name, fields })`.
 #[tauri::command]
-pub fn credential_update_fields(
-    state: State<'_, AppState>,
+pub async fn credential_update_fields(
+    app: AppHandle,
     id: String,
     name: String,
     fields: serde_json::Value,
 ) -> IpcResult<CredentialDto> {
-    update_fields(&state, &id, &name, &fields)
+    let bytes = fields.to_string().len();
+    offload(app, bytes, move |app| update_fields(&app.state::<AppState>(), &id, &name, &fields)).await
 }
 
 /// `credential_replace_secrets({ id, set, clear })`.
 #[tauri::command]
-pub fn credential_replace_secrets(
-    state: State<'_, AppState>,
+pub async fn credential_replace_secrets(
+    app: AppHandle,
     id: String,
     set: Option<WireSecrets>,
     clear: Option<Vec<String>>,
 ) -> IpcResult<()> {
-    replace_secrets(&state, &id, &set.unwrap_or_default(), &clear.unwrap_or_default())
+    let set = set.unwrap_or_default();
+    let bytes = set.byte_len();
+    offload(app, bytes, move |app| replace_secrets(&app.state::<AppState>(), &id, &set, &clear.unwrap_or_default()))
+        .await
 }
 
 /// `credential_delete({ id })`.
