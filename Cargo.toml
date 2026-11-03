@@ -53,6 +53,14 @@ time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"
 hex = { version = "0.4", features = ["serde"] }
 base64 = "0.22"                                          # ADR-0008: base64 byte payloads on the IPC wire (already in the tree via tauri/russh)
 arboard = { version = "3.7", default-features = false }   # A1: Rust-side clipboard for credential_copy_password (pure Rust, MIT/Apache-2.0, text only, no plugin/capability)
+# credentials (ADR-0009)
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["alloc", "ecdsa"] } # OpenSSH public key / certificate fingerprints; same pinned version russh already pulls in
+pem-rfc7468 = { version = "1", features = ["alloc"] }    # strict RFC 7468 PEM decoding for X.509 fingerprints (RustCrypto, already in the tree via der)
+data-encoding = "2.11"                                     # RFC 4648 base32 for TOTP seeds (already in the tree via russh; replaces a separate base32 crate)
+saphyr-parser = "0.3"                                      # pure-Rust event-level YAML 1.2 parser for capped kubeconfig validation (no unsafe-libyaml, no serde magic)
+hmac = "0.13"                                              # RFC 6238 TOTP (RustCrypto, already in the tree via russh/proto-ssh)
+sha1 = "0.11"                                              # RFC 6238 TOTP HMAC-SHA1 (the RFC default; already in the tree)
+sha2-next = { package = "sha2", version = "0.11" }         # TOTP HMAC-SHA256/512 + cert fingerprints on digest 0.11 (matches hmac 0.13; already in the tree via ssh-key)
 # errors / logging
 thiserror = "2"
 tracing = "0.1"
