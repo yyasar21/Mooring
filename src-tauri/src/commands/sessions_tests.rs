@@ -3,7 +3,6 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::Engine as _;
 use secrecy::SecretString;
 use tokio::sync::mpsc;
 
