@@ -60,5 +60,7 @@ Do not add `Co-Authored-By` trailers for tools.
 
 ## Placeholders in examples
 
-Use `example.test`, `<your-host>`, `alice` and generated test keys in code, tests, docs and
-issues. Never commit real hostnames, IP ranges, usernames or keys.
+Use `example.test`, `<your-host>`, RFC 5737 documentation addresses (`192.0.2.0/24`,
+`198.51.100.0/24`, `203.0.113.0/24`), `alice` and generated test keys in code, tests, docs and
+issues. Never commit real hostnames, IP ranges, accounts, domains or keys; lab values live only
+in the local, gitignored `.env`.

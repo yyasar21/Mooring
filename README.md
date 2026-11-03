@@ -117,7 +117,7 @@ November 2026. Check the vendor's site for current details.
 | Public source code | ✅ | — | — | ✅ | — |
 | Public threat model and security reviews | ✅ | — | — | — | — |
 
-Mooring's platform cells describe source builds today; installers arrive with v0.1.0.
+Mooring targets all three desktop platforms from one codebase; installers arrive with v0.1.0.
 Mooring's angle is narrow on purpose: a single-user, local-first vault with documented
 cryptography, an auditable Rust core and no account or cloud service required.
 
@@ -180,7 +180,7 @@ The [user guide](docs/user-guide/README.md) covers each step in detail.
 | ![Empty workspace with the connection tree](docs/assets/screenshots/02-shell-empty-dark.png) | ![Light theme with an SSH session](docs/assets/screenshots/05-shell-ssh-light.png) |
 | Workspace | Light theme |
 
-Screenshots use the built-in demo data and `example.test` hosts.
+Screenshots were taken against the UI's mock backend with demo data and `example.test` hosts.
 
 ## Architecture
 
