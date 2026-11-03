@@ -18,11 +18,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod autolock;
 mod error;
 mod format;
 mod kdf;
 mod vault;
 
+pub use autolock::{AutoLockClock, AutoLockPolicy, LockEvent, LockReason};
 pub use error::VaultError;
 pub use format::{Header, Sealed, FORMAT_VERSION, MAGIC};
 pub use kdf::{
