@@ -200,6 +200,30 @@ fn otp_slot() {
 }
 
 #[test]
+fn empty_username_only_on_a_migrated_row() {
+    for kind in [K::UserPassword, K::SshKey] {
+        let stored = CredentialFields::from_stored(kind, r#"{"username":"","migrated":true}"#)
+            .expect("migrated row");
+        assert_eq!(stored.account().0.as_deref(), Some(""));
+        assert_eq!(stored.to_value()["migrated"], json!(true));
+        assert!(CredentialFields::from_stored(kind, r#"{"migrated":true}"#).is_ok());
+        assert!(CredentialFields::from_stored(kind, r#"{"username":""}"#).is_err());
+        assert!(CredentialFields::from_stored(kind, r#"{"username":"","migrated":false}"#).is_err());
+        // input can never set the flag, and an update must name a user
+        assert!(input(kind, json!({"username": "", "migrated": true})).is_err());
+        assert!(CredentialFields::from_input(kind, &json!({}), Some(&stored)).is_err());
+        let fixed = CredentialFields::from_input(kind, &json!({"username": "ops"}), Some(&stored))
+            .expect("named");
+        assert!(fixed.to_value().get("migrated").is_none(), "flag cleared once named");
+        // a stored row that has a username drops a stale flag on read
+        let named = CredentialFields::from_stored(kind, r#"{"username":"ops","migrated":true}"#)
+            .expect("named");
+        assert!(named.to_value().get("migrated").is_none());
+    }
+    assert!(input(K::SshAgent, json!({"username": "a", "migrated": true})).is_err());
+}
+
+#[test]
 fn corrupt_rows_are_refused() {
     assert!(CredentialFields::from_stored(K::UserPassword, "not json").is_err());
     assert!(CredentialFields::from_stored(K::UserPassword, "{}").is_err());
