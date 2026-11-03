@@ -65,7 +65,10 @@ pub struct Size {
 }
 
 /// Input from the user to the remote side.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is hand-written and `Answer.text` serialises as `"<redacted>"`: the answer may be a
+/// keyboard-interactive password or OTP (ADR-0007). It is only ever deserialised from the UI.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionInput {
     /// Raw bytes (terminal keystrokes).
@@ -94,6 +97,45 @@ pub enum SessionInput {
         /// Pressed or released.
         pressed: bool,
     },
+    /// Answer to a [`SessionEvent::Prompt`] (TOFU decision, keyboard-interactive response).
+    Answer {
+        /// Id of the prompt being answered.
+        id: u32,
+        /// The answer. Never printed, never serialised back.
+        #[serde(serialize_with = "serialize_redacted")]
+        text: SecretString,
+    },
+}
+
+/// Placeholder written instead of secret answer text.
+pub const REDACTED: &str = "<redacted>";
+
+fn serialize_redacted<S: serde::Serializer>(
+    _secret: &SecretString,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    serializer.serialize_str(REDACTED)
+}
+
+impl std::fmt::Debug for SessionInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bytes { data } => f.debug_struct("Bytes").field("data", data).finish(),
+            Self::Resize { size } => f.debug_struct("Resize").field("size", size).finish(),
+            Self::Pointer { x, y, buttons } => f
+                .debug_struct("Pointer")
+                .field("x", x)
+                .field("y", y)
+                .field("buttons", buttons)
+                .finish(),
+            Self::Key { scancode, pressed } => {
+                f.debug_struct("Key").field("scancode", scancode).field("pressed", pressed).finish()
+            }
+            Self::Answer { id, .. } => {
+                f.debug_struct("Answer").field("id", id).field("text", &REDACTED).finish()
+            }
+        }
+    }
 }
 
 /// Events from the remote side to the UI.
@@ -167,5 +209,40 @@ mod tests {
         let shown = format!("{s:?}");
         assert!(!shown.contains("hunter2"));
         assert!(shown.contains("redacted"));
+    }
+
+    #[test]
+    fn answer_text_never_prints_or_serialises() {
+        let input: SessionInput =
+            serde_json::from_str(r#"{"kind":"answer","id":7,"text":"otp-314159"}"#)
+                .expect("answer deserialises");
+        let SessionInput::Answer { id, ref text } = input else {
+            panic!("expected Answer");
+        };
+        assert_eq!(id, 7);
+        assert_eq!(secrecy::ExposeSecret::expose_secret(text), "otp-314159");
+
+        let debug = format!("{input:?}");
+        assert!(!debug.contains("otp-314159"), "{debug}");
+        assert!(debug.contains("<redacted>") && debug.contains('7'));
+
+        let json = serde_json::to_string(&input).expect("serialises");
+        assert!(!json.contains("otp-314159"), "{json}");
+        assert!(json.contains(r#""text":"<redacted>""#), "{json}");
+
+        let cloned = format!("{:?}", input.clone());
+        assert!(!cloned.contains("otp-314159"));
+    }
+
+    #[test]
+    fn other_inputs_keep_their_debug_and_wire_form() {
+        let input = SessionInput::Bytes { data: vec![1, 2] };
+        assert_eq!(format!("{input:?}"), "Bytes { data: [1, 2] }");
+        let json = serde_json::to_string(&input).expect("serialises");
+        assert_eq!(json, r#"{"kind":"bytes","data":[1,2]}"#);
+        let resize: SessionInput =
+            serde_json::from_str(r#"{"kind":"resize","size":{"width":80,"height":24}}"#)
+                .expect("resize deserialises");
+        assert!(format!("{resize:?}").contains("width: 80"));
     }
 }
