@@ -1,0 +1,65 @@
+/* Nexus Remote design tokens. One source of truth for both themes.
+   Dark is the default (a remote-access console lives next to terminals); light is opt-in. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+:root {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* graphite-navy base, not neutral black: screens full of terminals need a cool, lifted ground */
+  --bg: #151a22;
+  --bg-sunken: #10141b;
+  --surface: #1b222d;
+  --surface-raised: #222b38;
+  --line: #2a3444;
+  --line-strong: #3a475b;
+  --text: #e6eaf0;
+  --text-muted: #8b97a8;
+  --text-faint: #5b6778;
+
+  /* one accent: sea-teal. It marks focus, the selected row and "connected". Nothing else is teal. */
+  --accent: #5cc8b8;
+  --accent-ink: #0b2a26;
+  --accent-soft: rgba(92, 200, 184, 0.14);
+
+  --ok: #6fcf97;
+  --warn: #f2c94c;
+  --danger: #eb6b5e;
+
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --shadow-pop: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
+
+  --fs-xs: 11.5px;
+  --fs-s: 12.5px;
+  --fs-m: 13.5px;
+  --fs-l: 16px;
+  --fs-xl: 22px;
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f5f8;
+  --bg-sunken: #e9edf2;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --line: #d9dfe7;
+  --line-strong: #c3ccd8;
+  --text: #16202c;
+  --text-muted: #5b6778;
+  --text-faint: #8b97a8;
+  --accent: #1e9c8b;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(30, 156, 139, 0.12);
+  --shadow-pop: 0 18px 48px rgba(20, 30, 45, 0.18), 0 0 0 1px var(--line);
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

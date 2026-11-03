@@ -1,0 +1,31 @@
+[package]
+name = "nexus-app"
+description = "Nexus Remote desktop application (Tauri 2 shell)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "nexus_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+nexus-core = { path = "../crates/nexus-core", version = "0.1.0" }
+nexus-vault = { path = "../crates/nexus-vault", version = "0.1.0" }
+nexus-audit = { path = "../crates/nexus-audit", version = "0.1.0" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

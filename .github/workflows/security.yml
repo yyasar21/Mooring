@@ -1,0 +1,57 @@
+name: security
+on:
+  push: { branches: [main] }
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1" # weekly advisory re-check
+permissions: { contents: read, security-events: write }
+
+jobs:
+  rust-deps:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with: { command: check }
+      - uses: rustsec/audit-check@v2
+        with: { token: "${{ secrets.GITHUB_TOKEN }}" }
+
+  npm-deps:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high
+
+  secrets:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+
+  semgrep:
+    runs-on: ubuntu-22.04
+    container: { image: semgrep/semgrep }
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config p/rust --config p/typescript --config p/secrets --error --sarif --output semgrep.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: semgrep.sarif }
+
+  unsafe-audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: forbid(unsafe_code) is present in every crate
+        run: |
+          for f in crates/*/src/lib.rs src-tauri/src/lib.rs; do
+            grep -q 'forbid(unsafe_code)' "$f" || { echo "missing forbid(unsafe_code) in $f"; exit 1; }
+          done

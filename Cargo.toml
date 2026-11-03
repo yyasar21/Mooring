@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/nexus-core",
+  "crates/nexus-vault",
+  "crates/nexus-audit",
+  "crates/nexus-proto-ssh",
+  "crates/nexus-proto-rdp",
+  "crates/nexus-proto-vnc",
+  "src-tauri",
+]
+# src-tauri needs the OS WebView toolchain; `cargo test --workspace --exclude nexus-app`
+# covers the pure crates on any machine.
+default-members = [
+  "crates/nexus-core",
+  "crates/nexus-vault",
+  "crates/nexus-audit",
+  "crates/nexus-proto-ssh",
+  "crates/nexus-proto-rdp",
+  "crates/nexus-proto-vnc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["Yunus Yaşar"]
+repository = "https://github.com/yunusyasar/nexus-remote"
+
+[workspace.dependencies]
+# crypto (RustCrypto only — see ADR-0002)
+argon2 = { version = "0.5", features = ["std"] }
+chacha20poly1305 = { version = "0.10", features = ["std"] }
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+zeroize = { version = "1.8", features = ["derive"] }
+secrecy = { version = "0.10", features = ["serde"] }
+# data
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+hex = { version = "0.4", features = ["serde"] }
+# errors / logging
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# async
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time"] }
+async-trait = "0.1"
+# tests
+proptest = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# pedantic allow-list, each with a reason (ADR-0001 §tooling)
+module_name_repetitions = "allow" # VaultError inside vault:: is fine
+must_use_candidate = "allow"      # too noisy on builders
+missing_errors_doc = "allow"      # error enums are documented at the type
+missing_panics_doc = "allow"
+unwrap_used = "deny"              # never in library code; tests use expect()
+expect_used = "allow"           # tests; library code still avoids it by review
+dbg_macro = "deny"
+print_stdout = "deny"             # logging goes through tracing with redaction
+print_stderr = "deny"
+todo = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

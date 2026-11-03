@@ -1,0 +1,1 @@
+Run the security gate on the current branch: spawn `security-reviewer` with the full `git diff main...HEAD`, then run `cargo deny check`, `cargo audit`, `pnpm audit --audit-level=high`, `gitleaks detect`. Report BLOCKER / nits / approve. Do not fix anything yourself; hand blockers to the owning agent.

@@ -1,0 +1,38 @@
+@import "@nexus/ui/tokens.css";
+@import "tailwindcss";
+
+@theme {
+  --color-bg: var(--bg);
+  --color-bg-sunken: var(--bg-sunken);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-s: var(--radius-s);
+  --radius-m: var(--radius-m);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 var(--fs-m)/1.45 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-s); }
+::selection { background: var(--accent-soft); }
+.mono { font-family: var(--font-mono); font-size: var(--fs-s); }
