@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 pub mod autolock;
+mod crypto;
 mod error;
 mod format;
 mod kdf;
@@ -26,7 +27,7 @@ mod vault;
 
 pub use autolock::{AutoLockClock, AutoLockPolicy, LockEvent, LockReason};
 pub use error::VaultError;
-pub use format::{Header, Sealed, FORMAT_VERSION, MAGIC};
+pub use format::{Header, Sealed, FORMAT_VERSION, MAGIC, MAX_HEADER_BYTES, MIN_FORMAT_VERSION};
 pub use kdf::{
     calibrate_with, HostLimits, KdfParams, CALIBRATION_CANDIDATES_MIB, CALIBRATION_T,
     CALIBRATION_TARGET,
