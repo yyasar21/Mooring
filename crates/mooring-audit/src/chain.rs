@@ -66,6 +66,27 @@ pub enum AuditEvent {
         /// Reason safe to show.
         reason: String,
     },
+    /// A secret was put on the clipboard (ADR-0009): `name` is the secret name, or `otp` for
+    /// a TOTP code. Never the value.
+    CredentialCopied {
+        /// Credential id.
+        credential: String,
+        /// Secret name (`password`, `token`, ...) or `otp`.
+        name: String,
+    },
+    /// A TOTP seed was attached to a credential (ADR-0009 security consequences).
+    CredentialOtpAttached {
+        /// Credential id.
+        credential: String,
+    },
+    /// The user answered a connect-time sign-in form (`prompt` kind). The username is
+    /// inventory-class metadata (R-INV), never the password.
+    CredentialPrompted {
+        /// Connection id.
+        connection: String,
+        /// Username typed.
+        username: String,
+    },
     /// Vault exported (`format`: `age`, `json`, ...).
     VaultExported {
         /// Export format.
@@ -254,6 +275,28 @@ mod tests {
         assert!(!lines[0].contains("expected"), "{}", lines[0]);
         assert!(lines[1].contains(r#""expected":"SHA256:old""#), "{}", lines[1]);
         assert!(AuditLog::verify(&p).expect("verify").ok());
+    }
+
+    #[test]
+    fn credential_events_have_stable_wire_names() {
+        let cases = [
+            (
+                AuditEvent::CredentialCopied { credential: "c".into(), name: "otp".into() },
+                "credential_copied",
+            ),
+            (
+                AuditEvent::CredentialOtpAttached { credential: "c".into() },
+                "credential_otp_attached",
+            ),
+            (
+                AuditEvent::CredentialPrompted { connection: "x".into(), username: "u".into() },
+                "credential_prompted",
+            ),
+        ];
+        for (e, name) in cases {
+            let v = serde_json::to_value(&e).expect("json");
+            assert_eq!(v["event"], name);
+        }
     }
 
     #[test]
