@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Mooring hardened-runtime entitlements (bundle.macOS.entitlements).
+  Least privilege: no JIT, no unsigned executable memory, no library-validation bypass,
+  no DYLD environment variables. WKWebView runs its JavaScript JIT in Apple's own
+  WebContent process, so the app itself needs none of those exceptions.
+  Not sandboxed (outside the Mac App Store), so outgoing SSH/RDP/VNC sockets need no
+  network entitlement.
+
+  Keychain (ADR-0006 optional OS-keyring wrap): the `keyring` crate uses the login keychain
+  through the legacy SecItem API, which needs no entitlement. Restricting items to an access
+  group requires a Developer ID signature with a team prefix; enable the block below only
+  after the Apple Developer ID is configured (see docs/release.md), replacing TEAMID.
+
+  <key>keychain-access-groups</key>
+  <array>
+    <string>TEAMID.xyz.homelab.mooring</string>
+  </array>
+-->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

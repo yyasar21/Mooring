@@ -62,4 +62,26 @@ sbom: ## CycloneDX SBOMs into build/
 	mkdir -p build && cargo cyclonedx --format json --override-filename build/sbom-cargo 2>/dev/null || echo "cargo install cargo-cyclonedx"
 	pnpm dlx @cyclonedx/cyclonedx-npm --output-file build/sbom-npm.json >/dev/null 2>&1 || true
 
-.PHONY: help setup dev fmt lint test test-vectors audit check app-check e2e-ipc e2e fuzz bundle sbom
+bump: ## set VERSION=x.y.z in Cargo/tauri/package.json + roll CHANGELOG (no commit)
+	@test -n "$(VERSION)" || { echo "usage: make bump VERSION=x.y.z"; exit 1; }
+	scripts/release/bump-version.sh "$(VERSION)"
+
+release: ## bump, commit and tag vVERSION on a clean main; push the tag to start CI (docs/release.md)
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=x.y.z"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "working tree not clean"; exit 1; }
+	@test "$$(git rev-parse --abbrev-ref HEAD)" = main || { echo "release from main only"; exit 1; }
+	@! git rev-parse -q --verify "refs/tags/v$(VERSION)" >/dev/null || { echo "tag v$(VERSION) exists"; exit 1; }
+	scripts/release/bump-version.sh "$(VERSION)"
+	git add -u
+	git commit -m "chore(release): v$(VERSION)"
+	git tag -a "v$(VERSION)" -m "Mooring v$(VERSION)"
+	@echo "tagged v$(VERSION). Start the pipeline with:  git push origin main v$(VERSION)"
+
+verify-release: ## verify a published release: make verify-release TAG=vX.Y.Z
+	@test -n "$(TAG)" || { echo "usage: make verify-release TAG=vX.Y.Z"; exit 1; }
+	scripts/release/verify-release.sh "$(TAG)"
+
+icons: ## regenerate src-tauri/icons from packaging/icon.svg
+	scripts/release/gen-icons.sh
+
+.PHONY: help setup dev fmt lint test test-vectors audit check app-check e2e-ipc e2e fuzz bundle sbom bump release verify-release icons

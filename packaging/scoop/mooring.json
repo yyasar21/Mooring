@@ -1,0 +1,36 @@
+{
+    "##": "Template for a future Scoop bucket (e.g. yyasar21/scoop-mooring). Scoop extracts the per-user NSIS installer with 7-Zip; @VERSION@ and @SHA256_NSIS@ come from the release's SHA256SUMS. `checkver`/`autoupdate` let `scoop-autoupdate` bump it afterwards.",
+    "version": "@VERSION@",
+    "description": "Security-first remote access manager for SSH, RDP and VNC",
+    "homepage": "https://github.com/yyasar21/Mooring",
+    "license": "MIT",
+    "notes": "Mooring needs the Microsoft Edge WebView2 runtime (preinstalled on Windows 11).",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/yyasar21/Mooring/releases/download/v@VERSION@/Mooring_@VERSION@_x64-setup.exe#/dl.7z",
+            "hash": "@SHA256_NSIS@"
+        }
+    },
+    "pre_install": "Remove-Item \"$dir\\`$*\", \"$dir\\uninstall.exe\" -Recurse -Force -ErrorAction SilentlyContinue",
+    "bin": "Mooring.exe",
+    "shortcuts": [
+        [
+            "Mooring.exe",
+            "Mooring"
+        ]
+    ],
+    "checkver": {
+        "github": "https://github.com/yyasar21/Mooring"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/yyasar21/Mooring/releases/download/v$version/Mooring_$version_x64-setup.exe#/dl.7z",
+                "hash": {
+                    "url": "https://github.com/yyasar21/Mooring/releases/download/v$version/SHA256SUMS",
+                    "regex": "$sha256\\s+$basename"
+                }
+            }
+        }
+    }
+}
