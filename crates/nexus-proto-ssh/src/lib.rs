@@ -1,10 +1,12 @@
-//! SSH session for Nexus Remote, built on russh.
+//! SSH session for Mooring, built on russh (ADR-0004, ADR-0007).
 //!
-//! Phase A0 ships the crate boundary only; the implementation lands in the phase that owns it
-//! (see docs/adr/0004-session-abstraction.md). Rules that already apply here:
-//! every byte from the remote side is hostile, parsers get fuzz targets, no `unsafe`.
+//! Every byte from the remote side is hostile: russh parses the wire protocol, and the only
+//! parser here is the `known_hosts` trust store, which treats its file as untrusted input.
+//! No `unsafe`.
 
 #![forbid(unsafe_code)]
+
+pub mod known_hosts;
 
 use async_trait::async_trait;
 use nexus_core::session::{ConnectParams, Session, SessionEvent, SessionInput};
