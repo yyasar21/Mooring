@@ -3,7 +3,9 @@
 //! type magic, no anchors/aliases, no tags, at most one document.
 //!
 //! Rejected: `exec`, `auth-provider`, `tokenFile`, `client-certificate`, `client-key` (file
-//! paths) anywhere under `users[].user`, and any cluster `certificate-authority` file path.
+//! paths) in any mapping under `users[]`, and any cluster `certificate-authority` file path,
+//! compared ASCII case-insensitively (lenient decoders match JSON field names that way), and
+//! YAML merge keys (`<<`) anywhere: go-yaml applies them, so a merge could smuggle `exec` in.
 //! Running a command or reading a file named by imported YAML is code execution / disclosure.
 //! Extracted: context names (capped) and `current-context`.
 
@@ -120,6 +122,9 @@ impl<'a> Builder<'a> {
                         Event::Scalar(k, _, 0, None) => k.into_owned(),
                         _ => return Err(rejected("kubeconfig keys must be plain text")),
                     };
+                    if key == "<<" {
+                        return Err(rejected("kubeconfig may not use YAML merge keys"));
+                    }
                     let ev = self.next()?;
                     let value = self.node(ev, depth + 1)?;
                     if entries.iter().any(|(k, _)| *k == key) {
@@ -150,23 +155,36 @@ fn parse_tree(yaml: &str) -> Result<Node, CredentialError> {
     Ok(root)
 }
 
+/// The first forbidden key (canonical spelling) in any mapping inside `node`, compared ASCII
+/// case-insensitively.
+fn find_forbidden(node: &Node, keys: &[&'static str]) -> Option<&'static str> {
+    match node {
+        Node::Scalar(_) => None,
+        Node::Seq(items) => items.iter().find_map(|n| find_forbidden(n, keys)),
+        Node::Map(entries) => entries.iter().find_map(|(k, v)| {
+            keys.iter()
+                .copied()
+                .find(|f| f.eq_ignore_ascii_case(k))
+                .or_else(|| find_forbidden(v, keys))
+        }),
+    }
+}
+
 fn check_forbidden(
     section: &Node,
     inner: &str,
-    keys: &[&str],
+    keys: &[&'static str],
     what: &str,
 ) -> Result<(), CredentialError> {
     for item in section.items() {
-        if let Some(body) = item.get(inner) {
-            if let Node::Map(entries) = body {
-                if let Some((k, _)) = entries.iter().find(|(k, _)| keys.contains(&k.as_str())) {
-                    return Err(rejected(&format!(
-                        "{what} uses `{k}`; only self-contained kubeconfigs (inline data, tokens) are accepted"
-                    )));
-                }
-            } else {
-                return Err(rejected(&format!("{what} entry is malformed")));
-            }
+        if item.get(inner).is_some_and(|body| !matches!(body, Node::Map(_))) {
+            return Err(rejected(&format!("{what} entry is malformed")));
+        }
+        // every mapping under the entry, not only the `user` / `cluster` body
+        if let Some(k) = find_forbidden(item, keys) {
+            return Err(rejected(&format!(
+                "{what} uses `{k}`; only self-contained kubeconfigs (inline data, tokens) are accepted"
+            )));
         }
     }
     Ok(())
@@ -251,6 +269,36 @@ mod tests {
             assert!(matches!(e, CredentialError::KubeconfigRejected(_)), "{e:?}");
             assert!(!e.to_string().contains("/bin/sh") && !e.to_string().contains("/etc"));
         }
+    }
+
+    #[test]
+    fn rejects_merge_keys_and_case_variants() {
+        let user = "    token: test-only-token";
+        for (replacement, why) in [
+            ("    <<: {exec: {command: /bin/sh}}", "merge key with an inline mapping"),
+            ("    token: x\n    <<: {name: y}", "merge key anywhere, harmless body"),
+            ("    Exec:\n      command: /bin/sh", "Exec"),
+            ("    AUTH-PROVIDER:\n      name: oidc", "AUTH-PROVIDER"),
+            ("    TokenFile: /var/run/token", "TokenFile"),
+            ("    token: x\n    nested:\n      exec: {command: /bin/sh}", "nested under user"),
+        ] {
+            let yaml = KUBECONFIG.replace(user, replacement);
+            let e = parse(yaml.as_bytes()).expect_err(why);
+            assert!(matches!(e, CredentialError::KubeconfigRejected(_)), "{why}: {e:?}");
+            assert!(!e.to_string().contains("/bin/sh"), "{why}: no value echo");
+        }
+        let top = KUBECONFIG
+            .replace("users:\n- name: ops\n", "users:\n- name: ops\n  exec: {command: x}\n");
+        assert!(parse(top.as_bytes()).is_err(), "a key beside `user` under users[]");
+        let merge_top = format!("{KUBECONFIG}<<: {{preferences: {{}}}}\n");
+        let e = parse(merge_top.as_bytes()).expect_err("top-level merge");
+        assert!(e.to_string().contains("merge"), "{e}");
+        let ca = KUBECONFIG.replace(
+            "    certificate-authority-data: AAAA",
+            "    Certificate-Authority: /etc/ca.crt",
+        );
+        assert!(parse(ca.as_bytes()).is_err(), "cluster key case variant");
+        assert!(parse(KUBECONFIG.as_bytes()).is_ok(), "certificate-authority-data still fine");
     }
 
     #[test]
