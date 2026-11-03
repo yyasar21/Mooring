@@ -229,17 +229,18 @@ jobs:
           AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
           AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
           VERSION: ${{ needs.create-release.outputs.version }}
+          BUNDLES: ${{ matrix.bundles }}
         run: |
           import json, os, pathlib
           env = os.environ.get
           bundle = {}
           if env("TAURI_SIGNING_PRIVATE_KEY"):
               bundle["createUpdaterArtifacts"] = True
+          # The AppImage bundler rejects '-' in a version and Tauri rejects '~' (not semver), so
+          # pre-releases ship deb + rpm only on Linux; stable releases add the AppImage.
+          bundles = env("BUNDLES")
           if "-" in env("VERSION") and env("RUNNER_OS") == "Linux":
-              # deb/rpm/AppImage reject '-' in a version; 0.1.0-rc.1 ships as 0.1.0~rc.1 on Linux.
-              bundle_version = env("VERSION").replace("-", "~", 1)
-          else:
-              bundle_version = None
+              bundles = ",".join(b for b in bundles.split(",") if b != "appimage")
           win = {}
           if "-" in env("VERSION"):
               # MSI ProductVersion is numeric; 0.2.0-rc.1 ships as MSI 0.2.0.
@@ -255,13 +256,11 @@ jobs:
                          timestampUrl="http://timestamp.digicert.com")
           if win:
               bundle["windows"] = win
-          cfg = {"bundle": bundle} if bundle else {}
-          if bundle_version:
-              cfg["version"] = bundle_version
           path = pathlib.Path(env("RUNNER_TEMP")) / "tauri.ci.json"
-          path.write_text(json.dumps(cfg))
+          path.write_text(json.dumps({"bundle": bundle} if bundle else {}))
           with open(env("GITHUB_OUTPUT"), "a") as out:
               out.write(f"path={path.as_posix()}\n")
+              out.write(f"bundles={bundles}\n")
 
       # Build only: no releaseId/tagName and no token, so tauri-action cannot touch the release.
       # (latest.json is therefore not produced; it was unused, and enabling the updater needs its
@@ -270,7 +269,7 @@ jobs:
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         with:
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config ${{ steps.cfg.outputs.path }}
+          args: --target ${{ matrix.target }} --bundles ${{ steps.cfg.outputs.bundles }} --config ${{ steps.cfg.outputs.path }}
           retryAttempts: 1
 
       - name: Build .pkg from the .app
