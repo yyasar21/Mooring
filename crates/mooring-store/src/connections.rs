@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn hosts_are_checked() {
-        assert!(check_host("10.10.20.5").is_ok());
+        assert!(check_host("192.0.2.5").is_ok());
         assert!(check_host("a b").is_err());
         assert!(check_host("").is_err());
         assert!(check_host(&"h".repeat(2049)).is_err());
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn store_and_core_agree_on_limits() {
         // Same rules as mooring-core: a value core accepts the store accepts, and vice versa.
-        for host in ["10.10.20.5", "a b", "", "h\u{0}", &"h".repeat(2049)] {
+        for host in ["192.0.2.5", "a b", "", "h\u{0}", &"h".repeat(2049)] {
             assert_eq!(
                 check_host(host).is_ok(),
                 mooring_core::validate_host(host).is_ok(),

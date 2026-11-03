@@ -29,25 +29,25 @@ fn connection_round_trip_update_and_delete() {
     let l = lab();
     let s = &l.store;
     let mut c =
-        Connection::new(l.okd.id, " okd-master ", Protocol::Ssh, " 10.10.30.10 ").expect("valid");
+        Connection::new(l.kube.id, " kube-cp ", Protocol::Ssh, " 198.51.100.10 ").expect("valid");
     c.port = Some(2222);
-    c.tags = vec!["okd".into(), "k8s".into(), "okd".into()];
+    c.tags = vec!["kube".into(), "k8s".into(), "kube".into()];
     let stored = s.create_connection(&c).expect("create");
-    assert_eq!(stored.name, "okd-master");
-    assert_eq!(stored.host, "10.10.30.10");
-    assert_eq!(stored.tags, vec!["k8s".to_owned(), "okd".to_owned()]);
+    assert_eq!(stored.name, "kube-cp");
+    assert_eq!(stored.host, "198.51.100.10");
+    assert_eq!(stored.tags, vec!["k8s".to_owned(), "kube".to_owned()]);
     assert_eq!(stored.port, Some(2222));
     assert_eq!(s.get_connection(c.id).expect("get"), stored);
 
     let mut upd = stored.clone();
-    upd.name = "okd-cp-1".into();
+    upd.name = "kube-cp-1".into();
     upd.protocol = Protocol::Rdp;
     upd.port = None;
     upd.folder = l.servers.id;
     upd.tags = vec!["control-plane".into()];
     let after = s.update_connection(&upd).expect("update");
     assert_eq!(after, upd);
-    assert!(s.list_connections(l.okd.id).expect("okd").is_empty());
+    assert!(s.list_connections(l.kube.id).expect("kube").is_empty());
     assert_eq!(s.list_connections(l.servers.id).expect("servers"), vec![after]);
 
     s.delete_connection(c.id).expect("delete");
@@ -94,7 +94,7 @@ fn connection_validation_happens_before_sql() {
 fn set_tags_replaces() {
     let l = lab();
     let s = &l.store;
-    let c = conn(s, &l.servers, "xmon01", "10.10.20.30", &["a", "b"]);
+    let c = conn(s, &l.servers, "mon01", "192.0.2.30", &["a", "b"]);
     let t = s.set_tags(c.id, &["observability".into(), " c ".into()]).expect("set");
     assert_eq!(t, vec!["c".to_owned(), "observability".to_owned()]);
     assert_eq!(s.get_connection(c.id).expect("get").tags, t);
@@ -107,18 +107,18 @@ fn set_tags_replaces() {
 fn deleting_a_folder_cascades_to_subfolders_connections_and_tags() {
     let l = lab();
     let s = &l.store;
-    let a = conn(s, &l.servers, "xinfra01", "10.10.20.5", &["infra"]);
-    let b = conn(s, &l.okd, "okd-master", "10.10.30.10", &["okd"]);
-    let keep = conn(s, &l.root, "router", "10.10.0.1", &["net"]);
+    let a = conn(s, &l.servers, "web01", "192.0.2.5", &["infra"]);
+    let b = conn(s, &l.kube, "kube-cp", "198.51.100.10", &["kube"]);
+    let keep = conn(s, &l.root, "router", "192.0.2.1", &["net"]);
 
     s.delete_folder(l.servers.id).expect("delete");
 
-    assert!(matches!(s.get_folder(l.okd.id), Err(StoreError::NotFound { .. })));
+    assert!(matches!(s.get_folder(l.kube.id), Err(StoreError::NotFound { .. })));
     assert!(matches!(s.get_connection(a.id), Err(StoreError::NotFound { .. })));
     assert!(matches!(s.get_connection(b.id), Err(StoreError::NotFound { .. })));
     assert_eq!(s.get_connection(keep.id).expect("kept").tags, vec!["net".to_owned()]);
     // search index follows the cascade
-    assert!(s.search("okd", 10).expect("search").is_empty());
+    assert!(s.search("kube", 10).expect("search").is_empty());
     assert!(s.search("infra", 10).expect("search").is_empty());
     assert_eq!(s.search("net", 10).expect("search").len(), 1);
 }
@@ -127,10 +127,10 @@ fn deleting_a_folder_cascades_to_subfolders_connections_and_tags() {
 fn move_folder_keeps_contents() {
     let l = lab();
     let s = &l.store;
-    let c = conn(s, &l.okd, "okd-master", "10.10.30.10", &[]);
-    s.move_folder(l.okd.id, l.root.id).expect("move");
-    assert_eq!(s.get_folder(l.okd.id).expect("okd").parent, Some(l.root.id));
-    assert_eq!(s.list_connections(l.okd.id).expect("list")[0].id, c.id);
+    let c = conn(s, &l.kube, "kube-cp", "198.51.100.10", &[]);
+    s.move_folder(l.kube.id, l.root.id).expect("move");
+    assert_eq!(s.get_folder(l.kube.id).expect("kube").parent, Some(l.root.id));
+    assert_eq!(s.list_connections(l.kube.id).expect("list")[0].id, c.id);
     assert!(matches!(s.move_folder(l.servers.id, l.servers.id), Err(StoreError::Tree(_))));
 }
 

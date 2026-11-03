@@ -13,7 +13,7 @@ fn migrates_from_empty_and_reopens_idempotently() {
         let s = Store::open(&path).expect("first open");
         assert_eq!(s.schema_version().expect("v"), schema::LATEST);
         let lab_root = s.create_folder(None, "root").expect("root");
-        let c = common::conn(&s, &lab_root, "xinfra01", "10.10.20.5", &["infra"]);
+        let c = common::conn(&s, &lab_root, "web01", "192.0.2.5", &["infra"]);
         s.set_vault_id("8c6f5c0e-3a1b-4d8e-9f00-1234567890ab").expect("vault id");
         c.id
     };
@@ -23,7 +23,7 @@ fn migrates_from_empty_and_reopens_idempotently() {
     assert_eq!(s.get_connection(id).expect("persisted").tags, vec!["infra".to_owned()]);
     assert_eq!(s.vault_id().expect("get").as_deref(), Some("8c6f5c0e-3a1b-4d8e-9f00-1234567890ab"));
     // search index survives reopen (rebuilt on open)
-    assert_eq!(s.search("xinfra", 10).expect("search").len(), 1);
+    assert_eq!(s.search("web01", 10).expect("search").len(), 1);
 }
 
 /// Review L4: a deleted connection leaves no trace in `-wal` or in the FTS segments once the

@@ -219,7 +219,7 @@ async fn local_forward_refuses_non_loopback_bind_unless_external() {
 async fn remote_forward_refuses_non_loopback_bind_unless_external() {
     let (mut s, srv, _d) = session().await;
     let echo = echo_server().await;
-    for host in ["0.0.0.0", "*", "::", "10.10.0.1"] {
+    for host in ["0.0.0.0", "*", "::", "192.0.2.1"] {
         let err = s
             .forward_remote((host.into(), 0), echo, Exposure::Loopback)
             .await

@@ -61,7 +61,7 @@ fn build_tree(state: &state::AppState, port: u16) -> (String, String, String) {
         state,
         ConnectionFields {
             folder_id: lab.id.clone(),
-            name: "xinfra01 (loopback stand-in)".into(),
+            name: "web01 (loopback stand-in)".into(),
             protocol: "ssh".into(),
             host: "127.0.0.1".into(),
             port: Some(u32::from(port)),
@@ -87,7 +87,7 @@ async fn create_vault_add_connection_run_uname_close_and_lock() {
 
     // 2-3. Folder, credential, connection.
     let (lab, cred, conn) = build_tree(st, srv.port);
-    let hits = tree::search(st, "xinfra01", 10).expect("search");
+    let hits = tree::search(st, "web01", 10).expect("search");
     assert_eq!(hits.len(), 1);
     assert_eq!((hits[0].id.as_str(), hits[0].folder_id.as_str()), (conn.as_str(), lab.as_str()));
     let creds = serde_json::to_string(&credentials::list(st).expect("creds")).expect("json");

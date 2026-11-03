@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn query_tokens_are_quoted_prefix_terms() {
-        assert_eq!(fts_query("xinfra 10.10").as_deref(), Some("\"xinfra\"* \"10.10\"*"));
+        assert_eq!(fts_query("web01 192.0").as_deref(), Some("\"web01\"* \"192.0\"*"));
         assert_eq!(fts_query("a\"b").as_deref(), Some("\"a\"\"b\"*"));
         assert_eq!(fts_query("NEAR( x OR y").as_deref(), Some("\"NEAR(\"* \"x\"* \"OR\"* \"y\"*"));
         assert_eq!(fts_query("  * - \" ()  "), None);

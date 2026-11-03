@@ -331,8 +331,8 @@ mod tests {
         let a = create_folder(&f.state, &root, "  Servers ").expect("a");
         assert_eq!(a.name, "Servers");
         assert_eq!(a.parent_id.as_deref(), Some(root.as_str()));
-        let b = create_folder(&f.state, &a.id, "okd").expect("b");
-        assert_eq!(rename_folder(&f.state, &b.id, "OKD").expect("rename").name, "OKD");
+        let b = create_folder(&f.state, &a.id, "kube").expect("b");
+        assert_eq!(rename_folder(&f.state, &b.id, "KUBE").expect("rename").name, "KUBE");
         assert_eq!(move_folder(&f.state, &a.id, &b.id).expect_err("cycle").code, "tree.cycle");
         assert_eq!(move_folder(&f.state, &root, &a.id).expect_err("root").code, "tree.root");
         assert_eq!(delete_folder(&f.state, &root).expect_err("root").code, "tree.root");
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(moved.parent_id.as_deref(), Some(root.as_str()));
         delete_folder(&f.state, &a.id).expect("delete");
         let tree = list(&f.state).expect("list");
-        assert_eq!(tree.folders.len(), 2, "root + okd");
+        assert_eq!(tree.folders.len(), 2, "root + kube");
     }
 
     #[test]
@@ -401,21 +401,21 @@ mod tests {
         .expect("cred");
         set_default_credential(&f.state, &prod.id, Some(&cred.id)).expect("default");
 
-        let c = create_connection(&f.state, fields(&prod.id, "xinfra01", "10.10.20.5"))
+        let c = create_connection(&f.state, fields(&prod.id, "web01", "192.0.2.5"))
             .expect("create");
         assert_eq!(c.credential_id, None);
         assert_eq!(c.effective_credential_id.as_deref(), Some(cred.id.as_str()), "inherited");
         assert_eq!(c.tags, ["lab"]);
 
-        let mut upd = fields(&prod.id, "xinfra01-new", "10.10.20.6");
+        let mut upd = fields(&prod.id, "web01-new", "192.0.2.6");
         upd.port = Some(2222);
         let u = update_connection(&f.state, &c.id, upd).expect("update");
         assert_eq!(
             (u.name.as_str(), u.port, u.created_at.as_str()),
-            ("xinfra01-new", Some(2222), c.created_at.as_str())
+            ("web01-new", Some(2222), c.created_at.as_str())
         );
 
-        let hits = search(&f.state, "xinfra", 0).expect("search");
+        let hits = search(&f.state, "web01", 0).expect("search");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].folder_id, prod.id);
 

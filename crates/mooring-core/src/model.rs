@@ -261,8 +261,8 @@ mod tests {
         assert!(Folder::new(None, "a\u{7}b").is_err());
         let root = Folder::new(None, "Lab").expect("valid");
         assert!(Connection::new(root.id, "x", Protocol::Ssh, "bad host").is_err());
-        let c = Connection::new(root.id, " xinfra01 ", Protocol::Ssh, "10.10.20.5").expect("valid");
-        assert_eq!(c.name, "xinfra01");
+        let c = Connection::new(root.id, " web01 ", Protocol::Ssh, "192.0.2.5").expect("valid");
+        assert_eq!(c.name, "web01");
         assert_eq!(c.effective_port(), Some(22));
     }
 
@@ -274,7 +274,7 @@ mod tests {
         assert!(validate_name("").is_err());
         assert!(validate_name("a\nb").is_err());
 
-        assert_eq!(validate_host(" 10.10.20.5 ").expect("ok"), "10.10.20.5");
+        assert_eq!(validate_host(" 192.0.2.5 ").expect("ok"), "192.0.2.5");
         assert!(validate_host(&"h".repeat(MAX_HOST)).is_ok());
         assert!(validate_host(&"h".repeat(MAX_HOST + 1)).is_err());
         assert!(validate_host("a b").is_err());
