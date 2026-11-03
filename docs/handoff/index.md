@@ -5,6 +5,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 
 | Date | Phase | Role | Note |
 | --- | --- | --- | --- |
+| 2026-11-04 | pub | ui-engineer | [public-site.md](public-site.md) — GitHub Pages landing site (site/, pages.yml) |
 | 2026-11-03 | A1+ | orchestrator | [a1-orchestrator.md](a1-orchestrator.md) — round 3: ADR-0009 credentials, public launch prep, reviews |
 | 2026-11-03 | A1+ | rust-core | [a1-rust-core-fixes-3.md](a1-rust-core-fixes-3.md) — review-3 fix round (B-3, M-5..M-7, L-*, N-*) |
 | 2026-11-03 | A1+ | security-reviewer | [a1-security-reviewer-3.md](a1-security-reviewer-3.md) — review 3 (credentials, release, docs): BLOCKER → fixed |
