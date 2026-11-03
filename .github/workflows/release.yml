@@ -235,6 +235,11 @@ jobs:
           bundle = {}
           if env("TAURI_SIGNING_PRIVATE_KEY"):
               bundle["createUpdaterArtifacts"] = True
+          if "-" in env("VERSION") and env("RUNNER_OS") == "Linux":
+              # deb/rpm/AppImage reject '-' in a version; 0.1.0-rc.1 ships as 0.1.0~rc.1 on Linux.
+              bundle_version = env("VERSION").replace("-", "~", 1)
+          else:
+              bundle_version = None
           win = {}
           if "-" in env("VERSION"):
               # MSI ProductVersion is numeric; 0.2.0-rc.1 ships as MSI 0.2.0.
@@ -250,8 +255,11 @@ jobs:
                          timestampUrl="http://timestamp.digicert.com")
           if win:
               bundle["windows"] = win
+          cfg = {"bundle": bundle} if bundle else {}
+          if bundle_version:
+              cfg["version"] = bundle_version
           path = pathlib.Path(env("RUNNER_TEMP")) / "tauri.ci.json"
-          path.write_text(json.dumps({"bundle": bundle} if bundle else {}))
+          path.write_text(json.dumps(cfg))
           with open(env("GITHUB_OUTPUT"), "a") as out:
               out.write(f"path={path.as_posix()}\n")
 
@@ -288,7 +296,8 @@ jobs:
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/out"; mkdir -p "$out"
-          mapfile -t files < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
+          files=()
+          while IFS= read -r line; do [[ -n "$line" ]] && files+=("$line"); done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
           [[ -n "${PKG_PATH:-}" ]] && files+=("$PKG_PATH")
           for f in "${files[@]}"; do
             [[ -f "$f" ]] || continue # .app bundles are directories; the .dmg / .app.tar.gz carry them
@@ -385,7 +394,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t files < <(find dist -type f | LC_ALL=C sort)
+          files=()
+          while IFS= read -r line; do [[ -n "$line" ]] && files+=("$line"); done < <(find dist -type f | LC_ALL=C sort)
           dupes=$(printf '%s\n' "${files[@]##*/}" | sort | uniq -d)
           [[ -z "$dupes" ]] || { echo "::error::same file name from two builds: $dupes"; exit 1; }
           gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" "${files[@]}"

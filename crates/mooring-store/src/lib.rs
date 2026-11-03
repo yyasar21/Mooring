@@ -142,7 +142,7 @@ fn restrict_db_file(path: &Path) -> Result<()> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(io)
 }
 
-/// Windows: the per-user AppData ACL already restricts access (review M2).
+/// Windows: the per-user `AppData` ACL already restricts access (review M2).
 #[cfg(not(unix))]
 #[allow(clippy::unnecessary_wraps)]
 fn restrict_db_file(_path: &Path) -> Result<()> {
