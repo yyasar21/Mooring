@@ -45,10 +45,19 @@ impl KdfParams {
     /// header cannot make brute force cheap.
     pub const FLOOR: Self = Self { m_kib: 8 * 1024, t: 1, p: 1 };
 
-    /// Check against the floor and Argon2's own limits.
+    /// Upper bounds the vault refuses to go above when *reading* a header (4 GiB, 16 passes,
+    /// 16 lanes: 4x the largest calibration candidate), so a hostile header or import cannot
+    /// make unlock allocate terabytes or spin forever (A1 review B2).
+    pub const CEILING: Self = Self { m_kib: 4 * 1024 * 1024, t: 16, p: 16 };
+
+    /// Check against the floor, the ceiling and Argon2's own limits.
     pub fn validate(self) -> Result<(), VaultError> {
         if self.m_kib < Self::FLOOR.m_kib || self.t < Self::FLOOR.t || self.p < Self::FLOOR.p {
             return Err(VaultError::KdfParams("below the minimum floor".into()));
+        }
+        let c = Self::CEILING;
+        if self.m_kib > c.m_kib || self.t > c.t || self.p > c.p {
+            return Err(VaultError::KdfParams("above the maximum ceiling".into()));
         }
         Params::new(self.m_kib, self.t, self.p, Some(KEY_LEN))
             .map(|_| ())
@@ -147,8 +156,13 @@ fn measure_derivation(params: KdfParams) -> Duration {
     }
 }
 
-/// Physical RAM in KiB as reported by the OS.
+/// Physical RAM in KiB as reported by the OS (queried once per process).
 fn physical_ram_kib() -> Option<u64> {
+    static RAM: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *RAM.get_or_init(query_physical_ram_kib)
+}
+
+fn query_physical_ram_kib() -> Option<u64> {
     use sysinfo::{MemoryRefreshKind, RefreshKind, System};
     let sys = System::new_with_specifics(
         RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()),
@@ -173,7 +187,22 @@ pub(crate) fn derive_kek(
     salt: &[u8; SALT_LEN],
     params: KdfParams,
 ) -> Result<Zeroizing<[u8; KEY_LEN]>, VaultError> {
+    derive_kek_with_ram(password, salt, params, physical_ram_kib())
+}
+
+/// [`derive_kek`] with an injectable RAM size. Refuses, before allocating, a memory cost above
+/// half of physical RAM (when known): a header calibrated on a big machine fails cleanly on a
+/// small one instead of swapping it to death (A1 review B2).
+pub(crate) fn derive_kek_with_ram(
+    password: &[u8],
+    salt: &[u8; SALT_LEN],
+    params: KdfParams,
+    ram_kib: Option<u64>,
+) -> Result<Zeroizing<[u8; KEY_LEN]>, VaultError> {
     params.validate()?;
+    if ram_kib.is_some_and(|ram| u64::from(params.m_kib) > ram / 2) {
+        return Err(VaultError::KdfParams("needs more memory than this host has".into()));
+    }
     let p = Params::new(params.m_kib, params.t, params.p, Some(KEY_LEN))
         .map_err(|e| VaultError::KdfParams(e.to_string()))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, p);
@@ -215,6 +244,36 @@ mod tests {
     }
 
     #[test]
+    fn ceiling_is_enforced() {
+        assert!(KdfParams::CEILING.validate().is_ok());
+        let c = KdfParams::CEILING;
+        for bad in [
+            KdfParams { m_kib: u32::MAX, ..KdfParams::TEST },
+            KdfParams { m_kib: c.m_kib + 1, ..KdfParams::TEST },
+            KdfParams { t: 17, ..KdfParams::TEST },
+            KdfParams { p: 17, ..KdfParams::TEST },
+            KdfParams { m_kib: u32::MAX, t: u32::MAX, p: 0x00FF_FFFF },
+        ] {
+            assert_eq!(
+                bad.validate(),
+                Err(VaultError::KdfParams("above the maximum ceiling".into())),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn derive_refuses_more_than_half_of_ram() {
+        let too_big = VaultError::KdfParams("needs more memory than this host has".into());
+        let salt = [1; SALT_LEN];
+        // TEST needs 8 MiB: refused with 8 MiB of RAM (half = 4), fine with 16 MiB or unknown.
+        let r = derive_kek_with_ram(b"pw", &salt, KdfParams::TEST, Some(8 * 1024));
+        assert_eq!(r.err(), Some(too_big));
+        assert!(derive_kek_with_ram(b"pw", &salt, KdfParams::TEST, Some(16 * 1024)).is_ok());
+        assert!(derive_kek_with_ram(b"pw", &salt, KdfParams::TEST, None).is_ok());
+    }
+
+    #[test]
     fn same_inputs_same_key_different_salt_different_key() {
         let a = derive_kek(b"pw", &[1; SALT_LEN], KdfParams::TEST).expect("kdf");
         let b = derive_kek(b"pw", &[1; SALT_LEN], KdfParams::TEST).expect("kdf");
@@ -240,6 +299,18 @@ mod tests {
             last = k.m_kib;
         }
         assert_eq!(last, 1024 * MIB);
+    }
+
+    #[test]
+    fn calibrate_output_always_validates() {
+        for cap in [0, 1024, 64 * MIB, 300 * MIB, u32::MAX] {
+            for ram in [16, 1024, 64 * 1024, 1024 * 1024] {
+                for lanes in [0, 1, 4, 64] {
+                    let k = calibrate_with(ms(5000), cap, host(ram, lanes), linear(1));
+                    assert!(k.validate().is_ok(), "cap {cap} ram {ram} lanes {lanes}: {k:?}");
+                }
+            }
+        }
     }
 
     #[test]

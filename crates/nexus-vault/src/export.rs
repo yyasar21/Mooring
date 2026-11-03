@@ -259,6 +259,42 @@ mod tests {
         }
     }
 
+    /// Encrypt arbitrary bytes with age directly, bypassing `export_age`'s header check.
+    fn raw_age(payload: &[u8]) -> Vec<u8> {
+        let mut recipient = scrypt::Recipient::new(age::secrecy::SecretString::from(PASS));
+        recipient.set_work_factor(10);
+        let enc = age::Encryptor::with_recipients(iter::once(&recipient as &dyn age::Recipient))
+            .expect("encryptor");
+        let mut out = Vec::new();
+        let mut w = enc.wrap_output(&mut out).expect("wrap");
+        w.write_all(payload).expect("write");
+        w.finish().expect("finish");
+        out
+    }
+
+    #[test]
+    fn import_refuses_hostile_kdf_cost_in_header() {
+        let (_, d) = doc();
+        for params in [
+            KdfParams { m_kib: u32::MAX, t: 1, p: 1 },
+            KdfParams { m_kib: KdfParams::TEST.m_kib, t: u32::MAX, p: 1 },
+            KdfParams { m_kib: KdfParams::TEST.m_kib, t: 1, p: 0x00FF_FFFF },
+            KdfParams { m_kib: u32::MAX, t: u32::MAX, p: 0x00FF_FFFF },
+        ] {
+            let mut hostile = d.clone();
+            hostile.header.kdf_params = params;
+            let bytes = raw_age(&serde_json::to_vec(&hostile).expect("json"));
+            assert_eq!(
+                import_age(&bytes, &s(PASS)),
+                Err(VaultError::Export("invalid vault header in export")),
+                "{params:?}"
+            );
+        }
+        // the same path accepts a sane header
+        let ok = raw_age(&serde_json::to_vec(&d).expect("json"));
+        assert_eq!(import_age(&ok, &s(PASS)).expect("import"), d);
+    }
+
     #[test]
     fn payload_must_be_a_valid_document() {
         let pass = s(PASS);
