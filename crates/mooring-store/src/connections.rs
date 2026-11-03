@@ -1,0 +1,247 @@
+//! Connection and tag CRUD.
+
+use std::collections::BTreeSet;
+
+use mooring_core::{Connection, ConnectionId, FolderId};
+use rusqlite::{params, OptionalExtension, Row};
+
+use crate::error::{invalid, not_found, Result};
+use crate::folders::folder_exists;
+use crate::util::{check_name, fmt_ts, now, parse_id, parse_opt_id, parse_ts, protocol_from_str};
+use crate::{Store, MAX_TAGS};
+
+const CONN_COLS: &str = "id, folder_id, name, protocol, host, port, credential_id, created_at";
+
+type RawConn = (String, String, String, String, String, Option<u16>, Option<String>, String);
+
+fn row_to_raw(r: &Row<'_>) -> rusqlite::Result<RawConn> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
+}
+
+/// Host rules from [`mooring_core::validate_host`].
+fn check_host(host: &str) -> Result<String> {
+    Ok(mooring_core::validate_host(host)?)
+}
+
+/// Trim, validate and de-duplicate tags (order-preserving set semantics via `BTreeSet`).
+pub(crate) fn normalise_tags(tags: &[String]) -> Result<Vec<String>> {
+    if tags.len() > MAX_TAGS {
+        return Err(invalid("tags", &format!("at most {MAX_TAGS} tags")));
+    }
+    let mut out = BTreeSet::new();
+    for t in tags {
+        out.insert(mooring_core::validate_tag(t)?);
+    }
+    Ok(out.into_iter().collect())
+}
+
+struct Validated {
+    name: String,
+    host: String,
+    tags: Vec<String>,
+}
+
+fn validate(c: &Connection) -> Result<Validated> {
+    if c.port == Some(0) {
+        return Err(invalid("port", "must be 1..=65535"));
+    }
+    Ok(Validated {
+        name: check_name("name", &c.name)?,
+        host: check_host(&c.host)?,
+        tags: normalise_tags(&c.tags)?,
+    })
+}
+
+impl Store {
+    /// Insert a connection (validated again here; fields of `Connection` are public).
+    /// Returns the stored form (trimmed name/host, normalised tags).
+    pub fn create_connection(&self, c: &Connection) -> Result<Connection> {
+        let v = validate(c)?;
+        let tx = self.conn.unchecked_transaction()?;
+        if !folder_exists(&tx, c.folder)? {
+            return Err(not_found("folder", &c.folder));
+        }
+        if let Some(cred) = c.credential {
+            crate::credentials::ensure_credential(&tx, cred)?;
+        }
+        let created = fmt_ts(c.created_at)?;
+        tx.execute(
+            "INSERT INTO connection (id, folder_id, name, protocol, host, port, credential_id,
+                                     created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                c.id.to_string(),
+                c.folder.to_string(),
+                v.name,
+                c.protocol.name(),
+                v.host,
+                c.port,
+                c.credential.map(|x| x.to_string()),
+                created,
+                fmt_ts(now())?,
+            ],
+        )?;
+        write_tags(&tx, c.id, &v.tags)?;
+        tx.commit()?;
+        self.get_connection(c.id)
+    }
+
+    /// Replace every mutable field of an existing connection, including its tags.
+    pub fn update_connection(&self, c: &Connection) -> Result<Connection> {
+        let v = validate(c)?;
+        let tx = self.conn.unchecked_transaction()?;
+        if !folder_exists(&tx, c.folder)? {
+            return Err(not_found("folder", &c.folder));
+        }
+        if let Some(cred) = c.credential {
+            crate::credentials::ensure_credential(&tx, cred)?;
+        }
+        let n = tx.execute(
+            "UPDATE connection SET folder_id = ?2, name = ?3, protocol = ?4, host = ?5, port = ?6,
+                                   credential_id = ?7, updated_at = ?8
+             WHERE id = ?1",
+            params![
+                c.id.to_string(),
+                c.folder.to_string(),
+                v.name,
+                c.protocol.name(),
+                v.host,
+                c.port,
+                c.credential.map(|x| x.to_string()),
+                fmt_ts(now())?,
+            ],
+        )?;
+        if n == 0 {
+            return Err(not_found("connection", &c.id));
+        }
+        write_tags(&tx, c.id, &v.tags)?;
+        tx.commit()?;
+        self.get_connection(c.id)
+    }
+
+    /// Replace a connection's tags.
+    pub fn set_tags(&self, id: ConnectionId, tags: &[String]) -> Result<Vec<String>> {
+        let tags = normalise_tags(tags)?;
+        let tx = self.conn.unchecked_transaction()?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM connection WHERE id = ?1)",
+            [id.to_string()],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Err(not_found("connection", &id));
+        }
+        write_tags(&tx, id, &tags)?;
+        tx.commit()?;
+        Ok(tags)
+    }
+
+    /// Delete a connection and its tags.
+    pub fn delete_connection(&self, id: ConnectionId) -> Result<()> {
+        let n = self.conn.execute("DELETE FROM connection WHERE id = ?1", [id.to_string()])?;
+        if n == 0 {
+            return Err(not_found("connection", &id));
+        }
+        Ok(())
+    }
+
+    /// Look up one connection with its tags.
+    pub fn get_connection(&self, id: ConnectionId) -> Result<Connection> {
+        let sql = format!("SELECT {CONN_COLS} FROM connection WHERE id = ?1");
+        let raw = self.conn.query_row(&sql, [id.to_string()], row_to_raw).optional()?;
+        self.decode(raw.ok_or_else(|| not_found("connection", &id))?)
+    }
+
+    /// Connections directly inside a folder, sorted by name.
+    pub fn list_connections(&self, folder: FolderId) -> Result<Vec<Connection>> {
+        let sql =
+            format!("SELECT {CONN_COLS} FROM connection WHERE folder_id = ?1 ORDER BY name, id");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let raws = stmt
+            .query_map([folder.to_string()], row_to_raw)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        raws.into_iter().map(|r| self.decode(r)).collect()
+    }
+
+    pub(crate) fn tags_of(&self, id: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT tag FROM connection_tag WHERE connection_id = ?1 ORDER BY tag")?;
+        let tags =
+            stmt.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(tags)
+    }
+
+    fn decode(&self, raw: RawConn) -> Result<Connection> {
+        let (id, folder, name, protocol, host, port, cred, created) = raw;
+        let tags = self.tags_of(&id)?;
+        Ok(Connection {
+            id: parse_id(&id)?,
+            folder: parse_id(&folder)?,
+            name,
+            protocol: protocol_from_str(&protocol)?,
+            host,
+            port,
+            credential: parse_opt_id(cred.as_deref())?,
+            tags,
+            created_at: parse_ts(&created)?,
+        })
+    }
+}
+
+/// Replace tags inside the caller's transaction. Triggers keep the FTS row in sync.
+fn write_tags(conn: &rusqlite::Connection, id: ConnectionId, tags: &[String]) -> Result<()> {
+    let id = id.to_string();
+    conn.execute("DELETE FROM connection_tag WHERE connection_id = ?1", [&id])?;
+    let mut stmt =
+        conn.prepare("INSERT INTO connection_tag (connection_id, tag) VALUES (?1, ?2)")?;
+    for t in tags {
+        stmt.execute([&id, t])?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tags_are_normalised_and_capped() {
+        let t = normalise_tags(&[" b ".into(), "a".into(), "b".into()]).expect("ok");
+        assert_eq!(t, vec!["a".to_owned(), "b".to_owned()]);
+        assert!(normalise_tags(&["x".repeat(65)]).is_err());
+        assert!(normalise_tags(&[" ".into()]).is_err());
+        assert!(normalise_tags(&vec!["t".to_owned(); 51]).is_err());
+        assert!(normalise_tags(&vec!["t".to_owned(); 50]).is_ok());
+    }
+
+    #[test]
+    fn hosts_are_checked() {
+        assert!(check_host("10.10.20.5").is_ok());
+        assert!(check_host("a b").is_err());
+        assert!(check_host("").is_err());
+        assert!(check_host(&"h".repeat(2049)).is_err());
+        assert!(check_host("h\u{7}").is_err());
+    }
+
+    #[test]
+    fn store_and_core_agree_on_limits() {
+        // Same rules as mooring-core: a value core accepts the store accepts, and vice versa.
+        for host in ["10.10.20.5", "a b", "", "h\u{0}", &"h".repeat(2049)] {
+            assert_eq!(
+                check_host(host).is_ok(),
+                mooring_core::validate_host(host).is_ok(),
+                "{host}"
+            );
+        }
+        for tag in ["x", " ", &"t".repeat(mooring_core::MAX_TAG + 1)] {
+            let t = [tag.to_owned()];
+            assert_eq!(
+                normalise_tags(&t).is_ok(),
+                mooring_core::validate_tag(tag).is_ok(),
+                "{tag}"
+            );
+        }
+        assert_eq!(crate::MAX_NAME, mooring_core::MAX_NAME);
+    }
+}

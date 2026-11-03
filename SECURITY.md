@@ -1,6 +1,6 @@
 # Security policy
 
-Nexus Remote stores credentials and opens sessions to systems you administer. Security is a
+Mooring stores credentials and opens sessions to systems you administer. Security is a
 release criterion, not a feature.
 
 ## Reporting a vulnerability

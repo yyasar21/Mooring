@@ -12,7 +12,7 @@ master password ──Argon2id(salt 16 B, m=256 MiB, t=3, p=4)──► KEK (32 
 KEK ──XChaCha20-Poly1305, AAD = header fields──► wraps DEK (32 B, random)
 DEK ──XChaCha20-Poly1305, nonce 24 B random, AAD = record_id ‖ 0x1F ‖ field──► each secret field
 ```
-- Header (JSON, versioned, `magic=NEXUSVAULT`, `version=1`) is plaintext but authenticated:
+- Header (JSON, versioned, `magic=MOORINGVAULT`, `version=1`) is plaintext but authenticated:
   it is the AAD of the DEK wrap. A tampered KDF parameter or salt fails unlock.
 - A KDF floor (8 MiB / 1 / 1) is enforced when reading a header, before deriving.
 - Password change re-wraps the DEK with a fresh salt + nonce; records are untouched.

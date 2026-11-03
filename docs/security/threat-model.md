@@ -1,4 +1,4 @@
-# Threat model — Nexus Remote (v1, Phase A1)
+# Threat model — Mooring (v1, Phase A1)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
 Last change: A1 items 1–2 (ADR-0005 store, ADR-0006 vault lifecycle), review
@@ -7,20 +7,20 @@ Last change: A1 items 1–2 (ADR-0005 store, ADR-0006 vault lifecycle), review
 ## Assets
 | Asset | Where it lives | Impact if lost |
 | --- | --- | --- |
-| Vault secrets (passwords, keys, tokens) | `credential.secret`/`secret2` in `nexus.db`, sealed per field; DEK in RAM while unlocked | Full lab compromise |
+| Vault secrets (passwords, keys, tokens) | `credential.secret`/`secret2` in `mooring.db`, sealed per field; DEK in RAM while unlocked | Full lab compromise |
 | Master password | Nowhere (derived into KEK, zeroized) | Vault compromise |
 | Vault header (`vault.header.json`) | Plaintext, authenticated; the only copy of the wrapped DEK | Loss = vault loss (availability); tamper = unlock fails |
-| Keyring `WrapKey` (opt-in) | OS keyring, service `xyz.homelab.nexus`, account = `vault_id` | With the header: DEK (see R-T2-KR) |
+| Keyring `WrapKey` (opt-in) | OS keyring, service `xyz.homelab.mooring`, account = `vault_id` | With the header: DEK (see R-T2-KR) |
 | Export file (`*.age`) | Wherever the user puts it; age scrypt + per-field sealing inside | Offline guessing of export passphrase, then master password |
 | Open sessions (terminal, screen) | Process memory, WebView | Live access to targets |
-| Connection inventory (hosts, IPs, names, usernames, tags, topology) | `nexus.db` **plaintext** (ADR-0005) | Reconnaissance |
+| Connection inventory (hosts, IPs, names, usernames, tags, topology) | `mooring.db` **plaintext** (ADR-0005) | Reconnaissance |
 | Audit log | `audit.jsonl`, hash-chained, carries `vault_id` | Loss of accountability |
 | Trust store (host keys, cert pins) | Vault (A2) | MITM |
 
 ## Attackers
 | ID | Attacker | Capability |
 | --- | --- | --- |
-| T1 | Stolen device / backup | Reads vault header, `nexus.db`, audit log, export files offline |
+| T1 | Stolen device / backup | Reads vault header, `mooring.db`, audit log, export files offline |
 | T2 | Malicious local process (same user) | Reads files, reads the OS keyring where no ACL applies, may read process memory on some OSes |
 | T3 | Network MITM | Intercepts/alters SSH, RDP, VNC, HTTPS, LDAPS traffic |
 | T4 | Malicious remote server / hostile file | Sends hostile protocol bytes to our parsers; hands the user a crafted export/header |
@@ -36,7 +36,7 @@ Last change: A1 items 1–2 (ADR-0005 store, ADR-0006 vault lifecycle), review
 | Tampering: keyring wrap (T1, T2) | Second wrap's AAD = header AAD (without wrap) ‖ 0x1F ‖ `keyring`; bound to KDF params, salt, vault id; enable/disable need master password | A1 ✓ (B1 fixed; OS commands on HOLD per R-T2-KR) |
 | Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; syslog mirror to xlog01 optional | A0 ✓ (mirror open) |
 | Repudiation | Audit entries for vault + credential + session + trust events; `vault.lock` carries `reason ∈ {user, idle, screen_lock, sleep, window_hidden}` | A0 ✓ / A1 partial (lock reasons ✓; keyring/export/credential events with wiring) |
-| Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `nexus_audit::redact` on sinks; no `println!` (lint) | A0 ✓ / A1 ✓ |
+| Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `mooring_audit::redact` on sinks; no `println!` (lint) | A0 ✓ / A1 ✓ |
 | Information disclosure: memory (T2) | `Zeroizing` for DEK/KEK/WrapKey/plaintexts; DEK dropped on lock; pure auto-lock clock (idle 15 min, screen lock, sleep, window hidden) | A1 partial: clock ✓, Argon2 `zeroize` ✓ (L3); Tauri tick + OS signals open; `mlock` open |
 | Information disclosure: inventory at rest (T1, T2) | Accepted plaintext (R-INV); data dir 0700 / db 0600 (M2); `secure_delete=ON`; FTS5 `optimize` + WAL truncate on close, rebuild on open (L4) | A1 ✓ (residue bound: deleted rows may persist in FTS segments until close / next open) |
 | Information disclosure: export (T1) | age v1 scrypt (cap 2^20 on import; export pinned 2^18 — L5), passphrase ≥ 12 chars, fields stay sealed inside | A1 ✓ |
@@ -71,7 +71,7 @@ small one. That is intended: it gives a clear error instead of swapping, and the
 re-encrypt with the master password on the big machine.
 
 ### R-INV — Inventory metadata in plaintext (accepted, A1)
-`nexus.db` holds connection names, hosts, ports, protocols, tags, folder names and credential
+`mooring.db` holds connection names, hosts, ports, protocols, tags, folder names and credential
 names and usernames in clear text. A T1 or T2 attacker gets the lab topology and the
 usernames without any password. Accepted per ADR-0005: the SQLCipher alternative duplicates
 the vault AEAD and adds C crypto. Conditions: the file and directory modes from M2, FTS5
@@ -99,9 +99,9 @@ before A3 S3 sync uploads the DB.
       + `.bak`), N3 (in the `vault_export` PR), N5 (KDF refusal surfaced as `Unlock`), N6
       (double checkpoint on close); `Store::close()` from `RunEvent::Exit` when wired.
 - [ ] A1: `cargo-fuzz` targets for `import_age` and `Header::from_bytes` (proptest stand-in
-      only today); `.gitleaks.toml` allow-list for `crates/nexus-vault/tests/vectors/`.
+      only today); `.gitleaks.toml` allow-list for `crates/mooring-vault/tests/vectors/`.
 - [ ] A1 exit: cargo-deny, cargo-audit, gitleaks green in CI (not run in the A1-1/2 review
-      environment); `nexus-app` built on macOS, Windows, Linux.
+      environment); `mooring-app` built on macOS, Windows, Linux.
 - [ ] A2: separate WebView + capability for remote pages; RDP certificate pinning UX.
 - [ ] A3: LDAP injection review, S3 sync integrity (version counters inside AEAD); revisit
       R-INV before the DB leaves the device; import `--merge` must re-check `vault_id`.

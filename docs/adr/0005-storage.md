@@ -9,13 +9,13 @@ seals individual fields; it does not say where records live. The audit log (ADR-
 needs a stable home too.
 
 ## Decision
-- One SQLite database per application: `$APP_DATA/nexus.db` (`rusqlite`, `bundled` feature,
+- One SQLite database per application: `$APP_DATA/mooring.db` (`rusqlite`, `bundled` feature,
   WAL, `foreign_keys=ON`, `secure_delete=ON`). The vault header stays in
   `$APP_DATA/vault.header.json`; the audit log stays per-app in `$APP_DATA/audit.jsonl` and
   carries `vault_id` (random UUID stored in the header, A1) in every entry. A1 supports exactly
   one vault per app; multi-vault is a later ADR.
-- New crate `crates/nexus-store`. It owns the schema, migrations and queries. It never derives
-  keys: callers pass an unlocked `&nexus_vault::Vault` to seal/open fields.
+- New crate `crates/mooring-store`. It owns the schema, migrations and queries. It never derives
+  keys: callers pass an unlocked `&mooring_vault::Vault` to seal/open fields.
 - Schema v1 (all ids are UUID text, timestamps RFC 3339 UTC):
   - `folder(id PK, parent_id FK NULL, name, default_credential_id FK NULL, sort, created_at, updated_at)`
   - `connection(id PK, folder_id FK, name, protocol, host, port NULL, credential_id FK NULL, created_at, updated_at)`
@@ -34,9 +34,9 @@ needs a stable home too.
 - Migrations: numbered SQL scripts embedded with `include_str!`, applied inside one transaction,
   `schema_version` written last. Downgrade is refused.
 - Credential resolution: `Store::effective_credential(connection_id)` walks the folder chain
-  via `nexus_core::tree` (connection override → nearest folder `default_credential`). The UI
+  via `mooring_core::tree` (connection override → nearest folder `default_credential`). The UI
   gets credential ids and names only (ADR-0003).
-- Inputs are validated with `nexus_core` constructors before they reach SQL; every query is
+- Inputs are validated with `mooring_core` constructors before they reach SQL; every query is
   parameterised; sizes capped (name 120, host 2048, tag 64, max 50 tags).
 
 ## Alternatives considered
@@ -48,7 +48,7 @@ needs a stable home too.
 
 ## Security consequences
 Secret columns are AEAD-sealed and bound to row + column. `secure_delete` overwrites freed
-pages. The store has no key material; a stolen `nexus.db` without the header + password yields
+pages. The store has no key material; a stolen `mooring.db` without the header + password yields
 inventory metadata only (accepted risk, documented in the threat model).
 
 ## Test plan

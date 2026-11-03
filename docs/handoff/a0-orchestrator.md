@@ -1,10 +1,10 @@
 # A0 — orchestrator handoff
 
 ## Done
-- Cargo workspace: `nexus-core` (model, tree with inheritance + cycle checks, Session trait),
-  `nexus-vault` (Argon2id + XChaCha20-Poly1305, authenticated header, KDF floor, password change,
-  proptest bit-flip detection), `nexus-audit` (hash-chained JSONL, verify, redaction),
-  `nexus-proto-{ssh,rdp,vnc}` stubs implementing `Session`.
+- Cargo workspace: `mooring-core` (model, tree with inheritance + cycle checks, Session trait),
+  `mooring-vault` (Argon2id + XChaCha20-Poly1305, authenticated header, KDF floor, password change,
+  proptest bit-flip detection), `mooring-audit` (hash-chained JSONL, verify, redaction),
+  `mooring-proto-{ssh,rdp,vnc}` stubs implementing `Session`.
 - Tauri 2 shell: `app_info`, `vault_status/create/unlock/lock` commands; header persisted to
   `$APP_DATA/vault.header.json`, audit to `$APP_DATA/audit.jsonl`; capability `main` =
   `core:default` only; strict CSP; `freezePrototype`.
@@ -14,7 +14,7 @@
 - Team: `.claude/agents/*` (6 roles), CLAUDE.md, ADR-0001..0004, threat model v0.
 
 ## Left open
-- `nexus-app` was not compiled in the cloud workspace (no WebView toolchain there). First
+- `mooring-app` was not compiled in the cloud workspace (no WebView toolchain there). First
   `cargo tauri dev` on the Mac may surface small API mismatches in `src-tauri/src/*` — fix inline.
 - Icons are placeholders; run `pnpm tauri icon <512px png>` once a logo exists.
 - Argon2 defaults not yet calibrated; A1.

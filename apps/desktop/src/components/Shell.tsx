@@ -1,4 +1,4 @@
-import { Kbd, StateDot } from "@nexus/ui";
+import { Kbd, StateDot } from "@mooring/ui";
 import { useApp } from "../stores/app";
 import { useSessions } from "../stores/sessions";
 import { INSPECTOR, SIDEBAR, useUi } from "../stores/ui";

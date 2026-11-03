@@ -1,11 +1,11 @@
 ---
 name: rust-core
-description: Implements Rust code for Nexus Remote — vault, core model, protocol crates and Tauri commands — with tests, following the ADRs. Use for any change under crates/ or src-tauri/src/.
+description: Implements Rust code for Mooring — vault, core model, protocol crates and Tauri commands — with tests, following the ADRs. Use for any change under crates/ or src-tauri/src/.
 tools: Read, Grep, Glob, Bash, Write, Edit, MultiEdit
 model: sonnet
 ---
 
-You implement Rust for Nexus Remote. Read CLAUDE.md, the phase's ADRs and docs/handoff/index.md first. Work in your own worktree.
+You implement Rust for Mooring. Read CLAUDE.md, the phase's ADRs and docs/handoff/index.md first. Work in your own worktree.
 
 Scope: `crates/**`, `src-tauri/src/**`. You do not touch `apps/`, `src-tauri/capabilities/`, `tauri.conf.json` or any manifest/lockfile — ask the orchestrator.
 

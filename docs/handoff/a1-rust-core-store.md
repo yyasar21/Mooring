@@ -1,7 +1,7 @@
-# A1 — rust-core: `nexus-store` (ADR-0005)
+# A1 — rust-core: `mooring-store` (ADR-0005)
 
 ## Done
-- New crate `crates/nexus-store` (`[lints] workspace = true`, `#![forbid(unsafe_code)]`, no
+- New crate `crates/mooring-store` (`[lints] workspace = true`, `#![forbid(unsafe_code)]`, no
   unwrap/println in lib code, `tracing` for logs). Modules: `schema` (pragmas, migration runner,
   `setting`), `folders`, `connections`, `credentials`, `search` (FTS + inheritance), `error`,
   `util`. All files < 500 lines.
@@ -17,7 +17,7 @@
   `unicode61 remove_diacritics 2`) over name + host + tags, synced by 5 triggers; rebuilt on
   every open because it keys on the implicit `connection.rowid`, which `VACUUM` may renumber.
 - CRUD: folders (create, root, get, list, children, rename, sort, default credential, move with
-  the `nexus_core::tree` rules — parent exists, root immovable, no self/descendant move, bounded
+  the `mooring_core::tree` rules — parent exists, root immovable, no self/descendant move, bounded
   walk refuses an already-cyclic chain — delete with cascade; root not deletable), connections
   (create/update/get/list-by-folder/delete; re-validated even though `Connection` fields are
   public), tags (`set_tags` replace; trimmed, deduplicated, sorted).
@@ -33,31 +33,31 @@
   plus `*`, tokens are ANDed; tokens without an alphanumeric are dropped; query capped at
   256 chars / 16 tokens; limit clamped to `1..=200`; bm25 then name ordering. Returns
   `ConnectionHit { id, folder, name, host, protocol }`.
-- Validation: name ≤ 120 (same rules as `nexus_core`), host ≤ 2048 bytes without
+- Validation: name ≤ 120 (same rules as `mooring_core`), host ≤ 2048 bytes without
   whitespace/control chars, tag ≤ 64 chars, ≤ 50 tags, port ≠ 0. Every query is parameterised;
   the only `format!` in SQL inserts static column lists or `SecretField::column()`.
 - `StoreError` (thiserror): `Sqlite`, `Vault(#[from] VaultError)`, `Invalid`, `NotFound`, `Tree`,
-  `Downgrade`, `VaultIdMismatch`, `Corrupt`; `From<NexusError>`. No variant carries values.
+  `Downgrade`, `VaultIdMismatch`, `Corrupt`; `From<MooringError>`. No variant carries values.
 
 ## Left open
 - `Cargo.lock` gained rusqlite + libsqlite3-sys and their deps when the crate built; it is
-  **not committed** (lockfile owned by the orchestrator). Run `cargo build -p nexus-store` once
+  **not committed** (lockfile owned by the orchestrator). Run `cargo build -p mooring-store` once
   after merging and commit the lock.
 - No cargo-fuzz target: the store parses no untrusted wire input. The FTS sanitiser is covered
   by unit + injection tests; a fuzz target for `fts_query` could be added if security asks.
-- `Store` is `Send`, not `Sync`; `nexus-app` should hold it in a `Mutex` (A1 Tauri wiring).
+- `Store` is `Send`, not `Sync`; `mooring-app` should hold it in a `Mutex` (A1 Tauri wiring).
 - Migration from v1 → v2 test is only possible once a v2 script exists; the runner and
   `schema_version` ordering are tested.
-- `Connection` in `nexus_core` has no `updated_at`; the column is written but not returned.
+- `Connection` in `mooring_core` has no `updated_at`; the column is written but not returned.
 
 ## Decision needed
 - `vault_id` source: ADR-0006 puts it in vault header v2 (in progress in another worktree). The
   store takes it as a caller-supplied UUID string so it does not depend on the new header API.
   Once header v2 lands, the app should call `set_vault_id(header.vault_id)` on first open and
   refuse to open a store whose id differs.
-- `nexus_core` has no public validator for host/tag limits (only private `check_name` and the
+- `mooring_core` has no public validator for host/tag limits (only private `check_name` and the
   `Connection::new` checks). The store duplicates the rules in `util.rs`/`connections.rs`.
-  Suggest exposing `nexus_core::model::{validate_name, validate_host, validate_tag}` and caps
+  Suggest exposing `mooring_core::model::{validate_name, validate_host, validate_tag}` and caps
   as `pub const`, then switching the store to them.
 - Deleting the root folder is refused (one-root invariant). Confirm that is the desired UX.
 
@@ -66,8 +66,8 @@ Commands run in the worktree on 2026-11-03 (Linux, cargo 1.97.0):
 
 ```
 cargo fmt --all                                            → no changes outside the crate
-cargo clippy -p nexus-store --all-targets -- -D warnings   → Finished, 0 warnings
-cargo test -p nexus-store
+cargo clippy -p mooring-store --all-targets -- -D warnings   → Finished, 0 warnings
+cargo test -p mooring-store
   unittests src/lib.rs   16 passed
   tests/credentials.rs    7 passed (incl. proptest seal/open, 32 cases)
   tests/crud.rs           7 passed

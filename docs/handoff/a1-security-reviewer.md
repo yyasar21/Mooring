@@ -1,4 +1,4 @@
-# A1 · security-reviewer · items 1–2 (vault lifecycle, nexus-store)
+# A1 · security-reviewer · items 1–2 (vault lifecycle, mooring-store)
 
 Full review and re-review: [docs/security/a1-review.md](../security/a1-review.md).
 
@@ -11,7 +11,7 @@ The A1 items 1–2 code on `main` is approved. The first review's `BLOCKER` is l
 ### Re-review (fix round)
 - Checked every finding against the code and its test:
   - B1, B2, L1, L3, L4, L5, M2, N1, N2, N4 and A1-QA-2 are fixed and tested.
-  - The shared `nexus-core` validators are approved: hosts now refuse control characters.
+  - The shared `mooring-core` validators are approved: hosts now refuse control characters.
   - The dev-only `opt-level = 3` for scrypt is approved.
 - **N3 is deferred.** It goes in the `vault_export` PR. `subtle` is pre-approved as a direct
   dependency for it.
@@ -28,7 +28,7 @@ The A1 items 1–2 code on `main` is approved. The first review's `BLOCKER` is l
 - Two new nits:
   - **N5** `vault.rs:155-156`: the KDF RAM refusal is reported as `Unlock` ("wrong password").
     Pass `KdfParams` through instead.
-  - **N6** `nexus-store/src/lib.rs:83-85`: `close()` checkpoints twice, because `Drop` runs it
+  - **N6** `mooring-store/src/lib.rs:83-85`: `close()` checkpoints twice, because `Drop` runs it
     again.
 - Threat model updated: status rows for B1/B2/L3/L4/L5/M2, R-CAL, R-INV conditions and the open
   items.
@@ -53,10 +53,10 @@ The A1 items 1–2 code on `main` is approved. The first review's `BLOCKER` is l
   Required before A1 exit, and before any further header-rewriting command.
 - `cargo-fuzz` targets for `Header::from_bytes` and `import_age`: owed for A1 exit (owners:
   qa-engineer / rust-core).
-- The tools cargo-deny, cargo-audit, gitleaks and semgrep are not installed here. `nexus-app`
+- The tools cargo-deny, cargo-audit, gitleaks and semgrep are not installed here. `mooring-app`
   has not been compiled (no WebView toolchain), so `make check` has to pass in CI on all three
   OSes.
-- `.gitleaks.toml` allow-list for `crates/nexus-vault/tests/vectors/` (orchestrator).
+- `.gitleaks.toml` allow-list for `crates/mooring-vault/tests/vectors/` (orchestrator).
 - Re-review needed when the keyring, export, import and auto-lock Tauri commands and
   capabilities land.
 
@@ -75,12 +75,12 @@ The A1 items 1–2 code on `main` is approved. The first review's `BLOCKER` is l
 ## Test evidence
 Re-review run in worktree `agent-a4fd903c4e7869598`, HEAD `1e76c3a`, Linux, 2026-11-03:
 ```
-cargo test -p nexus-vault -p nexus-store                                         exit 0
-  nexus-store  lib 18 · credentials 7 · crud 7 · migrations 6 · search 4 · tree_edges 8
+cargo test -p mooring-vault -p mooring-store                                         exit 0
+  mooring-store  lib 18 · credentials 7 · crud 7 · migrations 6 · search 4 · tree_edges 8
                vault_store_integration 6 (0 ignored)
-  nexus-vault  lib 52 (2 intentional ignores) · autolock_table 3 · calibration_props 7
+  mooring-vault  lib 52 (2 intentional ignores) · autolock_table 3 · calibration_props 7
                proptest_round_trip 2 · vectors 3
-cargo clippy -p nexus-vault -p nexus-store -p nexus-core --all-targets -- -D warnings   clean
+cargo clippy -p mooring-vault -p mooring-store -p mooring-core --all-targets -- -D warnings   clean
 cargo fmt --all -- --check                                                               clean
 FTS5 secure-delete experiment, run in the scratchpad (outside the repo):
   contentless_delete=1: token kept after delete, gone after optimize

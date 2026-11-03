@@ -1,13 +1,13 @@
-# Verifies the nexus-vault test vectors with the reference `age` CLI, independently of the
+# Verifies the mooring-vault test vectors with the reference `age` CLI, independently of the
 # Rust code that produced them (ADR-0006 test plan: "vectors decrypt with the age CLI in CI").
 # Actions are pinned by major tag in A0; release-engineer pins them by commit SHA in A4.
 name: test-vectors
 on:
   push:
     branches: [main]
-    paths: ["crates/nexus-vault/**", "tests/vectors/**", ".github/workflows/test-vectors.yml"]
+    paths: ["crates/mooring-vault/**", "tests/vectors/**", ".github/workflows/test-vectors.yml"]
   pull_request:
-    paths: ["crates/nexus-vault/**", "tests/vectors/**", ".github/workflows/test-vectors.yml"]
+    paths: ["crates/mooring-vault/**", "tests/vectors/**", ".github/workflows/test-vectors.yml"]
   workflow_dispatch:
 concurrency:
   group: test-vectors-${{ github.ref }}
@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           out="$(mktemp)"
-          python3 crates/nexus-vault/tests/vectors/age_decrypt.py \
-            crates/nexus-vault/tests/vectors/export.age > "$out"
-          diff <(jq -S .header "$out") <(jq -S . crates/nexus-vault/tests/vectors/header.json)
+          python3 crates/mooring-vault/tests/vectors/age_decrypt.py \
+            crates/mooring-vault/tests/vectors/export.age > "$out"
+          diff <(jq -S .header "$out") <(jq -S . crates/mooring-vault/tests/vectors/header.json)
           rm -f "$out"

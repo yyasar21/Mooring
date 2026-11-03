@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { MooringLine, ProtocolPip } from "@nexus/ui";
+import { MooringLine, ProtocolPip } from "@mooring/ui";
 import { useSessions, type Tab } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";

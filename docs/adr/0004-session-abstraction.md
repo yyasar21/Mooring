@@ -7,7 +7,7 @@ SSH, RDP, VNC, Kubernetes exec and vSphere console must share tabs, audit, recon
 input handling without the UI knowing the protocol.
 
 ## Decision
-`nexus_core::session::Session`:
+`mooring_core::session::Session`:
 ```rust
 #[async_trait]
 pub trait Session: Send {
@@ -35,4 +35,4 @@ Protocol crates never receive the vault; the Tauri layer resolves credentials.
 
 ## Test plan
 Stub crates compile against the trait (A0). A1 adds an SSH integration test against
-xinfra01 behind `NEXUS_LAB=1`.
+xinfra01 behind `MOORING_LAB=1`.

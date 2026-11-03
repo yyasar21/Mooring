@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the nexus-vault test vectors with the reference `age` CLI, independently of Rust.
+"""Verify the mooring-vault test vectors with the reference `age` CLI, independently of Rust.
 
 Run from the repository root (needs `age` on PATH):
 
@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 
-VEC = os.path.join("crates", "nexus-vault", "tests", "vectors")
+VEC = os.path.join("crates", "mooring-vault", "tests", "vectors")
 DECRYPT = os.path.join(VEC, "age_decrypt.py")
 
 

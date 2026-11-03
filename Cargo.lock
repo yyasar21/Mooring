@@ -3109,6 +3109,134 @@ dependencies = [
 ]
 
 [[package]]
+name = "mooring-app"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "mooring-audit",
+ "mooring-core",
+ "mooring-vault",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-audit"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "mooring-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "proptest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-proto-rdp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "mooring-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mooring-proto-ssh"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "hmac",
+ "mooring-core",
+ "proptest",
+ "rand_core 0.6.4",
+ "russh",
+ "russh-sftp",
+ "secrecy",
+ "sha1",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-proto-vnc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "mooring-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mooring-store"
+version = "0.1.0"
+dependencies = [
+ "mooring-core",
+ "mooring-vault",
+ "proptest",
+ "rusqlite",
+ "secrecy",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-vault"
+version = "0.1.0"
+dependencies = [
+ "age",
+ "argon2 0.5.3",
+ "chacha20poly1305 0.10.1",
+ "hex",
+ "proptest",
+ "rand_core 0.6.4",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "thiserror 2.0.21",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "muda"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3164,134 +3292,6 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
-
-[[package]]
-name = "nexus-app"
-version = "0.1.0"
-dependencies = [
- "keyring",
- "nexus-audit",
- "nexus-core",
- "nexus-vault",
- "secrecy",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "zeroize",
-]
-
-[[package]]
-name = "nexus-audit"
-version = "0.1.0"
-dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "nexus-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "proptest",
- "secrecy",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "nexus-proto-rdp"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "nexus-core",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nexus-proto-ssh"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "hmac",
- "nexus-core",
- "proptest",
- "rand_core 0.6.4",
- "russh",
- "russh-sftp",
- "secrecy",
- "sha1",
- "tempfile",
- "tokio",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "nexus-proto-vnc"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "nexus-core",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "nexus-store"
-version = "0.1.0"
-dependencies = [
- "nexus-core",
- "nexus-vault",
- "proptest",
- "rusqlite",
- "secrecy",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tracing",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "nexus-vault"
-version = "0.1.0"
-dependencies = [
- "age",
- "argon2 0.5.3",
- "chacha20poly1305 0.10.1",
- "hex",
- "proptest",
- "rand_core 0.6.4",
- "secrecy",
- "serde",
- "serde_json",
- "sysinfo",
- "thiserror 2.0.21",
- "tracing",
- "uuid",
- "zeroize",
-]
 
 [[package]]
 name = "nix"

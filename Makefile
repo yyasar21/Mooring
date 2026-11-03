@@ -1,7 +1,7 @@
-# Nexus Remote — single entry point for humans, agents and CI.
+# Mooring — single entry point for humans, agents and CI.
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-PURE := --workspace --exclude nexus-app
+PURE := --workspace --exclude mooring-app
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n",$$1,$$2}'
@@ -14,7 +14,7 @@ setup: ## install toolchain helpers (once per machine)
 	command -v gitleaks >/dev/null || echo "install gitleaks: brew install gitleaks"
 
 dev: ## run the desktop app with hot reload
-	pnpm --filter @nexus/desktop build
+	pnpm --filter @mooring/desktop build
 	cargo tauri dev
 
 fmt: ## format rust
@@ -31,7 +31,7 @@ test: ## unit tests (pure crates + ui)
 	cargo test $(PURE)
 	pnpm test
 
-test-vectors: ## verify nexus-vault vectors with the reference age CLI (needs `age`)
+test-vectors: ## verify mooring-vault vectors with the reference age CLI (needs `age`)
 	python3 tests/vectors/verify_age_export.py
 
 audit: ## dependency + secret scanning
@@ -47,7 +47,7 @@ app-check: ## clippy + tests including the Tauri crate (needs the OS WebView too
 	cargo test --workspace
 
 e2e: ## Playwright E2E through tauri-driver (A1+)
-	pnpm --filter @nexus/desktop exec playwright test tests/e2e
+	pnpm --filter @mooring/desktop exec playwright test tests/e2e
 
 fuzz: ## run every fuzz target for 60 s each (A1+)
 	@for t in $$(cargo fuzz list 2>/dev/null); do cargo fuzz run $$t -- -max_total_time=60; done

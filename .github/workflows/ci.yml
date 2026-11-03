@@ -38,4 +38,4 @@ jobs:
         shell: bash
         run: '! grep -rn "invoke(" apps/desktop/src --include=*.ts --include=*.tsx | grep -v "src/lib/ipc.ts"'
       - name: Tauri app compiles
-        run: cargo build -p nexus-app
+        run: cargo build -p mooring-app

@@ -3,13 +3,13 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use nexus_audit::{AuditError, AuditLog};
-use nexus_vault::{Header, Vault, VaultError};
+use mooring_audit::{AuditError, AuditLog};
+use mooring_vault::{Header, Vault, VaultError};
 
 /// Shared application state managed by Tauri.
 #[derive(Debug)]
 pub struct AppState {
-    /// Where the vault header and audit log live (`$APP_DATA/nexus`).
+    /// Where the vault header and audit log live (`$APP_DATA/mooring`).
     pub data_dir: PathBuf,
     /// `None` until a vault is created or its header loaded.
     pub vault: Mutex<Option<Vault>>,

@@ -48,7 +48,7 @@ session_send({ sessionId, input: SessionInput })   -> void     # Bytes | Resize 
 session_close({ sessionId })                       -> void
 session_list()                                     -> { sessionId, connectionId, protocol, state, openedAt }[]
 ```
-`SessionEvent` and `SessionInput` are the `nexus_core::session` serde shapes (`kind`-tagged
+`SessionEvent` and `SessionInput` are the `mooring_core::session` serde shapes (`kind`-tagged
 snake_case). `Bytes.data` is base64 on the wire (Tauri channels serialise JSON).
 
 ### Audit

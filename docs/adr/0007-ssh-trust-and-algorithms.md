@@ -3,7 +3,7 @@
 Status: Accepted · 2026-11-03 (Phase A1, item 3)
 
 ## Context
-`nexus-proto-ssh` must give a Royal-TS-class terminal (shell, resize, streaming), SFTP and
+`mooring-proto-ssh` must give a Royal-TS-class terminal (shell, resize, streaming), SFTP and
 port forwarding on top of ADR-0004, against servers the user does not control (home lab now,
 customer estates later). Host-key handling and algorithm choice are the security core.
 
@@ -37,7 +37,7 @@ customer estates later). Host-key handling and algorithm choice are the security
    server's echo flag inverted) answered through `SessionInput::Answer`; the vault password is
    auto-filled for the first prompt when the prompt text matches `/password/i` and a password
    secret exists.
-- `nexus_core::session::SessionInput` gains `Answer { id: u32, text: SecretString }` with a
+- `mooring_core::session::SessionInput` gains `Answer { id: u32, text: SecretString }` with a
   hand-written `Debug` (redacted) and a custom `Deserialize` only (never serialised back to
   the UI).
 - Secret material is dropped right after the auth round; failed auth yields a generic
@@ -74,7 +74,7 @@ customer estates later). Host-key handling and algorithm choice are the security
 - `known_hosts` parser: unit + proptest (random bytes never panic; round trip of written
   hashed entries). A `cargo fuzz` target `known_hosts_parse` is added when nightly is
   available (QA).
-- `NEXUS_LAB=1` integration test against `xinfra01.homelab.xyz`: connect, `uname -a`, close —
+- `MOORING_LAB=1` integration test against `xinfra01.homelab.xyz`: connect, `uname -a`, close —
   read-only, skipped by default.
 
 ## Alternatives considered

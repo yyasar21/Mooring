@@ -1,6 +1,6 @@
 // DTOs of the ADR-0008 IPC contract, as the UI sees them (after wire decoding in ipc.ts).
 // Nothing here ever carries a secret outward: credentials are metadata + ids only.
-import type { ProtocolName } from "@nexus/ui";
+import type { ProtocolName } from "@mooring/ui";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";

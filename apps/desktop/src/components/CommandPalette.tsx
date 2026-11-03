@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Kbd, ProtocolPip } from "@nexus/ui";
+import { Kbd, ProtocolPip } from "@mooring/ui";
 import type { ConnectionHit } from "../lib/ipc";
 import { bestScore } from "../lib/fuzzy";
 import { folderPath, useTree } from "../stores/tree";

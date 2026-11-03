@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ProtocolPip, StateDot } from "@nexus/ui";
+import { ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, CredentialMeta, Folder } from "../../lib/ipc";
 import { folderPath, useTree } from "../../stores/tree";
 import { KIND_LABEL, useCredentials } from "../../stores/credentials";

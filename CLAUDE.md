@@ -1,4 +1,4 @@
-# Nexus Remote — Claude Code configuration
+# Mooring — Claude Code configuration
 
 ## Project
 
@@ -7,10 +7,10 @@ Linux. Tauri 2 (Rust core) + React 19/TypeScript. Phase A = connection manager; 
 = own remote-desktop agent and relay.
 
 ```
-crates/nexus-core      domain model: Connection, Folder, CredentialId, Session trait (ADR-0004)
-crates/nexus-vault     Argon2id + XChaCha20-Poly1305 vault, zeroized keys (ADR-0002)
-crates/nexus-audit     hash-chained audit log, secret redaction
-crates/nexus-proto-*   ssh (russh) / rdp (IronRDP) / vnc — hostile-input parsers, fuzz targets
+crates/mooring-core      domain model: Connection, Folder, CredentialId, Session trait (ADR-0004)
+crates/mooring-vault     Argon2id + XChaCha20-Poly1305 vault, zeroized keys (ADR-0002)
+crates/mooring-audit     hash-chained audit log, secret redaction
+crates/mooring-proto-*   ssh (russh) / rdp (IronRDP) / vnc — hostile-input parsers, fuzz targets
 src-tauri/             Tauri shell: commands, capabilities, state (ADR-0003)
 apps/desktop/          React UI; packages/ui = design tokens + primitives
 docs/adr/              decisions · docs/security/ threat model, reviews · docs/handoff/ team notes
@@ -18,7 +18,7 @@ docs/adr/              decisions · docs/security/ threat model, reviews · docs
 
 Build / check: `make check` (fmt, clippy -D warnings, tests, cargo-deny, cargo-audit, eslint,
 tsc, vitest, gitleaks). `make dev` runs the app. `cargo test` alone covers the pure crates on any
-machine; `nexus-app` needs the platform WebView toolchain.
+machine; `mooring-app` needs the platform WebView toolchain.
 
 ## Non-negotiable rules
 
@@ -68,7 +68,7 @@ Security Audit Loop + OWASP + finecomb (phase exits), Rust CLI Skills (rust-core
 frontend-design + Design (ui-engineer), playwright + E2E Test Generator (qa),
 AgentAvow (new dependencies).
 
-Ruflo: `npx ruflo hooks pre-task` / `post-task` around every task, memory namespace `nexus`,
+Ruflo: `npx ruflo hooks pre-task` / `post-task` around every task, memory namespace `mooring`,
 hierarchical topology, max 8 agents.
 
 ## Commands

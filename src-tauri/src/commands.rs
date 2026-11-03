@@ -1,7 +1,7 @@
 //! IPC commands. Every function here is an attack surface: validate, never leak.
 
-use nexus_audit::AuditEvent;
-use nexus_vault::{KdfParams, LockReason, Vault, VaultState};
+use mooring_audit::AuditEvent;
+use mooring_vault::{KdfParams, LockReason, Vault, VaultState};
 use secrecy::SecretString;
 use serde::Serialize;
 use tauri::State;
@@ -22,9 +22,9 @@ impl IpcError {
     }
 }
 
-impl From<nexus_vault::VaultError> for IpcError {
-    fn from(e: nexus_vault::VaultError) -> Self {
-        use nexus_vault::VaultError as V;
+impl From<mooring_vault::VaultError> for IpcError {
+    fn from(e: mooring_vault::VaultError) -> Self {
+        use mooring_vault::VaultError as V;
         let code = match e {
             V::Unlock => "vault.unlock",
             V::Tampered => "vault.tampered",
@@ -64,7 +64,7 @@ pub struct AppInfo {
 #[tauri::command]
 pub fn app_info() -> AppInfo {
     AppInfo {
-        name: "Nexus Remote",
+        name: "Mooring",
         version: env!("CARGO_PKG_VERSION"),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,

@@ -1,5 +1,5 @@
 {
-  "name": "nexus-remote",
+  "name": "mooring-remote",
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.28.0",
@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @nexus/desktop dev",
+    "dev": "pnpm --filter @mooring/desktop dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",

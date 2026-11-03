@@ -1,4 +1,4 @@
-# A1 · qa-engineer · items 1–2 (vault lifecycle, nexus-store)
+# A1 · qa-engineer · items 1–2 (vault lifecycle, mooring-store)
 
 Branch `worktree-agent-adbc6562436f4dbea`, on top of `6a0acd0` (main). Not merged.
 Scope: A1 items 1 and 2 only. Items 3–6 (SSH, UI, audit viewer, E2E) are not started and
@@ -9,13 +9,13 @@ no nightly / cargo-fuzz, no gitleaks binary.
 
 | File | What |
 | --- | --- |
-| `crates/nexus-store/tests/vault_store_integration.rs` | Cross-crate: create vault (TEST) → in-memory store → folders / connections / password + SSH-key credentials → `effective_credential` (inherited + override) → lock → every secret open/replace fails `Vault(Locked)` while metadata + resolution still work → wrong password stays locked → unlock → opens. Header v2 written to disk → reload → `set_vault_id(header.vault_id)` idempotent → different vault gets `VaultIdMismatch` and `Tampered` on open. Password change keeps store secrets readable and `vault_id`. Keyring unlock opens store secrets; password change drops the wrap. Export of raw store columns → `age` → import → fields open under the imported header. One `#[ignore]` bug test (A1-QA-2). |
-| `crates/nexus-store/tests/tree_edges.rs` | Inheritance after moving a folder and after moving a connection; shared default credential deleted → every reference `NULL`, falls back to root; folder cascade keeps credentials; 65-level deep chain (root fallback, nearest wins, sibling branch does not leak, mid-chain delete cascades); FTS survives `VACUUM` + reopen; diacritic/case folding (`Çankaya` ↔ `cankaya`); file reopen keeps data + schema version. |
-| `crates/nexus-vault/tests/autolock_table.rs` | Two multi-step scenario tables (touch / signal / reset / set_policy / expect; 12 cases) plus a proptest against a reference idle model (256 cases). |
-| `crates/nexus-vault/tests/calibration_props.rs` | Proptests on `calibrate_with` with a mock timer: always ≥ floor and valid, `t = 3`, `p = clamp(lanes,1,4)`, ≤ caller cap and ≤ ¼ RAM, only listed candidates (or the cap when none fit); monotonic in target, in RAM and in cap; verification guards non-linear hosts. Failing derivation (`Duration::MAX`) picks 64 MiB without overflow. Header below floor refused at parse. One `#[ignore]` bug test (A1-QA-1). |
+| `crates/mooring-store/tests/vault_store_integration.rs` | Cross-crate: create vault (TEST) → in-memory store → folders / connections / password + SSH-key credentials → `effective_credential` (inherited + override) → lock → every secret open/replace fails `Vault(Locked)` while metadata + resolution still work → wrong password stays locked → unlock → opens. Header v2 written to disk → reload → `set_vault_id(header.vault_id)` idempotent → different vault gets `VaultIdMismatch` and `Tampered` on open. Password change keeps store secrets readable and `vault_id`. Keyring unlock opens store secrets; password change drops the wrap. Export of raw store columns → `age` → import → fields open under the imported header. One `#[ignore]` bug test (A1-QA-2). |
+| `crates/mooring-store/tests/tree_edges.rs` | Inheritance after moving a folder and after moving a connection; shared default credential deleted → every reference `NULL`, falls back to root; folder cascade keeps credentials; 65-level deep chain (root fallback, nearest wins, sibling branch does not leak, mid-chain delete cascades); FTS survives `VACUUM` + reopen; diacritic/case folding (`Çankaya` ↔ `cankaya`); file reopen keeps data + schema version. |
+| `crates/mooring-vault/tests/autolock_table.rs` | Two multi-step scenario tables (touch / signal / reset / set_policy / expect; 12 cases) plus a proptest against a reference idle model (256 cases). |
+| `crates/mooring-vault/tests/calibration_props.rs` | Proptests on `calibrate_with` with a mock timer: always ≥ floor and valid, `t = 3`, `p = clamp(lanes,1,4)`, ≤ caller cap and ≤ ¼ RAM, only listed candidates (or the cap when none fit); monotonic in target, in RAM and in cap; verification guards non-linear hosts. Failing derivation (`Duration::MAX`) picks 64 MiB without overflow. Header below floor refused at parse. One `#[ignore]` bug test (A1-QA-1). |
 | `tests/vectors/verify_age_export.py` | Uses the reference `age` CLI (through the existing `age_decrypt.py` pty wrapper) to decrypt `export.age`, then checks `header == header.json`, the set of sealed fields equals `sealed.json` exactly (no missing, no extra, no duplicates), and that a one-character-tampered copy is rejected. |
-| `.github/workflows/test-vectors.yml` | Standalone workflow (push/PR on `crates/nexus-vault/**`, `tests/vectors/**`, itself; manual dispatch). `apt-get install age jq` on ubuntu-24.04, runs the verifier, and the README's `jq` header diff. `contents: read` only. |
-| `.gitleaks.toml` | `useDefault = true` (no rule disabled) + a path allowlist for `^crates/nexus-vault/tests/vectors/` only, with the reason. |
+| `.github/workflows/test-vectors.yml` | Standalone workflow (push/PR on `crates/mooring-vault/**`, `tests/vectors/**`, itself; manual dispatch). `apt-get install age jq` on ubuntu-24.04, runs the verifier, and the README's `jq` header diff. `contents: read` only. |
+| `.gitleaks.toml` | `useDefault = true` (no rule disabled) + a path allowlist for `^crates/mooring-vault/tests/vectors/` only, with the reason. |
 | `Makefile` | `make test-vectors` target. |
 
 `ci.yml` is untouched, as asked.
@@ -51,18 +51,18 @@ no nightly / cargo-fuzz, no gitleaks binary.
 
 ## Bugs found
 
-- **A1-QA-1 (security, nexus-vault)** — `KdfParams::validate` has a floor but no ceiling. A
+- **A1-QA-1 (security, mooring-vault)** — `KdfParams::validate` has a floor but no ceiling. A
   tampered `vault.header.json`, or a header inside an imported export, with `m_kib =
   u32::MAX` (4 TiB), huge `t` or `p` parses fine, and the next `unlock` runs Argon2 with it
   before the AEAD can reject the header: OOM / CPU DoS. ADR-0006 claims "a hostile header
   cannot cause OOM", which only holds for calibration. Test:
-  `crates/nexus-vault/tests/calibration_props.rs::header_with_absurd_kdf_cost_is_refused_at_parse`
+  `crates/mooring-vault/tests/calibration_props.rs::header_with_absurd_kdf_cost_is_refused_at_parse`
   (`#[ignore]`, fails when run with `--ignored`: `KdfParams { m_kib: 4294967295, t: 1, p: 1 } was accepted`).
   Fix: refuse in `validate()` above a ceiling (suggest m ≤ 4 GiB or ¼ RAM, t ≤ 64, p ≤ 16), and remove the `#[ignore]`.
-- **A1-QA-2 (nexus-store)** — `Store::set_vault_id` accepts the nil UUID. A v1 header
+- **A1-QA-2 (mooring-store)** — `Store::set_vault_id` accepts the nil UUID. A v1 header
   reports nil until its first password unlock assigns a random id. If the app binds before
   that, the store is pinned to nil and every later bind fails `VaultIdMismatch`, so the user is locked out of the store. Test:
-  `crates/nexus-store/tests/vault_store_integration.rs::nil_vault_id_is_refused` (`#[ignore]`, fails with `--ignored`).
+  `crates/mooring-store/tests/vault_store_integration.rs::nil_vault_id_is_refused` (`#[ignore]`, fails with `--ignored`).
   Fix: reject `Uuid::nil()` as `Invalid`; the app should bind only after unlock.
 - **A1-QA-3 (CI, orchestrator-owned `ci.yml`)** — line 6
   `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` is not valid YAML
@@ -85,12 +85,12 @@ no nightly / cargo-fuzz, no gitleaks binary.
 ## Must run on the Mac (and Windows where noted)
 
 1. `make app-check` (`cargo clippy --workspace --all-targets -D warnings` + `cargo test --workspace`)
-   and `cargo build -p nexus-app`. nexus-app has never compiled since A1-1 (`keyring_store.rs`, `commands.rs`). Windows as well.
+   and `cargo build -p mooring-app`. mooring-app has never compiled since A1-1 (`keyring_store.rs`, `commands.rs`). Windows as well.
 2. Real keyring: an enable → reload → `unlock_with_keyring` → disable round trip through
    `OsWrapKeyStore` against the macOS Keychain (and Windows Credential Manager). Check that the
    item is deleted on disable. The biometric ACL is not implemented (rust-core Decision 2), so expect no Touch ID prompt yet.
 3. Calibration on Apple Silicon:
-   `cargo test -p nexus-vault --release --lib -- --ignored calibrate_real_host_smoke --nocapture`.
+   `cargo test -p mooring-vault --release --lib -- --ignored calibrate_real_host_smoke --nocapture`.
    Record the chosen `m_kib` and the time of one unlock with those params. Target ≈ 500 ms. Here
    (2 cores, 8 GiB) it took 0.48 s.
 4. `make test-vectors` (needs `brew install age`). The pty wrapper is POSIX-only, so on Windows use WSL or skip.
@@ -106,16 +106,16 @@ no nightly / cargo-fuzz, no gitleaks binary.
 
 ```
 cargo fmt --all -- --check                                              → clean
-cargo clippy --workspace --exclude nexus-app --all-targets -- -D warnings → Finished, 0 warnings
-cargo test --workspace --exclude nexus-app
-  nexus-audit 7 · nexus-core 6 · proto-* 0
-  nexus-store  lib 16 · credentials 7 · crud 7 · migrations 4 · search 4
+cargo clippy --workspace --exclude mooring-app --all-targets -- -D warnings → Finished, 0 warnings
+cargo test --workspace --exclude mooring-app
+  mooring-audit 7 · mooring-core 6 · proto-* 0
+  mooring-store  lib 16 · credentials 7 · crud 7 · migrations 4 · search 4
                tree_edges 8 (new) · vault_store_integration 5 + 1 ignored (new)
-  nexus-vault  lib 40 + 2 ignored · autolock_table 3 (new) · calibration_props 6 + 1 ignored (new)
+  mooring-vault  lib 40 + 2 ignored · autolock_table 3 (new) · calibration_props 6 + 1 ignored (new)
                proptest_round_trip 2 · vectors 3
   → 118 passed, 0 failed, 4 ignored (2 pre-existing on purpose, 2 = bugs A1-QA-1/2)
-cargo test -p nexus-vault --test calibration_props -- --ignored        → FAILED (A1-QA-1, expected)
-cargo test -p nexus-store --test vault_store_integration -- --ignored  → FAILED (A1-QA-2, expected)
+cargo test -p mooring-vault --test calibration_props -- --ignored        → FAILED (A1-QA-1, expected)
+cargo test -p mooring-store --test vault_store_integration -- --ignored  → FAILED (A1-QA-2, expected)
 pnpm install --frozen-lockfile && pnpm lint && pnpm typecheck && pnpm test → ok; vitest 1 file, 2 tests
 make test-vectors → OK: header + 6 sealed vectors verified with the age CLI; tamper rejected
 YAML parse of .github/workflows/*.yml → release, security, test-vectors OK; ci.yml ERROR (A1-QA-3)

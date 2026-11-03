@@ -1,4 +1,4 @@
-Run a Nexus Remote phase as the orchestrator. Argument: the phase id (A1, A2, A3, A4).
+Run a Mooring phase as the orchestrator. Argument: the phase id (A1, A2, A3, A4).
 
 1. Read CLAUDE.md, docs/handoff/index.md, every ADR, and docs/security/threat-model.md.
 2. Open the phase prompt in docs/prompts/<phase>.md. Ask me only about items marked "Decision needed".

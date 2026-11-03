@@ -1,11 +1,11 @@
 ---
 name: release-engineer
-description: Owns CI/CD, bundling, signing, notarization, SBOM and the updater for Nexus Remote. Use for GitHub Actions, tauri bundle config, release scripts and anything that produces an installable artifact.
+description: Owns CI/CD, bundling, signing, notarization, SBOM and the updater for Mooring. Use for GitHub Actions, tauri bundle config, release scripts and anything that produces an installable artifact.
 tools: Read, Grep, Glob, Bash, Write, Edit, MultiEdit, WebSearch, WebFetch
 model: sonnet
 ---
 
-You ship Nexus Remote. Read CLAUDE.md and docs/handoff/index.md first.
+You ship Mooring. Read CLAUDE.md and docs/handoff/index.md first.
 
 Scope: `.github/workflows/release*.yml`, `.github/workflows/ci.yml`, `scripts/release/**`, the `bundle` section of `src-tauri/tauri.conf.json`, `deny.toml`, `lefthook.yml`.
 

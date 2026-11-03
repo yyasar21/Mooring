@@ -1,15 +1,15 @@
 //! OS keyring adapter for the vault's keyring wrap (ADR-0006).
 //!
-//! Service `xyz.homelab.nexus`, account = vault id. macOS Keychain, Windows Credential
+//! Service `xyz.homelab.mooring`, account = vault id. macOS Keychain, Windows Credential
 //! Manager, Secret Service on Linux — chosen by the `keyring` crate. The wrap key is never
 //! logged; keyring errors are mapped to fixed strings so no platform detail that might echo
 //! the secret reaches the `WebView`.
 
-use nexus_vault::{Uuid, VaultError, WrapKeyStore};
+use mooring_vault::{Uuid, VaultError, WrapKeyStore};
 use zeroize::Zeroizing;
 
-/// Keyring service name for every Nexus item.
-pub const SERVICE: &str = "xyz.homelab.nexus";
+/// Keyring service name for every Mooring item.
+pub const SERVICE: &str = "xyz.homelab.mooring";
 
 const KEY_LEN: usize = 32;
 

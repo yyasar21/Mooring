@@ -2,7 +2,7 @@
 
 Branch `worktree-agent-aece4a57698e71d8e`. Built against ADR-0008 with `MockTransport`; nothing
 calls Rust except `apps/desktop/src/lib/ipc.ts` (`TauriTransport`). The visible product name is
-**Mooring** (orchestrator decision); package scopes, crates and paths still say `nexus`.
+**Mooring** (orchestrator decision); package scopes, crates and paths still say `mooring`.
 
 ## Done
 - `src/lib/ipc.ts` + `ipc.types.ts`: one `Ipc` interface for every ADR-0008 command plus the A0
@@ -55,12 +55,12 @@ Wire assumptions rust-core must match:
 - Command args are camelCase (Tauri default), e.g. `{ parentId, name }`, `{ connectionId, size,
   onEvent }`; return DTOs are camelCase as written in ADR-0008 (`#[serde(rename_all =
   "camelCase")]`).
-- `SessionEvent` / `SessionInput` keep the `nexus_core` shapes (`kind`, snake_case fields such as
+- `SessionEvent` / `SessionInput` keep the `mooring_core` shapes (`kind`, snake_case fields such as
   `peer_identity`) with `Vec<u8>` serialised as **base64 strings** (`serde_with::base64` or
   equivalent), both directions.
 - `SessionInput` needs a new variant `Answer { id: u32, text: String }` — it is in ADR-0008 but
-  not yet in `crates/nexus-core/src/session.rs`.
-- `audit_tail` returns entries flattened as `nexus_audit::AuditEntry` serialises today (`seq`,
+  not yet in `crates/mooring-core/src/session.rs`.
+- `audit_tail` returns entries flattened as `mooring_audit::AuditEntry` serialises today (`seq`,
   `at`, `prev`, `event`, event fields); the UI never shows `prev` and treats every other field
   as display text.
 

@@ -3,7 +3,7 @@
 Status: Accepted · 2026-11-03
 
 ## Context
-Nexus Remote must run natively on macOS, Windows and Linux, embed terminal and remote-desktop
+Mooring must run natively on macOS, Windows and Linux, embed terminal and remote-desktop
 renderers, and hold credentials. The UI layer must be fast to iterate on; the security-critical
 layer must be memory-safe and auditable.
 
@@ -30,5 +30,5 @@ clippy `all=deny`, `pedantic=warn` with the allow-list in `Cargo.toml`; rustfmt 
 ESLint `strictTypeChecked`; `make check` is the single gate.
 
 ## Test plan
-`make check` on three OSes in CI (A0). `nexus-app` compiles only where a WebView toolchain exists;
+`make check` on three OSes in CI (A0). `mooring-app` compiles only where a WebView toolchain exists;
 the pure crates are tested everywhere.

@@ -19,7 +19,7 @@ that an independent tool (`age`) can read.
   once at vault creation and on password change; never silently on unlock.
 
 ### Auto-lock
-- Policy lives in `nexus_vault::autolock::AutoLockPolicy { idle: Option<Duration>, on_screen_lock: bool, on_sleep: bool, on_window_hidden: bool }`;
+- Policy lives in `mooring_vault::autolock::AutoLockPolicy { idle: Option<Duration>, on_screen_lock: bool, on_sleep: bool, on_window_hidden: bool }`;
   default idle 15 min, all triggers on. `AutoLockClock` tracks the last activity instant and
   answers `should_lock(now)`; it is pure and unit-tested.
 - The Tauri layer (`src-tauri/src/autolock.rs`) feeds activity (any IPC command) and OS
@@ -34,7 +34,7 @@ that an independent tool (`age`) can read.
   stored in the header as `keyring_wrap: Option<Sealed>` (AAD = header AAD ‖ "keyring"). The
   `WrapKey` is stored in the OS keyring (`keyring` crate: macOS Keychain with
   `kSecAccessControlBiometryCurrentSet`, Windows Credential Manager, Secret Service on Linux)
-  under service `xyz.homelab.nexus`, account = `vault_id`.
+  under service `xyz.homelab.mooring`, account = `vault_id`.
 - A1 ships the vault-side wrap only. The OS keyring commands stay unwired until the item
   carries a biometric/user-presence ACL on macOS (data-protection keychain,
   `BiometryCurrentSet`), uses Local persistence on Windows, and is explicit opt-in with a
@@ -49,18 +49,18 @@ that an independent tool (`age`) can read.
   is locked again (security review L1). Both fields are part of the header AAD.
 
 ### Export
-- `nexus vault export --age <out>` writes an `age` (v1 format, scrypt passphrase recipient)
+- `mooring vault export --age <out>` writes an `age` (v1 format, scrypt passphrase recipient)
   armored file containing a JSON document: header (v2), every credential record with sealed
   fields, folders and connections. The passphrase is a *separate* export password (≥ 12 chars),
   never the master password. The payload is still sealed per field; `age` adds a portable
-  outer layer so a backup is readable without Nexus. Import is the reverse and refuses a
+  outer layer so a backup is readable without Mooring. Import is the reverse and refuses a
   payload whose `vault_id` differs unless `--merge` is given (A3).
 - Export scrypt work factor is pinned to log N = 18; import refuses log N > 20 (≈ 1 GiB)
   so a hostile file cannot exhaust memory (ruling d, L5).
 - Dependency: `age` crate (RustCrypto primitives, pure Rust, `armor` feature). Justification:
   interoperable, audited, passphrase recipients built in; writing our own container would be
   rolling crypto.
-- Test vectors: `crates/nexus-vault/tests/vectors/` holds `header.json`, `sealed.json`
+- Test vectors: `crates/mooring-vault/tests/vectors/` holds `header.json`, `sealed.json`
   (record id, field, plaintext, sealed) produced with `KdfParams::TEST` and a fixed password
   from `vectors/README` so the *format* is pinned; and `export.age` with its export
   passphrase so CI (and a human with the `age` CLI) can decrypt and compare.
@@ -70,7 +70,7 @@ that an independent tool (`age`) can read.
   wrap-key indirection lets the header AAD still bind the wrap. Rejected.
 - Deriving the keyring key from the master password: defeats the purpose (no password at
   unlock). Rejected.
-- Tarball export of `nexus.db` + header: not independently verifiable. Rejected.
+- Tarball export of `mooring.db` + header: not independently verifiable. Rejected.
 
 ## Security consequences
 Biometric unlock widens T2: a process that can read the keyring item under the user's session

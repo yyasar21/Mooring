@@ -1,3 +1,3 @@
 fn main() {
-    nexus_app_lib::run();
+    mooring_app_lib::run();
 }

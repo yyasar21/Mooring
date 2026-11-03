@@ -1,7 +1,7 @@
 // The only place the UI talks to Rust. Every command is typed here; nothing else calls invoke().
 // Secrets cross inward only (vault password, credential secrets, prompt answers); none come back.
 // Wire convention: command args are camelCase (Tauri maps them to snake_case parameters);
-// session events/inputs use the nexus_core serde shapes (snake_case fields, `kind` tag) with
+// session events/inputs use the mooring_core serde shapes (snake_case fields, `kind` tag) with
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AuditEntry, Ipc, Protocol, SessionEvent, SessionInput } from "./ipc.types";

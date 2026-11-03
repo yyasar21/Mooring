@@ -11,7 +11,7 @@ or a supply-chain change.
 - The WebView is untrusted. Every `#[tauri::command]` validates its input, caps sizes, and
   returns `IpcError { code, message }` with no secret or internal detail.
 - Secrets never cross IPC outward. The UI receives credential *ids*; connect/reveal/copy are
-  Rust commands that audit (`nexus-audit`).
+  Rust commands that audit (`mooring-audit`).
 - Capabilities: `main` window has `core:default` only. No `shell`, `fs`, `http`, `opener`
   permissions. Remote web content (A2) opens in a window with its own label and a separate,
   narrower capability; `withGlobalTauri` stays off.

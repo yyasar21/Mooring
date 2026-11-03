@@ -4,13 +4,13 @@
 [extend]
 useDefault = true
 
-# The nexus-vault test vectors (ADR-0006) commit a fixed vault password and a fixed export
+# The mooring-vault test vectors (ADR-0006) commit a fixed vault password and a fixed export
 # passphrase on purpose: they are public test values that protect nothing but the vectors,
-# documented in crates/nexus-vault/tests/vectors/README.md, and CI needs them to decrypt
+# documented in crates/mooring-vault/tests/vectors/README.md, and CI needs them to decrypt
 # export.age with the `age` CLI. Only that one directory is allow-listed; every other path,
-# including the rest of crates/nexus-vault/tests/, is still scanned.
+# including the rest of crates/mooring-vault/tests/, is still scanned.
 [allowlist]
-description = "nexus-vault public test vectors (ADR-0006)"
+description = "mooring-vault public test vectors (ADR-0006)"
 paths = [
-  '''^crates/nexus-vault/tests/vectors/''',
+  '''^crates/mooring-vault/tests/vectors/''',
 ]

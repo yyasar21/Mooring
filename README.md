@@ -1,4 +1,4 @@
-# Nexus Remote
+# Mooring
 
 Security-first remote-access manager for macOS, Windows and Linux. Encrypted vault,
 connection tree, SSH / RDP / VNC / web / Kubernetes / vSphere sessions in one window.

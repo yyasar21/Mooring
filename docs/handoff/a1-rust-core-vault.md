@@ -6,28 +6,28 @@ Branch `worktree-agent-a6fe075f819c48bcf`, on top of `240f611`. Not merged.
 
 | Item | Where | Notes |
 | --- | --- | --- |
-| KDF calibration | `crates/nexus-vault/src/kdf.rs` | `KdfParams::calibrate(target, max_m_kib)`: candidates 64–1024 MiB, ≤ cap, ≤ ¼ RAM (`sysinfo`), never below `FLOOR`, `t=3`, `p=min(4, cores)`. One probe at the floor cost, scaled linearly; the chosen candidate is verified by a real run, stepping down if it is too slow. The timer is injectable: `calibrate_with(target, max, HostLimits, impl FnMut(KdfParams) -> Duration)`. Real-host smoke test is `#[ignore]`. |
+| KDF calibration | `crates/mooring-vault/src/kdf.rs` | `KdfParams::calibrate(target, max_m_kib)`: candidates 64–1024 MiB, ≤ cap, ≤ ¼ RAM (`sysinfo`), never below `FLOOR`, `t=3`, `p=min(4, cores)`. One probe at the floor cost, scaled linearly; the chosen candidate is verified by a real run, stepping down if it is too slow. The timer is injectable: `calibrate_with(target, max, HostLimits, impl FnMut(KdfParams) -> Duration)`. Real-host smoke test is `#[ignore]`. |
 | Auto-lock | `src/autolock.rs` | `AutoLockPolicy` (15 min, all triggers on), `LockReason` {User, Idle, ScreenLock, Sleep, WindowHidden} with stable `as_str`/`parse`, `LockEvent`, `AutoLockClock::{touch, signal, should_lock, reset}`. Pure; table tests. |
 | Header v2 | `src/format.rs`, `src/vault.rs` | `FORMAT_VERSION = 2`, adds `vault_id: Uuid` and `keyring_wrap: Option<Sealed>`, both in `aad()`. A v1 header keeps its exact A0 AAD, still parses (serde default), reports `needs_upgrade()`, and is upgraded in memory on the next password `unlock` (new `vault_id`, DEK re-wrapped). The KDF floor check is unchanged. Structural checks reject v2 fields in a v1 header and a nil id in a v2 header. |
 | Keyring wrap | `src/keyring.rs` | `WrapKeyStore` trait, `MemoryWrapKeyStore`, `Vault::{enable_keyring_unlock, unlock_with_keyring, disable_keyring_unlock}`. Wrap AAD = `aad()` of the header without the wrap ‖ 0x1F ‖ `"keyring"`. Enable and disable need the master password, keep the vault's locked/unlocked state, and leave the header untouched if the store fails. `change_password` clears the wrap (it is bound to the old salt). |
-| OS adapter | `src-tauri/src/keyring_store.rs` | `OsWrapKeyStore` over `keyring = "4"` (service `xyz.homelab.nexus`, account = vault id). Errors map to fixed strings. **Not wired into any command yet** (`#[allow(dead_code)]` on the module). |
+| OS adapter | `src-tauri/src/keyring_store.rs` | `OsWrapKeyStore` over `keyring = "4"` (service `xyz.homelab.mooring`, account = vault id). Errors map to fixed strings. **Not wired into any command yet** (`#[allow(dead_code)]` on the module). |
 | Export/import | `src/export.rs` | `ExportDocument { header, credentials: Vec<ExportedRecord>, folders, connections }` (the last two are opaque `serde_json::Value`). `export_age` writes armored age v1 with an scrypt recipient. `import_age` takes armored or binary input, caps input and payload at 64 MiB, refuses scrypt `log_n > 20` before doing the work, and re-checks the header. Passphrase ≥ 12 chars. Errors are `VaultError::Export(&'static str)`. |
-| Vectors | `tests/vectors/`, `src/vectors.rs`, `tests/vectors.rs` | `header.json`, `sealed.json` (6 cases incl. empty, Unicode, 0..=255), `export.age`, `README.md`, `age_decrypt.py`. Regenerate with `cargo test -p nexus-vault --lib -- --ignored regenerate_vectors`. header and sealed are deterministic; a unit test fails if they drift. |
-| Audit hook | `Vault::lock_with_reason` | Returns the `LockReason`; `vault_lock` now parses its reason with `LockReason::parse` (unknown → `user`, `window_hidden` accepted) and audits `reason.as_str()`. No `nexus-audit` dependency in the vault. |
+| Vectors | `tests/vectors/`, `src/vectors.rs`, `tests/vectors.rs` | `header.json`, `sealed.json` (6 cases incl. empty, Unicode, 0..=255), `export.age`, `README.md`, `age_decrypt.py`. Regenerate with `cargo test -p mooring-vault --lib -- --ignored regenerate_vectors`. header and sealed are deterministic; a unit test fails if they drift. |
+| Audit hook | `Vault::lock_with_reason` | Returns the `LockReason`; `vault_lock` now parses its reason with `LockReason::parse` (unknown → `user`, `window_hidden` accepted) and audits `reason.as_str()`. No `mooring-audit` dependency in the vault. |
 | Tauri glue | `src-tauri/src/commands.rs` | `IpcError` codes for the new variants (`vault.keyring_unavailable`, `vault.keyring`, `vault.export`); `vault_unlock` persists the header when a v1 → v2 upgrade happened. |
 | Rules | — | `#![forbid(unsafe_code)]` kept; no `unwrap` in library code; `tracing` only; hand-written `Debug` for `MemoryWrapKeyStore`; every new file < 500 lines (largest: `vault.rs` 367). |
 
-Manifest changes (crate manifests only, all `{ workspace = true }`): nexus-vault gets `sysinfo`,
-`uuid` and `age`; nexus-app gets `keyring` and `zeroize`. Cargo.lock changed only through cargo.
+Manifest changes (crate manifests only, all `{ workspace = true }`): mooring-vault gets `sysinfo`,
+`uuid` and `age`; mooring-app gets `keyring` and `zeroize`. Cargo.lock changed only through cargo.
 
 ## Left open
 
-- **nexus-app has not been compiled.** This machine has no WebView toolchain. The changes in
+- **mooring-app has not been compiled.** This machine has no WebView toolchain. The changes in
   `commands.rs` and `lib.rs` are small. `keyring_store.rs` was type-checked and passed
   `clippy::pedantic -D warnings` in a standalone scratch crate against `keyring 4.2.0` on
   Linux. The macOS and Windows store backends have not been built. Run `make app-check` on
   each OS.
-- **Workspace member `crates/nexus-store` is missing from the tree**, but the root
+- **Workspace member `crates/mooring-store` is missing from the tree**, but the root
   `Cargo.toml` lists it, so every `cargo` command fails at HEAD. To run the gates I made a
   local, **uncommitted** empty stub. I removed it from Cargo.lock before every commit and
   deleted it at the end. The orchestrator must add the crate (ADR-0005) or drop it from
@@ -64,34 +64,34 @@ Manifest changes (crate manifests only, all `{ workspace = true }`): nexus-vault
    machine). `import_age` caps at `log_n = 20` (about 1 GiB). An export made on a much faster
    machine could exceed that cap. Raise the cap, or pin the export's `log_n`?
 5. **Gitleaks.** The vector passwords are committed on purpose. There is no `.gitleaks.toml`
-   yet. Allow-list `crates/nexus-vault/tests/vectors/` if the scan flags them.
+   yet. Allow-list `crates/mooring-vault/tests/vectors/` if the scan flags them.
 
 ## Test evidence
 
-Run inside the worktree (with the uncommitted `nexus-store` stub present):
+Run inside the worktree (with the uncommitted `mooring-store` stub present):
 
 ```
-$ cargo fmt --all && cargo clippy -p nexus-vault --all-targets -- -D warnings && cargo test -p nexus-vault
+$ cargo fmt --all && cargo clippy -p mooring-vault --all-targets -- -D warnings && cargo test -p mooring-vault
     Finished `dev` profile [unoptimized + debuginfo] target(s)
      Running unittests src/lib.rs
 test kdf::tests::calibrate_real_host_smoke ... ignored, real Argon2 runs with up to 1 GiB; run with --ignored --release
-test vectors::tests::regenerate_vectors ... ignored, writes crates/nexus-vault/tests/vectors/*; run on purpose only
+test vectors::tests::regenerate_vectors ... ignored, writes crates/mooring-vault/tests/vectors/*; run on purpose only
 test result: ok. 40 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out
      Running tests/proptest_round_trip.rs
 test result: ok. 2 passed; 0 failed; 0 ignored
      Running tests/vectors.rs
 test result: ok. 3 passed; 0 failed; 0 ignored
-   Doc-tests nexus_vault
+   Doc-tests mooring_vault
 test result: ok. 0 passed; 0 failed; 0 ignored
 ```
 
 Additional checks:
 
-- `cargo clippy --workspace --exclude nexus-app --all-targets -- -D warnings`: clean.
-- `cargo test -p nexus-vault --release --lib -- --ignored calibrate_real_host_smoke`: ok in
+- `cargo clippy --workspace --exclude mooring-app --all-targets -- -D warnings`: clean.
+- `cargo test -p mooring-vault --release --lib -- --ignored calibrate_real_host_smoke`: ok in
   0.48 s (2 cores, 8 GiB RAM).
-- Interop: `python3 crates/nexus-vault/tests/vectors/age_decrypt.py .../export.age` with the
+- Interop: `python3 crates/mooring-vault/tests/vectors/age_decrypt.py .../export.age` with the
   **age v1.1.1 CLI** exits 0. The decrypted JSON's `header` equals `header.json`, and all 6
   `credentials[].fields` equal `sealed.json`.
 - `keyring_store.rs`: `cargo clippy -- -W clippy::pedantic -D warnings` in a standalone scratch
-  crate (nexus-vault + keyring 4.2.0), Linux only: clean.
+  crate (mooring-vault + keyring 4.2.0), Linux only: clean.

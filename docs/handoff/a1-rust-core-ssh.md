@@ -1,19 +1,19 @@
 # A1 · rust-core · Mooring SSH core (item 3, part a)
 
 Branch `worktree-agent-ad5717a28bbb7cb01`, on top of `1d8c660` (ADR-0007). Not merged.
-Inputs: ADR-0004, ADR-0007, `crates/nexus-core/src/session.rs`. Linux host; `nexus-app` was
+Inputs: ADR-0004, ADR-0007, `crates/mooring-core/src/session.rs`. Linux host; `mooring-app` was
 not compiled. The product name is now Mooring: it is used in user-visible strings, doc prose and
-the SSH client id (`SSH-2.0-Mooring_0.1.0`). Crate names and `nexus_*` identifiers are
+the SSH client id (`SSH-2.0-Mooring_0.1.0`). Crate names and `nexus_*` identifiers (renamed to `mooring_*` by the orchestrator afterwards) are
 unchanged so the orchestrator can rename everything in one pass.
 
-## BLOCKER: merging this branch breaks `nexus-vault`
+## BLOCKER: merging this branch breaks `mooring-vault`
 
-`age 0.12.1` (nexus-vault, ADR-0006) depends on `ml-kem ^0.2`, which pins
+`age 0.12.1` (mooring-vault, ADR-0006) depends on `ml-kem ^0.2`, which pins
 `kem =0.3.0-pre.0`. Every russh from 0.60 to 0.65 depends on `ml-kem ^0.3`, which needs
 `kem ^0.3`. Cargo treats `0.3.0-pre.0` and `0.3.0` as the same semver slot, so the resolver
 fell back to `ml-kem 0.2.1` for age, and that version **does not compile** against
-`kem 0.3.0`. `cargo build --workspace --exclude nexus-app` fails in `ml-kem-0.2.1/src/kem.rs`.
-`cargo test -p nexus-proto-ssh -p nexus-core` is green. russh 0.59, the last release on
+`kem 0.3.0`. `cargo build --workspace --exclude mooring-app` fails in `ml-kem-0.2.1/src/kem.rs`.
+`cargo test -p mooring-proto-ssh -p mooring-core` is green. russh 0.59, the last release on
 ml-kem 0.2, no longer compiles because of `rsa 0.10.0-rc` drift, and it lacks APIs used here.
 No `age` release on ml-kem 0.3 exists yet (latest is 0.12.1). See Decision 1.
 
@@ -64,7 +64,7 @@ No `age` release on ml-kem 0.3 exists yet (latest is 0.12.1). See Decision 1.
   and `sftp` modules beside the existing ones.
 - **Audit:** `take_audit_events() -> Vec<TrustEvent>` returns `HostKeyAdded`,
   `HostKeyRejected`, `HostKeyMismatch`, `AuthSucceeded { method }` and `AuthFailed`, each with
-  `action()` names such as `trust.host_key.added`. The crate does not depend on nexus-audit.
+  `action()` names such as `trust.host_key.added`. The crate does not depend on mooring-audit.
 
 ## Left open
 
@@ -86,7 +86,7 @@ No `age` release on ml-kem 0.3 exists yet (latest is 0.12.1). See Decision 1.
    security-reviewer:
    a) Change the root manifest to `[patch.crates-io] age = { git = ..., rev = <main with
    ml-kem 0.3> }` until age 0.13 ships;
-   b) Gate `age` export/import in nexus-vault behind a feature that is off in builds that
+   b) Gate `age` export/import in mooring-vault behind a feature that is off in builds that
    include SSH (this hurts: the app needs both);
    c) Fork age with ml-kem bumped to 0.3, its API change being small;
    d) Switch to an older russh. Not viable: 0.59 does not compile today and lacks
@@ -112,10 +112,10 @@ No `age` release on ml-kem 0.3 exists yet (latest is 0.12.1). See Decision 1.
 
 ```
 cargo fmt --all --check                                                     OK
-cargo clippy -p nexus-proto-ssh -p nexus-core --all-targets -- -D warnings  OK
-cargo test -p nexus-proto-ssh -p nexus-core
-  nexus-core unit                  10 passed
-  nexus-proto-ssh unit             24 passed  (known_hosts 14 incl. 3 proptests, algos 3,
+cargo clippy -p mooring-proto-ssh -p mooring-core --all-targets -- -D warnings  OK
+cargo test -p mooring-proto-ssh -p mooring-core
+  mooring-core unit                  10 passed
+  mooring-proto-ssh unit             24 passed  (known_hosts 14 incl. 3 proptests, algos 3,
                                                shared 3, channel 3, audit 1)
   tests/auth.rs                     9 passed  (password / publickey / undecodable key /
                                                kbd-int autofill+OTP / kbd-int secret prompt /
@@ -126,7 +126,7 @@ cargo test -p nexus-proto-ssh -p nexus-core
   tests/trust.rs                    5 passed  (TOFU accept hashed, TOFU decline nothing written,
                                                known host silent, mismatch hard stop unchanged,
                                                close during TOFU prompt)
-  tests/lab.rs                      1 ignored (NEXUS_LAB=1 xinfra01 uname; never run here)
+  tests/lab.rs                      1 ignored (MOORING_LAB=1 xinfra01 uname; never run here)
 5 consecutive runs: all green, under 3 s per run after the build.
-cargo build --workspace --exclude nexus-app   FAILS in ml-kem 0.2.1 (see BLOCKER)
+cargo build --workspace --exclude mooring-app   FAILS in ml-kem 0.2.1 (see BLOCKER)
 ```

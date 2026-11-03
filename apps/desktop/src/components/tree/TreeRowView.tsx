@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ProtocolPip, StateDot } from "@nexus/ui";
+import { ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import type { TreeRow } from "../../stores/tree";
 import type { TabState } from "../../stores/sessions";

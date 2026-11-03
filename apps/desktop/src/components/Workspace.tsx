@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Kbd } from "@nexus/ui";
+import { Kbd } from "@mooring/ui";
 import { useSessions, type Tab } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";

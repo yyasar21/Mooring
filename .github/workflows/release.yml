@@ -32,12 +32,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @nexus/desktop build
+      - run: pnpm --filter @mooring/desktop build
       - run: cargo install tauri-cli --version "^2" --locked
       - run: cargo tauri build --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
-          name: nexus-${{ matrix.target }}
+          name: mooring-${{ matrix.target }}
           path: |
             target/${{ matrix.target }}/release/bundle/**/*.dmg
             target/${{ matrix.target }}/release/bundle/**/*.msi

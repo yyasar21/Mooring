@@ -8,9 +8,9 @@
   header v2 (`vault_id`, `keyring_wrap`), vault-side keyring wrap with state-restoring error
   paths, `age` export/import (export log N = 18, import cap 2^20), committed test vectors verified
   with the `age` CLI, hostile-input property tests.
-- Item 2 — `nexus-store`: schema v1 + v2 (FTS secure-delete), migrations, sealed credential
+- Item 2 — `mooring-store`: schema v1 + v2 (FTS secure-delete), migrations, sealed credential
   columns bound to row + column, inheritance resolution, FTS5 search with query sanitising,
-  0600 db file, WAL checkpoint on close; validators now shared from `nexus-core`.
+  0600 db file, WAL checkpoint on close; validators now shared from `mooring-core`.
 - Gates (cloud Linux): fmt, clippy `-D warnings`, 138 tests passed / 0 failed / 2 intentionally
   ignored; pnpm lint/typecheck/test green; `.gitleaks.toml` allow-lists the vector dir; new
   `test-vectors` workflow; `ci.yml` YAML fixed (the concurrency block made the whole workflow
@@ -19,8 +19,8 @@
   re-review recorded in `docs/security/a1-review.md`; threat model v1.
 
 ## Left open
-- `nexus-app` (src-tauri) has not been compiled since A0: no WebView toolchain in the cloud
-  workspace. First `cargo build -p nexus-app` on the Mac may surface API mismatches in
+- `mooring-app` (src-tauri) has not been compiled since A0: no WebView toolchain in the cloud
+  workspace. First `cargo build -p mooring-app` on the Mac may surface API mismatches in
   `commands.rs`, `state.rs`, `lib.rs`, `keyring_store.rs`.
 - Not wired yet: `src-tauri/src/autolock.rs` (5 s tick + OS signals), keyring/export IPC
   commands (held by security until biometric ACL exists), `vault_create` still uses
@@ -31,13 +31,13 @@
 
 ## Decision needed
 - GitHub repository (CI assumes Actions; `repository` in Cargo.toml points at
-  `yunusyasar/nexus-remote`).
+  `yunusyasar/mooring-remote`).
 - Keyring unlock on Linux: off by default with explicit opt-in warning (reviewer's ruling) — confirm.
 
 ## Test evidence
-- `cargo fmt --all -- --check && cargo clippy --workspace --exclude nexus-app --all-targets -- -D warnings && cargo test --workspace --exclude nexus-app` → 138 passed, 0 failed, 2 ignored (45 s).
+- `cargo fmt --all -- --check && cargo clippy --workspace --exclude mooring-app --all-targets -- -D warnings && cargo test --workspace --exclude mooring-app` → 138 passed, 0 failed, 2 ignored (45 s).
 - `pnpm install --frozen-lockfile && pnpm lint && pnpm typecheck && pnpm test` → clean, 2 UI tests.
 - `make test-vectors` → header + 6 sealed vectors verified with the `age` CLI; tamper rejected.
-- To run on the Mac: `cargo build -p nexus-app`, keyring round trip, Apple Silicon calibration
-  (`cargo test -p nexus-vault --release --lib -- --ignored calibrate_real_host_smoke`),
+- To run on the Mac: `cargo build -p mooring-app`, keyring round trip, Apple Silicon calibration
+  (`cargo test -p mooring-vault --release --lib -- --ignored calibrate_real_host_smoke`),
   `brew install age gitleaks && make test-vectors && gitleaks detect --no-banner --redact`.
