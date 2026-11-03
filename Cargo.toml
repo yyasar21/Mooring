@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/nexus-core",
   "crates/nexus-vault",
+  "crates/nexus-store",
   "crates/nexus-audit",
   "crates/nexus-proto-ssh",
   "crates/nexus-proto-rdp",
@@ -14,6 +15,7 @@ members = [
 default-members = [
   "crates/nexus-core",
   "crates/nexus-vault",
+  "crates/nexus-store",
   "crates/nexus-audit",
   "crates/nexus-proto-ssh",
   "crates/nexus-proto-rdp",
@@ -36,7 +38,11 @@ sha2 = "0.10"
 rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = { version = "1.8", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
+age = { version = "0.12", features = ["armor"] }          # ADR-0006: age-compatible export (RustCrypto, pure Rust)
+keyring = "4"                                             # ADR-0006: OS keyring wrap (Keychain / Credential Manager / Secret Service via zbus), opt-in; used by nexus-app only
+sysinfo = { version = "0.40", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
 # data
+rusqlite = { version = "0.41", features = ["bundled"] } # ADR-0005: single SQLite store, bundled for 3-OS parity
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
