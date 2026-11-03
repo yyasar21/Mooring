@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CredentialKind, CredentialMeta } from "../../lib/ipc";
 import { accountSummary, schemaFor, usedByCount } from "../../lib/credentials";
 import { useCredentials } from "../../stores/credentials";
@@ -31,6 +31,11 @@ export function CredentialsView() {
     if (!q) return sorted;
     return sorted.filter((c) => [c.name, c.kind, accountSummary(c), c.fingerprint ?? ""].some((v) => v.toLowerCase().includes(q)));
   }, [items, filter]);
+
+  // N-6: the editor takes the pasted blob on mount; drop it here so it does not stay in state.
+  useEffect(() => {
+    if (draft?.seed?.paste) setDraft((d) => d && { kind: d.kind, n: d.n, ...(d.seed?.name ? { seed: { name: d.seed.name } } : {}) });
+  }, [draft]);
 
   const selectedId = pane.mode === "edit" ? pane.id : null;
   const meta = items.find((c) => c.id === selectedId);

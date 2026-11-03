@@ -15,6 +15,29 @@ const BUNDLE =
 const KUBE =
   "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster: {server: 'https://k.example.test'}\ncontexts:\n- name: blue\n  context: {cluster: c, user: u}\n- name: green\n  context: {cluster: c, user: u}\nusers:\n- name: u\n  user: {token: fixture-token-1}\n";
 
+/** Does any hook state of a component above or inside `root` hold `needle`? (React fiber walk.) */
+function hookStateContains(root: Element, needle: string): boolean {
+  const seen = new Set<unknown>();
+  const has = (v: unknown, depth: number): boolean => {
+    if (typeof v === "string") return v.includes(needle);
+    if (!v || typeof v !== "object" || depth > 6 || seen.has(v) || v instanceof Node) return false;
+    seen.add(v);
+    return Object.values(v as Record<string, unknown>).some((x) => has(x, depth + 1));
+  };
+  const key = Object.keys(root).find((k) => k.startsWith("__reactFiber$"));
+  type Fiber = { memoizedState: unknown; return: Fiber | null; tag: number };
+  let fiber = key ? ((root as unknown as Record<string, Fiber>)[key] ?? null) : null;
+  for (; fiber; fiber = fiber.return) {
+    // function components keep hooks as a linked list of { memoizedState, next }
+    let hook = fiber.tag === 0 ? (fiber.memoizedState as { memoizedState: unknown; next: unknown } | null) : null;
+    while (hook) {
+      if (has(hook.memoizedState, 0)) return true;
+      hook = hook.next as typeof hook;
+    }
+  }
+  return false;
+}
+
 async function boot() {
   render(<App />);
   await screen.findByText("Nothing open yet");
@@ -138,6 +161,30 @@ describe("schema-driven credential form", () => {
     expect((cert as HTMLTextAreaElement).value).not.toContain("PRIVATE KEY");
     expect(secret?.value).toContain("PRIVATE KEY-----");
     expect(JSON.stringify(useUi.getState())).not.toContain("PRIVATE KEY");
+  });
+
+  it("keeps the OTP seed out of React state: the input is uncontrolled (N-6)", async () => {
+    await boot();
+    const view = openNew();
+    fireEvent.click(within(view).getByRole("button", { name: "Username and password" }));
+    const form = within(view).getByRole("form");
+    fireEvent.click(within(form).getByRole("checkbox"));
+    const seedInput = within(form).getByPlaceholderText("JBSWY3DPEHPK3PXPJBSWY3DP");
+    expect(seedInput).not.toHaveAttribute("value");
+    fireEvent.change(seedInput, { target: { value: "GEZDGNBVGY3TQOJQGEZDGNBV" } });
+    expect(seedInput.getAttribute("value")).toBeNull();
+    expect(document.body.innerHTML).not.toContain("GEZDGNBVGY3TQOJQGEZDGNBV");
+  });
+
+  it("drops the pasted blob from the view's React state once the editor has it (N-6)", async () => {
+    await boot();
+    const view = openNew();
+    const zone = within(view).getByLabelText("Paste a key, certificate or kubeconfig");
+    fireEvent.paste(zone, { clipboardData: { getData: () => KEY } });
+    await settle();
+    const form = within(view).getByRole("form", { name: "New SSH key" });
+    expect(form.querySelector<HTMLTextAreaElement>("textarea[data-secret]")?.value).toBe(KEY);
+    expect(hookStateContains(view, "Zml4dHVyZS1rZXktbm90LXJlYWw")).toBe(false);
   });
 
   it("lists kubeconfig contexts from the pasted file", async () => {
