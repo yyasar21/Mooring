@@ -1,5 +1,5 @@
 //! Per-kind plaintext field structs (ADR-0009 §1). Every struct is `deny_unknown_fields`; wire
-//! names are `snake_case`. Derived values (`fingerprint`, `contexts`) are stored here but are
+//! names are `snake_case`. Derived values (`fingerprint`, `contexts`, `migrated`) are stored here but are
 //! refused on input (see [`super::CredentialFields::from_input`]).
 
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,9 @@ use super::{AccountForm, CredentialKind, OtpParams};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UserPasswordFields {
-    /// Username, stored verbatim (may contain `\` or `@`; no guessing).
+    /// Username, stored verbatim (may contain `\` or `@`; no guessing). Empty only while
+    /// [`Self::migrated`] is set.
+    #[serde(default)]
     pub username: String,
     /// Optional domain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -18,6 +20,11 @@ pub struct UserPasswordFields {
     /// TOTP parameters when an `otp_seed` is attached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub otp: Option<OtpParams>,
+    /// Derived: a v2 row migrated without a username (ADR-0009 §4). The username may stay
+    /// empty while this is set; it is never carried across an update, so the next
+    /// `update_fields` must supply a username.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub migrated: bool,
 }
 
 /// `domain_user`.
@@ -39,7 +46,8 @@ pub struct DomainUserFields {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SshKeyFields {
-    /// Login name.
+    /// Login name. Empty only while [`Self::migrated`] is set.
+    #[serde(default)]
     pub username: String,
     /// OpenSSH public key line (public).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,6 +61,9 @@ pub struct SshKeyFields {
     /// TOTP parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub otp: Option<OtpParams>,
+    /// Derived: a v2 row migrated without a username (see [`UserPasswordFields::migrated`]).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub migrated: bool,
 }
 
 /// `ssh_agent`.
@@ -219,6 +230,11 @@ pub struct SudoBecomeFields {
     /// Target user; blank input becomes `root`.
     #[serde(default = "root")]
     pub become_user: String,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if signature
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn root() -> String {

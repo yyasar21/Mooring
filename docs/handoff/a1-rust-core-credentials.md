@@ -182,3 +182,30 @@ New or changed suites:
   - `credentials_tests` (7, including every kind created from its schema and the **`credential_kinds()` snapshot equal to the UI table**), `credential_copy_tests` (7, including the RFC code on the clipboard at T=59 s and clear ≤ validity) and the tree role/override test.
   - e2e `credential_kinds` (4): prompt over a live SSH session, cancel, become, and an incompatible inherited credential plus `external_ref` refused before any I/O.
   - The hostile corpus and the random suites now cover every new string argument. The vault-gated list has 22 commands.
+
+## Reseal wiring (follow-up, 2026-11-03)
+
+Resolves Left open "Reseal call site" and Decision needed 1 and 2.
+
+**Done**
+
+- `commands/vault.rs::unlock` calls `Store::reseal_legacy` after the successful unlock, the store bind and the `vault_unlocked` audit entry. It runs on every unlock and is a no-op once the pending flag is gone.
+- `reseal_legacy` now runs as **one transaction** for the whole run (every converted credential plus the cleared `credential_reseal_pending` flag commit together, or nothing does). The earlier version committed per credential. `reseal_legacy_step(max)` still exists for the crash test; each step is one transaction.
+- The count is logged with `tracing::info!(count)`. The new audit event `credential_resealed { count }` (mooring-audit) is written only when `count > 0`.
+- **A reseal failure never fails or re-locks the unlock.** It is logged as a `tracing::warn!` (the `StoreError` display names the layer only, never a value), the transaction rolls back, and the alias table keeps the legacy secrets usable. The next unlock tries again. There is no `store.reseal` IPC code: credential access is not gated on the reseal, so nothing needs to report it to the UI.
+- There is no keyring unlock path to wire. `Vault::unlock_with_keyring` exists in mooring-vault but no Tauri command calls it (ADR-0006, review M1). When one is added, it must call the same `reseal_legacy(state)` helper after its bind.
+- **`username` is optional for migrated rows.** For `user_password` and `ssh_key`, the new field `migrated: bool` is derived: it is serialised only when true and refused on input, like `fingerprint`. An empty username is valid only while `migrated` is set. The flag is never carried across `update_credential_fields`, so the next update must supply a username, and supplying one clears the flag. A stored row that has both a username and a stale flag drops the flag on read.
+- New migration `0004_migrated_username.sql` (schema v4). 0003 had already shipped, so it is not edited. 0004 rewrites `{"username":"(unset)"}` to `{"username":"","migrated":true}`. A v2 database goes 0003 then 0004 in the same migration transaction. The `(sealed until the next unlock)` placeholder for x509 `cert_pem` stays, because the reseal on the first unlock replaces it.
+- `mooring_store::testing` (`#[doc(hidden)]`): `write_v2_database` and `legacy_secret_rows` let src-tauri tests build a real v2 database without a `rusqlite` dependency of their own. Synthetic values only.
+
+**Behaviour to know (UI / QA)**
+
+- A migrated `ssh_key` or `user_password` with an empty username fails `session_open` with the existing `username required for ssh` error from mooring-proto-ssh until the user sets one. The UI can show `fields.migrated === true` as "username missing". The editor already sends only schema fields, so it never sends `migrated`.
+
+**Test evidence**
+
+- mooring-core `empty_username_only_on_a_migrated_row`: both kinds; read with and without the flag; the flag refused on input; an update without a username refused; the flag cleared once a username is set; `ssh_agent` refuses the key.
+- mooring-store `migration_v2`, 7 tests (was 5): the migrated `ssh_key` has an empty username with `migrated: true`; `migrated_username_must_be_supplied_on_the_next_update`; `v3_placeholder_becomes_an_empty_migrated_username` (0004 on a v3 database).
+- src-tauri `unlock_reseals_legacy_credentials_once`: a v2 database plus a vault header, then unlock. Expected: 5 legacy rows go to 0; secrets read under their new names; x509 `cert_pem` is the real PEM; one `credential_resealed` with `count: 3`; a second unlock writes no second entry and a reseal returns 0.
+- src-tauri `reseal_failure_does_not_fail_unlock`: secrets sealed by another vault. Expected: unlock succeeds and stays unlocked; all 5 legacy rows are kept (rollback); the flag is still set; no audit entry.
+- `cargo fmt --all --check` clean · `cargo clippy --workspace --all-targets -- -D warnings` clean · `cargo test --workspace` 377 passed, 0 failed, 3 ignored (mooring-app lib 56, mooring-core 65, mooring-store migration_v2 7, mooring-audit 9 with the wire-name case added).

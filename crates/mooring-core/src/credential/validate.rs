@@ -33,6 +33,19 @@ fn set(slot: &mut String, field: &'static str, max: usize) -> Result<(), Credent
     Ok(())
 }
 
+/// A required username, except on a migrated v2 row that never had one (ADR-0009 §4): there it
+/// may stay empty until the user supplies one, and supplying one clears the flag. `migrated`
+/// is refused on input and never carried across an update, so an update must name a user.
+fn set_username(slot: &mut String, migrated: &mut bool) -> Result<(), CredentialError> {
+    if *migrated && slot.trim().is_empty() {
+        slot.clear();
+        return Ok(());
+    }
+    set(slot, "username", MAX_USER)?;
+    *migrated = false;
+    Ok(())
+}
+
 fn set_opt(
     slot: &mut Option<String>,
     field: &'static str,
@@ -62,7 +75,7 @@ fn one_line_public(
 pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError> {
     match f {
         CredentialFields::UserPassword(f) => {
-            set(&mut f.username, "username", MAX_USER)?;
+            set_username(&mut f.username, &mut f.migrated)?;
             set_opt(&mut f.domain, "domain", MAX_DNS)?;
         }
         CredentialFields::DomainUser(f) => {
@@ -71,7 +84,7 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
             f.domain = a.domain;
         }
         CredentialFields::SshKey(f) => {
-            set(&mut f.username, "username", MAX_USER)?;
+            set_username(&mut f.username, &mut f.migrated)?;
             one_line_public(&mut f.public_key, "public_key", MAX_PUBLIC_KEY)?;
             one_line_public(&mut f.certificate, "certificate", MAX_PEM)?;
             if f.fingerprint.as_deref().is_some_and(|fp| !is_sha256_fingerprint(fp)) {

@@ -118,11 +118,10 @@ fn v2_rows_move_links_survive_and_legacy_names_read_before_reseal() {
     assert_eq!(pw.secret_names, [SecretName::Password]);
     let key = s.get_credential(f.key).expect("key");
     assert_eq!(key.kind, CredentialKind::SshKey);
-    assert_eq!(
-        key.fields.account().0.as_deref(),
-        Some("(unset)"),
-        "placeholder for a missing username"
-    );
+    let CredentialFields::SshKey(k) = &key.fields else { panic!("kind") };
+    assert_eq!(k.username, "", "no placeholder for a missing username");
+    assert!(k.migrated, "an empty username is allowed only on a migrated row");
+    assert!(key.fields.to_value().get("migrated").is_some(), "the UI sees the flag");
     assert_eq!(key.secret_names, [SecretName::PrivateKey, SecretName::Passphrase]);
     let cert = s.get_credential(f.cert).expect("cert");
     assert_eq!(cert.kind, CredentialKind::X509);
@@ -238,4 +237,71 @@ fn empty_v2_database_migrates_without_the_pending_flag() {
     let s = Store::open(&path).expect("migrate");
     assert!(!s.reseal_pending().expect("flag"));
     assert_eq!(s.reseal_legacy(&vault()).expect("noop"), 0);
+}
+
+#[test]
+fn migrated_username_must_be_supplied_on_the_next_update() {
+    let v = vault();
+    let f = v2_database(&v);
+    let s = Store::open(&f.path).expect("migrate");
+    // the empty username is accepted on read while `migrated` is set
+    assert!(s.list_credentials().is_ok());
+    // an update without a username is refused (the flag is derived, never carried over)
+    for fields in [serde_json::json!({}), serde_json::json!({ "username": "  " })] {
+        let e = s.update_credential_fields(f.key, "ops key", &fields).expect_err("no username");
+        assert!(matches!(e, StoreError::Invalid { field: "fields" | "username", .. }), "{e:?}");
+    }
+    // the client cannot set the flag itself
+    let forged = serde_json::json!({ "username": "", "migrated": true });
+    assert!(s.update_credential_fields(f.key, "ops key", &forged).is_err());
+    // supplying one clears the flag
+    let upd = s
+        .update_credential_fields(f.key, "ops key", &serde_json::json!({ "username": "deploy" }))
+        .expect("username");
+    let CredentialFields::SshKey(k) = &upd.fields else { panic!("kind") };
+    assert_eq!((k.username.as_str(), k.migrated), ("deploy", false));
+    // a new credential can never have an empty username
+    let e = s
+        .create_credential(
+            &v,
+            "new",
+            CredentialKind::UserPassword,
+            &serde_json::json!({}),
+            &common::secrets(&[(SecretName::Password, b"test-pw")]),
+        )
+        .expect_err("required");
+    assert!(matches!(e, StoreError::Invalid { field: "fields" | "username", .. }), "{e:?}");
+}
+
+#[test]
+fn v3_placeholder_becomes_an_empty_migrated_username() {
+    // A database migrated to v3 by the previous build carries the '(unset)' placeholder.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mooring.db");
+    let raw = Connection::open(&path).expect("raw");
+    raw.execute_batch(V1).expect("v1");
+    raw.execute_batch(V2).expect("v2");
+    raw.execute_batch("PRAGMA foreign_keys = OFF;").expect("fk");
+    raw.execute_batch(include_str!("../migrations/0003_typed_credentials.sql")).expect("v3");
+    raw.execute("INSERT INTO setting (key, value) VALUES ('schema_version', '3')", [])
+        .expect("ver");
+    let (unset, named) = (CredentialId::new(), CredentialId::new());
+    for (id, json) in [(unset, r#"{"username":"(unset)"}"#), (named, r#"{"username":"ops"}"#)] {
+        raw.execute(
+            "INSERT INTO credential (id, name, kind, fields_json, created_at, updated_at)
+             VALUES (?1, ?1, 'user_password', ?2, ?3, ?3)",
+            params![id.to_string(), json, TS],
+        )
+        .expect("row");
+    }
+    drop(raw);
+    let s = Store::open(&path).expect("migrate to v4");
+    let CredentialFields::UserPassword(u) = s.get_credential(unset).expect("m").fields else {
+        panic!("kind")
+    };
+    assert_eq!((u.username.as_str(), u.migrated), ("", true));
+    let CredentialFields::UserPassword(n) = s.get_credential(named).expect("m").fields else {
+        panic!("kind")
+    };
+    assert_eq!((n.username.as_str(), n.migrated), ("ops", false));
 }

@@ -20,10 +20,11 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("../migrations/0001_init.sql")),
     (2, include_str!("../migrations/0002_fts_secure_delete.sql")),
     (3, include_str!("../migrations/0003_typed_credentials.sql")),
+    (4, include_str!("../migrations/0004_migrated_username.sql")),
 ];
 
 /// Highest schema version this build understands.
-pub const LATEST: u32 = 3;
+pub const LATEST: u32 = 4;
 
 /// First line of a migration that must run with foreign keys off.
 pub const FK_OFF_DIRECTIVE: &str = "-- mooring:foreign_keys=off";

@@ -16,7 +16,7 @@ use super::{
 pub const MAX_FIELDS_JSON: usize = 128 * 1024;
 
 /// Keys the store derives; input carrying them is refused.
-const DERIVED_KEYS: &[&str] = &["fingerprint", "contexts"];
+const DERIVED_KEYS: &[&str] = &["fingerprint", "contexts", "migrated"];
 
 macro_rules! fields_enum {
     ($($variant:ident($ty:ty)),* $(,)?) => {
