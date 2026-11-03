@@ -1,0 +1,53 @@
+# Dependency updates. Every update still needs CI green and a security review (CLAUDE.md).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    labels: [dependencies, rust]
+    groups:
+      rust-crypto:
+        patterns: [argon2, chacha20poly1305, sha2, rand_core, zeroize, secrecy, hmac, sha1]
+      tauri:
+        patterns: ["tauri*"]
+      rust-minor-patch:
+        update-types: [minor, patch]
+        exclude-patterns: [argon2, chacha20poly1305, sha2, rand_core, zeroize, secrecy, "tauri*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    labels: [dependencies, javascript]
+    groups:
+      react:
+        patterns: [react, react-dom, "@types/react*"]
+      xterm:
+        patterns: ["@xterm/*"]
+      tooling:
+        patterns: [vite, vitest, typescript, eslint, "@eslint/*", "typescript-eslint", "@vitejs/*", tailwindcss, "@tailwindcss/*"]
+      npm-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        patterns: ["*"]

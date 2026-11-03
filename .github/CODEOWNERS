@@ -1,0 +1,15 @@
+# Code owners are requested for review automatically.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+*                       @yyasar21
+
+# Security-critical paths: changes here always need the maintainer's review.
+/crates/mooring-vault/  @yyasar21
+/crates/mooring-proto-*/ @yyasar21
+/src-tauri/capabilities/ @yyasar21
+/src-tauri/tauri.conf.json @yyasar21
+/deny.toml              @yyasar21
+/.github/               @yyasar21
+/SECURITY.md            @yyasar21
+/docs/security/         @yyasar21
+/docs/adr/              @yyasar21

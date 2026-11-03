@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/yyasar21/Mooring/security/advisories/new
+    about: Please report vulnerabilities privately. Never open a public issue for them.
+  - name: Questions and ideas
+    url: https://github.com/yyasar21/Mooring/discussions
+    about: Ask questions, share ideas and show how you use Mooring.
+  - name: Documentation
+    url: https://github.com/yyasar21/Mooring/blob/main/docs/README.md
+    about: User guide, developer guide, architecture decisions and the threat model.
