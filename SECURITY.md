@@ -45,6 +45,10 @@ this file before you send details.
 | Fix for medium and low severity | next scheduled release |
 | Public disclosure | coordinated, by default 90 days after the report or when a fix ships, whichever is first |
 
+If a fix needs more time, we will tell you why and agree an extended date with you; we will
+not ask for an extension beyond 120 days without a concrete reason. If a vulnerability is
+being exploited in the wild, we may publish an advisory with mitigations before a fix exists.
+
 We will keep you informed, credit you in the advisory and the changelog unless you prefer to
 stay anonymous, and request a CVE through GitHub where appropriate. We ask that you give us
 reasonable time to fix the issue before disclosing it, and that you do not access data that
@@ -58,7 +62,9 @@ In scope:
 - The vault format, its cryptography and the `age` export.
 - The IPC boundary between the WebView and the Rust core, capabilities and CSP.
 - Protocol parsers (SSH today; RDP, VNC and others as they land).
-- Release artefacts, signatures and the update channel (from v0.1.0).
+- Release artefacts, signatures, SBOMs and provenance, the release workflows
+  (`.github/workflows/release*.yml`, `scripts/release/`) and the update channel (from v0.1.0).
+- Credential import parsers (kubeconfig, PEM, OpenSSH keys and certificates, TOTP seeds).
 
 Out of scope:
 
@@ -76,11 +82,21 @@ Out of scope:
   [ADR-0006](docs/adr/0006-vault-lifecycle.md).
 - The threat model in [docs/security/threat-model.md](docs/security/threat-model.md) is
   updated every phase. Phase reviews are committed under [docs/security/](docs/security/).
-- Every change is reviewed by the security-reviewer role; `cargo deny`, `cargo audit`,
+- Every change is reviewed by the security-reviewer role. `cargo deny`, `cargo audit`,
   `pnpm audit`, `gitleaks` and Semgrep run on every pull request.
-- Releases are signed (macOS notarized, Windows Authenticode, Linux minisign) and ship with a
-  CycloneDX SBOM and provenance (from v0.1.0). Known medium-severity findings at release time
-  are listed in the release notes and this file.
+
+<!-- Maintainer: GitHub private vulnerability reporting must be enabled
+     (Settings → Code security → Private vulnerability reporting) or the link above 404s. -->
+
+- From v0.1.0, every release ships a `SHA256SUMS` signed with Sigstore cosign (keyless, bound to
+  this repository's `release.yml` and logged in Rekor), SLSA build provenance for each file and
+  CycloneDX SBOMs. Verify a download with
+  [`scripts/release/verify-release.sh`](scripts/release/verify-release.sh) before installing.
+  Platform signing (macOS Developer ID + notarization, Windows Authenticode, RPM GPG) applies
+  where the release notes say so. Until then, macOS builds are ad-hoc signed and Windows builds
+  are unsigned; the checksum signature is the authority.
+- Releases are drafts until a maintainer publishes them by hand. Known medium-severity findings
+  at release time are listed in the release notes and in this file.
 
 ## Security-relevant design summary
 
