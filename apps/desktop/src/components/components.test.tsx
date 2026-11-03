@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { App } from "../App";
-import { useCredentials } from "../stores/credentials";
+import { copyKey, useCredentials } from "../stores/credentials";
 import { useSessions } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";
@@ -76,10 +76,10 @@ describe("command palette", () => {
   });
 });
 
-describe("inspector copy password", () => {
+describe("inspector copy secret", () => {
   beforeEach(() => { freshBackend(); });
 
-  it("shows the inherited credential reference and a countdown after Rust copies", async () => {
+  it("lists copyable secretNames in the menu and shows a countdown after Rust copies", async () => {
     await boot();
     const writeText = vi.fn();
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -88,11 +88,26 @@ describe("inspector copy password", () => {
     expect(details).toHaveTextContent("deploy bot");
     expect(details).toHaveTextContent("deploy");
 
-    fireEvent.click(within(details).getByRole("button", { name: "Copy password" }));
+    fireEvent.click(within(details).getByRole("button", { name: "Copy secret" }));
+    const menu = within(details).getByRole("menu", { name: "Copy secret" });
+    const entries = within(menu).getAllByRole("menuitem").map((m) => m.textContent);
+    expect(entries).toEqual(["Copy password", "Copy OTP code"]);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy password" }));
     await settle();
     expect(within(details).getByRole("status", { name: /Clipboard clears in 30 seconds/ })).toBeInTheDocument();
-    expect(useCredentials.getState().copiedUntil["cr-deploy"]).toBeGreaterThan(Date.now());
+    expect(useCredentials.getState().copiedUntil[copyKey("cr-deploy", "password")]).toBeGreaterThan(Date.now());
     expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("shows role rows: RD Gateway on RDP, become on SSH, and the username override", async () => {
+    await boot();
+    act(() => { useTree.getState().select({ kind: "connection", id: "c-dc" }); });
+    const details = screen.getByRole("complementary", { name: "Details" });
+    const signIn = within(details).getByRole("group", { name: "Sign-in credential" });
+    expect(signIn).toHaveTextContent("EXAMPLE\\dc-adminoverride"); // override keeps the credential's domain
+    expect(within(details).getByRole("group", { name: "RD Gateway credential" })).toHaveTextContent("domain admin");
+    act(() => { useTree.getState().select({ kind: "connection", id: "c-pg" }); });
+    expect(within(details).getByRole("group", { name: "Become credential" })).toHaveTextContent("sudo as root");
   });
 });
 
@@ -146,12 +161,12 @@ describe("audit viewer", () => {
 
   it("lists entries newest first, filters, and shows the verify result", async () => {
     await boot();
-    await act(async () => { await useCredentials.getState().copyPassword("cr-ad"); });
+    await act(async () => { await useCredentials.getState().copySecret("cr-ad", "password"); });
     act(() => { useUi.getState().setView("audit"); });
     await settle();
     const list = screen.getByRole("list", { name: "Entries, newest first" });
     const items = within(list).getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("Credential used");
+    expect(items[0]).toHaveTextContent("Secret copied");
     expect(items[0]).toHaveTextContent("domain admin");
     expect(screen.getByRole("status")).toHaveTextContent(/Chain intact/);
 

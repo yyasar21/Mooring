@@ -29,17 +29,19 @@ describe("editor dialogs", () => {
 
   it("creates a credential and clears the secret field on submit", async () => {
     await boot();
-    act(() => { useUi.getState().openDialog({ kind: "credential" }); });
-    const dlg = screen.getByRole("dialog", { name: "New credential" });
-    fireEvent.change(within(dlg).getByLabelText("Name"), { target: { value: "lab root" } });
-    fireEvent.change(within(dlg).getByLabelText("Username"), { target: { value: "root" } });
-    const secret = within(dlg).getByLabelText("Password");
+    act(() => { useUi.getState().showCredentials({ mode: "new" }); });
+    const view = screen.getByRole("region", { name: "Credentials" });
+    fireEvent.click(within(view).getByRole("button", { name: "Username and password" }));
+    const form = within(view).getByRole("form", { name: "New Username and password" });
+    fireEvent.change(within(form).getByLabelText("Name"), { target: { value: "lab root" } });
+    fireEvent.change(within(form).getByLabelText("Username"), { target: { value: "root" } });
+    const secret = within(form).getByLabelText(/^Password/);
     fireEvent.change(secret, { target: { value: "fixture-not-a-secret" } });
-    fireEvent.click(within(dlg).getByRole("button", { name: "Create credential" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Create credential" }));
     expect(secret).toHaveValue("");
     await settle();
     expect(useCredentials.getState().items.some((c) => c.name === "lab root")).toBe(true);
-    expect(screen.getByRole("dialog", { name: "Credentials" })).toHaveTextContent("lab root");
+    expect(within(view).getByRole("list", { name: "Stored credentials" })).toHaveTextContent("lab root");
   });
 
   it("creates a connection in the selected folder and selects it", async () => {

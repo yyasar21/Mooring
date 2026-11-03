@@ -188,7 +188,7 @@ function SidebarToolbar() {
         className="icon-btn"
         title="Credentials"
         aria-label="Credentials"
-        onClick={() => { openDialog({ kind: "credentials" }); }}
+        onClick={() => { useUi.getState().showCredentials(); }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
           <circle cx="4.5" cy="7" r="2.75" />

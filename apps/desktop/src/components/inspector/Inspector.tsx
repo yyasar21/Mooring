@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import { HudLabel, ProtocolPip, StateDot } from "@mooring/ui";
-import type { ConnectionSummary, CredentialMeta, Folder } from "../../lib/ipc";
+import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import { folderPath, useTree } from "../../stores/tree";
-import { KIND_LABEL, useCredentials } from "../../stores/credentials";
 import { useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
-import { CopyPassword } from "./CopyPassword";
+import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
 
 /** Right pane: properties of the selected node. Credentials show as a reference, never a value. */
 export function Inspector() {
@@ -32,7 +31,6 @@ export function Inspector() {
 
 function ConnectionDetails({ c }: { c: ConnectionSummary }) {
   const folders = useTree((s) => s.folders);
-  const cred = useCredentials((s) => s.items.find((x) => x.id === c.effectiveCredentialId));
   const tab = useSessions((s) => s.tabs.find((t) => t.connectionId === c.id));
   const openDialog = useUi((s) => s.openDialog);
   const path = folderPath(folders, c.folderId);
@@ -81,7 +79,7 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
 
       <section className="readout-section">
         <HudLabel>Credential</HudLabel>
-        <CredentialRef cred={cred} inheritedFrom={source} />
+        <ConnectionCredentials c={c} inheritedFrom={source} />
       </section>
       <p className="px-3.5 pb-4 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
         Copying writes an audit entry. Mooring clears the clipboard after 30 seconds.
@@ -93,7 +91,6 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
 function FolderDetails({ f }: { f: Folder }) {
   const folders = useTree((s) => s.folders);
   const count = useTree((s) => s.connections.filter((c) => c.folderId === f.id).length);
-  const cred = useCredentials((s) => s.items.find((x) => x.id === f.defaultCredentialId));
   const openDialog = useUi((s) => s.openDialog);
   const isRoot = f.parentId === null;
 
@@ -121,27 +118,8 @@ function FolderDetails({ f }: { f: Folder }) {
       </section>
       <section className="readout-section">
         <HudLabel>Default credential</HudLabel>
-        <CredentialRef cred={cred} inheritedFrom={null} />
+        <FolderCredential id={f.defaultCredentialId} />
       </section>
-    </div>
-  );
-}
-
-function CredentialRef({ cred, inheritedFrom: from }: { cred: CredentialMeta | undefined; inheritedFrom: string | null }) {
-  if (!cred) return <p className="text-text-faint">None. The session will ask when it connects.</p>;
-  return (
-    <div className="cred-card m-hud">
-      <dl className="prop-grid">
-        <Prop k="Name">{cred.name}</Prop>
-        <Prop k="Kind">{KIND_LABEL[cred.kind]}</Prop>
-        <Prop k="Username" mono>{cred.username || "none"}</Prop>
-        {from && <Prop k="From">folder {from}</Prop>}
-      </dl>
-      {cred.kind === "password" && (
-        <div className="pt-2.5">
-          <CopyPassword credentialId={cred.id} />
-        </div>
-      )}
     </div>
   );
 }

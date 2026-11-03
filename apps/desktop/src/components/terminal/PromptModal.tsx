@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { PendingPrompt } from "../../stores/sessions";
 import { useSessions } from "../../stores/sessions";
+import { CredentialPrompt } from "./CredentialPrompt";
 
 /**
  * Inline modal over the terminal for a session `Prompt` (TOFU host key, keyboard-interactive).
- * Trust questions get Trust / Reject buttons; other prompts get a text field (hidden when `secret`).
+ * Trust questions get Trust / Reject buttons; `credential` prompts (ADR-0009 `prompt` kind) get
+ * the sign-in form; other prompts get a text field (hidden when `secret`).
  * The dialog is chosen by the typed `purpose` from Rust, never by the server-controlled text.
  * The typed answer lives only in this component and is cleared as soon as it is sent.
  */
 export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
+  if (prompt.purpose === "credential") return <CredentialPrompt tabId={tabId} prompt={prompt} host={host} />;
+  return <AnswerPrompt tabId={tabId} prompt={prompt} host={host} />;
+}
+
+function AnswerPrompt({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
   const answer = useSessions((s) => s.answer);
   const [text, setText] = useState("");
   const firstRef = useRef<HTMLInputElement & HTMLButtonElement>(null);
