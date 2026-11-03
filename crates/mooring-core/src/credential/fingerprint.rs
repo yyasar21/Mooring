@@ -18,6 +18,26 @@ pub const MAX_PEM: usize = 64 * 1024;
 const CERT_BEGIN: &str = "-----BEGIN CERTIFICATE-----";
 const CERT_END: &str = "-----END CERTIFICATE-----";
 
+/// `cert_pem` of an x509 row migrated from schema v2 before its first reseal (migration 0003).
+/// The only `cert_pem` value that is not a parsable certificate.
+pub const X509_MIGRATION_PLACEHOLDER: &str = "(sealed until the next unlock)";
+
+/// Every PEM block in `text` must be a certificate: a private key (or any other block) in the
+/// plaintext `cert_pem` would be stored in clear and served to the UI (review 3, B-3).
+fn certificates_only(text: &str) -> Result<(), CredentialError> {
+    let mut rest = text;
+    while let Some(i) = rest.find("-----BEGIN ") {
+        if !rest[i..].starts_with(CERT_BEGIN) {
+            return Err(bad(
+                "cert_pem",
+                "may contain certificates only; put the private key in key_pem",
+            ));
+        }
+        rest = &rest[i + CERT_BEGIN.len()..];
+    }
+    Ok(())
+}
+
 fn bad(field: &'static str, reason: &str) -> CredentialError {
     CredentialError::invalid(field, reason)
 }
@@ -95,11 +115,13 @@ pub fn ssh_private_key(pem: &[u8]) -> Result<PrivateKeyInfo, CredentialError> {
 }
 
 /// `SHA256:` fingerprint of the first certificate in a PEM text (leaf of a chain): SHA-256 over
-/// the DER, OpenSSH-style base64. The DER must at least be a SEQUENCE.
+/// the DER, OpenSSH-style base64. The DER must at least be a SEQUENCE, and every PEM block in
+/// the text must be a `CERTIFICATE` (no private key may ride along).
 pub fn x509_pem(text: &str) -> Result<String, CredentialError> {
     if text.len() > MAX_PEM {
         return Err(bad("cert_pem", "larger than 64 KiB"));
     }
+    certificates_only(text)?;
     let start =
         text.find(CERT_BEGIN).ok_or_else(|| bad("cert_pem", "must be a PEM certificate"))?;
     let rest = &text[start..];
@@ -173,6 +195,21 @@ mod tests {
         assert!(x509_pem("-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----").is_err());
         assert!(x509_pem("-----BEGIN CERTIFICATE-----\nMIIB").is_err());
         assert!(x509_pem("hello").is_err());
+    }
+
+    #[test]
+    fn x509_refuses_any_non_certificate_block() {
+        let key = crate::credential::testdata::placeholder_key_pem();
+        for bundle in
+            [format!("{CERT}{key}"), format!("{key}{CERT}"), format!("{CERT}\n{key}{CERT}")]
+        {
+            let e = x509_pem(&bundle).expect_err("cert + key bundle refused").to_string();
+            assert!(e.contains("put the private key in key_pem"), "{e}");
+            assert!(!e.contains("AAAA") && !e.contains("PRIVATE"), "no echo: {e}");
+        }
+        let other = format!("{CERT}-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n");
+        assert!(x509_pem(&other).is_err(), "only CERTIFICATE blocks");
+        assert!(x509_pem(X509_MIGRATION_PLACEHOLDER).is_err(), "the placeholder is not a cert");
     }
 
     #[test]

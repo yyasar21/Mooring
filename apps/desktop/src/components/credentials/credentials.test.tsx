@@ -10,6 +10,8 @@ import { CredentialEditor } from "./CredentialEditor";
 // Fixture values only; none of these is a real secret.
 const FIXTURE = "fixture-pw-7f3a";
 const KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nZml4dHVyZS1rZXktbm90LXJlYWw=\n-----END OPENSSH PRIVATE KEY-----\n";
+const BUNDLE =
+  "-----BEGIN CERTIFICATE-----\nMIIBfixture\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nZml4dHVyZS1rZXk=\n-----END PRIVATE KEY-----\n";
 const KUBE =
   "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster: {server: 'https://k.example.test'}\ncontexts:\n- name: blue\n  context: {cluster: c, user: u}\n- name: green\n  context: {cluster: c, user: u}\nusers:\n- name: u\n  user: {token: fixture-token-1}\n";
 
@@ -111,6 +113,31 @@ describe("schema-driven credential form", () => {
     expect(form.querySelector<HTMLTextAreaElement>("textarea[data-secret]")?.value).toBe(KEY);
     expect(zone).not.toBeInTheDocument();
     expect(JSON.stringify(useUi.getState())).not.toContain("OPENSSH");
+  });
+
+  it("splits a pasted certificate + key bundle: key into the secret input, never a plain field (B-3)", async () => {
+    await boot();
+    const view = openNew();
+    const zone = within(view).getByLabelText("Paste a key, certificate or kubeconfig");
+    fireEvent.paste(zone, { clipboardData: { getData: () => BUNDLE } });
+    const form = within(view).getByRole("form", { name: "New X.509 client certificate" });
+    await settle();
+    const cert = within(form).getByLabelText(/^Certificate/);
+    expect((cert as HTMLTextAreaElement).value).toContain("BEGIN CERTIFICATE");
+    const secret = form.querySelector<HTMLTextAreaElement>("textarea[data-secret]");
+    expect(secret?.value).toContain("PRIVATE KEY-----");
+    for (const el of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input:not([data-secret]), textarea:not([data-secret])")) {
+      expect(el.value).not.toContain("PRIVATE KEY");
+      expect(el.value).not.toContain("Zml4dHVyZS1rZXk");
+    }
+    // pasting the bundle straight into the certificate field is split the same way
+    fireEvent.change(cert, { target: { value: "" } });
+    if (secret) secret.value = "";
+    fireEvent.paste(cert, { clipboardData: { getData: () => BUNDLE } });
+    await settle();
+    expect((cert as HTMLTextAreaElement).value).not.toContain("PRIVATE KEY");
+    expect(secret?.value).toContain("PRIVATE KEY-----");
+    expect(JSON.stringify(useUi.getState())).not.toContain("PRIVATE KEY");
   });
 
   it("lists kubeconfig contexts from the pasted file", async () => {

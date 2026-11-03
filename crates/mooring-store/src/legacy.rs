@@ -187,15 +187,19 @@ fn blob_of(tx: &rusqlite::Connection, id: CredentialId, name: &str) -> Result<Op
         .optional()?)
 }
 
-/// The v2 certificate (public) becomes `cert_pem`, with its fingerprint when it parses.
+/// The v2 certificate (public) becomes `cert_pem` with its fingerprint; anything else is corrupt.
 fn move_certificate(fields: &mut CredentialFields, plain: &[u8]) -> Result<()> {
     let CredentialFields::X509(f) = fields else {
         return Err(StoreError::Corrupt { what: "legacy certificate" });
     };
-    let text = std::str::from_utf8(plain)
-        .map_err(|_| StoreError::Corrupt { what: "legacy certificate" })?;
+    let corrupt = || StoreError::Corrupt { what: "legacy certificate" };
+    let text = std::str::from_utf8(plain).map_err(|_| corrupt())?;
+    // Fail closed (review 3, B-3): the value must be certificates only and must parse, checked
+    // before anything is written. A row whose kind was flipped to x509 (say an ssh_key whose
+    // `secret` is a private key) is refused here, so the legacy secret stays sealed.
+    let fp = fingerprint::x509_pem(text).map_err(|_| corrupt())?;
     text.clone_into(&mut f.cert_pem);
-    f.fingerprint = fingerprint::x509_pem(text).ok();
+    f.fingerprint = Some(fp);
     // re-validate the whole row: a v2 value that breaks the field rules is refused, not stored
     let json = fields.to_json()?;
     CredentialFields::from_stored(fields.kind(), &json)

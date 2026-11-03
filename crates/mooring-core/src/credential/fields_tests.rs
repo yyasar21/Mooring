@@ -99,6 +99,10 @@ fn per_kind_rules() {
     assert!(input(K::SshAgent, json!({"username": "a", "key_fingerprint": "MD5:aa"})).is_err());
     assert!(input(K::SshKey, json!({"username": "a", "public_key": "garbage"})).is_err());
     assert!(input(K::X509, json!({"cert_pem": "not pem"})).is_err());
+    assert!(
+        input(K::X509, json!({"cert_pem": "(sealed until the next unlock)"})).is_err(),
+        "the migration placeholder is a stored value, never an input"
+    );
     assert!(input(
         K::ExternalRef,
         json!({"provider": "vault", "reference": "kv/x", "target_kind": "prompt"})
@@ -247,4 +251,19 @@ proptest! {
     fn account_parsing_never_panics(s in "\\PC{0,300}") {
         let _ = crate::credential::parse_account(&s);
     }
+}
+
+#[test]
+fn x509_cert_pem_refuses_a_bundled_private_key() {
+    let key = crate::credential::testdata::placeholder_key_pem();
+    let e = input(K::X509, json!({"cert_pem": format!("{CERT_PEM}{key}")}))
+        .expect_err("cert + key bundle refused")
+        .to_string();
+    assert!(e.contains("cert_pem") && e.contains("key_pem"), "{e}");
+    assert!(!e.contains("AAAA"), "the key is not echoed: {e}");
+    // the same row on read is corrupt, not served
+    let stored = json!({"cert_pem": format!("{CERT_PEM}{key}")}).to_string();
+    assert!(CredentialFields::from_stored(K::X509, &stored).is_err());
+    let placeholder = json!({"cert_pem": "(sealed until the next unlock)"}).to_string();
+    assert!(CredentialFields::from_stored(K::X509, &placeholder).is_ok(), "migrated row reads");
 }

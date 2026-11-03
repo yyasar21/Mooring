@@ -136,7 +136,24 @@ describe("paste detection and validation", () => {
     expect(detectKind("-----BEGIN CERTIFICATE-----\nMIIB")).toMatchObject({ kind: "x509", field: "cert_pem" });
     expect(detectKind("apiVersion: v1\nkind: Config\nclusters:\n- name: a")).toMatchObject({ kind: "kubeconfig" });
     expect(detectKind("hunter2")).toBeNull();
+    expect(detectKind("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----")).toMatchObject({ kind: "x509", field: "key_pem" });
     expect(detectKind("ssh-ed25519 AAAAC3Nza")).toBeNull();
+  });
+
+  it("splits a certificate + private key bundle: the key never goes to cert_pem (B-3)", () => {
+    const cert = "-----BEGIN CERTIFICATE-----\nMIIBfixture\n-----END CERTIFICATE-----";
+    const key = "-----BEGIN PRIVATE KEY-----\nZml4dHVyZS1rZXk=\n-----END PRIVATE KEY-----";
+    for (const bundle of [`${cert}\n${key}\n`, `${key}\n${cert}\n`, `${cert}\n${cert}\n${key.replace(/ PRIVATE/g, " RSA PRIVATE")}\n`]) {
+      const d = detectKind(bundle);
+      expect(d?.kind).toBe("x509");
+      const certPart = d?.parts.find((p) => p.field === "cert_pem");
+      const keyPart = d?.parts.find((p) => p.field === "key_pem");
+      expect(certPart?.text).toContain("BEGIN CERTIFICATE");
+      expect(certPart?.text).not.toMatch(/PRIVATE KEY|Zml4dHVyZS1rZXk/);
+      expect(keyPart?.text).toMatch(/PRIVATE KEY-----/);
+      expect(keyPart?.text).not.toContain("CERTIFICATE");
+    }
+    expect(detectKind(`${cert}\n`)?.parts).toEqual([{ field: "cert_pem", text: `${cert}\n` }]);
   });
 
   it("lists kubeconfig context names", () => {
