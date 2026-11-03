@@ -2,13 +2,15 @@
 //!
 //! Supports password, publickey and keyboard-interactive auth, and a PTY shell that echoes
 //! input and reports `window_change` as `RESIZE <cols>x<rows>\r\n`. Also `direct-tcpip`,
-//! `tcpip-forward` (→ `forwarded-tcpip` channels).
+//! `tcpip-forward` (→ `forwarded-tcpip` channels) and an `sftp` subsystem over a tempdir.
 
 #![allow(dead_code)] // each test binary uses a different subset
 
 pub mod forwarding;
+pub mod sftp_server;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,6 +49,8 @@ pub struct ServerSpec {
     pub authorized_key: Option<PublicKey>,
     /// Keyboard-interactive: first prompt "Password: " (no echo), then "Verification code: ".
     pub kbd_two_step: bool,
+    /// Root of the SFTP subsystem; `None` refuses the subsystem.
+    pub sftp_root: Option<PathBuf>,
 }
 
 impl ServerSpec {
@@ -57,6 +61,7 @@ impl ServerSpec {
             password: Some(PASSWORD.to_owned()),
             authorized_key: None,
             kbd_two_step: true,
+            sftp_root: None,
         }
     }
 }
@@ -222,6 +227,23 @@ impl server::Handler for Handler {
         self.sessions.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
+    }
+
+    async fn subsystem_request(
+        &mut self,
+        channel: ChannelId,
+        name: &str,
+        session: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        let root = self.spec.sftp_root.clone();
+        match (name, root, self.sessions.remove(&channel)) {
+            ("sftp", Some(root), Some(ch)) => {
+                session.channel_success(channel)?;
+                russh_sftp::server::run(ch.into_stream(), sftp_server::SftpFs::new(root)).await;
+                Ok(())
+            }
+            _ => session.channel_failure(channel),
+        }
     }
 
     async fn channel_open_direct_tcpip(
