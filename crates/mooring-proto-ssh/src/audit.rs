@@ -81,6 +81,8 @@ pub enum TrustEvent {
         bind: String,
         /// Where connections go (`host:port`, or `socks5` for dynamic).
         target: String,
+        /// `loopback` or `external` (security review 2 M-2).
+        exposure: &'static str,
     },
     /// A port forward stopped (by the user or because the session ended).
     ForwardClosed {

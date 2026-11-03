@@ -217,9 +217,12 @@ fn audit_trust(audit: &Mutex<AuditLog>, events: Vec<TrustEvent>) {
             }
             // Forwards are not exposed over IPC yet; `mooring-audit` gains dedicated
             // variants when they are (A1 follow-up). Until then they are traced.
-            TrustEvent::ForwardOpened { id, kind, bind, target }
-            | TrustEvent::ForwardClosed { id, kind, bind, target } => {
-                tracing::info!(id, kind, bind, target, "ssh forward state changed");
+            TrustEvent::ForwardOpened { id, kind, bind, target, exposure } => {
+                tracing::info!(id, kind, bind, target, exposure, "ssh forward opened");
+                continue;
+            }
+            TrustEvent::ForwardClosed { id, kind, bind, target } => {
+                tracing::info!(id, kind, bind, target, "ssh forward closed");
                 continue;
             }
         };

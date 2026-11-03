@@ -9,7 +9,7 @@ use common::forwarding::echo_server;
 use common::*;
 use mooring_core::session::Session;
 use mooring_core::MooringError;
-use mooring_proto_ssh::{ForwardKind, SshSession, TrustEvent};
+use mooring_proto_ssh::{Exposure, ForwardKind, SshSession, TrustEvent};
 use russh::MethodKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -50,7 +50,10 @@ fn actions(events: &[TrustEvent]) -> Vec<&'static str> {
 async fn local_forward_echo_round_trip() {
     let (mut s, srv, _d) = session().await;
     let echo = echo_server().await;
-    let id = s.forward_local(loopback0(), ("127.0.0.1".into(), echo.port())).await.expect("fwd");
+    let id = s
+        .forward_local(loopback0(), ("127.0.0.1".into(), echo.port()), Exposure::Loopback)
+        .await
+        .expect("fwd");
     let info = s.forwards().into_iter().find(|f| f.id == id).expect("listed");
     assert_eq!(info.kind, ForwardKind::Local);
     assert_eq!(info.target, format!("127.0.0.1:{}", echo.port()));
@@ -85,8 +88,14 @@ async fn local_forward_echo_round_trip() {
 #[tokio::test]
 async fn local_forward_validates_target() {
     let (mut s, _srv, _d) = session().await;
-    assert!(s.forward_local(loopback0(), ("bad host".into(), 80)).await.is_err());
-    assert!(s.forward_local(loopback0(), ("127.0.0.1".into(), 0)).await.is_err());
+    assert!(s
+        .forward_local(loopback0(), ("bad host".into(), 80), Exposure::Loopback)
+        .await
+        .is_err());
+    assert!(s
+        .forward_local(loopback0(), ("127.0.0.1".into(), 0), Exposure::Loopback)
+        .await
+        .is_err());
     assert!(s.forwards().is_empty());
     assert!(s.take_audit_events().iter().all(|e| !matches!(e, TrustEvent::ForwardOpened { .. })));
     s.close().await.expect("close");
@@ -96,7 +105,8 @@ async fn local_forward_validates_target() {
 async fn remote_forward_round_trip() {
     let (mut s, srv, _d) = session().await;
     let echo = echo_server().await;
-    let id = s.forward_remote(("127.0.0.1".into(), 0), echo).await.expect("fwd");
+    let id =
+        s.forward_remote(("127.0.0.1".into(), 0), echo, Exposure::Loopback).await.expect("fwd");
     let info = s.forwards().into_iter().find(|f| f.id == id).expect("listed");
     assert_eq!(info.kind, ForwardKind::Remote);
     assert_ne!(info.port, 0, "server-allocated port reported");
@@ -131,7 +141,7 @@ async fn socks_connect(proxy: SocketAddr, req_addr: &[u8]) -> (TcpStream, u8) {
 async fn socks5_connect_round_trip() {
     let (mut s, srv, _d) = session().await;
     let echo = echo_server().await;
-    let id = s.forward_dynamic(loopback0(), false).await.expect("fwd");
+    let id = s.forward_dynamic(loopback0(), Exposure::Loopback).await.expect("fwd");
     let info = s.forwards().into_iter().find(|f| f.id == id).expect("listed");
     assert_eq!((info.kind, info.target.as_str()), (ForwardKind::Dynamic, "socks5"));
     let proxy = SocketAddr::from(([127, 0, 0, 1], info.port));
@@ -164,11 +174,63 @@ async fn socks5_connect_round_trip() {
 async fn socks5_refuses_non_loopback_bind() {
     let (mut s, _srv, _d) = session().await;
     let any = SocketAddr::from(([0, 0, 0, 0], 0));
-    let err = s.forward_dynamic(any, false).await.expect_err("refused");
+    let err = s.forward_dynamic(any, Exposure::Loopback).await.expect_err("refused");
     assert!(matches!(err, MooringError::Invalid { field: "bind", .. }));
     assert!(s.forwards().is_empty());
-    let id = s.forward_dynamic(any, true).await.expect("explicitly allowed");
+    let id = s.forward_dynamic(any, Exposure::External).await.expect("explicitly allowed");
     assert_eq!(s.forwards()[0].id, id);
+    s.close().await.expect("close");
+}
+
+fn exposure_of(events: &[TrustEvent]) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            TrustEvent::ForwardOpened { exposure, .. } => Some(*exposure),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Security review 2 M-2: a local forward on a non-loopback address needs `External`.
+#[tokio::test]
+async fn local_forward_refuses_non_loopback_bind_unless_external() {
+    let (mut s, _srv, _d) = session().await;
+    let echo = echo_server().await;
+    let any = SocketAddr::from(([0, 0, 0, 0], 0));
+    let target = || ("127.0.0.1".to_owned(), echo.port());
+    let err = s.forward_local(any, target(), Exposure::Loopback).await.expect_err("refused");
+    assert!(matches!(err, MooringError::Invalid { field: "bind", .. }));
+    assert!(s.forwards().is_empty());
+    assert!(exposure_of(&s.take_audit_events()).is_empty());
+
+    s.forward_local(loopback0(), target(), Exposure::Loopback).await.expect("loopback");
+    let id = s.forward_local(any, target(), Exposure::External).await.expect("external");
+    assert_eq!(
+        s.forwards().iter().find(|f| f.id == id).expect("listed").exposure,
+        Exposure::External
+    );
+    assert_eq!(exposure_of(&s.take_audit_events()), vec!["loopback", "external"]);
+    s.close().await.expect("close");
+}
+
+/// Security review 2 M-2: a remote bind of `0.0.0.0` / `*` / `::` needs `External`.
+#[tokio::test]
+async fn remote_forward_refuses_non_loopback_bind_unless_external() {
+    let (mut s, srv, _d) = session().await;
+    let echo = echo_server().await;
+    for host in ["0.0.0.0", "*", "::", "10.10.0.1"] {
+        let err = s
+            .forward_remote((host.into(), 0), echo, Exposure::Loopback)
+            .await
+            .expect_err("refused");
+        assert!(matches!(err, MooringError::Invalid { field: "bind", .. }), "{host}");
+    }
+    assert!(srv.seen.lock().expect("lock").cancelled_forwards.is_empty());
+    assert!(s.forwards().is_empty());
+    s.forward_remote(("localhost".into(), 0), echo, Exposure::Loopback).await.expect("localhost");
+    s.forward_remote(("0.0.0.0".into(), 0), echo, Exposure::External).await.expect("external");
+    assert_eq!(exposure_of(&s.take_audit_events()), vec!["loopback", "external"]);
     s.close().await.expect("close");
 }
 
@@ -176,9 +238,11 @@ async fn socks5_refuses_non_loopback_bind() {
 async fn forwards_close_with_the_session() {
     let (mut s, _srv, _d) = session().await;
     let echo = echo_server().await;
-    s.forward_local(loopback0(), ("127.0.0.1".into(), echo.port())).await.expect("L");
-    s.forward_dynamic(loopback0(), false).await.expect("D");
-    s.forward_remote(("127.0.0.1".into(), 0), echo).await.expect("R");
+    s.forward_local(loopback0(), ("127.0.0.1".into(), echo.port()), Exposure::Loopback)
+        .await
+        .expect("L");
+    s.forward_dynamic(loopback0(), Exposure::Loopback).await.expect("D");
+    s.forward_remote(("127.0.0.1".into(), 0), echo, Exposure::Loopback).await.expect("R");
     let listed = s.forwards();
     assert_eq!(listed.len(), 3);
     let local = SocketAddr::from(([127, 0, 0, 1], listed[0].port));
@@ -197,7 +261,7 @@ async fn forwards_close_with_the_session() {
     let read = tokio::time::timeout(T, live.read(&mut b)).await.expect("in time");
     assert!(matches!(read, Ok(0) | Err(_)), "live connection closed");
     assert!(matches!(
-        s.forward_local(loopback0(), ("127.0.0.1".into(), 1)).await,
+        s.forward_local(loopback0(), ("127.0.0.1".into(), 1), Exposure::Loopback).await,
         Err(MooringError::Closed)
     ));
 }
@@ -206,7 +270,9 @@ async fn forwards_close_with_the_session() {
 async fn forwards_close_when_the_remote_ends() {
     let (mut s, _srv, _d) = session().await;
     let echo = echo_server().await;
-    s.forward_local(loopback0(), ("127.0.0.1".into(), echo.port())).await.expect("L");
+    s.forward_local(loopback0(), ("127.0.0.1".into(), echo.port()), Exposure::Loopback)
+        .await
+        .expect("L");
     let port = s.forwards()[0].port;
     s.send(mooring_core::session::SessionInput::Bytes { data: b"exit\r".to_vec() })
         .await
@@ -224,6 +290,6 @@ async fn forwards_need_a_connected_session() {
     let s =
         connect(server.port, mooring_core::session::ConnectSecret::None, &dir.path().join("kh"))
             .await;
-    let err = s.forward_dynamic(loopback0(), false).await.expect_err("not connected");
+    let err = s.forward_dynamic(loopback0(), Exposure::Loopback).await.expect_err("not connected");
     assert!(matches!(err, MooringError::Protocol { .. }));
 }

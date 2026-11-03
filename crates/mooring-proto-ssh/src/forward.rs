@@ -19,6 +19,8 @@ use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::audit::{AuditLog, TrustEvent};
+pub use crate::exposure::Exposure;
+use crate::exposure::{check_exposure, is_loopback_host};
 use crate::forward_io::{dynamic_loop, local_loop, Route};
 use crate::handler::ClientHandler;
 use crate::session::SshSession;
@@ -82,6 +84,8 @@ pub struct ForwardInfo {
     pub port: u16,
     /// Target `host:port`, or `socks5` for dynamic forwards.
     pub target: String,
+    /// Who may reach the listener.
+    pub exposure: Exposure,
 }
 
 /// `host:port`, bracketing IPv6 literals.
@@ -173,7 +177,7 @@ impl ForwardRegistry {
             }
             return Err(err);
         }
-        let ForwardInfo { id, kind, bind, target, .. } = entry.info.clone();
+        let ForwardInfo { id, kind, bind, target, exposure, .. } = entry.info.clone();
         state.entries.insert(id.0, entry);
         drop(state);
         audit.push(TrustEvent::ForwardOpened {
@@ -181,6 +185,7 @@ impl ForwardRegistry {
             kind: kind.as_str(),
             bind,
             target,
+            exposure: exposure.as_str(),
         });
         Ok(id)
     }
@@ -263,64 +268,67 @@ impl SshSession {
         kind: ForwardKind,
         bound: SocketAddr,
         target: String,
+        exposure: Exposure,
         task: impl FnOnce(watch::Receiver<bool>) -> JoinHandle<()>,
     ) -> Result<ForwardId, MooringError> {
         let registry = &self.shared.forwards;
         let id = registry.next_id();
         let (cancel, cancel_rx) = watch::channel(false);
         let task = Some(task(cancel_rx));
-        let info = ForwardInfo { id, kind, bind: bound.to_string(), port: bound.port(), target };
+        let (bind, port) = (bound.to_string(), bound.port());
+        let info = ForwardInfo { id, kind, bind, port, target, exposure };
         registry.insert(Entry { info, cancel, task, remote: None }, &self.shared.audit)
     }
 
     /// Listen on `bind` and tunnel each accepted connection to `target` as seen from the
-    /// server (`direct-tcpip`). Port 0 picks a free port; see [`ForwardInfo::port`].
+    /// server (`direct-tcpip`). Port 0 picks a free port; see [`ForwardInfo::port`]. A
+    /// non-loopback `bind` needs [`Exposure::External`].
     pub async fn forward_local(
         &self,
         bind_addr: SocketAddr,
         target: (String, u16),
+        exposure: Exposure,
     ) -> Result<ForwardId, MooringError> {
+        check_exposure(bind_addr.ip().is_loopback(), exposure)?;
         let handle = self.live_handle()?;
         let host = validate_target(&target.0, target.1)?;
         let port = target.1;
         let (listener, bound) = bind(bind_addr).await?;
         let shown = host_port(&host, port);
-        self.start(ForwardKind::Local, bound, shown, move |cancel| {
+        self.start(ForwardKind::Local, bound, shown, exposure, move |cancel| {
             tokio::spawn(local_loop(listener, handle, host, port, cancel))
         })
     }
 
     /// Run a SOCKS5 proxy (no auth, CONNECT only) on `bind`; each request becomes a
-    /// `direct-tcpip` channel. Binds other than loopback are refused unless
-    /// `allow_external` is true, because anyone who reaches the port uses the tunnel.
+    /// `direct-tcpip` channel. A non-loopback `bind` needs [`Exposure::External`], because
+    /// anyone who reaches the port uses the tunnel.
     pub async fn forward_dynamic(
         &self,
         bind_addr: SocketAddr,
-        allow_external: bool,
+        exposure: Exposure,
     ) -> Result<ForwardId, MooringError> {
-        if !allow_external && !bind_addr.ip().is_loopback() {
-            return Err(MooringError::Invalid {
-                field: "bind",
-                reason: "dynamic forwards bind to loopback unless external access is allowed"
-                    .into(),
-            });
-        }
+        check_exposure(bind_addr.ip().is_loopback(), exposure)?;
         let handle = self.live_handle()?;
         let (listener, bound) = bind(bind_addr).await?;
-        self.start(ForwardKind::Dynamic, bound, "socks5".to_owned(), move |cancel| {
+        let socks = "socks5".to_owned();
+        self.start(ForwardKind::Dynamic, bound, socks, exposure, move |cancel| {
             tokio::spawn(dynamic_loop(listener, handle, cancel))
         })
     }
 
     /// Ask the server to listen on `remote_bind` (`tcpip-forward`); each connection it
     /// accepts is connected to `target` from this machine. Port 0 lets the server choose.
+    /// A bind host other than `localhost`, `127.0.0.1` or `::1` needs [`Exposure::External`].
     pub async fn forward_remote(
         &self,
         remote_bind: (String, u16),
         target: SocketAddr,
+        exposure: Exposure,
     ) -> Result<ForwardId, MooringError> {
-        let handle = self.live_handle()?;
         let address = validate_host(&remote_bind.0)?;
+        check_exposure(is_loopback_host(&address), exposure)?;
+        let handle = self.live_handle()?;
         let allocated =
             handle.tcpip_forward(address.clone(), u32::from(remote_bind.1)).await.map_err(|e| {
                 tracing::debug!(error = %e, "tcpip-forward refused");
@@ -350,6 +358,7 @@ impl SshSession {
             bind: host_port(&address, port),
             port,
             target: target.to_string(),
+            exposure,
         };
         let remote = Some((address.clone(), u32::from(port), route));
         let entry = Entry { info, cancel, task: None, remote };
@@ -402,6 +411,7 @@ mod tests {
                 bind: "b".into(),
                 port: 1,
                 target: "t".into(),
+                exposure: Exposure::Loopback,
             },
             cancel,
             task: None,
