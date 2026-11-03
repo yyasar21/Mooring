@@ -1,0 +1,99 @@
+# Bump the Homebrew Cask in yyasar21/homebrew-mooring after a release is published.
+# Template: packaging/homebrew/Casks/mooring.rb. Hashes come from the release's cosign-verified
+# SHA256SUMS, never from re-downloading the dmg over an unverified channel.
+# Needs secret HOMEBREW_TAP_TOKEN: fine-grained PAT, only repo yyasar21/homebrew-mooring,
+# "Contents: read and write". Without it the job is skipped with a notice (forks).
+name: release-homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published tag to push to the tap, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-homebrew
+  cancel-in-progress: false
+
+jobs:
+  cask:
+    # Pre-releases stay out of the stable tap.
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      TAP: yyasar21/homebrew-mooring
+    steps:
+      - name: Require the tap token
+        id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        run: |
+          if [[ "$HAS_TOKEN" != true ]]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the cask bump"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.run == 'true'
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: steps.gate.outputs.run == 'true'
+
+      - name: Verify SHA256SUMS and render the cask
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "::error::'$TAG' is not a stable vX.Y.Z tag"; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          mkdir sums && cd sums
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS -p SHA256SUMS.sigstore.json
+          repo_re="${GITHUB_REPOSITORY//./\\.}"; tag_re="${TAG//./\\.}"
+          cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/(tags/${tag_re}|heads/main)\$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          sha() { awk -v f="$1" '{n=$2; sub(/^\*/,"",n)} n==f {print $1}' SHA256SUMS; }
+          arm=$(sha "Mooring_${version}_aarch64.dmg"); intel=$(sha "Mooring_${version}_x64.dmg")
+          [[ "$arm" =~ ^[0-9a-f]{64}$ && "$intel" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::dmg hashes missing from SHA256SUMS"; exit 1; }
+          cd ..
+          ident=$(python3 -I -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["identifier"])')
+          [[ "$ident" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "::error::unexpected identifier '$ident'"; exit 1; }
+          sed -e "s/@VERSION@/$version/g" -e "s/@SHA256_ARM@/$arm/g" -e "s/@SHA256_INTEL@/$intel/g" \
+              -e "s/@IDENTIFIER@/$ident/g" \
+              -e '/^# Template for/,/^# Lint locally/d' \
+              packaging/homebrew/Casks/mooring.rb > "$RUNNER_TEMP/mooring.rb"
+          ! grep -n '@[A-Z0-9_]*@' "$RUNNER_TEMP/mooring.rb" || { echo "::error::unrendered placeholder"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          cat "$RUNNER_TEMP/mooring.rb"
+
+      - name: Push to the tap
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP}.git" tap
+          mkdir -p tap/Casks
+          cp "$RUNNER_TEMP/mooring.rb" tap/Casks/mooring.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/mooring.rb
+          if git diff --cached --quiet; then echo "cask already at $VERSION"; exit 0; fi
+          git commit -m "mooring ${VERSION}"
+          git push origin HEAD
+          echo "### Homebrew tap updated: mooring ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
