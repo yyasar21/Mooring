@@ -16,6 +16,8 @@ async-trait = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 russh = { workspace = true }
+# SFTP for part b (ADR-0007); declared now so the module can land without a manifest change.
+russh-sftp = { workspace = true }
 secrecy = { workspace = true }
 zeroize = { workspace = true }
 tempfile = { workspace = true }
