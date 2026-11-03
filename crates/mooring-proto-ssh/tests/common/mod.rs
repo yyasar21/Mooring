@@ -403,8 +403,9 @@ pub async fn answer(s: &mut SshSession, id: u32, text: &str) {
 /// Answer the TOFU prompt with "yes" and return its message.
 pub async fn accept_tofu(s: &mut SshSession) -> String {
     match next(s).await {
-        SessionEvent::Prompt { id, message, secret } => {
+        SessionEvent::Prompt { id, message, secret, purpose } => {
             assert!(!secret);
+            assert_eq!(purpose, mooring_core::PromptPurpose::HostKeyTrust);
             answer(s, id, "yes").await;
             message
         }

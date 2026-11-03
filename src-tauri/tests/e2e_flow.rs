@@ -118,6 +118,7 @@ async fn create_vault_add_connection_run_uname_close_and_lock() {
     let opened = sess::open(st, &conn, SIZE, sink).await.expect("open");
     let prompt = next(&mut rx).await;
     assert_eq!(prompt["kind"], "prompt", "{prompt}");
+    assert_eq!(prompt["purpose"], "host_key_trust", "{prompt}");
     let id = u32::try_from(prompt["id"].as_u64().expect("id")).expect("u32");
     let yes = WireInput::Answer { id, text: pw("yes") };
     sess::send(st, &opened.session_id, yes).await.expect("answer");

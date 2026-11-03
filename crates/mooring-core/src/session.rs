@@ -175,12 +175,28 @@ pub enum SessionEvent {
         message: String,
         /// Whether the answer must be hidden in the UI.
         secret: bool,
+        /// Who asks and why. The UI picks the dialog from this, never from `message`, which a
+        /// server can control (ADR-0007, security review 2 L-2).
+        purpose: PromptPurpose,
     },
     /// Session ended.
     Closed {
         /// Reason safe to show.
         reason: String,
     },
+}
+
+/// Why a [`SessionEvent::Prompt`] was raised. Set by the protocol crate, never derived from
+/// server text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptPurpose {
+    /// Unknown host key: the answer is `yes` or `no` (TOFU).
+    HostKeyTrust,
+    /// A server keyboard-interactive prompt (server-controlled text).
+    KeyboardInteractive,
+    /// Anything else.
+    Other,
 }
 
 /// A live connection to a remote system.
@@ -202,6 +218,18 @@ pub trait Session: Send {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_purpose_is_snake_case_on_the_wire() {
+        for (p, wire) in [
+            (PromptPurpose::HostKeyTrust, "\"host_key_trust\""),
+            (PromptPurpose::KeyboardInteractive, "\"keyboard_interactive\""),
+            (PromptPurpose::Other, "\"other\""),
+        ] {
+            assert_eq!(serde_json::to_string(&p).expect("ser"), wire);
+            assert_eq!(serde_json::from_str::<PromptPurpose>(wire).expect("de"), p);
+        }
+    }
 
     #[test]
     fn secrets_never_print() {

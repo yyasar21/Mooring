@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mooring_core::PromptPurpose;
 use russh::client::{self, ChannelOpenHandle, Msg};
 use russh::keys::{PublicKey, PublicKeyOrCertificate};
 use russh::{Channel, ChannelOpenFailure};
@@ -84,7 +85,8 @@ impl ClientHandler {
 
     async fn ask_trust(&mut self, key: &PublicKey, described: String) -> bool {
         let message = format!("{}:{} {described}  — trust this host?", self.host, self.port);
-        let answer = self.shared.broker.ask(&self.shared.events, message, false).await;
+        let purpose = PromptPurpose::HostKeyTrust;
+        let answer = self.shared.broker.ask(&self.shared.events, message, false, purpose).await;
         if self.shared.is_closing() {
             self.shared.set_reason("closed by user");
             return false;

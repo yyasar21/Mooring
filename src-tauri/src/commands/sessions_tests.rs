@@ -90,6 +90,7 @@ async fn tofu_connect_echo_close_and_audit() {
 
     let prompt = next(&mut rx).await;
     assert_eq!(prompt["kind"], "prompt", "{prompt}");
+    assert_eq!(prompt["purpose"], "host_key_trust", "{prompt}");
     assert!(prompt["message"].as_str().expect("msg").ends_with("trust this host?"));
     let id = u32::try_from(prompt["id"].as_u64().expect("id")).expect("u32");
     // Wrong prompt id is refused and the prompt stays open.

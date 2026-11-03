@@ -328,6 +328,7 @@ export class MockTransport implements Ipc {
           id: 1,
           message: `The authenticity of host ${c.host} can't be established.\nED25519 key fingerprint is SHA256:mock-${c.name}.\nTrust this host and continue?`,
           secret: false,
+          purpose: "host_key_trust",
         });
       } else this.afterTrust(s);
     });
@@ -337,7 +338,7 @@ export class MockTransport implements Ipc {
   private afterTrust(s: MockSession): void {
     if (s.needsOtp) {
       s.pending = "otp";
-      s.emit({ kind: "prompt", id: 2, message: "Verification code:", secret: true });
+      s.emit({ kind: "prompt", id: 2, message: "Verification code:", secret: true, purpose: "keyboard_interactive" });
       return;
     }
     this.connect(s);
