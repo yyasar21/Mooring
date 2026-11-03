@@ -8,7 +8,7 @@ use rusqlite::{params, OptionalExtension, Row};
 use crate::error::{invalid, not_found, Result};
 use crate::folders::folder_exists;
 use crate::util::{check_name, fmt_ts, now, parse_id, parse_opt_id, parse_ts, protocol_from_str};
-use crate::{Store, MAX_HOST, MAX_TAG, MAX_TAGS};
+use crate::{Store, MAX_TAGS};
 
 const CONN_COLS: &str = "id, folder_id, name, protocol, host, port, credential_id, created_at";
 
@@ -18,31 +18,19 @@ fn row_to_raw(r: &Row<'_>) -> rusqlite::Result<RawConn> {
     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
 }
 
-/// Host rules shared with `nexus_core::Connection::new`.
+/// Host rules from [`nexus_core::validate_host`].
 fn check_host(host: &str) -> Result<String> {
-    let h = host.trim();
-    if h.is_empty() || h.len() > MAX_HOST || h.chars().any(|c| c.is_whitespace() || c.is_control())
-    {
-        return Err(invalid("host", "empty, longer than 2048 bytes or has spaces"));
-    }
-    Ok(h.to_owned())
+    Ok(nexus_core::validate_host(host)?)
 }
 
 /// Trim, validate and de-duplicate tags (order-preserving set semantics via `BTreeSet`).
 pub(crate) fn normalise_tags(tags: &[String]) -> Result<Vec<String>> {
     if tags.len() > MAX_TAGS {
-        return Err(invalid("tags", "at most 50 tags"));
+        return Err(invalid("tags", &format!("at most {MAX_TAGS} tags")));
     }
     let mut out = BTreeSet::new();
     for t in tags {
-        let t = t.trim();
-        if t.is_empty() || t.chars().count() > MAX_TAG {
-            return Err(invalid("tag", "must be 1..=64 characters"));
-        }
-        if t.chars().any(char::is_control) {
-            return Err(invalid("tag", "contains control characters"));
-        }
-        out.insert(t.to_owned());
+        out.insert(nexus_core::validate_tag(t)?);
     }
     Ok(out.into_iter().collect())
 }
@@ -233,5 +221,19 @@ mod tests {
         assert!(check_host("a b").is_err());
         assert!(check_host("").is_err());
         assert!(check_host(&"h".repeat(2049)).is_err());
+        assert!(check_host("h\u{7}").is_err());
+    }
+
+    #[test]
+    fn store_and_core_agree_on_limits() {
+        // Same rules as nexus-core: a value core accepts the store accepts, and vice versa.
+        for host in ["10.10.20.5", "a b", "", "h\u{0}", &"h".repeat(2049)] {
+            assert_eq!(check_host(host).is_ok(), nexus_core::validate_host(host).is_ok(), "{host}");
+        }
+        for tag in ["x", " ", &"t".repeat(nexus_core::MAX_TAG + 1)] {
+            let t = [tag.to_owned()];
+            assert_eq!(normalise_tags(&t).is_ok(), nexus_core::validate_tag(tag).is_ok(), "{tag}");
+        }
+        assert_eq!(crate::MAX_NAME, nexus_core::MAX_NAME);
     }
 }

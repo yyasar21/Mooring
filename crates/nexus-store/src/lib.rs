@@ -28,14 +28,8 @@ pub use credentials::{CredentialKind, CredentialMeta, SecretField};
 pub use error::{Result, StoreError};
 pub use search::{ConnectionHit, MAX_SEARCH_LIMIT};
 
-/// Maximum display-name length (characters), shared with `nexus_core::model`.
-pub const MAX_NAME: usize = 120;
-/// Maximum host length (bytes), shared with `nexus_core::model`.
-pub const MAX_HOST: usize = 2048;
-/// Maximum tag length (characters).
-pub const MAX_TAG: usize = 64;
-/// Maximum number of tags per connection.
-pub const MAX_TAGS: usize = 50;
+/// Input limits, owned by `nexus_core::model` and re-exported for callers of the store.
+pub use nexus_core::model::{MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS};
 
 /// Handle to the database. Not `Sync`; wrap in a `Mutex` to share across threads.
 pub struct Store {
