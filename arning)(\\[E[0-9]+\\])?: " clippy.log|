@@ -1,1 +1,0 @@
-            grep -aE ": (error | head -60 | sed 's/^/::error::/'
