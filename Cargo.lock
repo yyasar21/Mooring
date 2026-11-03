@@ -3157,6 +3157,7 @@ dependencies = [
  "arboard",
  "base64 0.22.1",
  "keyring",
+ "mooring-app",
  "mooring-audit",
  "mooring-core",
  "mooring-proto-ssh",

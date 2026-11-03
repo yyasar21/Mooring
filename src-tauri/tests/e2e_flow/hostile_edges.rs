@@ -1,5 +1,5 @@
 //! Hostile IPC input, fixed-shape cases: numeric ranges, wire shapes serde must refuse, base64
-//! garbage for `session_send`, vault inputs, a live SSH session, and the open bug A1-QA-4.
+//! garbage for `session_send`, vault inputs, a live SSH session, and the fixed bug A1-QA-4.
 //! Shared helpers and the string corpus live in `hostile.rs`.
 
 use mooring_core::session::Size;

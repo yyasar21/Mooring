@@ -6,18 +6,25 @@
 
 #![forbid(unsafe_code)]
 
-mod clipboard;
-mod commands;
-mod dto;
-mod error;
+/// The command layer and its state are private to the app; the `test-util` feature makes them
+/// public so integration tests (`tests/e2e_flow`) call the same plain functions as the UI.
+macro_rules! test_util_pub {
+    ($($m:ident),* $(,)?) => {$(
+        #[cfg(feature = "test-util")]
+        pub mod $m;
+        #[cfg(not(feature = "test-util"))]
+        mod $m;
+    )*};
+}
+
+test_util_pub!(clipboard, commands, dto, error, sessions, state);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 #[allow(dead_code)]
 mod keyring_store;
 mod navigation;
-mod sessions;
-mod state;
-#[cfg(test)]
-mod test_ssh_server;
+/// In-process russh server for the session tests (loopback only).
+#[cfg(any(test, feature = "test-util"))]
+pub mod test_ssh_server;
 
 use tauri::Manager;
 

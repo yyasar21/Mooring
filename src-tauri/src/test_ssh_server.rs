@@ -17,6 +17,7 @@ pub const USER: &str = "alice";
 pub const PASSWORD: &str = "test-only ssh pw";
 
 /// A running server.
+#[derive(Debug)]
 pub struct TestServer {
     /// Loopback port.
     pub port: u16,

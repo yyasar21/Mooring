@@ -25,7 +25,7 @@ pub enum KdfChoice {
     /// Measure Argon2id on this host (production).
     Calibrate,
     /// Fixed parameters (tests).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-util"))]
     Fixed(KdfParams),
 }
 
@@ -39,7 +39,7 @@ impl KdfChoice {
             Self::Calibrate => {
                 KdfParams::calibrate(mooring_vault::CALIBRATION_TARGET, Self::MAX_M_KIB)
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-util"))]
             Self::Fixed(p) => p,
         }
     }
@@ -313,18 +313,23 @@ fn sync_dir(dir: &Path) {
     let _ = dir;
 }
 
-#[cfg(test)]
-pub(crate) mod testing {
-    //! Fixtures shared by the command tests: a temp data dir, `KdfParams::TEST`, no agent, an
-    //! in-memory clipboard and a short clear delay.
+/// Fixtures shared by the command tests and, with `test-util`, the integration tests: a temp
+/// data dir, `KdfParams::TEST`, no agent, an in-memory clipboard and a short clear delay.
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing {
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    use super::*;
+    use mooring_vault::KdfParams;
+
+    use super::{AppState, KdfChoice, Settings};
     use crate::clipboard::MemoryClipboard;
     use secrecy::SecretString;
 
     /// Test-only master password (synthetic).
     pub const MASTER: &str = "test-only master pw";
 
+    #[derive(Debug)]
     pub struct Fixture {
         pub dir: tempfile::TempDir,
         pub state: AppState,

@@ -38,7 +38,7 @@ pub struct NewCredential {
 
 impl NewCredential {
     /// A password credential with a synthetic secret (tests only).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-util"))]
     pub fn password_for_tests(name: &str) -> Self {
         Self {
             name: name.to_owned(),

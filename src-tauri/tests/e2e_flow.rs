@@ -6,33 +6,13 @@
 //! session_open → TOFU yes → `uname -a` (the test server echoes) → close → lock → every
 //! vault-gated command fails with `vault.locked` → unlock → data and audit chain intact.
 //!
-//! `mooring_app_lib` only exports `run()`, so the app modules are compiled into this test crate
-//! with `#[path]` (no change to `src-tauri/src`). Side effect: their inline unit tests run here a
-//! second time. Drop the shim once rust-core exposes the command layer (handoff a1-qa-engineer-2).
+//! The command layer comes from `mooring_app_lib` through its `test-util` feature (enabled for
+//! this package's tests by the self dev-dependency in `src-tauri/Cargo.toml`). The modules are
+//! re-exported at this crate's root so the helper files keep using `crate::commands::...`.
 
 #![allow(clippy::doc_markdown)]
 
-#[path = "../src/clipboard.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod clipboard;
-#[path = "../src/commands/mod.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod commands;
-#[path = "../src/dto.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod dto;
-#[path = "../src/error.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod error;
-#[path = "../src/sessions.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod sessions;
-#[path = "../src/state.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod state;
-#[path = "../src/test_ssh_server.rs"]
-#[allow(dead_code, unused, clippy::unused_async)]
-mod test_ssh_server;
+use mooring_app_lib::{commands, error, sessions, state, test_ssh_server};
 
 #[path = "e2e_flow/hostile.rs"]
 mod hostile;
@@ -49,11 +29,11 @@ use secrecy::SecretString;
 use crate::commands::credentials::{self, NewCredential};
 use crate::commands::sessions::{self as sess, WireInput};
 use crate::commands::tree::{self, ConnectionFields};
+use crate::commands::vault::VaultStatus;
 use crate::commands::{audit, vault};
 use crate::state::testing::{self, MASTER};
 use crate::support::{b64, next, read_until, sink, wait_until_empty};
 use crate::test_ssh_server::{self as server, PASSWORD, USER};
-use crate::vault::VaultStatus;
 
 const SIZE: Size = Size { width: 120, height: 40 };
 

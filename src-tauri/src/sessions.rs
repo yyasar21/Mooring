@@ -176,6 +176,15 @@ pub struct TaskContext {
     pub registry: SessionRegistry,
 }
 
+impl std::fmt::Debug for TaskContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskContext")
+            .field("session_id", &self.session_id)
+            .field("connection_id", &self.connection_id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Register `session` and start its task. Must be called inside a Tokio runtime.
 pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcResult<()> {
     let (tx, rx) = mpsc::channel(COMMAND_CAPACITY);
