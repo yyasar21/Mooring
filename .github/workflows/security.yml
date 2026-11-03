@@ -15,8 +15,10 @@ jobs:
         with: { toolchain: stable }
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with: { command: check }
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with: { token: "${{ secrets.GITHUB_TOKEN }}" }
+      # cargo-audit run directly: no check-run writes (workflow token is read-only) and the
+      # accepted advisories are the same ones deny.toml documents (R-RSA, unmaintained build-time deps).
+      - run: cargo install --locked cargo-audit
+      - run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0374 --ignore RUSTSEC-2026-0370 --ignore RUSTSEC-2026-0371 --ignore RUSTSEC-2026-0372
 
   npm-deps:
     runs-on: ubuntu-22.04
