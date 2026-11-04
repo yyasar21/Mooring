@@ -20,6 +20,43 @@ invariants (round trips, documented caps, determinism). The same file is compile
   `fuzz/corpus/<target>/` and `fuzz/regressions/<target>/` on stable as part of the normal test
   suite. A regression therefore fails `cargo test` in ordinary CI without nightly.
 
+`kubeconfig_parse` also checks the parser's security property (review 3 M-5, review 4 M-11).
+After a successful parse, `violations` re-scans the input with `saphyr-parser`, the parser's own
+YAML event layer at the locked version, through separate code. It panics on any of these:
+
+- a `<<` or `!!merge` key anywhere in the file;
+- a key under `users[]` (any depth) that matches `exec`, `auth-provider`, `tokenFile`,
+  `client-certificate` or `client-key`, compared ASCII case-insensitively;
+- a key under `clusters[]` that matches `certificate-authority`;
+- under either section, a key the oracle cannot name: a tagged key, an alias, or a complex
+  (`? …`) key.
+
+The section names `users` / `clusters` are matched case-insensitively too, because a lenient
+consumer folds them. The forbidden list is a separate copy of the parser's list. It does not
+contain `token-file`: that is not a kubeconfig field. client-go's field is `tokenFile`, and
+case folding does not remove a hyphen. The stable test `oracle_flags_each_construct` pins the
+oracle itself, so a weakened oracle fails CI.
+
+## Owed targets
+
+CLAUDE.md requires a fuzz target for every parser of untrusted input. Review 4 ("Carried
+forward") lists these as still owed. None is a target yet, and each has only unit and proptest
+coverage in its crate:
+
+| Planned target | Function | Hostile source | Invariants to assert | Blocker |
+| --- | --- | --- | --- | --- |
+| `fingerprint_ssh_public_key` | `credential::fingerprint::ssh_public_key(&str)` | pasted public key / `authorized_keys` line | no panic; `Ok` starts with `SHA256:`; deterministic | none (`pub`) |
+| `fingerprint_ssh_certificate` | `fingerprint::ssh_certificate(&str)` | pasted OpenSSH certificate | as above; a plain public key is refused | none |
+| `fingerprint_ssh_private_key` | `fingerprint::ssh_private_key(&[u8])` | imported private key (PEM / OpenSSH) | no panic; never decrypts (bounded time whatever the KDF rounds); legacy PEM yields no fingerprint | none |
+| `fingerprint_x509_pem` | `fingerprint::x509_pem(&str)` | pasted certificate PEM | no panic; deterministic; any non-`CERTIFICATE` PEM block refused | none |
+| `otp_decode_seed` | `credential::otp::decode_seed(&[u8])` | pasted TOTP seed / `otpauth://` secret | no panic; `Ok` holds at least `MIN_SEED_BYTES`; input over `MAX_SEED_TEXT` refused; case, space, hyphen and padding variants decode equal | none |
+| `parse_account` | `credential::parse_account(&str)` | typed `DOMAIN\user` / UPN | no panic; `parse_account(a.render()) == a` for every `Ok` (round trip) | none |
+| `export_json` | post-decryption check of `mooring_vault::export::import_age` (`serde_json` into `ExportDocument` + `header.check()`) | decrypted backup payload | no panic; caps (`MAX_EXPORT_BYTES`, record count) honoured; header re-accepted | not reachable without scrypt + AEAD: needs `ExportDocument::from_json(&[u8])` from rust-core (A1 exit QA, decision 4) |
+
+Each one is an `entries/<name>.rs` with `pub fn run(&[u8])`, a seed corpus and a stable replay in
+the owning crate's `tests/fuzz_corpus.rs`, as for the targets above. The fingerprint, OTP and
+account targets go in `mooring-core` and can land without any API change.
+
 ## Layout
 
 ```
