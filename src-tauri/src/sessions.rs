@@ -305,9 +305,19 @@ where
         task: None,
     };
     let mut map = ctx_registry.lock().map_err(|_| IpcError::poisoned())?;
+    // N-28 (a): concurrent opens all passed the early check before their connect `await`.
+    room_for_one(map.len())?;
     let task = tokio::spawn(task(rx, phase, transfers));
     handle.task = Some(task.abort_handle());
     map.insert(id, handle);
+    Ok(())
+}
+
+/// The session cap, checked again under the registry lock.
+fn room_for_one(open: usize) -> IpcResult<()> {
+    if open >= crate::commands::sessions::MAX_SESSIONS {
+        return Err(IpcError::session_failed("too many open sessions"));
+    }
     Ok(())
 }
 
@@ -381,5 +391,12 @@ mod tests {
         }
         assert_eq!(Phase::Reconnecting.as_str(), "reconnecting");
         assert_eq!(Phase::from_u8(9), Phase::Closed);
+    }
+
+    #[test]
+    fn the_cap_is_rechecked_under_the_registry_lock() {
+        let max = crate::commands::sessions::MAX_SESSIONS;
+        assert!(super::room_for_one(max - 1).is_ok());
+        assert_eq!(super::room_for_one(max).expect_err("full").code, "session.failed");
     }
 }
