@@ -33,20 +33,18 @@ fn seed(name: &str) -> Vec<u8> {
 }
 
 /// QA-F2 (docs/handoff/a1-exit-qa.md): the parser looks up `users` / `clusters` case-sensitively,
-/// so `Users:` / `Clusters:` sections skip the forbidden-key check. Parser fix owned by
-/// rust-core; until it lands only this one file is excluded from the corpus replay.
+/// so `Users:` / `Clusters:` sections skipped the forbidden-key check (fixed in fix round 4).
 const QA_F2: &str = "qa-f2-section-key-case";
 
 #[test]
 fn kubeconfig_parse_corpus() {
-    let ran = replay::replay_except("kubeconfig_parse", kubeconfig::run, &[QA_F2]);
+    let ran = replay::replay_except("kubeconfig_parse", kubeconfig::run, &[]);
     assert!(ran >= 7 + FORBIDDEN_SEEDS.len());
 }
 
-/// QA-F2 reproducer, run through the unchanged property. Remove the `#[ignore]` and the
-/// exception above once rust-core fixes `kubeconfig::parse`.
+/// QA-F2 reproducer, run through the unchanged property (fixed in fix round 4: case-variant
+/// section keys are rejected).
 #[test]
-#[ignore = "QA-F2: open parser bypass (`Users:` / `Clusters:` section keys), owner rust-core"]
 fn kubeconfig_qa_f2_regression() {
     let path = replay::fuzz_dir().join("regressions/kubeconfig_parse").join(QA_F2);
     kubeconfig::run(&std::fs::read(path).expect("read QA-F2 reproducer"));
