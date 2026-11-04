@@ -6,11 +6,16 @@
 //! * [`model`] — folders, connections, credential *references* (never secret material)
 //! * [`session`] — the [`session::Session`] trait that SSH / RDP / VNC / K8s implement
 //! * [`error`] — the error type shared by the core and the protocol crates
+//! * [`frame`] — the RGBA framebuffer, `FrameSink` and the `MFR1` wire format (ADR-0011)
+//! * [`known_certs`] — certificate TOFU store and `CertificateInfo` (RDP, VNC)
+//! * [`options`] — per-protocol connection options (`connection.options_json`)
+//! * [`audit`] — security events a session reports to the audit log
 //!
 //! Secret material lives only in `mooring-vault`; here a credential is an opaque [`model::CredentialId`].
 
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod connect;
 pub mod credential;
 pub mod error;
@@ -21,11 +26,14 @@ pub mod options;
 pub mod session;
 pub mod tree;
 
+pub use audit::{AuthMethod, ClipboardDirection, SessionAudit};
 pub use credential::{CredentialFields, CredentialKind, Role, SecretName};
 pub use error::MooringError;
+pub use frame::FrameSink;
 pub use model::{
     is_bidi_or_invisible, validate_host, validate_name, validate_tag, Connection, ConnectionId,
     CredentialId, Folder, FolderId, Protocol, MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS,
 };
-pub use session::{PromptPurpose, Session, SessionEvent, SessionInput};
+pub use options::ProtocolOptions;
+pub use session::{CloseCode, PromptPurpose, Session, SessionEvent, SessionInput};
 pub use tree::ConnectionTree;

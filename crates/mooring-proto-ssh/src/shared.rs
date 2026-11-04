@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mooring_core::session::{PromptAccount, PromptPurpose, SessionEvent};
+use mooring_core::session::{CloseCode, PromptAccount, PromptPurpose, SessionEvent};
 use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 
@@ -101,7 +101,14 @@ impl PromptBroker {
         secret: bool,
         purpose: PromptPurpose,
     ) -> Option<SecretString> {
-        let event = |id| SessionEvent::Prompt { id, message, secret, purpose, account: None };
+        let event = |id| SessionEvent::Prompt {
+            id,
+            message,
+            secret,
+            purpose,
+            account: None,
+            certificate: None,
+        };
         match self.raise(events, event, Expect::Text).await? {
             Reply::Text(t) => Some(t),
             Reply::Credential(_) => None,
@@ -120,6 +127,7 @@ impl PromptBroker {
             secret: true,
             purpose: PromptPurpose::Credential,
             account: Some(account),
+            certificate: None,
         };
         match self.raise(events, event, Expect::Credential).await? {
             Reply::Credential(c) => Some(c),
@@ -164,7 +172,7 @@ pub(crate) struct Shared {
     pub(crate) audit: AuditLog,
     pub(crate) forwards: ForwardRegistry,
     pub(crate) sftp: SftpSlot,
-    reason: Mutex<Option<String>>,
+    reason: Mutex<Option<(CloseCode, String)>>,
     peer: Mutex<Option<String>>,
     closing: AtomicBool,
 }
@@ -184,14 +192,14 @@ impl Shared {
     }
 
     /// Record why the handshake stopped (first reason wins). Must be safe to show.
-    pub(crate) fn set_reason(&self, reason: impl Into<String>) {
+    pub(crate) fn set_reason(&self, code: CloseCode, reason: impl Into<String>) {
         let mut slot = self.reason.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.is_none() {
-            *slot = Some(reason.into());
+            *slot = Some((code, reason.into()));
         }
     }
 
-    pub(crate) fn take_reason(&self) -> Option<String> {
+    pub(crate) fn take_reason(&self) -> Option<(CloseCode, String)> {
         self.reason.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 

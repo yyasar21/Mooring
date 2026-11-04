@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mooring_core::PromptPurpose;
+use mooring_core::{CloseCode, PromptPurpose};
 use russh::client::{self, ChannelOpenHandle, Msg};
 use russh::keys::{PublicKey, PublicKeyOrCertificate};
 use russh::{Channel, ChannelOpenFailure};
@@ -57,7 +57,7 @@ impl ClientHandler {
         let Ok(Ok(store)) = tokio::task::spawn_blocking(move || KnownHosts::load(&path)).await
         else {
             tracing::warn!("known_hosts could not be read");
-            self.shared.set_reason("known_hosts could not be read");
+            self.shared.set_reason(CloseCode::ProtocolError, "known_hosts could not be read");
             return false;
         };
         match store.check(&self.host, self.port, key) {
@@ -73,10 +73,13 @@ impl ClientHandler {
                     expected: expected_fp.clone(),
                     presented: presented.clone(),
                 });
-                self.shared.set_reason(format!(
-                    "HOST KEY CHANGED for {}: expected {expected_fp}, got {presented}",
-                    self.host
-                ));
+                self.shared.set_reason(
+                    CloseCode::TrustMismatch,
+                    format!(
+                        "HOST KEY CHANGED for {}: expected {expected_fp}, got {presented}",
+                        self.host
+                    ),
+                );
                 false
             }
             TrustDecision::Unknown => self.ask_trust(key, described).await,
@@ -88,7 +91,7 @@ impl ClientHandler {
         let purpose = PromptPurpose::HostKeyTrust;
         let answer = self.shared.broker.ask(&self.shared.events, message, false, purpose).await;
         if self.shared.is_closing() {
-            self.shared.set_reason("closed by user");
+            self.shared.set_reason(CloseCode::User, "closed by user");
             return false;
         }
         let yes = answer.is_some_and(|a| a.expose_secret().trim().eq_ignore_ascii_case("yes"));
@@ -98,7 +101,7 @@ impl ClientHandler {
                 port: self.port,
                 fingerprint: fingerprint(key),
             });
-            self.shared.set_reason("host key not trusted");
+            self.shared.set_reason(CloseCode::TrustRejected, "host key not trusted");
             return false;
         }
         let (path, host, port, k) =
@@ -138,7 +141,8 @@ impl client::Handler for ClientHandler {
         server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
         let PublicKeyOrCertificate::PublicKey { key, .. } = server_public_key else {
-            self.shared.set_reason("host certificates are not supported yet");
+            self.shared
+                .set_reason(CloseCode::ProtocolError, "host certificates are not supported yet");
             return Ok(false);
         };
         Ok(self.decide(key).await)

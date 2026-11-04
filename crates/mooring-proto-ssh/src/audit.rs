@@ -1,123 +1,14 @@
 //! Security-relevant events for the Tauri layer to append to the audit log.
 //!
-//! This crate does not depend on `mooring-audit`; it records [`TrustEvent`]s that the caller
-//! drains with `SshSession::take_audit_events`. Events never carry secret material.
+//! This crate does not depend on `mooring-audit`; it records [`TrustEvent`]s (=
+//! `mooring_core::SessionAudit`) that the caller drains with `take_audit_events`. Events
+//! never carry secret material.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// Authentication method that succeeded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthMethod {
-    /// `publickey` with the vault key.
-    PublicKey,
-    /// `publickey` through the ssh-agent.
-    Agent,
-    /// `password`.
-    Password,
-    /// `keyboard-interactive`.
-    KeyboardInteractive,
-}
-
-impl AuthMethod {
-    /// Stable name for logs.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::PublicKey => "publickey",
-            Self::Agent => "agent",
-            Self::Password => "password",
-            Self::KeyboardInteractive => "keyboard-interactive",
-        }
-    }
-}
-
-/// One audit-worthy event.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TrustEvent {
-    /// The user trusted a new host key (TOFU "yes").
-    HostKeyAdded {
-        /// Host as given.
-        host: String,
-        /// Port.
-        port: u16,
-        /// Key type, e.g. `ssh-ed25519`.
-        key_type: String,
-        /// `SHA256:<base64>`.
-        fingerprint: String,
-        /// Whether it was written to `known_hosts`; `false` means trusted for this session
-        /// only (full disk, file over the caps; review 2 ruling D4 / N-3).
-        stored: bool,
-    },
-    /// The user declined a new host key.
-    HostKeyRejected {
-        /// Host.
-        host: String,
-        /// Port.
-        port: u16,
-        /// `SHA256:<base64>` of the declined key.
-        fingerprint: String,
-    },
-    /// The stored key differs from the presented one; the connection was stopped.
-    HostKeyMismatch {
-        /// Host.
-        host: String,
-        /// Port.
-        port: u16,
-        /// Stored fingerprint (or `revoked`).
-        expected: String,
-        /// Presented fingerprint.
-        presented: String,
-    },
-    /// Authentication succeeded with this method.
-    AuthSucceeded {
-        /// Method.
-        method: AuthMethod,
-    },
-    /// Every method failed.
-    AuthFailed,
-    /// A port forward started listening (ADR-0007 §Channels and flow).
-    ForwardOpened {
-        /// Session-local id, e.g. `fwd-1`.
-        id: String,
-        /// `local`, `remote` or `dynamic`.
-        kind: &'static str,
-        /// Address actually bound (local side for local/dynamic, server side for remote).
-        bind: String,
-        /// Where connections go (`host:port`, or `socks5` for dynamic).
-        target: String,
-        /// `loopback` or `external` (security review 2 M-2).
-        exposure: &'static str,
-    },
-    /// A port forward stopped (by the user or because the session ended).
-    ForwardClosed {
-        /// Session-local id.
-        id: String,
-        /// `local`, `remote` or `dynamic`.
-        kind: &'static str,
-        /// Bound address.
-        bind: String,
-        /// Target.
-        target: String,
-    },
-    /// Privilege escalation (`become`) was refused by the server (wrong password, not in
-    /// sudoers); it was interrupted and the session continues as the login user (review 3, M-6).
-    BecomeFailed,
-}
-
-impl TrustEvent {
-    /// Audit action name, e.g. `trust.host_key.added`.
-    pub fn action(&self) -> &'static str {
-        match self {
-            Self::HostKeyAdded { .. } => "trust.host_key.added",
-            Self::HostKeyRejected { .. } => "trust.host_key.rejected",
-            Self::HostKeyMismatch { .. } => "trust.host_key.mismatch",
-            Self::AuthSucceeded { .. } => "session.auth.succeeded",
-            Self::AuthFailed => "session.auth.failed",
-            Self::ForwardOpened { .. } => "session.forward.open",
-            Self::ForwardClosed { .. } => "session.forward.close",
-            Self::BecomeFailed => "session.become.failed",
-        }
-    }
-}
+/// The audit types live in `mooring-core` since ADR-0011 (shared with RDP and VNC);
+/// `TrustEvent` stays as this crate's name for them.
+pub use mooring_core::audit::{AuthMethod, SessionAudit as TrustEvent};
 
 /// Shared, append-only event buffer.
 #[derive(Debug, Clone, Default)]

@@ -87,7 +87,10 @@ async fn mismatch_is_a_hard_stop_and_changes_nothing() {
     let mut s = connect(server.port, password(), &kh).await;
     // No prompt: the first event is Closed.
     let reason = match next(&mut s).await {
-        SessionEvent::Closed { reason } => reason,
+        SessionEvent::Closed { reason, code } => {
+            assert_eq!(code, mooring_core::CloseCode::TrustMismatch);
+            reason
+        }
         other => panic!("expected hard stop, got {other:?}"),
     };
     let expected = format!(

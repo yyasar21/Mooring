@@ -457,7 +457,7 @@ pub async fn expect_connected(s: &mut SshSession) -> Option<String> {
 pub async fn expect_closed(s: &mut SshSession) -> String {
     loop {
         match next(s).await {
-            SessionEvent::Closed { reason } => return reason,
+            SessionEvent::Closed { reason, .. } => return reason,
             SessionEvent::Bytes { .. } => {}
             other => panic!("expected Closed, got {other:?}"),
         }

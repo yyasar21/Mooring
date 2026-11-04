@@ -1,18 +1,28 @@
-//! The protocol-agnostic session contract (ADR-0004).
+//! The protocol-agnostic session contract (ADR-0004, amended by ADR-0011).
 //!
 //! A protocol crate implements [`Session`]; the Tauri layer drives it and forwards
 //! [`SessionEvent`]s to the UI over a Tauri channel. The UI never sees credentials:
 //! the protocol crate receives already-resolved secret material from the vault at
-//! `connect` time and drops it as soon as the handshake is done.
+//! `connect` time and drops it as soon as the handshake is done. Graphical sessions do not
+//! send pixels as events: they write into a [`crate::frame::FrameSink`] (ADR-0011 frame path).
 
 use async_trait::async_trait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::audit::SessionAudit;
+use crate::error::{MooringError, Result};
+use crate::known_certs::CertificateInfo;
 use crate::model::Protocol;
 
 pub use crate::connect::{Become, ConnectParams, ConnectSecret, PromptAccount};
+
+/// Longest `Key.code` (`KeyboardEvent.code`, ASCII), in bytes.
+pub const MAX_KEY_CODE: usize = 32;
+/// Longest `Key.key` (`KeyboardEvent.key`), in bytes.
+pub const MAX_KEY_KEY: usize = 32;
+/// Longest `Unicode.text`, in characters.
+pub const MAX_UNICODE_CHARS: usize = 64;
 
 /// Terminal columns×rows or screen width×height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,8 +35,10 @@ pub struct Size {
 
 /// Input from the user to the remote side.
 ///
-/// `Debug` is hand-written and `Answer.text` serialises as `"<redacted>"`: the answer may be a
-/// keyboard-interactive password or OTP (ADR-0007). It is only ever deserialised from the UI.
+/// `Debug` is hand-written: `Answer.text` and `CredentialAnswer.password` are secrets
+/// (they also serialise as `"<redacted>"`), and keyboard input (`Key`, `Unicode`) may be a
+/// password typed into a remote login screen, so its content is never printed either. Only
+/// ever deserialised from the UI; call [`SessionInput::validate`] at the IPC boundary.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionInput {
@@ -40,22 +52,42 @@ pub enum SessionInput {
         /// New size.
         size: Size,
     },
-    /// Pointer event for graphical protocols.
+    /// Pointer position and buttons (1 = left, 2 = middle, 4 = right, 8 = back, 16 = forward).
     Pointer {
-        /// X.
+        /// X in framebuffer pixels.
         x: u32,
-        /// Y.
+        /// Y in framebuffer pixels.
         y: u32,
         /// Button bitmask.
         buttons: u8,
     },
-    /// Key event for graphical protocols.
+    /// Physical key (graphical protocols): mapped to a scancode from `code`, which does not
+    /// depend on the local layout; `key` is the layout-dependent value (VNC keysyms).
     Key {
-        /// Scancode.
-        scancode: u32,
+        /// `KeyboardEvent.code`, ≤ 32 ASCII bytes (e.g. `KeyA`, `ShiftLeft`).
+        code: String,
+        /// `KeyboardEvent.key`, ≤ 32 bytes (e.g. `a`, `Enter`).
+        key: String,
         /// Pressed or released.
         pressed: bool,
     },
+    /// Wheel, 120 per notch (positive `dy` = down, positive `dx` = right).
+    Wheel {
+        /// Horizontal delta.
+        dx: i16,
+        /// Vertical delta.
+        dy: i16,
+    },
+    /// Text composed by an IME, sent as Unicode key events. ≤ 64 characters.
+    Unicode {
+        /// Composed text.
+        text: String,
+    },
+    /// Release every pressed key and button (sent on blur so nothing stays stuck).
+    ReleaseAll,
+    /// The session tab gained focus: Rust reads the OS clipboard and announces it to the
+    /// remote side (policy permitting). The text never crosses IPC.
+    ClipboardOffer,
     /// Answer to a [`SessionEvent::Prompt`] (TOFU decision, keyboard-interactive response).
     Answer {
         /// Id of the prompt being answered.
@@ -90,6 +122,40 @@ fn serialize_redacted<S: serde::Serializer>(
     serializer.serialize_str(REDACTED)
 }
 
+impl SessionInput {
+    /// The ADR-0011 input caps: `Key.code` 1..=32 ASCII alphanumerics, `Key.key` ≤ 32 bytes
+    /// without control characters, `Unicode.text` 1..=64 characters without control
+    /// characters. Other variants are checked where they are used (sizes by the IPC
+    /// layer, coordinates by the protocol against its framebuffer).
+    pub fn validate(&self) -> Result<()> {
+        let bad = |field: &'static str, reason: &str| MooringError::Invalid {
+            field,
+            reason: reason.to_owned(),
+        };
+        match self {
+            Self::Key { code, key, .. } => {
+                if code.is_empty()
+                    || code.len() > MAX_KEY_CODE
+                    || !code.bytes().all(|b| b.is_ascii_alphanumeric())
+                {
+                    return Err(bad("code", "must be 1-32 ASCII letters or digits"));
+                }
+                if key.len() > MAX_KEY_KEY || key.chars().any(char::is_control) {
+                    return Err(bad("key", "must be at most 32 bytes without control characters"));
+                }
+            }
+            Self::Unicode { text } => {
+                let n = text.chars().count();
+                if n == 0 || n > MAX_UNICODE_CHARS || text.chars().any(char::is_control) {
+                    return Err(bad("text", "must be 1-64 characters without control characters"));
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
 impl std::fmt::Debug for SessionInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -101,9 +167,18 @@ impl std::fmt::Debug for SessionInput {
                 .field("y", y)
                 .field("buttons", buttons)
                 .finish(),
-            Self::Key { scancode, pressed } => {
-                f.debug_struct("Key").field("scancode", scancode).field("pressed", pressed).finish()
+            Self::Key { pressed, .. } => f
+                .debug_struct("Key")
+                .field("code", &REDACTED)
+                .field("key", &REDACTED)
+                .field("pressed", pressed)
+                .finish(),
+            Self::Wheel { dx, dy } => {
+                f.debug_struct("Wheel").field("dx", dx).field("dy", dy).finish()
             }
+            Self::Unicode { .. } => f.debug_struct("Unicode").field("text", &REDACTED).finish(),
+            Self::ReleaseAll => f.write_str("ReleaseAll"),
+            Self::ClipboardOffer => f.write_str("ClipboardOffer"),
             Self::Answer { id, .. } => {
                 f.debug_struct("Answer").field("id", id).field("text", &REDACTED).finish()
             }
@@ -118,6 +193,37 @@ impl std::fmt::Debug for SessionInput {
     }
 }
 
+/// Why a session ended (ADR-0011). The UI and the reconnect policy decide from this, never
+/// from `reason`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseCode {
+    /// Closed by the user (or the UI went away).
+    User,
+    /// Transport failure (DNS, TCP, TLS I/O, connection lost).
+    Network,
+    /// Every authentication method failed.
+    AuthFailed,
+    /// The user declined an unknown host key / certificate.
+    TrustRejected,
+    /// A pinned host key / certificate changed, or TLS was stripped after a pin: hard stop.
+    TrustMismatch,
+    /// The server ended the session.
+    ServerEnded,
+    /// The peer violated the protocol, or a parser/decoder refused its data.
+    ProtocolError,
+    /// The vault was locked (credential could not be resolved).
+    VaultLocked,
+}
+
+impl CloseCode {
+    /// Whether the Tauri reconnect loop may retry (ADR-0011: only `network` and
+    /// `server_ended`, and only after `Connected`).
+    pub const fn is_retryable(self) -> bool {
+        matches!(self, Self::Network | Self::ServerEnded)
+    }
+}
+
 /// Events from the remote side to the UI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -126,26 +232,24 @@ pub enum SessionEvent {
     Connected {
         /// Protocol.
         protocol: Protocol,
-        /// Server identity shown to the user (host key fingerprint, cert subject...).
+        /// Server identity shown to the user (host key fingerprint, `x509 SHA256:<hex>`).
         peer_identity: Option<String>,
+        /// Transport security in effect: RDP `nla` / `tls`, VNC `vencrypt-x509` / `vnc-auth`
+        /// / `none`; `None` for SSH (always encrypted).
+        #[serde(default)]
+        security: Option<String>,
     },
     /// Terminal output.
     Bytes {
         /// Payload.
         data: Vec<u8>,
     },
-    /// A rectangle of the remote screen changed (graphical protocols).
-    Frame {
-        /// X.
-        x: u32,
-        /// Y.
-        y: u32,
-        /// Width.
+    /// The remote desktop size changed (server-initiated or after a `Resize`).
+    DesktopResized {
+        /// Width in pixels.
         width: u32,
-        /// Height.
+        /// Height in pixels.
         height: u32,
-        /// RGBA pixels, row-major.
-        rgba: Vec<u8>,
     },
     /// The peer asked a question the user must answer (TOFU prompt, keyboard-interactive).
     Prompt {
@@ -160,11 +264,17 @@ pub enum SessionEvent {
         purpose: PromptPurpose,
         /// What to ask, for `purpose: credential` only (ADR-0009); `null` otherwise.
         account: Option<PromptAccount>,
+        /// The certificate, for `purpose: certificate_trust` only (ADR-0011); `null`
+        /// otherwise.
+        #[serde(default)]
+        certificate: Option<CertificateInfo>,
     },
-    /// Session ended.
+    /// Session ended. Always the last event.
     Closed {
         /// Reason safe to show.
         reason: String,
+        /// Machine-readable cause.
+        code: CloseCode,
     },
 }
 
@@ -175,6 +285,9 @@ pub enum SessionEvent {
 pub enum PromptPurpose {
     /// Unknown host key: the answer is `yes` or `no` (TOFU).
     HostKeyTrust,
+    /// Unknown server certificate (RDP, VNC `VeNCrypt`): `yes` pins it and reconnects, anything
+    /// else closes with `trust_rejected`. `Prompt.certificate` is set.
+    CertificateTrust,
     /// A server keyboard-interactive prompt (server-controlled text).
     KeyboardInteractive,
     /// Sign-in form for a `prompt` credential: answered with `SessionInput::CredentialAnswer`.
@@ -197,107 +310,14 @@ pub trait Session: Send {
 
     /// Close the session and release resources.
     async fn close(&mut self) -> Result<()>;
+
+    /// Drain the audit events recorded so far (trust decisions, authentication outcome,
+    /// clipboard transfers) for the Tauri layer to log.
+    fn take_audit_events(&mut self) -> Vec<SessionAudit> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prompt_purpose_is_snake_case_on_the_wire() {
-        for (p, wire) in [
-            (PromptPurpose::HostKeyTrust, "\"host_key_trust\""),
-            (PromptPurpose::KeyboardInteractive, "\"keyboard_interactive\""),
-            (PromptPurpose::Credential, "\"credential\""),
-            (PromptPurpose::Other, "\"other\""),
-        ] {
-            assert_eq!(serde_json::to_string(&p).expect("ser"), wire);
-            assert_eq!(serde_json::from_str::<PromptPurpose>(wire).expect("de"), p);
-        }
-    }
-
-    #[test]
-    fn secrets_never_print() {
-        let s = ConnectSecret::Password(SecretString::from("hunter2".to_owned()));
-        let shown = format!("{s:?}");
-        assert!(!shown.contains("hunter2"));
-        assert!(shown.contains("redacted"));
-    }
-
-    #[test]
-    fn answer_text_never_prints_or_serialises() {
-        let input: SessionInput =
-            serde_json::from_str(r#"{"kind":"answer","id":7,"text":"otp-314159"}"#)
-                .expect("answer deserialises");
-        let SessionInput::Answer { id, ref text } = input else {
-            panic!("expected Answer");
-        };
-        assert_eq!(id, 7);
-        assert_eq!(secrecy::ExposeSecret::expose_secret(text), "otp-314159");
-
-        let debug = format!("{input:?}");
-        assert!(!debug.contains("otp-314159"), "{debug}");
-        assert!(debug.contains("<redacted>") && debug.contains('7'));
-
-        let json = serde_json::to_string(&input).expect("serialises");
-        assert!(!json.contains("otp-314159"), "{json}");
-        assert!(json.contains(r#""text":"<redacted>""#), "{json}");
-
-        let cloned = format!("{:?}", input.clone());
-        assert!(!cloned.contains("otp-314159"));
-    }
-
-    #[test]
-    fn credential_answer_never_prints_or_serialises_the_password() {
-        let input: SessionInput = serde_json::from_str(
-            r#"{"kind":"credential_answer","id":3,"username":"CORP\\bob","domain":null,"password":"pw-271828"}"#,
-        )
-        .expect("deserialises");
-        let SessionInput::CredentialAnswer { id, ref username, ref domain, ref password } = input
-        else {
-            panic!("expected CredentialAnswer");
-        };
-        assert_eq!((id, username.as_str(), domain.as_deref()), (3, "CORP\\bob", None));
-        assert_eq!(secrecy::ExposeSecret::expose_secret(password), "pw-271828");
-        let debug = format!("{input:?}");
-        assert!(!debug.contains("pw-271828") && debug.contains("<redacted>"), "{debug}");
-        let json = serde_json::to_string(&input).expect("ser");
-        assert!(!json.contains("pw-271828"), "{json}");
-        let no_domain: SessionInput = serde_json::from_str(
-            r#"{"kind":"credential_answer","id":1,"username":"","password":""}"#,
-        )
-        .expect("domain optional");
-        assert!(matches!(no_domain, SessionInput::CredentialAnswer { domain: None, .. }));
-    }
-
-    #[test]
-    fn credential_prompt_wire_shape() {
-        let e = SessionEvent::Prompt {
-            id: 1,
-            message: "Sign in".into(),
-            secret: true,
-            purpose: PromptPurpose::Credential,
-            account: Some(PromptAccount {
-                username: Some("alice".into()),
-                domain: None,
-                needs_username: false,
-                needs_domain: true,
-            }),
-        };
-        let v = serde_json::to_value(&e).expect("json");
-        assert_eq!(v["purpose"], "credential");
-        assert_eq!(v["account"]["needs_domain"], true);
-    }
-
-    #[test]
-    fn other_inputs_keep_their_debug_and_wire_form() {
-        let input = SessionInput::Bytes { data: vec![1, 2] };
-        assert_eq!(format!("{input:?}"), "Bytes { data: [1, 2] }");
-        let json = serde_json::to_string(&input).expect("serialises");
-        assert_eq!(json, r#"{"kind":"bytes","data":[1,2]}"#);
-        let resize: SessionInput =
-            serde_json::from_str(r#"{"kind":"resize","size":{"width":80,"height":24}}"#)
-                .expect("resize deserialises");
-        assert!(format!("{resize:?}").contains("width: 80"));
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;

@@ -75,7 +75,10 @@ async fn close_is_idempotent_and_final() {
     s.close().await.expect("close");
     s.close().await.expect("close again");
     match next(&mut s).await {
-        SessionEvent::Closed { reason } => assert_eq!(reason, "closed by user"),
+        SessionEvent::Closed { reason, code } => {
+            assert_eq!(reason, "closed by user");
+            assert_eq!(code, mooring_core::CloseCode::User);
+        }
         other => panic!("expected Closed, got {other:?}"),
     }
     assert!(s.next_event().await.expect("ok").is_none());
@@ -87,7 +90,11 @@ async fn close_is_idempotent_and_final() {
 #[tokio::test]
 async fn graphical_input_is_refused() {
     let (mut s, _srv, _d) = shell().await;
-    assert!(s.send(SessionInput::Key { scancode: 1, pressed: true }).await.is_err());
+    let key = SessionInput::Key { code: "KeyA".into(), key: "a".into(), pressed: true };
+    assert!(s.send(key).await.is_err());
+    assert!(s.send(SessionInput::Wheel { dx: 0, dy: 120 }).await.is_err());
+    assert!(s.send(SessionInput::ReleaseAll).await.is_err());
+    assert!(s.send(SessionInput::ClipboardOffer).await.is_err());
     s.close().await.expect("close");
 }
 

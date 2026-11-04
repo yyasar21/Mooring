@@ -46,7 +46,7 @@ async fn lab_host_uname() {
             Ok(Ok(Some(SessionEvent::Prompt { message, .. }))) => {
                 panic!("unexpected prompt (host key not pre-trusted?): {message}")
             }
-            Ok(Ok(Some(SessionEvent::Closed { reason }))) => panic!("closed: {reason}"),
+            Ok(Ok(Some(SessionEvent::Closed { reason, .. }))) => panic!("closed: {reason}"),
             Ok(Ok(Some(_))) => {}
             other => panic!("no Connected: {other:?}"),
         }

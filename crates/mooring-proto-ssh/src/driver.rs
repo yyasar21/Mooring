@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use mooring_core::session::{Become, SessionEvent, Size};
+use mooring_core::session::{Become, CloseCode, SessionEvent, Size};
 use mooring_core::Protocol;
 use russh::client::Handle;
 use russh::Disconnect;
@@ -36,14 +36,14 @@ pub(crate) struct Driver {
 impl Driver {
     pub(crate) async fn run(self) {
         let shared = Arc::clone(&self.shared);
-        let reason = self.run_inner().await;
+        let (code, reason) = self.run_inner().await;
         tracing::debug!("ssh session ended");
         // Forwards and SFTP never outlive the session, however it ended.
         shared.release_channels();
-        let _ = shared.events.send(SessionEvent::Closed { reason }).await;
+        let _ = shared.events.send(SessionEvent::Closed { reason, code }).await;
     }
 
-    async fn run_inner(self) -> String {
+    async fn run_inner(self) -> (CloseCode, String) {
         let Self { stream, config, handler, creds, r#become, size, shared, mut commands, slot } =
             self;
 
@@ -52,7 +52,9 @@ impl Driver {
                 Ok(h) => h,
                 Err(e) => {
                     tracing::debug!(error = %e, "ssh handshake failed");
-                    return shared.take_reason().unwrap_or_else(|| "connection failed".to_owned());
+                    return shared
+                        .take_reason()
+                        .unwrap_or_else(|| (CloseCode::Network, "connection failed".to_owned()));
                 }
             };
 
@@ -61,9 +63,9 @@ impl Driver {
         if let Err(e) = auth {
             let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
             return if shared.is_closing() {
-                "closed by user".to_owned()
+                (CloseCode::User, "closed by user".to_owned())
             } else {
-                e.reason().to_owned()
+                (e.code(), e.reason().to_owned())
             };
         }
 
@@ -73,19 +75,22 @@ impl Driver {
             Err(e) => {
                 tracing::debug!(error = %e, "ssh shell could not be opened");
                 let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
-                return "remote shell refused".to_owned();
+                return (CloseCode::ServerEnded, "remote shell refused".to_owned());
             }
         };
         let _ = slot.set(Arc::clone(&handle));
 
-        let connected =
-            SessionEvent::Connected { protocol: Protocol::Ssh, peer_identity: shared.peer() };
+        let connected = SessionEvent::Connected {
+            protocol: Protocol::Ssh,
+            peer_identity: shared.peer(),
+            security: None,
+        };
         if shared.events.send(connected).await.is_err() {
-            return "closed by user".to_owned();
+            return (CloseCode::User, "closed by user".to_owned());
         }
 
         let end = pump(channel, &mut commands, &shared.events, &shared.audit, r#become).await;
         let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
-        end.reason()
+        (end.code(), end.reason())
     }
 }

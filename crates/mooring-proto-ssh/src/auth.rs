@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use mooring_core::session::{ConnectSecret, PromptPurpose};
+use mooring_core::session::{CloseCode, ConnectSecret, PromptPurpose};
 use russh::client::{AuthResult, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::{decode_secret_key, HashAlg, PrivateKeyWithHashAlg};
 use russh::{MethodKind, MethodSet};
@@ -60,6 +60,15 @@ pub(crate) enum AuthError {
 }
 
 impl AuthError {
+    pub(crate) fn code(&self) -> CloseCode {
+        match self {
+            Self::Failed => CloseCode::AuthFailed,
+            Self::Cancelled | Self::PromptCancelled => CloseCode::User,
+            Self::Transport => CloseCode::Network,
+            Self::Unsupported => CloseCode::ProtocolError,
+        }
+    }
+
     pub(crate) fn reason(&self) -> &'static str {
         match self {
             Self::Failed => "authentication failed",

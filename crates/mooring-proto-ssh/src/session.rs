@@ -9,7 +9,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mooring_core::session::{ConnectParams, Session, SessionEvent, SessionInput};
+use mooring_core::session::{CloseCode, ConnectParams, Session, SessionEvent, SessionInput};
+use mooring_core::SessionAudit;
 use mooring_core::{validate_host, MooringError, Protocol};
 use russh::client::Handle;
 use tokio::net::TcpStream;
@@ -157,6 +158,10 @@ impl Session for SshSession {
         Protocol::Ssh
     }
 
+    fn take_audit_events(&mut self) -> Vec<SessionAudit> {
+        self.shared.audit.take()
+    }
+
     async fn send(&mut self, input: SessionInput) -> Result<(), MooringError> {
         if self.closed {
             return Err(MooringError::Closed);
@@ -179,7 +184,12 @@ impl Session for SshSession {
             }
             SessionInput::Bytes { data } => Command::Data(data),
             SessionInput::Resize { size } => Command::Resize(size),
-            SessionInput::Pointer { .. } | SessionInput::Key { .. } => {
+            SessionInput::Pointer { .. }
+            | SessionInput::Key { .. }
+            | SessionInput::Wheel { .. }
+            | SessionInput::Unicode { .. }
+            | SessionInput::ReleaseAll
+            | SessionInput::ClipboardOffer => {
                 return Err(invalid("input", "not supported by ssh"));
             }
         };
@@ -232,7 +242,10 @@ impl Session for SshSession {
             }
         }
         if self.final_event.is_none() {
-            self.final_event = Some(SessionEvent::Closed { reason: "closed by user".to_owned() });
+            self.final_event = Some(SessionEvent::Closed {
+                reason: "closed by user".to_owned(),
+                code: CloseCode::User,
+            });
         }
         Ok(())
     }

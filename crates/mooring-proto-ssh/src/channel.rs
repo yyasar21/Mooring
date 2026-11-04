@@ -1,6 +1,6 @@
 //! The interactive shell channel: PTY `xterm-256color`, output streaming, resize.
 
-use mooring_core::session::{Become, SessionEvent, Size};
+use mooring_core::session::{Become, CloseCode, SessionEvent, Size};
 use russh::client::{Handle, Msg};
 use russh::{Channel, ChannelMsg, ChannelReadHalf, ChannelWriteHalf};
 use tokio::sync::mpsc;
@@ -32,6 +32,14 @@ pub(crate) enum PumpEnd {
 }
 
 impl PumpEnd {
+    pub(crate) fn code(&self) -> CloseCode {
+        match self {
+            Self::ClosedByUser | Self::UiGone => CloseCode::User,
+            Self::RemoteClosed(_) => CloseCode::ServerEnded,
+            Self::ConnectionLost => CloseCode::Network,
+        }
+    }
+
     pub(crate) fn reason(&self) -> String {
         match self {
             Self::ClosedByUser | Self::UiGone => "closed by user".to_owned(),
