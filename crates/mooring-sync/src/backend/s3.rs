@@ -8,6 +8,9 @@
 //!   middlebox cannot strip `If-Match` without breaking the request.
 //! * The access key lives only in this value (`s3_access_key` credential opened by the
 //!   caller); the secret is zeroized on drop and never printed.
+//! * Review 6 N-44 (R-EXT-STR): each presigned path carries the signature and, with STS, the
+//!   session token, and the storage side logs it. Requests are sent at once, so the signature
+//!   is valid for [`SIGN_TTL`] = 60 s only, and the signed path is `Zeroizing` on our side.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -18,12 +21,13 @@ use mooring_http::{CertProtocol, Headers, HttpClient, HttpConfig, HttpError, Met
 use rusty_s3::actions::{DeleteObject, GetObject, HeadObject, PutObject};
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use secrecy::{ExposeSecret, SecretString};
+use zeroize::Zeroizing;
 
 use super::{Cond, Object, ObjectStore, PutMeta, PutOutcome, RemoteHead};
 use crate::error::{Result, SyncError};
 
-/// Lifetime of each presigned request.
-const SIGN_TTL: Duration = Duration::from_secs(300);
+/// Lifetime of each presigned request (N-44: a leaked signed path is useless after a minute).
+pub const SIGN_TTL: Duration = Duration::from_secs(60);
 const META_COUNTER: &str = "x-amz-meta-mooring-counter";
 const META_PARENT: &str = "x-amz-meta-mooring-parent";
 
@@ -131,14 +135,16 @@ impl S3Backend {
     }
 }
 
-/// Sign `action` and return the path + query `mooring-http` sends to the bucket origin.
+/// Sign `action` and return the path + query `mooring-http` sends to the bucket origin
+/// (`Zeroizing` on our side: it carries the signature and the STS session token, N-44; the
+/// signer's transient `Url` is dropped here).
 macro_rules! signed_path {
     ($action:expr) => {{
         let url = $action.sign(SIGN_TTL);
-        match url.query() {
+        Zeroizing::new(match url.query() {
             Some(q) => format!("{}?{q}", url.path()),
             None => url.path().to_owned(),
-        }
+        })
     }};
 }
 
@@ -226,5 +232,40 @@ impl ObjectStore for S3Backend {
             200 | 204 | 404 => Ok(()),
             _ => Err(status_err(&r)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Review 6 N-44: presigned paths live 60 s and are `Zeroizing` on our side.
+    #[test]
+    fn presigned_paths_expire_after_a_minute() {
+        assert_eq!(SIGN_TTL, Duration::from_secs(60));
+        let cfg = S3Config {
+            endpoint: "https://s3.example.test".to_owned(),
+            region: "us-east-1".to_owned(),
+            bucket: "mooring".to_owned(),
+            path_style: true,
+            known_certs_path: PathBuf::from("known_sync_certs"),
+            ca_pem: None,
+            allow_plaintext_loopback: false,
+            trusted_once: None,
+        };
+        let creds = S3Credentials {
+            access_key_id: "AKIATESTONLY".to_owned(),
+            secret_access_key: SecretString::from("test-only-secret".to_owned()),
+            session_token: Some(SecretString::from("test-only-session-token".to_owned())),
+        };
+        let s3 = S3Backend::new(&cfg, &creds).expect("backend");
+        let path: Zeroizing<String> =
+            signed_path!(HeadObject::new(&s3.bucket, Some(&s3.creds), "k"));
+        assert!(
+            path.contains("X-Amz-Expires=60"),
+            "{}",
+            path.replace("test-only-session-token", "<token>")
+        );
+        assert!(path.contains("X-Amz-Security-Token="), "the STS token is sent only when set");
     }
 }
