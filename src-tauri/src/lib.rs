@@ -30,7 +30,7 @@ use tauri::Manager;
 
 use crate::commands::{audit, credential_copy, credentials, sessions as session_cmds, tree, vault};
 // ADR-0010 §Port forwarding / §SFTP
-use crate::commands::forward;
+use crate::commands::{forward, sftp, sftp_transfers};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -85,10 +85,18 @@ pub fn run() {
             session_cmds::window_detach,
             audit::audit_tail,
             audit::audit_verify,
-            // ADR-0010 §Port forwarding
+            // ADR-0010 §Port forwarding / §SFTP
             forward::forward_open,
             forward::forward_close,
             forward::forward_list,
+            sftp::sftp_list,
+            sftp::sftp_stat,
+            sftp::sftp_mkdir,
+            sftp::sftp_rename,
+            sftp::sftp_remove,
+            sftp_transfers::sftp_download,
+            sftp_transfers::sftp_upload,
+            sftp_transfers::sftp_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

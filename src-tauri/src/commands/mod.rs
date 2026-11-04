@@ -17,5 +17,7 @@ pub mod tree;
 pub mod vault;
 // ADR-0010 §Port forwarding / §SFTP
 pub mod forward;
+pub mod sftp;
+pub mod sftp_transfers;
 #[cfg(test)]
 mod test_session;
