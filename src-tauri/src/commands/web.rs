@@ -238,6 +238,9 @@ pub async fn web_open<R: Runtime>(
     if let Some(label) = reopen(&state, &plan.connection_id, Arc::clone(&sink))? {
         if let Some(w) = app.get_webview_window(&label) {
             show(&w);
+            // 6b N-48: the vault may have locked after `plan` passed; the lock observer
+            // shows the window again after the unlock.
+            post_open(&state, || w.hide().map_err(|e| e.to_string()));
             return Ok(WindowOpened { window_label: label });
         }
         web::forget(&state, &plan.connection_id);
@@ -269,14 +272,21 @@ pub async fn web_open<R: Runtime>(
             }
         }
     });
-    if hide_if_locked(&state, || {
-        if let Err(e) = window.hide() {
-            tracing::warn!(error = %e, "web window hide after lock failed");
-        }
-    }) {
-        tracing::info!("vault locked while the web window was built; hidden");
-    }
+    post_open(&state, || window.hide().map_err(|e| e.to_string()));
     Ok(WindowOpened { window_label: plan.label })
+}
+
+/// N-30 / N-39 / N-48 post-check of both `web_open` paths (build and reopen): the vault may
+/// have locked after `plan` passed, so hide the window through `hide` when it is locked now.
+/// Returns whether it hid.
+pub fn post_open(state: &AppState, hide: impl FnOnce() -> Result<(), String>) -> bool {
+    hide_if_locked(state, || {
+        if let Err(e) = hide() {
+            tracing::warn!(error = %e, "web window hide after lock failed");
+        } else {
+            tracing::info!("vault locked while the web window was opened; hidden");
+        }
+    })
 }
 
 /// `web_close({ connectionId })`.

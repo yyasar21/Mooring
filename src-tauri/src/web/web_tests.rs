@@ -238,6 +238,24 @@ fn oidc_window_storage_is_an_own_profile_on_windows() {
 
 /// Review 6 N-43: a web window audits its first 16 refused navigations one by one, counts the
 /// rest, and its close writes one `web_navigation_blocked_suppressed { count }` row.
+/// 6b N-48: the post-check both `web_open` paths run (build and reopen) hides the window
+/// when the vault locked after `plan` passed, and does nothing while it is unlocked.
+#[test]
+fn web_open_post_check_hides_when_locked() {
+    let f = unlocked();
+    let hidden = std::cell::Cell::new(0);
+    let hide = || {
+        hidden.set(hidden.get() + 1);
+        Ok(())
+    };
+    assert!(!crate::commands::web::post_open(&f.state, hide), "unlocked: visible");
+    assert_eq!(hidden.get(), 0);
+    crate::commands::vault::lock(&f.state, None).expect("lock");
+    assert!(crate::commands::web::post_open(&f.state, hide), "locked: hidden");
+    assert_eq!(hidden.get(), 1);
+    assert!(crate::commands::web::post_open(&f.state, || Err("gone".to_owned())), "a failed hide still reports the lock");
+}
+
 #[test]
 fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
     let f = unlocked();
