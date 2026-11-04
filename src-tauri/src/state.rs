@@ -115,8 +115,7 @@ impl Ready {
     pub fn unlocked(&self) -> bool {
         self.vault
             .lock()
-            .ok()
-            .is_some_and(|v| v.as_ref().is_some_and(|v| v.state() == VaultState::Unlocked))
+            .is_ok_and(|v| v.as_ref().is_some_and(|v| v.state() == VaultState::Unlocked))
     }
 
     /// Run `f` with an unlocked vault and the store bound to that vault. Binding happens on
