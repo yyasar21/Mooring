@@ -1,47 +1,43 @@
-//! VNC session for Mooring, built on an RFB 3.8 client.
+//! VNC session for Mooring: our own RFB 3.8 client (ADR-0012).
 //!
-//! Phase A0 ships the crate boundary only; the implementation lands in the phase that owns it
-//! (see docs/adr/0004-session-abstraction.md). Rules that already apply here:
-//! every byte from the remote side is hostile, parsers get fuzz targets, no `unsafe`.
+//! * Security: `VeNCrypt` X509 (rustls, ring) with certificate TOFU through
+//!   `mooring_core::known_certs`, VNC Authentication (`RustCrypto` `des`), None; policy
+//!   `prefer_tls` (default) / `require_tls` / `allow_plaintext`; a pinned host behaves as
+//!   `require_tls` (TLS-strip hard stop).
+//! * Encodings: Raw, `CopyRect`, ZRLE, Tight basic (no JPEG, owner decision 5), plus
+//!   `DesktopSize`, `ExtendedDesktopSize`, `LastRect`, Cursor and QEMU Extended Key Event.
+//! * Every server byte is hostile: the parsers are pure functions over `&[u8]`
+//!   ([`parse_server_message`], [`parse_rect`], [`decode_zrle`], [`decode_tight`], the
+//!   handshake parsers) with caps checked before allocation, for the fuzz targets. No `unsafe`.
 
 #![forbid(unsafe_code)]
 
-use async_trait::async_trait;
-use mooring_core::session::{ConnectParams, Session, SessionEvent, SessionInput};
-use mooring_core::{MooringError, Protocol};
+pub mod conn;
+mod connect;
+pub mod decode;
+mod driver;
+pub mod error;
+pub mod handshake;
+pub mod input;
+pub mod messages;
+mod reader;
+pub mod scancode;
+pub mod security;
+mod session;
+mod shared;
+pub mod tls;
+pub mod vencrypt;
+pub mod wire;
 
-/// VNC session handle.
-#[derive(Debug)]
-pub struct VncSession {
-    _params: ConnectParams,
-}
+pub use decode::{decode_cursor, decode_tight, decode_zrle, Decoders, RectOp, TightStreams};
+pub use driver::{MAX_OUTSTANDING, RESIZE_DEBOUNCE};
+pub use error::VncError;
+pub use messages::{parse_rect, parse_server_message, RectFrame, ServerMessage};
+pub use session::{Clipboard, NoClipboard, VncControl, VncOptions, VncSession, CHANNEL_CAPACITY};
+pub use shared::AuditLog;
+pub use wire::Parsed;
 
-impl VncSession {
-    /// Open a session. Not implemented in Phase A0.
-    #[allow(clippy::unused_async)] // the real implementation awaits the handshake
-    pub async fn connect(params: ConnectParams) -> Result<Self, MooringError> {
-        Err(MooringError::Protocol {
-            protocol: "vnc",
-            reason: format!("not implemented yet (host {})", params.host),
-        })
-    }
-}
-
-#[async_trait]
-impl Session for VncSession {
-    fn protocol(&self) -> Protocol {
-        Protocol::Vnc
-    }
-
-    async fn send(&mut self, _input: SessionInput) -> Result<(), MooringError> {
-        Err(MooringError::Closed)
-    }
-
-    async fn next_event(&mut self) -> Result<Option<SessionEvent>, MooringError> {
-        Ok(None)
-    }
-
-    async fn close(&mut self) -> Result<(), MooringError> {
-        Ok(())
-    }
-}
+#[cfg(test)]
+mod session_tests;
+#[cfg(test)]
+mod testsrv;

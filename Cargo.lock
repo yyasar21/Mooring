@@ -3337,9 +3337,21 @@ name = "mooring-proto-vnc"
 version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
+ "des",
+ "flate2",
  "mooring-core",
+ "proptest",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "secrecy",
+ "tempfile",
+ "time",
  "tokio",
+ "tokio-rustls",
  "tracing",
+ "x509-parser",
+ "zeroize",
 ]
 
 [[package]]
@@ -6209,6 +6221,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
+dependencies = [
+ "rustls",
+ "tokio",
 ]
 
 [[package]]

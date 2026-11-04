@@ -1,6 +1,6 @@
 [package]
 name = "mooring-proto-vnc"
-description = "Mooring VNC session (an RFB 3.8 client) — Phase A stub"
+description = "Mooring VNC session: own RFB 3.8 client with VeNCrypt X509 and certificate TOFU (ADR-0012)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,3 +15,22 @@ mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+time = { workspace = true }
+# VeNCrypt X509 transport (ADR-0011/0012): rustls with the ring provider only, system roots.
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+# Async TLS over the tokio TCP stream (rustls project, MIT/Apache-2.0/ISC, no unsafe, ring only).
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+# VNC Authentication DES challenge (RustCrypto, MIT OR Apache-2.0, already in the lockfile via russh).
+des = "0.9"
+# ZRLE / Tight zlib streams with the pure-Rust miniz_oxide backend (MIT OR Apache-2.0, already in the tree).
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+# Leaf certificate fields for the TOFU prompt (MIT OR Apache-2.0, forbid(unsafe), already in the lockfile via rcgen).
+x509-parser = "0.18"
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+rcgen = { workspace = true }
