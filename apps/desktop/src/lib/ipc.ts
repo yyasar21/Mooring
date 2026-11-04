@@ -4,9 +4,11 @@
 // session events/inputs use the mooring_core serde shapes (snake_case fields, `kind` tag) with
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AuditEntry, Ipc, PromptAccount, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
+import { listen } from "@tauri-apps/api/event";
+import type { AuditEntry, Ipc, ProgressHandler, PromptAccount, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockTransport } from "./ipc.mock";
+import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodeProgress } from "./ipc.decode.exit";
 
 export * from "./ipc.types";
 
@@ -189,10 +191,54 @@ export class TauriTransport implements Ipc {
   auditVerify: Ipc["auditVerify"] = () => call("audit_verify");
 
   windowDetach: Ipc["windowDetach"] = (a) => call("window_detach", { ...a });
+
+  // ---------- ADR-0010 ----------
+
+  forwardOpen: Ipc["forwardOpen"] = async (a) => decodeForward(await call<unknown>("forward_open", { ...a }));
+  forwardClose: Ipc["forwardClose"] = (a) => call("forward_close", { ...a });
+  forwardList: Ipc["forwardList"] = async (a) => (await call<unknown[]>("forward_list", { ...a })).map(decodeForward);
+
+  sftpList: Ipc["sftpList"] = async (a) => decodeListing(await call<unknown>("sftp_list", { ...a }));
+  sftpStat: Ipc["sftpStat"] = async (a) => decodeEntry(await call<unknown>("sftp_stat", { ...a }));
+  sftpMkdir: Ipc["sftpMkdir"] = (a) => call("sftp_mkdir", { ...a });
+  sftpRename: Ipc["sftpRename"] = (a) => call("sftp_rename", { ...a });
+  sftpRemove: Ipc["sftpRemove"] = (a) => call("sftp_remove", { ...a });
+  sftpDownload: Ipc["sftpDownload"] = ({ onProgress, ...a }) =>
+    call("sftp_download", { ...a, onProgress: progressChannel(onProgress) });
+  sftpUpload: Ipc["sftpUpload"] = ({ onProgress, ...a }) =>
+    call("sftp_upload", { ...a, onProgress: progressChannel(onProgress) });
+  sftpCancel: Ipc["sftpCancel"] = (a) => call("sftp_cancel", { ...a });
+
+  autolockGet: Ipc["autolockGet"] = () => call("autolock_get");
+  autolockSet: Ipc["autolockSet"] = (policy) => call("autolock_set", { policy });
+
+  syslogGet: Ipc["syslogGet"] = () => call("syslog_get");
+  syslogSet: Ipc["syslogSet"] = (config) => call("syslog_set", { ...config });
+  syslogTest: Ipc["syslogTest"] = () => call("syslog_test");
+
+  onVaultLocked: Ipc["onVaultLocked"] = (handler) => {
+    let off: (() => void) | null = null;
+    let dead = false;
+    void listen("vault:locked", (e) => { handler({ reason: decodeLockReason(e.payload) }); }).then((unlisten) => {
+      if (dead) unlisten();
+      else off = unlisten;
+    });
+    return () => {
+      dead = true;
+      off?.();
+    };
+  };
+}
+
+function progressChannel(onProgress: ProgressHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => { onProgress(decodeProgress(msg)); };
+  return channel;
 }
 
 function pickTransport(): Ipc {
-  return inTauri() ? new TauriTransport() : new MockTransport();
+  // Outside Tauri (plain `vite dev`) transfers move slowly enough to watch the progress bars.
+  return inTauri() ? new TauriTransport() : new MockTransport({ transferStepMs: 350 });
 }
 
 /** The process-wide transport. Tests may swap it with `setIpc(new MockTransport())`. */

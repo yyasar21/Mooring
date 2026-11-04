@@ -1,10 +1,18 @@
 // DTOs of the ADR-0008 IPC contract, as the UI sees them (after wire decoding in ipc.ts).
 // Nothing here ever carries a secret outward: credentials are metadata + ids only.
 import type { ProtocolName } from "@mooring/ui";
+import type { ExitIpc } from "./ipc.types.exit";
+
+export * from "./ipc.types.exit";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
-export type LockReason = "user" | "idle" | "screen_lock" | "sleep";
+/** ADR-0006 audit reasons; also the payload of the `vault:locked` UI event (ADR-0010). */
+export type LockReason = "user" | "idle" | "screen_lock" | "sleep" | "window_hidden";
+export const LOCK_REASONS: readonly LockReason[] = ["user", "idle", "screen_lock", "sleep", "window_hidden"];
+
+/** `unknown` = the backend sent a reason this build does not know; the lock still applies. */
+export type VaultLockedHandler = (event: { reason: LockReason | "unknown" }) => void;
 
 export interface AppInfo {
   name: string;
@@ -236,8 +244,8 @@ export interface AuditVerify {
   brokenAt: number | null;
 }
 
-/** Every command of ADR-0008 / ADR-0009 (plus A0 vault/app commands and `window_detach`). */
-export interface Ipc {
+/** Every command of ADR-0008 / ADR-0009 / ADR-0010 (plus A0 vault/app commands and `window_detach`). */
+export interface Ipc extends ExitIpc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;
@@ -285,4 +293,7 @@ export interface Ipc {
 
   /** Not in ADR-0008 yet: moves a live session into its own window (rust-core to add). */
   windowDetach(args: { sessionId: string }): Promise<void>;
+
+  /** ADR-0010: the backend locked the vault on its own (idle, screen lock, ...). Returns unsubscribe. */
+  onVaultLocked(handler: VaultLockedHandler): () => void;
 }
