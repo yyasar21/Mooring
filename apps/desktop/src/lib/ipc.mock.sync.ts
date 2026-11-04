@@ -4,8 +4,9 @@
 // are simulated by the `trustCert` / `confirmResolve` knobs. Nothing here holds a secret.
 // Methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
-import type { CredentialMeta, SyncConfig, SyncConflict, SyncIpc, SyncOutcome, SyncStatus, SyncStatusHandler } from "./ipc.types";
+import type { CredentialMeta, SyncConfig, SyncIpc, SyncMergeConflict, SyncOutcome, SyncStatus, SyncStatusHandler, SyncTrustConflict } from "./ipc.types";
 import { IpcError } from "./ipc.error";
+import type { RemoteTarget } from "./ipc.mock.remote";
 import { MockVsphereBase } from "./ipc.mock.vsphere";
 import { isVaultId, normalizeBackend, validateSyncConfig } from "./validate.secrets";
 
@@ -26,7 +27,13 @@ export abstract class MockSyncBase extends MockVsphereBase implements SyncIpc {
   /** The native "Discard and resolve" confirmation of `sync_resolve_fork`. */
   confirmResolve = true;
   /** Conflicts the next run "finds" on the remote (the run then merges). */
-  remoteEdits: SyncConflict[] = [];
+  remoteEdits: SyncMergeConflict[] = [];
+  /**
+   * Hosts the other device ("laptop") trusted with a *different* certificate: the next run's
+   * apply keeps both pins (review 6b L-35), audits `trust_conflict` and lists the host under
+   * `sync_status.conflicts` until the pins are removed.
+   */
+  remoteTrust: RemoteTarget[] = [];
   private syncHandlers = new Set<SyncStatusHandler>();
   private syncBusy = false;
   private clock = MOCK_T0_UNIX;
@@ -38,9 +45,30 @@ export abstract class MockSyncBase extends MockVsphereBase implements SyncIpc {
     return this.clock;
   }
 
-  protected emitSync(): void {
+  /** The standing trust conflicts, computed live from the pins like `sync_trust::conflicts`. */
+  private trustConflicts(): SyncTrustConflict[] {
+    return this.conflictingPins().map((k) => {
+      const [protocol, name] = k.split("|") as [string, string];
+      return { kind: "trust", id: `known_${protocol}_certs`, name };
+    });
+  }
+
+  /** `sync_status` as the wire carries it: the last merge's conflicts, then the live trust conflicts. */
+  private snapshot(): SyncStatus {
     const snap = structuredClone(this.syncState);
-    for (const h of [...this.syncHandlers]) h(structuredClone(snap));
+    return { ...snap, conflicts: [...snap.conflicts.filter((c) => c.kind !== "trust"), ...this.trustConflicts()] };
+  }
+
+  protected emitSync(): void {
+    for (const h of [...this.syncHandlers]) h(this.snapshot());
+  }
+
+  /** A removal clears a trust conflict at once, so the status event follows it. */
+  protected override removePins(protocol: "rdp" | "vnc", host: string, port: number): number {
+    const before = this.conflictingPins().length;
+    const n = super.removePins(protocol, host, port);
+    if (this.conflictingPins().length !== before) this.emitSync();
+    return n;
   }
 
   private patchSync(p: Partial<SyncStatus>): void {
@@ -72,7 +100,7 @@ export abstract class MockSyncBase extends MockVsphereBase implements SyncIpc {
     return () => { this.syncHandlers.delete(handler); };
   }
 
-  syncStatus: SyncIpc["syncStatus"] = async () => structuredClone(this.syncState);
+  syncStatus: SyncIpc["syncStatus"] = async () => this.snapshot();
 
   syncConfigure: SyncIpc["syncConfigure"] = async (a) => {
     await this.unlocked();
@@ -104,7 +132,13 @@ export abstract class MockSyncBase extends MockVsphereBase implements SyncIpc {
       const t = this.now();
       const counter = this.syncState.counter + 1;
       let outcome: SyncOutcome;
-      if (this.remoteEdits.length > 0) {
+      const pulledTrust = this.remoteTrust.length > 0;
+      for (const target of this.remoteTrust.splice(0)) {
+        // The other device's trust line is kept beside ours (never resolved silently); Rust audits the pair.
+        await this.pin(target, new Date(t * 1000).toISOString(), "#laptop");
+        this.record("trust_conflict", { file: `known_${target.protocol}_certs`, host: `${target.host}:${String(target.port)}` });
+      }
+      if (this.remoteEdits.length > 0 || pulledTrust) {
         const conflicts = this.remoteEdits.map((c) => structuredClone(c));
         this.remoteEdits = [];
         outcome = { type: "merged", counter, conflicts };

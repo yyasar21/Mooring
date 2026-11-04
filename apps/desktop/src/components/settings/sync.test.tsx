@@ -86,6 +86,33 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     expect(list).toHaveTextContent("both copies kept");
   });
 
+  it("a trust conflict after a two-device apply is a standing alarm with a link to the known-certificates manager (6b L-35)", async () => {
+    const kiosk = { connectionId: "c-kiosk", protocol: "vnc" as const, name: "lobby-kiosk", host: "kiosk.example.test", port: 5900, tags: [], options: undefined };
+    await mock.pin(kiosk);
+    await mock.syncConfigure(CONFIG);
+    await mock.syncNow();
+    const c = await card();
+    expect(within(c).queryByRole("alert")).toBeNull();
+    mock.remoteTrust = [kiosk];
+    fireEvent.click(within(c).getByRole("button", { name: "Sync now" }));
+    await settle();
+    const alarm = within(c).getByRole("alert", { name: "Certificate trust conflicts" });
+    expect(alarm).toHaveTextContent("Certificate trust conflict");
+    expect(alarm).toHaveTextContent("Two devices trust different certificates for kiosk.example.test:5900. Remove one in Settings → Trust.");
+    expect(alarm).toHaveTextContent("known_vnc_certs");
+    expect(alarm).not.toHaveTextContent("SHA256");
+    expect(within(c).queryByRole("list", { name: "Merge conflicts" })).toBeNull(); // a trust entry is not a merge row
+    // it stands across runs and is not dismissable here
+    fireEvent.click(within(c).getByRole("button", { name: "Sync now" }));
+    await settle();
+    expect(within(c).getByRole("alert", { name: "Certificate trust conflicts" })).toBeInTheDocument();
+    expect(within(alarm).queryByRole("button", { name: /Dismiss/ })).toBeNull();
+    expect(within(alarm).getByRole("button", { name: "Open known certificates" })).toBeInTheDocument();
+    // removing the pins clears it at once (the status event follows the removal)
+    await act(async () => { await mock.knownCertsRemove({ protocol: "vnc", host: "kiosk.example.test", port: 5900 }); });
+    expect(within(c).queryByRole("alert")).toBeNull();
+  });
+
   it("a fork shows the banner; resolving goes through Rust's native confirmation", async () => {
     await mock.syncConfigure(CONFIG);
     await mock.syncNow();

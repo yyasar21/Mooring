@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import type { SyncConflict, SyncResolution, SyncRunState, SyncStatus } from "../../lib/ipc";
+import type { SyncMergeConflict, SyncResolution, SyncRunState, SyncStatus, SyncTrustConflict } from "../../lib/ipc";
+import { isMergeConflict } from "../../lib/ipc.decode.sync";
 import { useCredentials } from "../../stores/credentials";
-import { useSync } from "../../stores/sync";
+import { trustConflictText, trustConflicts, useSync } from "../../stores/sync";
+import { openSettingsCard } from "../SyncBanner";
 import { SyncConfigDialog } from "./SyncConfigDialog";
 import { SettingsCard } from "./Toggle";
 
@@ -40,7 +42,35 @@ function alarmText(s: SyncStatus): string {
   return "";
 }
 
-function ConflictList({ conflicts }: { conflicts: SyncConflict[] }) {
+/**
+ * Standing trust conflicts (review 6b L-35): two devices pinned different certificates for one
+ * host, so every connection to it fails closed until the pins are removed in Settings → Trust.
+ * Persistent (not dismissable here); it clears the moment the pins are gone.
+ */
+function TrustConflicts({ conflicts }: { conflicts: SyncTrustConflict[] }) {
+  return (
+    <div className="sync-alarm" role="alert" aria-label="Certificate trust conflicts">
+      <p className="sync-alarm-title">Certificate trust conflict</p>
+      <ul className="trust-list" aria-label="Conflicting hosts">
+        {conflicts.map((c) => (
+          <li key={`${c.id}-${c.name}`} className="trust-row">
+            <p className="trust-target"><span className="text-text">{trustConflictText(c)}</span></p>
+            <p className="field-hint text-right mono">{c.id}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="field-hint">
+        Connections to these hosts are refused until one certificate is removed. Removing clears every stored certificate of the host, so
+        the next connection asks you to verify it again.
+      </p>
+      <div>
+        <button type="button" className="btn" onClick={() => { openSettingsCard("trust-title"); }}>Open known certificates</button>
+      </div>
+    </div>
+  );
+}
+
+function ConflictList({ conflicts }: { conflicts: SyncMergeConflict[] }) {
   return (
     <div>
       <span className="field-label">Conflicts of the last merge</span>
@@ -132,7 +162,8 @@ export function SyncCard() {
           </div>
         )}
 
-        {s && s.conflicts.length > 0 && <ConflictList conflicts={s.conflicts} />}
+        {s && trustConflicts(s).length > 0 && <TrustConflicts conflicts={trustConflicts(s)} />}
+        {s && s.conflicts.some(isMergeConflict) && <ConflictList conflicts={s.conflicts.filter(isMergeConflict)} />}
 
         <div className="settings-foot">
           {on && !disabling && (
