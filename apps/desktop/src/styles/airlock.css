@@ -81,3 +81,9 @@
 
 .airlock-error { margin-top: 12px; min-height: 18px; font-size: var(--fs-s); color: var(--hot); }
 .airlock-foot { display: flex; justify-content: space-between; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+/* Why the vault locked itself: a hot hairline notice above the title, shown once, no motion. */
+.airlock-reason {
+  display: flex; gap: 9px; align-items: baseline; margin: 2px 0 14px; padding: 7px 10px;
+  border: 1px solid var(--hot-line); background: var(--hot-soft); color: var(--text); font-size: var(--fs-s); line-height: 1.4;
+}
+.airlock-reason-mark { width: 6px; height: 6px; flex: none; transform: rotate(45deg) translateY(-1px); background: var(--hot); box-shadow: 0 0 6px var(--hot-line); }

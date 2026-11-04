@@ -16,7 +16,7 @@ export function freshBackend(opts: MockOptions = {}): MockTransport {
   useCredentials.getState().reset();
   useUi.getState().reset();
   useUi.setState({ theme: "dark", inspectorOpen: true });
-  useApp.setState({ info: null, vault: "unknown", lastError: null });
+  useApp.setState({ info: null, vault: "unknown", lastError: null, lockReason: null });
   return mock;
 }
 

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { ipc } from "./lib/ipc";
 import { useApp } from "./stores/app";
 import { VaultGate } from "./components/VaultGate";
 import { Shell } from "./components/Shell";
@@ -11,6 +12,9 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  // ADR-0010: the backend may lock on its own (idle, screen lock, sleep, hidden window).
+  useEffect(() => ipc.onVaultLocked(({ reason }) => { useApp.getState().lockedByBackend(reason); }), []);
 
   switch (vault) {
     case "unknown":

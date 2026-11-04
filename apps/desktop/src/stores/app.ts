@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipc, type AppInfo, type VaultStatus } from "../lib/ipc";
+import { ipc, type AppInfo, type LockReason, type VaultStatus } from "../lib/ipc";
 import { errorText } from "./errors";
 import { useTree } from "./tree";
 import { useCredentials } from "./credentials";
@@ -10,11 +10,15 @@ interface AppState {
   info: AppInfo | null;
   vault: VaultStatus | "unknown";
   lastError: string | null;
+  /** Why the backend locked the vault on its own (ADR-0010 `vault:locked`); null after a user lock. */
+  lockReason: LockReason | "unknown" | null;
 
   boot: () => Promise<void>;
   createVault: (password: string) => Promise<void>;
   unlock: (password: string) => Promise<void>;
   lock: () => Promise<void>;
+  /** The backend locked the vault (idle, screen lock, ...): drop everything and show the reason. */
+  lockedByBackend: (reason: LockReason | "unknown") => void;
 }
 
 /** Load everything the unlocked shell shows. */
@@ -30,10 +34,11 @@ function wipe(): void {
   useUi.getState().reset();
 }
 
-export const useApp = create<AppState>((set) => ({
+export const useApp = create<AppState>((set, get) => ({
   info: null,
   vault: "unknown",
   lastError: null,
+  lockReason: null,
 
   boot: async () => {
     try {
@@ -58,7 +63,7 @@ export const useApp = create<AppState>((set) => ({
   unlock: async (password) => {
     try {
       const vault = await ipc.vaultUnlock(password);
-      set({ vault, lastError: null });
+      set({ vault, lastError: null, lockReason: vault === "unlocked" ? null : get().lockReason });
       if (vault === "unlocked") await loadVaultData();
     } catch (e: unknown) {
       set({ lastError: errorText(e) });
@@ -69,9 +74,15 @@ export const useApp = create<AppState>((set) => ({
     try {
       const vault = await ipc.vaultLock("user");
       wipe();
-      set({ vault, lastError: null });
+      set({ vault, lastError: null, lockReason: null });
     } catch (e: unknown) {
       set({ lastError: errorText(e) });
     }
+  },
+
+  lockedByBackend: (reason) => {
+    wipe();
+    // A user lock also emits the event; it carries no message for the unlock screen.
+    set({ vault: "locked", lastError: null, lockReason: reason === "user" ? null : reason });
   },
 }));
