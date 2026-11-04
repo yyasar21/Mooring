@@ -279,3 +279,96 @@ Cargo.lock                                                    tauri 2.12.5 (pinn
 ```
 Not run: builds and tests (orchestrator gate), cargo-geiger, gitleaks, semgrep, pnpm audit,
 cargo-fuzz, the per-OS WebView checks.
+
+## Re-review 6b (fix round 7 + Q3)
+
+Reviewer: security-reviewer · 2026-11-05 · Range `git diff 7b02715..HEAD` (`7527a7d`): rust-core
+fix round 7 (`05248c8`..`5e3172c`, [`a3-rust-core-fix-7.md`](../handoff/a3-rust-core-fix-7.md)),
+QA Q3 (`3c514ce`..`ca2df57`, [`a3-qa-q3.md`](../handoff/a3-qa-q3.md),
+[`docs/qa/native-dialogs.md`](../qa/native-dialogs.md)) and the UI text for the two new codes
+(`7527a7d`). Sources read from the registry: `tauri-plugin-dialog` 2.8.4 (`src/desktop.rs`
+`show_message_dialog`, `Cargo.toml` features) and `rfd` 0.17.2 (`backend/gtk3`, `backend/win_cid`
+and `backend/macos` `message_dialog.rs`). No build, no test run.
+
+### Verdict: `BLOCKER` (A3 tag)
+
+**M-16 is reopened as B-6.** The button order is now right. The label-only mapping is also
+right for the results *we* receive. The problem is upstream of us: `tauri-plugin-dialog`
+rewrites the OS result **by position** before we see it. It turns rfd's positional `Cancel`
+into `Custom(<label in the cancel slot>)`, on every desktop OS. Escape and closing the dialog
+both produce that positional `Cancel`.
+
+The fix moved the confirming label into the cancel slot. So **Escape or the close box now
+confirms** on Windows and Linux. On the sync trust dialog, that answer is "Trust and remember".
+Before the fix, Return confirmed and Escape refused. Now Return refuses and Escape confirms.
+Either way one key does it, and Escape is the key a user presses to get rid of a dialog they
+did not expect. A T5 creates exactly that situation.
+
+The other rows are either fixed, or partial with a small, exact gap (below). The single-flight
+and cool-down gate, the L-34 epoch, the L-37 staging and N-43/N-44 are sound in design. The two
+new error codes leak nothing.
+
+### Closure of review 6
+| ID | Status | Evidence / gap |
+| --- | --- | --- |
+| **M-16** | **reopened → B-6** | Order fixed: `src-tauri/src/commands/vsphere_confirm.rs:83` `OkCancelCustom("Cancel", ok)`, `commands/sync_gate.rs:73` `YesNoCancelCustom(CANCEL, ONCE, PIN)`, `:116` (fork). Label-only mapping fixed: `vsphere_confirm.rs:87-89`, `sync_gate.rs:77-84`. **Gap:** `tauri-plugin-dialog` 2.8.4 `src/desktop.rs:236-239` maps `(rfd Cancel, OkCancelCustom(_, cancel))` → `Custom(cancel)`, and `:249-251` maps `(rfd Cancel, YesNoCancelCustom(.., cancel))` → `Custom(cancel)`. The block has no `cfg`: its comment says "on Linux", but it runs on every desktop OS. rfd returns a positional `Cancel` in three cases. GTK: `GTK_RESPONSE_DELETE_EVENT` from Escape or the window close (`backend/gtk3/message_dialog.rs:204-215`, the async path; it also returns `Cancel` for the second button). Windows TaskDialog: `IDCANCEL` under `TDF_ALLOW_DIALOG_CANCELLATION`, i.e. Escape, Alt+F4 or the close box (`win_cid/message_dialog.rs:137`, `:181`). macOS: any modal end that is not a button press (`macos/message_dialog.rs:135`). So `confirmed(Custom("Power off"))` is true for Escape. The unit test `results_are_mapped_by_label_never_by_position` (`vsphere_confirm.rs:244`) feeds `Res::Cancel` straight in and never sees the plugin's rewrite. Fix: B-6 below |
+| └ single flight | **fixed** | `src-tauri/src/confirm_gate.rs:106-139`: one process-wide `open` flag under a mutex. It is one gate, shared through `AppState::confirm` (`state.rs:186`, `:242`) and `VsCtx`, so vSphere and sync dialogs exclude each other. A dropped `Slot` frees the gate and counts as cancelled (`:81-85`). No `timeout` or `select!` wraps an `ask` (grep), so the gate cannot be freed while the OS dialog is still up |
+| └ cool-down | **fixed, one gap** | `confirm_gate.rs:110-114`: 10 s per `kind:target` after a cancelled destructive dialog. Scopes: `vsphere_vm.rs:178` (power), `:243` (VMRC, not destructive), `vsphere_login.rs:157`, `sync_gate.rs:191`, `sync.rs:306`. Granularity per target, not per action: **accepted**, it is the stricter reading. **Gap:** `crates/mooring-vsphere/src/power.rs:33` `is_destructive` covers only `Off \| Reset`. Review 6 and row 1 of `docs/qa/native-dialogs.md` say off/reset/**reboot**, and a guest shutdown or reboot of a production VM is just as disruptive. Fix: `destructive: a != PowerAction::On` at `vsphere_vm.rs:178`; keep `is_destructive` for the "may lose data" wording |
+| └ audit rows | **fixed, nit** | `confirm_refused { kind, target, reason }` (`confirm_gate.rs:122-129`) carries names only (`<connection>/<moid>`, `host:port`, connection id). A T5 that loops a command while a dialog is open writes one hash-chained row per call. Same class as N-43: see N-47 |
+| └ new codes | **fixed** | `confirm.busy` and `confirm.cooldown` (`confirm_gate.rs:130-136`) have static messages, with no target and no timing. They tell a T5 only that a dialog is open or that the user just cancelled, and the T5 knows both already (it received `cancelled`). `ipc-codes.json` is re-blessed; `7527a7d` shows static UI text |
+| L-33 | **fixed** | `src-tauri/src/oidc_window.rs:39-41` `storage()` → `web::ephemeral_storage("oidc-<sourceId>")`. The builder sets `incognito(true)`, `initialization_script_for_all_frames` and, on Windows, `data_directory`. The profile is removed on `Destroyed` and swept at start. Nit (no new ID): create the directory with `create_private_dir` before `build()`, as `web_open` does (`commands/web.rs:245-249`) |
+| L-34 | **partial** | The epoch covers all four entry paths. **Token method and AppRole:** `crates/mooring-secrets/src/engine.rs:125` reads it **before** `login_material`; `:152` `put(.., epoch)`; a rejected token is revoked when it is ours (`:153-155`); a stored token (`ours = false`) is dropped, not revoked, which is correct. **OIDC:** `begin` re-checks after `begin_oidc` (`oidc_window.rs:199`) and after `open` (`:228`). `complete_oidc` refuses a flow from an older epoch before the code exchange (`engine.rs:333`) and `put`s with `flow.epoch` (`:342`). **Renewer:** `maintain` writes back only through `get_mut`, so a drained entry is never re-inserted. **Drain:** synchronous under the entries mutex (`cache.rs:306-318`, `secrets_runtime.rs:237-248`). **Gaps:** (a) `commands/vault.rs:145` runs `state.secrets.on_lock()` **before** `v.lock_with_reason` (`:151`). A login that starts in between reads the bumped epoch and takes its AppRole material from the still-unlocked vault, so its token is cached *after* the lock. Fix: call `state.secrets.on_lock()` after `lock_with_reason`, as `state.vsphere.on_lock()` is (`on_lock` needs nothing from the vault), or call `drain_for_lock()` a second time there. Test: a delayed `LoginProvider` that reads its material between `on_lock` and the key wipe → cache empty after the lock. (b) Nit: `secrets_runtime.rs:238-239` runs `fail_all` before `drain_for_lock`. Drain first: then the post-open re-check (`oidc_window.rs:228`) cannot land between the two and leave an IdP window over the lock screen. No token can result, because the flow epoch is stale. (c) Nit: `OidcFlow.epoch` is read after the auth-URL request (`engine.rs:314`). Read it at entry; `begin` covers this today |
+| L-35 | **partial** | `src-tauri/src/commands/sync_trust.rs:37-74` `conflicts()` and `KnownCerts::distinct_pins` (`mooring-core/src/known_certs/mod.rs:271-279`) run after every `AppLocal::apply` (`sync_local.rs:60-65`, `:109`). The row is `trust_conflict { file, host }`, with no fingerprint. No auto-resolution: accepted. **Gaps:** (a) Nothing surfaces it. The review asked for `sync_status.conflicts`, and an audit row on its own is never seen. Both pins stay trusted (`known_certs/mod.rs:257-267`), so the hostile certificate keeps working unnoticed. (b) SSH is exempt **entirely** (`sync_trust.rs:10`). The review exempted it only *where the key types differ*, and two `ssh-ed25519` keys for one host is the most likely real conflict. Fix: add `sync_status.conflicts: [{ protocol, host }]` plus a UI banner, **or**, stricter, have `check` return `Mismatch` for a host with more than one distinct pin until the user removes one (fail closed). Count `known_hosts` lines per key type. Test: two devices pin different ed25519 keys for `ssh.example.test:22` → one conflict |
+| L-36 | documented | R-VMRC-ARGV is in the threat model. The VMRC option help text (UI) is still owed |
+| L-37 | **partial** | The header is staged before the apply and renamed after it (`src-tauri/src/commands/sync_join.rs:238`, `:258`, `:267`). `FsHeaderWriter` writes 0600 + `sync_all` (`:64-77`), then rename + directory fsync (`:80-91`). Recovery runs at start (`state.rs:236`). **Gaps:** (a) `sync_join.rs:112-117`: recovery decides that the staged header completes the join, the rename fails again, and the code falls through to `remove_file(&tmp)`. That deletes the only copy of the joined header and leaves the device in exactly the L-37 state (store bound to the joined vault, bootstrap header on disk). Fix: when the rename fails, keep the file and return `staged`. (b) After a failed `commit` the process carries on with the joined vault. If the user then changes the password (or a KDF upgrade runs), `vault.header.json` is rewritten, but the stale staged file stays. At the next start it is installed over the new header, which silently undoes the password change. Fix: install only when the current header's vault id differs from the staged one (the header is still the bootstrap); otherwise remove the staged file. `save_header` should also remove a staged file of the same vault. Test: commit failure → `vault_change_password` → restart → the new password unlocks |
+| L-38 | **fixed** | `src-tauri/tests/e2e_flow/gate_matrix.rs:68-92`: every `ipc-manifest.json` command is in exactly one list: the gated rows, the 7 session-bound kube rows (`session.not_found` with the ended cluster's id, `e2e_flow/kube.rs`), or `NOT_GATED`. Duplicates, unknown names and empty reasons fail, and the count comes from the manifest (103 = 57 + 7 + 39). **Every `NOT_GATED` reason checked, all correct:** `app_info`, `credential_kinds`, `credential_parse_account` (no store); the `vault_*` lifecycle; `autolock_get` (in-memory policy); `autolock_set`, `syslog_set`, `sftp_pick_local` (gated, with unit tests); the ADR-0006 session-bound SSH/SFTP/forward/graphical rows and `window_attach`; `web_close`, `web_reload`, `web_zoom`, `web_list` (window-bound, and web windows are hidden while locked); `web_focus`, `web_print` (`unlocked()` at `commands/web.rs:310`, `:332`); `secret_source_revoke` (drops in-memory tokens and must work while locked); `secret_source_oidc_status` (in-memory). Nit: the `web_open` reason says "gated in the Tauri wrapper", but the gate is `web::plan(&state, ..)` (`commands/web.rs:236`), which needs no `AppHandle`. Pin it in the matrix the way `vsphere_console` was pinned through `vm_target` |
+| N-39 | **fixed** | `commands/vsphere_console.rs:57-65` `post_open`, called on both the reopen and the build path. Nit: the reopen path still calls `show()` before the check (a one-frame flash). The same path in `web_open` has no check at all: N-48 |
+| N-40 | **fixed** | `src-tauri/src/kube_sessions.rs:134-140` and `:213-218`: `ended` is tested and set under the client mutex |
+| N-41 | **fixed** | `crates/mooring-secrets/src/client.rs:192-195` (`identity_policies` included) |
+| N-42 | **fixed** | `src-tauri/src/commands/secret_sources.rs:177-189`: only the fields set or changed, `caPem` fingerprints, `warning` on an added origin (`:231`). Create (`:203-213`) lists only the fields actually set |
+| N-43 | **partial** | Per window, and fresh on every reopen: `register` creates a new `WebEntry` (`commands/web.rs:57-67`), and each OIDC `begin` creates a new `Session` (`oidc_window.rs:217`). The summary row is written on close (`commands/web.rs:82-88`, `oidc_window.rs:78-89`), and an OIDC window is closed at 64 refusals. The `refusals.rs` arithmetic is right: 16 rows, then the summary counts the rest. **Gaps:** (a) `oidc_window.rs:311`: a refusal in any phase other than `Pending` is audited unconditionally, outside the budget. That includes `Exchanging`, `Failed`, and the window after `navigation_flood` until it is destroyed. Count it through `s.refusals.refused()` too. (b) `web/mod.rs:214`: `unwrap_or(true)` audits every refusal of a window whose entry is already gone (between `closed_entry` and `Destroyed`). Use `false`, which also drops the UI event |
+| N-44 | **fixed** | `crates/mooring-sync/src/backend/s3.rs:29` `SIGN_TTL` = 60 s; `signed_path!` returns `Zeroizing<String>`; `mooring-http` logs no path or URI (grep). The secret moves into rusty-s3's `Zeroizing`. The STS token stays a plain `String` inside rusty-s3, and the signer's `Url` is transient; both fall under R-EXT-STR. The mock refuses `X-Amz-Expires > 60` |
+| N-45 | **fixed** (wording) | `sync_gate.rs:69` "Trust once (this sync only)". The "Cancel by default" half is B-6 |
+| N-46 | **fixed** | `src-tauri/src/golden.rs:114-150`: `wry` 0.57.1 and `tauri-runtime-wry` 2.12.3. Extend it: N-49 |
+
+### New findings
+| ID | Sev | Where | Finding | Exact fix |
+| --- | --- | --- | --- | --- |
+| **B-6** | **Blocker (A3 tag)** | `src-tauri/src/commands/vsphere_confirm.rs:75`, `:83`; `commands/sync_gate.rs:73`, `:109`, `:116-117`; upstream `tauri-plugin-dialog` 2.8.4 `src/desktop.rs:226-253` | On **Windows and Linux**, Escape, Alt+F4 or the close box confirms any of the five native confirmations: power (on/off/reset/shutdown/reboot), VMRC, vSphere trust and fork resolution. On the sync trust dialog it answers "Trust and remember". Cause: the plugin turns rfd's positional `Cancel` into `Custom(<cancel-slot label>)`, and M-16 put the confirming label in that slot. This is a regression from review 6, where Escape refused | **Invariant: no confirming label may sit in the first slot (the OS default, Return) or in the plugin's cancel slot (Escape and close).** Two ways to get there. **(1, preferred)** Stop using `show_with_result` for these five dialogs and map rfd's own result. On Windows (`win_cid`) and macOS, rfd returns `Custom(label)` for a click and a positional `Cancel` for Escape/close, so `Custom(s) if s == ok` → yes and everything else → no. On GTK only the **blocking** `GtkMessageDialog::run()` (`gtk3/message_dialog.rs:121-151`) keeps the two apart; the async path does not. rust-core must prove the blocking call is safe beside Tauri's GTK main loop before relying on it. This needs `rfd = { version = "=0.17.2", default-features = false, features = ["gtk3", "common-controls-v6"] }` as a direct dependency of `mooring-app`. It is already in the tree, so no new crate: **approved here**; the orchestrator edits `Cargo.toml`. **(2, no new dependency)** Use three slots, `YesNoCancelCustom(CANCEL, ok, <refusing label>)`, e.g. "Cancel" / "Power off" / "Keep running". The sync trust dialog then needs two steps: first (`Cancel`, `Trust…`, `Cancel`), then (`Trust once (this sync only)`, `Trust and remember`, `Trust once (this sync only)`). **Tests:** a pure `fn slots(&MessageDialogButtons) -> (first, cancel_slot)` that asserts both are refusing for every dialog builder, plus a unit test that replays the plugin's remap table (`Cancel` → cancel-slot label) through `confirmed` / `trust_answer`. **QA:** add "close box / Alt+F4 / Cmd+W refuses" to `docs/qa/native-dialogs.md` (the Escape column is already there) and run it per OS. **Upstream:** report the unconditional remap to tauri-apps/plugins-workspace: DELETE_EVENT and IDCANCEL are not the cancel button |
+| N-47 | Nit | `src-tauri/src/confirm_gate.rs:120-129` | `confirm_refused` rows are unbounded: a T5 that calls `vsphere_vm_action` in a loop while a dialog is open writes one hash-chained row per call | Audit the first 16 refusals per `kind:target` per open dialog, then one `confirm_refused_suppressed { count }` when the slot is released |
+| N-48 | Nit | `src-tauri/src/commands/web.rs:238-241` (reopen path of `web_open`) | The N-30/N-39 post-check is missing on this branch. If the vault locks after `plan` passes, `show(&w)` makes a hidden web window visible over the lock screen | Call `hide_if_locked` after `show(&w)`, as the build path does (`:272`) |
+| N-49 | Nit | `src-tauri/src/golden.rs:114` | B-6 shows that the confirmations' safety depends on how `tauri-plugin-dialog` and `rfd` map results | Add `tauri-plugin-dialog == 2.8.4` and `rfd == 0.17.2` to `LOCKED_WEBVIEW_CRATES`, with a comment pointing at review 6b B-6. Bumping either one needs a security re-read of the result mapping |
+
+### Decision on rust-core's question
+- The cool-down stays per target, not per target and action: **accepted** (stricter). It must
+  also cover guest shutdown and guest reboot (see the cool-down row).
+
+### Conditions before the A3 tag
+1. **B-6** fixed with the slot-invariant tests. Then the per-OS run of
+   `docs/qa/native-dialogs.md` on macOS, Windows and Linux: Return, Escape and the close box
+   refuse, and a click confirms.
+2. One more fix round for L-34 (a), L-35 (a)(b), L-37 (a)(b), N-43 (a)(b) and the guest-power
+   cool-down. Each is small and exact.
+3. Carried from review 6:
+   - the L-28 remainder and one green nightly fuzz run;
+   - L-31 per OS;
+   - the ADR-0013 E2E plan per OS;
+   - the ADR-0016 §4 OIDC interception check per OS;
+   - the Windows L-29 E2E;
+   - the L-36 VMRC help text.
+4. As scheduled: N-47..N-49, L-34 (b)(c), and the L-33, L-38 and N-39 nits.
+5. Unchanged: `security.yml` green; `mooring-app` built and tested on macOS, Windows and Linux.
+
+### Test evidence (re-review)
+```
+Linux x86_64, 2026-11-05, a3 @ 7527a7d, no build, no test run (orchestrator gate)
+registry sources read   tauri-plugin-dialog 2.8.4 src/desktop.rs:215-253 (unconditional positional remap)
+                        tauri-plugin-dialog 2.8.4 Cargo.toml (default = gtk3; rfd common-controls-v6)
+                        rfd 0.17.2 gtk3/message_dialog.rs:121-151 (blocking), :204-215 (async: DELETE_EVENT -> Cancel)
+                        rfd 0.17.2 win_cid/message_dialog.rs:137 (TDF_ALLOW_DIALOG_CANCELLATION), :179-199
+                        rfd 0.17.2 macos/message_dialog.rs:106-136
+grep MessageDialogButtons|show_with_result src-tauri/src   2 builders (vsphere_confirm, sync_gate) cover all 5 dialogs
+grep timeout|select! around Prompt::ask / gate::confirm   none
+gate_matrix NOT_GATED                                     39 rows, each reason checked against the command source
+```
+Not run: builds, tests, the per-OS dialog checklist, cargo-fuzz.

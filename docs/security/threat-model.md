@@ -79,7 +79,10 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
   vSphere subtrees are not.
 - **Native confirmations.** Power, VMRC, certificate trust (vSphere, sync) and fork resolution
   are answered only in Rust-opened dialogs; the WebView has no `dialog:` permission. A T5 still
-  chooses *when* they appear (M-16).
+  chooses *when* they appear (M-16). Since fix round 7, one dialog at a time
+  (`confirm.busy`) and a 10 s cool-down after a cancelled destructive one (`confirm.cooldown`).
+  Neither Return nor Escape/close may confirm. Escape/close still does on Windows and Linux,
+  because `tauri-plugin-dialog` remaps the cancel result by position (B-6, review 6b).
 
 ## Trust boundaries added in A2 (ADR-0011, ADR-0012)
 - **App → RDP server.** TCP → X.224 → our rustls (ring) client with `TofuVerifier` → CredSSP
@@ -570,14 +573,23 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
       delete, orphan sweep), L-31 (native dialogs from a page, per-OS check), L-32 (pin Tauri)
       before the A2 tag; QA E2E for the ADR-0013 test plan on each OS; N-30..N-38 as
       scheduled.
-- [ ] **A3 (review 6: `APPROVE WITH NITS`):**
-      - [ ] **M-16:** native confirmations default to the confirming button; single-flight and
-        cool-down.
-      - [ ] L-33 (OIDC window storage / frames), L-34 (token cache across a lock), L-35 (synced
-        conflicting pins), L-37 (`vault_join` header write), L-38 (locked-vault matrix); L-36
-        documented (R-VMRC-ARGV).
+- [ ] **A3 (review 6: `APPROVE WITH NITS`; re-review 6b after fix round 7 + Q3: `BLOCKER`
+      for the tag):**
+      - [ ] **B-6 (blocker, was M-16):** Escape / the close box confirms the five native
+        confirmations on Windows and Linux (`tauri-plugin-dialog` 2.8.4 positional remap of
+        rfd `Cancel`). Fix by the slot invariant, then the per-OS
+        `docs/qa/native-dialogs.md` run. Upstream report to tauri-apps/plugins-workspace.
+      - [x] M-16 single flight (`confirm.busy`), cool-down (`confirm.cooldown`), Cancel first,
+        label-only mapping. Open: cool-down for guest shutdown/reboot.
+      - [x] L-33, L-38; N-39..N-42, N-44..N-46.
+      - [ ] L-34 (a) `secrets.on_lock` before the key wipe; L-35 (a) surface conflicts, (b) SSH
+        same-key-type conflicts; L-37 (a) the recovery deletes the staged header on a failed
+        rename, (b) a stale staged header undoes a later password change; N-43 (a)(b) refusals
+        outside the budget.
+      - [x] L-36 documented (R-VMRC-ARGV); [ ] the VMRC option help text.
       - [ ] Per-OS: OIDC redirect interception (ADR-0016 §4), L-31, the Windows L-29 E2E.
-      - [ ] N-39..N-46 as scheduled; upstream: kube-rs `config` optional (R-KUBE-CFG).
+      - [ ] N-47..N-49, L-34 (b)(c) as scheduled; upstream: kube-rs `config` optional
+        (R-KUBE-CFG).
       - [x] S3 sync integrity: counters, parent hash and header hash inside the AEAD (MSY1).
 - [ ] A3/A4: LDAP injection review; revisit R-INV now that the DB leaves the device (sync:
       inventory is inside the AEAD, so T7 does not read it); import `--merge` must re-check
