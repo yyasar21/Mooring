@@ -129,6 +129,13 @@ export function decodeAuditEntry(raw: unknown): AuditEntry {
   return { seq: num(w.seq), at: str(w.at), prev: str(w.prev), event: str(w.event), details };
 }
 
+/**
+ * The only commands the UI may call from a timer (`setInterval`). Each must be passive on the
+ * backend (`PASSIVE_COMMANDS` in `src-tauri/src/autolock.rs`): a polled command that counts as
+ * activity keeps the idle lock from ever firing (review 4, M-8). A guard test enforces both.
+ */
+export const POLLED_COMMANDS: readonly string[] = ["audit_verify", "forward_list"];
+
 // ---------- Tauri transport ----------
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
