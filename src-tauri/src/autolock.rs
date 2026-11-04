@@ -8,7 +8,9 @@
 //!   [`SLEEP_GAP`] late) and treats it as `sleep`. The suspended time is added to the idle
 //!   clock, because `Instant` does not advance during suspend on Linux and macOS.
 //! * Window: `Focused(false)` on the main window → `window_hidden` after [`BLUR_GRACE`],
-//!   `Focused(true)` → activity.
+//!   `Focused(true)` → activity. While a Mooring-owned native dialog is open
+//!   ([`AutoLock::dialog_guard`], the SFTP pick) focus loss is ignored, and the grace restarts
+//!   when the dialog closes.
 //! * Tauri 2 exposes no OS sleep or screen-lock `RunEvent` on desktop; see the per-OS table in
 //!   `docs/handoff/a1-exit-rust-core-autolock-syslog.md`.
 //!
@@ -30,9 +32,10 @@ use crate::state::AppState;
 pub const TICK: Duration = Duration::from_secs(5);
 /// A gap this much larger than expected between two ticks means the machine was suspended.
 pub const SLEEP_GAP: Duration = Duration::from_secs(30);
-/// How long the main window may stay unfocused before `window_hidden` fires. Zero = at once
-/// (ADR-0010 literal); see "Decision needed" in the handoff.
-pub const BLUR_GRACE: Duration = Duration::ZERO;
+/// How long the main window may stay unfocused before `window_hidden` fires (review 4, M-9):
+/// an alt-tab or a notification does not lock, a screen lock (which takes focus) does within a
+/// minute. Focus loss while a Mooring-owned native dialog is open is not counted at all.
+pub const BLUR_GRACE: Duration = Duration::from_secs(60);
 /// UI event emitted after an automatic lock.
 pub const LOCKED_EVENT: &str = "vault:locked";
 /// Commands the UI calls on a timer or to render status; they are not user activity. Exported
@@ -124,8 +127,10 @@ impl AutoLock {
     fn dialog_closed(&self, now: Instant) {
         self.with(|i| {
             i.dialogs = i.dialogs.saturating_sub(1);
-            if i.blurred_at.is_some() {
-                i.blurred_at = Some(now);
+            // `observe` keeps moving `blurred_at` forward while the dialog is open; never move
+            // it back.
+            if let Some(b) = i.blurred_at {
+                i.blurred_at = Some(b.max(now));
             }
             let t = i.effective(now);
             i.clock.touch(t);
@@ -195,7 +200,13 @@ impl AutoLock {
             }
             i.last_mono = now;
             i.last_wall = wall;
-            if i.blurred_at.is_some_and(|b| now.saturating_duration_since(b) >= BLUR_GRACE) {
+            if i.dialogs > 0 && i.blurred_at.is_some() {
+                // Focus loss to a Mooring dialog is not counted (M-9).
+                i.blurred_at = Some(now);
+            }
+            let blur_expired =
+                i.blurred_at.is_some_and(|b| now.saturating_duration_since(b) >= BLUR_GRACE);
+            if blur_expired && i.dialogs == 0 {
                 let t = i.effective(now);
                 i.clock.signal(LockEvent::WindowHidden, t);
             }
