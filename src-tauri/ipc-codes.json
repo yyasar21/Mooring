@@ -1,6 +1,8 @@
 [
   "audit.io",
   "clipboard.unavailable",
+  "confirm.busy",
+  "confirm.cooldown",
   "credential.external_not_found",
   "credential.external_root_token",
   "credential.external_shape",

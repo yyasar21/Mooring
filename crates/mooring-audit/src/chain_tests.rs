@@ -259,6 +259,18 @@ fn graphical_session_events_have_stable_wire_names() {
 }
 
 #[test]
+fn confirm_refused_has_a_stable_wire_name() {
+    let e = AuditEvent::ConfirmRefused {
+        kind: "vsphere_power".to_owned(),
+        target: "c/vm-1".to_owned(),
+        reason: "busy".to_owned(),
+    };
+    let v = serde_json::to_value(&e).expect("json");
+    assert_eq!(v["event"], "confirm_refused");
+    assert_eq!(v["reason"], "busy");
+}
+
+#[test]
 fn secret_events_have_stable_wire_names() {
     let s = |v: &str| v.to_owned();
     let cases = [

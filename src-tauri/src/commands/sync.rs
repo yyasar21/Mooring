@@ -285,9 +285,9 @@ pub async fn resolve_fork(
     autolock: Option<&AutoLock>,
     keep: &str,
 ) -> IpcResult<Outcome> {
-    let keep = match keep {
-        "local" => Keep::Local,
-        "remote" => Keep::Remote,
+    let (keep, target) = match keep {
+        "local" => (Keep::Local, "local"),
+        "remote" => (Keep::Remote, "remote"),
         _ => return Err(IpcError::invalid("keep", "must be \"local\" or \"remote\"")),
     };
     require_unlocked(state)?;
@@ -302,7 +302,10 @@ pub async fn resolve_fork(
         Keep::Remote => "Replace this device's data with the synced vault? Every local change since the last sync is discarded.",
     };
     let confirmed = match prompter {
-        Some(p) => gate::confirm(p, autolock, "Resolve sync fork", message, "Discard and resolve").await,
+        Some(p) => {
+            let scope = gate::Scope { kind: "sync_fork", target, destructive: true };
+            gate::confirm(&state.confirm, scope, p, autolock, "Resolve sync fork", message, "Discard and resolve").await?
+        }
         None => false,
     };
     if !confirmed {

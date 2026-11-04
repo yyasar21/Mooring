@@ -138,6 +138,10 @@ async fn unknown_certificate_prompts_in_rust_and_the_scheduler_never_does() {
     let source = source_id(&vc.id).expect("id");
     assert_eq!(session(&ctx, source, None).await.expect_err("no prompt").code, "http.trust_prompt");
     let yes = FixedConfirm::new(true);
+    // M-16: a rejected trust prompt cools the host down; no second dialog right away.
+    assert_eq!(vs::test(&vc.f.state, Prompt::new(&yes), &vc.id).await.expect_err("cool-down").code, "confirm.cooldown");
+    assert!(yes.asked().is_empty());
+    vc.f.state.confirm.clear_cooldowns();
     let r = vs::test(&vc.f.state, Prompt::new(&yes), &vc.id).await.expect("trusted");
     assert_eq!((r.version.as_str(), r.user.as_str()), ("8.0.3.00400", "alice@example.test"));
     assert!(audit_events(&vc.f.state).contains(&"cert_decision".to_owned()));
@@ -162,15 +166,23 @@ async fn power_needs_opt_in_and_the_native_dialog() {
     assert!(vc.srv.power_actions().is_empty(), "cancelled: nothing sent");
     let ask = &no.asked()[0];
     assert!(ask.text.contains("vm-00001") && ask.text.contains("vc-lab") && ask.text.contains("may be lost"), "{}", ask.text);
-    let out = vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm, "stop").await.expect("approved");
+    // M-16: a cancelled destructive action cools the same VM down (any power action), without a dialog.
+    for action in ["stop", "reset"] {
+        let e = vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm, action).await.expect_err("cool-down");
+        assert_eq!(e.code, "confirm.cooldown");
+    }
+    assert!(yes.asked().is_empty() && vc.srv.power_actions().is_empty(), "cool-down: no dialog, no call");
+    assert_eq!(count(&vc, "confirm_refused"), 2);
+    let vm2 = vm_row(&vc, "vm-2").expect("vm").id;
+    let out = vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm2, "stop").await.expect("approved");
     assert_eq!(out.outcome, "done");
     let sent = vc.srv.power_actions();
-    assert_eq!((sent.len(), sent[0].action.as_str(), sent[0].vm.as_str()), (1, "stop", "vm-1"));
+    assert_eq!((sent.len(), sent[0].action.as_str(), sent[0].vm.as_str()), (1, "stop", "vm-2"));
     assert!(!yes.asked()[0].text.is_empty());
-    let p = vsphere_vm::power_state(&vc.f.state, &vm).await.expect("state");
+    let p = vsphere_vm::power_state(&vc.f.state, &vm2).await.expect("state");
     assert_eq!(p.state, PowerState::PoweredOff);
     assert!(count(&vc, "vsphere_power") >= 4, "disabled, cancelled, requested, done");
-    assert!(vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm, "suspend").await.is_err());
+    assert!(vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm2, "suspend").await.is_err());
     assert!(vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vc.id, "start").await.is_err(), "not a VM row");
     vc.srv.recorder().assert_no_violations();
     assert_eq!(vc.srv.power_actions().len(), 1, "only the approved stop was ever sent");

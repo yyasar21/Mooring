@@ -30,6 +30,7 @@ use serde::Serialize;
 use time::OffsetDateTime;
 
 use crate::commands::vsphere_confirm::Prompt;
+use crate::confirm_gate::ConfirmGate;
 use crate::commands::vsphere_login::{self, Login};
 use crate::dto;
 use crate::error::{IpcError, IpcResult};
@@ -272,6 +273,8 @@ pub struct VsCtx {
     pub data_dir: PathBuf,
     /// The hub.
     pub hub: VsphereHub,
+    /// Confirmation gate (M-16).
+    pub confirm: Arc<ConfirmGate>,
 }
 
 impl VsCtx {
@@ -282,6 +285,7 @@ impl VsCtx {
             audit: Arc::clone(&state.audit),
             data_dir: state.data_dir.clone(),
             hub: state.vsphere.clone(),
+            confirm: Arc::clone(&state.confirm),
         }
     }
 

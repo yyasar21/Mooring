@@ -619,4 +619,15 @@ pub enum AuditEvent {
         /// Console path.
         kind: String,
     },
+    /// A Rust-native confirmation was refused without a dialog (review 6 M-16,
+    /// `confirm_refused`): `busy` (one open at a time) or `cooldown` (the same destructive
+    /// action was cancelled less than 10 s ago).
+    ConfirmRefused {
+        /// Dialog kind (`vsphere_power`, `vsphere_trust`, `vmrc`, `sync_trust`, `sync_fork`).
+        kind: String,
+        /// Target names only (connection id, `vm-42`, `host:port`), never a secret.
+        target: String,
+        /// `busy` | `cooldown`.
+        reason: String,
+    },
 }

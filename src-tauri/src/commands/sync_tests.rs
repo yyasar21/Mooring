@@ -170,6 +170,11 @@ async fn two_devices_push_pull_merge_fork_and_rollback() {
     assert_eq!(a.status().state, "fork");
     let bad = resolve_fork(&a.f.state, &a.hub, Some(&a.p), None, "both").await.expect_err("keep");
     assert_eq!(bad.code, "input.invalid");
+    // M-16: the cancelled resolution cools down; the other side is a different target.
+    let cool = resolve_fork(&a.f.state, &a.hub, Some(&a.p), None, "remote").await.expect_err("cool-down");
+    assert_eq!(cool.code, "confirm.cooldown");
+    assert!(a.audits().contains(&"confirm_refused".to_owned()));
+    a.f.state.confirm.clear_cooldowns();
     let r = resolve_fork(&a.f.state, &a.hub, Some(&a.p), None, "remote").await.expect("resolve");
     assert_eq!(r, Outcome::Pulled { counter: 4 });
     assert_eq!(a.names(), b.names());
@@ -219,8 +224,12 @@ async fn configure_refusals_trust_rejection_and_disable() {
     assert_eq!(a.status().state, "disabled");
     let pins = || crate::commands::known_certs::list(st, mooring_core::known_certs::CertProtocol::Sync).expect("l");
     assert!(pins().is_empty());
-    // "Trust once" works for this run and pins nothing.
+    // M-16: the rejected host cools down before it can be asked again.
     let once = ScriptedPrompter::new(TrustAnswer::Once, true);
+    assert_eq!(configure(st, &a.hub, Some(&once), None, input.clone()).await.expect_err("cool").code, "confirm.cooldown");
+    assert!(once.asked().is_empty());
+    st.confirm.clear_cooldowns();
+    // "Trust once" works for this run and pins nothing.
     configure(st, &a.hub, Some(&once), None, input.clone()).await.expect("once");
     assert!(pins().is_empty());
     assert_eq!(a.status().next_run_unix, None, "manual only");

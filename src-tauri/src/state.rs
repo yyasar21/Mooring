@@ -182,6 +182,8 @@ pub struct AppState {
     pub vsphere: crate::vsphere_sync::VsphereHub,
     /// ADR-0016 E2: token cache, renewer, OIDC flows (memory only).
     pub secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
+    /// Review 6 M-16: single flight and cool-down of the Rust-native confirmations.
+    pub confirm: Arc<crate::confirm_gate::ConfirmGate>,
 }
 
 /// Errors while loading state at startup.
@@ -235,6 +237,7 @@ impl AppState {
             Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
         Ok(Self {
             secrets,
+            confirm: Arc::new(crate::confirm_gate::ConfirmGate::new(Arc::clone(&audit))),
             cache_dir: data_dir.join("cache"),
             data_dir,
             vault: Arc::new(Mutex::new(vault)),

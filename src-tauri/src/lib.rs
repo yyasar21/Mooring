@@ -34,6 +34,8 @@ test_util_pub!(sync_runner);
 test_util_pub!(scheduler, vsphere_sync);
 // ADR-0016 E2: token cache / renewer runtime and the OIDC window.
 test_util_pub!(oidc_window, secrets_runtime);
+// Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
+test_util_pub!(confirm_gate);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
