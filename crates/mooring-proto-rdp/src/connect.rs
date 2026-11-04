@@ -194,6 +194,29 @@ fn mismatch(target: &Target, d: &Decision, expected: &[u8; 32], audit: &AuditSin
     (CloseCode::TrustMismatch, reason)
 }
 
+/// Whether a TLS failure is the peer's handshake signature (rustls `BadSignature`).
+fn bad_signature(e: &std::io::Error) -> bool {
+    e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()).is_some_and(|r| {
+        matches!(r, rustls::Error::InvalidCertificate(rustls::CertificateError::BadSignature))
+    })
+}
+
+/// A pinned certificate whose handshake signature failed: `trust_mismatch`, audited as a
+/// mismatch with `presented = signature`.
+fn signature_mismatch(target: &Target, d: &Decision, audit: &AuditSink) -> End {
+    audit.push(SessionAudit::CertMismatch {
+        host: target.host.clone(),
+        port: target.port,
+        expected: display_fingerprint(&d.fingerprint),
+        presented: "signature".to_owned(),
+    });
+    let reason = format!(
+        "the server at {}:{} presented the pinned certificate without its key",
+        target.host, target.port
+    );
+    (CloseCode::TrustMismatch, reason)
+}
+
 /// Run one attempt. `creds` is only read; the password is copied into the connector right
 /// before `CredSSP` and the connector is consumed by it.
 pub(crate) async fn attempt(
@@ -246,9 +269,13 @@ async fn upgrade_tls(
             }
             Ok(Upgrade::Done(Box::new(s), d))
         }
-        (Err(_), Some(d)) => match d.verdict {
+        (Err(e), Some(d)) => match d.verdict {
             CertVerdict::Prompt => Ok(Upgrade::NeedsTrust(d)),
             CertVerdict::Mismatch { expected } => Err(mismatch(target, &d, &expected, audit)),
+            // N-25: the pinned certificate without its key (an active attacker): never retried.
+            CertVerdict::AcceptPinned { .. } if bad_signature(&e) => {
+                Err(signature_mismatch(target, &d, audit))
+            }
             // Accepted chain, failed later: e.g. the handshake signature did not verify.
             _ => Err(end(CloseCode::Network, "TLS handshake failed")),
         },

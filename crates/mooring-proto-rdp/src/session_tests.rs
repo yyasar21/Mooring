@@ -17,6 +17,8 @@ use mooring_core::session::{
 };
 use mooring_core::{FrameSink, SessionAudit};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -62,6 +64,15 @@ async fn read_tpkt(s: &mut TcpStream) -> Option<Vec<u8>> {
     Some(rest)
 }
 
+#[derive(Debug)]
+struct Fixed(Arc<CertifiedKey>);
+
+impl ResolvesServerCert for Fixed {
+    fn resolve(&self, _hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        Some(Arc::clone(&self.0))
+    }
+}
+
 /// Serves `connections` connections: answers the X.224 request with `protocol`, then
 /// (unless it is a failure) runs TLS with `cert`/`key` and drops the connection.
 async fn fake_server(
@@ -73,12 +84,15 @@ async fn fake_server(
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let port = listener.local_addr().expect("addr").port();
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der()));
-    let config = rustls::ServerConfig::builder_with_provider(crate::tls::provider())
+    let p = crate::tls::provider();
+    let signing = p.key_provider.load_private_key(key).expect("key");
+    // A resolver, not `with_single_cert`: the key may deliberately not match (N-25).
+    let certified = Arc::new(CertifiedKey::new(vec![CertificateDer::from(der)], signing));
+    let config = rustls::ServerConfig::builder_with_provider(p)
         .with_safe_default_protocol_versions()
         .expect("versions")
         .with_no_client_auth()
-        .with_single_cert(vec![CertificateDer::from(der)], key)
-        .expect("server cert");
+        .with_cert_resolver(Arc::new(Fixed(certified)));
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
     tokio::spawn(async move {
         for _ in 0..connections {
@@ -210,6 +224,32 @@ async fn trusted_once_skips_the_prompt_without_writing_a_pin() {
     assert!(!matches!(code, CloseCode::TrustRejected | CloseCode::TrustMismatch));
     let known = KnownCerts::load(&dir.path().join("known_rdp_certs")).expect("load");
     assert_eq!(known.check("127.0.0.1", port, &fp), mooring_core::known_certs::CertTrust::Unknown);
+}
+
+#[tokio::test]
+async fn pinned_certificate_without_its_key_is_a_trust_mismatch() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (der, _) = self_signed(&["127.0.0.1"]);
+    let (_, wrong) = self_signed(&["127.0.0.1"]);
+    let port = fake_server(SecurityProtocol::HYBRID, der.clone(), wrong, 1).await;
+    let path = dir.path().join("known_rdp_certs");
+    KnownCerts::add_and_save(
+        &path,
+        "127.0.0.1",
+        port,
+        &fingerprint(&der),
+        time::OffsetDateTime::now_utc(),
+    )
+    .expect("pin");
+    let mut s =
+        RdpSession::connect(params(port, pw()), options(&dir), FrameSink::new(), AuditSink::new())
+            .await
+            .expect("starts");
+    let SessionEvent::Closed { code, .. } = next(&mut s).await else { panic!("closed") };
+    assert_eq!(code, CloseCode::TrustMismatch, "never retried as network");
+    assert!(s.take_audit_events().iter().any(
+        |a| matches!(a, SessionAudit::CertMismatch { presented, .. } if presented == "signature")
+    ));
 }
 
 #[tokio::test]
