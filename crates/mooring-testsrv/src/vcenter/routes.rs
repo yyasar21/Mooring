@@ -180,7 +180,7 @@ fn list(d: &Dynamic, ctx: &Ctx, kind: &str) -> Reply {
             inv.vms
                 .iter()
                 .filter(|v| {
-                    inv.host(&v.host).is_some_and(&host_ok)
+                    inv.host(&v.host).is_some_and(host_ok)
                         && pass(&f("vms"), &v.id)
                         && pass(&names, &v.name)
                         && pass(&states, &v.power_state)

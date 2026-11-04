@@ -18,7 +18,8 @@ const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /// `Sec-WebSocket-Accept` for a client key (RFC 6455 §4.2.2).
 pub fn accept_key(key: &str) -> String {
-    let mut h = Sha1::new();
+    // RFC 6455 mandates SHA-1 for the handshake accept key; it is not used for security here.
+    let mut h = Sha1::new(); // nosemgrep: rust.lang.security.insecure-hashes.insecure-hashes
     h.update(key.as_bytes());
     h.update(GUID.as_bytes());
     base64::engine::general_purpose::STANDARD.encode(h.finalize())

@@ -16,7 +16,7 @@ impl Args {
     pub fn parse(switches: &[&str], values: &[&str]) -> Result<Self, String> {
         // Dev-only test-server CLI: argv[0] is skipped and every flag is validated against the
         // allow-lists; no security decision depends on it.
-        Self::from_iter(std::env::args().skip(1), switches, values) // nosemgrep: rust.lang.security.args.args
+        Self::from_iter(std::env::args().skip(1), switches, values) // nosemgrep
     }
 
     pub fn from_iter(

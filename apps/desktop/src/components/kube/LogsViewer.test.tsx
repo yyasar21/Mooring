@@ -43,7 +43,7 @@ describe("LogsViewer", () => {
     const before = lines().length;
     const send = (text: string) => { act(() => { stream.emit({ kind: "data", data: new TextEncoder().encode(text) } satisfies LogChunk); }); };
     send("partial li");
-    send("ne done\nsecond‮ line\n");
+    send("ne done\nsecond\u202e line\n");
     expect(lines().length).toBe(before + 2);
     expect(screen.getByText("partial line done")).toBeInTheDocument();
     expect(screen.getByText("second� line")).toBeInTheDocument();
