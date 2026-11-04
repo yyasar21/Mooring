@@ -17,7 +17,7 @@ use russh_sftp::client::{Config, RawSftpSession};
 use russh_sftp::extensions;
 use russh_sftp::protocol::{FileAttributes, FileType, StatusCode};
 
-use crate::session::SshSession;
+use crate::control::SshControl;
 
 /// Longest remote path accepted, in bytes.
 pub const MAX_REMOTE_PATH: usize = 4096;
@@ -231,7 +231,7 @@ async fn open_client(
     Ok(SftpClient { raw: Arc::new(raw), read_chunk, write_chunk })
 }
 
-impl SshSession {
+impl SshControl {
     /// The session's SFTP client, opening the subsystem on first use.
     pub async fn sftp(&self) -> Result<SftpClient, MooringError> {
         let slot = &self.shared.sftp;

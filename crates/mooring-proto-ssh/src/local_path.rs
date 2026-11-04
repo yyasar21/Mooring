@@ -94,6 +94,18 @@ impl LocalPath {
         &self.relative
     }
 
+    /// Check now that the path can be read as an upload source (existing regular file
+    /// inside the base). Transfers check again when they open the file.
+    pub fn check_existing_file(&self) -> Result<(), MooringError> {
+        self.resolve_existing_file().map(drop)
+    }
+
+    /// Check now that the path can be written as a download target (parent inside the base,
+    /// target not a symlink or directory). Transfers check again when they create the file.
+    pub fn check_new_file(&self) -> Result<(), MooringError> {
+        self.resolve_new_file().map(drop)
+    }
+
     fn canonical_base(&self) -> Result<PathBuf, MooringError> {
         std::fs::canonicalize(&self.base).map_err(|_| invalid("base directory not found"))
     }
@@ -211,8 +223,10 @@ mod tests {
         assert!(p.resolve_existing_file().is_ok());
         let (_, full) = p.resolve_new_file().expect("new");
         assert!(full.ends_with("sub/f"));
+        assert!(p.check_existing_file().is_ok() && p.check_new_file().is_ok());
         let d = LocalPath::new(dir.path(), "sub").expect("ok");
         assert!(d.resolve_new_file().is_err(), "directory target");
+        assert!(d.check_new_file().is_err() && d.check_existing_file().is_err());
         assert!(d.resolve_existing_file().is_err(), "directory source");
     }
 

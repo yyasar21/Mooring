@@ -11,7 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, OwnedSemaphorePermit, Semaphore};
 
-use crate::forward::{COPY_BUFFER, MAX_CONNECTIONS_PER_FORWARD};
+use crate::forward::COPY_BUFFER;
 use crate::handler::ClientHandler;
 use crate::socks;
 
@@ -72,12 +72,17 @@ async fn open_direct(
 }
 
 /// Accept connections until cancelled; `serve` handles one connection.
-async fn accept_loop<F, Fut>(listener: TcpListener, cancel: watch::Receiver<bool>, serve: F)
-where
+/// `limit` holds [`MAX_CONNECTIONS_PER_FORWARD`](crate::forward::MAX_CONNECTIONS_PER_FORWARD) permits; the forward's live connection
+/// count is read from it.
+async fn accept_loop<F, Fut>(
+    listener: TcpListener,
+    cancel: watch::Receiver<bool>,
+    limit: Arc<Semaphore>,
+    serve: F,
+) where
     F: Fn(TcpStream, SocketAddr, OwnedSemaphorePermit) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    let limit = Arc::new(Semaphore::new(MAX_CONNECTIONS_PER_FORWARD));
     let stop = cancelled(cancel);
     tokio::pin!(stop);
     loop {
@@ -107,9 +112,10 @@ pub(crate) async fn local_loop(
     host: String,
     port: u16,
     cancel: watch::Receiver<bool>,
+    limit: Arc<Semaphore>,
 ) {
     let cancel2 = cancel.clone();
-    accept_loop(listener, cancel, move |stream, peer, permit| {
+    accept_loop(listener, cancel, limit, move |stream, peer, permit| {
         let (handle, host, cancel) = (Arc::clone(&handle), host.clone(), cancel2.clone());
         async move {
             let _permit = permit;
@@ -125,9 +131,10 @@ pub(crate) async fn dynamic_loop(
     listener: TcpListener,
     handle: Arc<Handle<ClientHandler>>,
     cancel: watch::Receiver<bool>,
+    limit: Arc<Semaphore>,
 ) {
     let cancel2 = cancel.clone();
-    accept_loop(listener, cancel, move |mut stream, peer, permit| {
+    accept_loop(listener, cancel, limit, move |mut stream, peer, permit| {
         let (handle, cancel) = (Arc::clone(&handle), cancel2.clone());
         async move {
             let _permit = permit;

@@ -11,6 +11,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::SystemTime;
 
 use mooring_core::{validate_host, MooringError};
 use russh::client::Handle;
@@ -19,11 +20,11 @@ use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::audit::{AuditLog, TrustEvent};
+use crate::control::SshControl;
 pub use crate::exposure::Exposure;
 use crate::exposure::{check_exposure, is_loopback_host};
 use crate::forward_io::{dynamic_loop, local_loop, Route};
 use crate::handler::ClientHandler;
-use crate::session::SshSession;
 
 /// Most forwards one session may hold at a time.
 pub const MAX_FORWARDS: usize = 64;
@@ -46,6 +47,22 @@ impl ForwardId {
 impl fmt::Display for ForwardId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "fwd-{}", self.0)
+    }
+}
+
+impl std::str::FromStr for ForwardId {
+    type Err = MooringError;
+
+    /// Parse the `fwd-<n>` form shown by [`Display`](fmt::Display).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.strip_prefix("fwd-")
+            .filter(|n| !n.is_empty() && n.len() <= 20 && n.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|n| n.parse().ok())
+            .map(Self)
+            .ok_or_else(|| MooringError::Invalid {
+                field: "forward id",
+                reason: "expected fwd-<number>".into(),
+            })
     }
 }
 
@@ -82,10 +99,18 @@ pub struct ForwardInfo {
     pub bind: String,
     /// Bound port (the allocated one when port 0 was requested).
     pub port: u16,
+    /// Host part of `bind` (IP for local/dynamic, the requested address for remote).
+    pub bind_host: String,
     /// Target `host:port`, or `socks5` for dynamic forwards.
     pub target: String,
+    /// Target as (host, port); `None` for dynamic forwards.
+    pub target_addr: Option<(String, u16)>,
     /// Who may reach the listener.
     pub exposure: Exposure,
+    /// When the forward started.
+    pub opened_at: SystemTime,
+    /// Live connections through the forward when listed.
+    pub connections: usize,
 }
 
 /// `host:port`, bracketing IPv6 literals.
@@ -101,6 +126,8 @@ pub(crate) struct Entry {
     info: ForwardInfo,
     cancel: watch::Sender<bool>,
     task: Option<JoinHandle<()>>,
+    /// Connection permits; `MAX_CONNECTIONS_PER_FORWARD - available` are in use.
+    limit: Arc<Semaphore>,
     /// Remote forwards: (requested address, bound port, route for incoming channels).
     remote: Option<(String, u32, Route)>,
 }
@@ -195,7 +222,16 @@ impl ForwardRegistry {
     }
 
     pub(crate) fn list(&self) -> Vec<ForwardInfo> {
-        let mut list: Vec<_> = self.lock().entries.values().map(|e| e.info.clone()).collect();
+        let mut list: Vec<_> = self
+            .lock()
+            .entries
+            .values()
+            .map(|e| ForwardInfo {
+                connections: MAX_CONNECTIONS_PER_FORWARD
+                    .saturating_sub(e.limit.available_permits()),
+                ..e.info.clone()
+            })
+            .collect();
         list.sort_by_key(|i| i.id);
         list
     }
@@ -254,30 +290,48 @@ async fn bind(addr: SocketAddr) -> Result<(TcpListener, SocketAddr), MooringErro
     Ok((listener, bound))
 }
 
-impl SshSession {
+/// Permits for one forward's connections.
+fn connection_limit() -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(MAX_CONNECTIONS_PER_FORWARD))
+}
+
+impl SshControl {
     /// The authenticated handle, or an error when the session is not (or no longer) usable.
     pub(crate) fn live_handle(&self) -> Result<Arc<Handle<ClientHandler>>, MooringError> {
         if self.shared.is_closing() {
             return Err(MooringError::Closed);
         }
-        self.handle().ok_or_else(not_connected)
+        self.handle.get().cloned().ok_or_else(not_connected)
     }
 
     fn start(
         &self,
         kind: ForwardKind,
         bound: SocketAddr,
-        target: String,
+        target_addr: Option<(String, u16)>,
         exposure: Exposure,
-        task: impl FnOnce(watch::Receiver<bool>) -> JoinHandle<()>,
+        task: impl FnOnce(watch::Receiver<bool>, Arc<Semaphore>) -> JoinHandle<()>,
     ) -> Result<ForwardId, MooringError> {
         let registry = &self.shared.forwards;
         let id = registry.next_id();
         let (cancel, cancel_rx) = watch::channel(false);
-        let task = Some(task(cancel_rx));
-        let (bind, port) = (bound.to_string(), bound.port());
-        let info = ForwardInfo { id, kind, bind, port, target, exposure };
-        registry.insert(Entry { info, cancel, task, remote: None }, &self.shared.audit)
+        let limit = connection_limit();
+        let task = Some(task(cancel_rx, Arc::clone(&limit)));
+        let target =
+            target_addr.as_ref().map_or_else(|| "socks5".to_owned(), |(h, p)| host_port(h, *p));
+        let info = ForwardInfo {
+            id,
+            kind,
+            bind: bound.to_string(),
+            port: bound.port(),
+            bind_host: bound.ip().to_string(),
+            target,
+            target_addr,
+            exposure,
+            opened_at: SystemTime::now(),
+            connections: 0,
+        };
+        registry.insert(Entry { info, cancel, task, limit, remote: None }, &self.shared.audit)
     }
 
     /// Listen on `bind` and tunnel each accepted connection to `target` as seen from the
@@ -294,9 +348,9 @@ impl SshSession {
         let host = validate_target(&target.0, target.1)?;
         let port = target.1;
         let (listener, bound) = bind(bind_addr).await?;
-        let shown = host_port(&host, port);
-        self.start(ForwardKind::Local, bound, shown, exposure, move |cancel| {
-            tokio::spawn(local_loop(listener, handle, host, port, cancel))
+        let target = Some((host.clone(), port));
+        self.start(ForwardKind::Local, bound, target, exposure, move |cancel, limit| {
+            tokio::spawn(local_loop(listener, handle, host, port, cancel, limit))
         })
     }
 
@@ -311,9 +365,8 @@ impl SshSession {
         check_exposure(bind_addr.ip().is_loopback(), exposure)?;
         let handle = self.live_handle()?;
         let (listener, bound) = bind(bind_addr).await?;
-        let socks = "socks5".to_owned();
-        self.start(ForwardKind::Dynamic, bound, socks, exposure, move |cancel| {
-            tokio::spawn(dynamic_loop(listener, handle, cancel))
+        self.start(ForwardKind::Dynamic, bound, None, exposure, move |cancel, limit| {
+            tokio::spawn(dynamic_loop(listener, handle, cancel, limit))
         })
     }
 
@@ -347,21 +400,22 @@ impl SshSession {
         let registry = &self.shared.forwards;
         let id = registry.next_id();
         let (cancel, cancel_rx) = watch::channel(false);
-        let route = Route {
-            target,
-            cancel: cancel_rx,
-            limit: Arc::new(Semaphore::new(MAX_CONNECTIONS_PER_FORWARD)),
-        };
+        let limit = connection_limit();
+        let route = Route { target, cancel: cancel_rx, limit: Arc::clone(&limit) };
         let info = ForwardInfo {
             id,
             kind: ForwardKind::Remote,
             bind: host_port(&address, port),
             port,
+            bind_host: address.clone(),
             target: target.to_string(),
+            target_addr: Some((target.ip().to_string(), target.port())),
             exposure,
+            opened_at: SystemTime::now(),
+            connections: 0,
         };
         let remote = Some((address.clone(), u32::from(port), route));
-        let entry = Entry { info, cancel, task: None, remote };
+        let entry = Entry { info, cancel, task: None, limit, remote };
         let result = registry.insert(entry, &self.shared.audit);
         if result.is_err() {
             let _ = handle.cancel_tcpip_forward(address, u32::from(port)).await;
@@ -393,68 +447,5 @@ impl SshSession {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn entry(registry: &ForwardRegistry, remote: Option<(&str, u32)>) -> Entry {
-        let (cancel, rx) = watch::channel(false);
-        let id = registry.next_id();
-        let route = Route {
-            target: SocketAddr::from(([127, 0, 0, 1], 9)),
-            cancel: rx,
-            limit: Arc::new(Semaphore::new(1)),
-        };
-        Entry {
-            info: ForwardInfo {
-                id,
-                kind: ForwardKind::Remote,
-                bind: "b".into(),
-                port: 1,
-                target: "t".into(),
-                exposure: Exposure::Loopback,
-            },
-            cancel,
-            task: None,
-            remote: remote.map(|(a, p)| (a.to_owned(), p, route)),
-        }
-    }
-
-    #[test]
-    fn ids_display_and_order() {
-        let r = ForwardRegistry::default();
-        let (a, b) = (r.next_id(), r.next_id());
-        assert_eq!(a.to_string(), "fwd-1");
-        assert!(a < b);
-        assert_eq!(b.get(), 2);
-        assert_eq!(host_port("::1", 22), "[::1]:22");
-        assert_eq!(host_port("h", 22), "h:22");
-    }
-
-    #[test]
-    fn routes_and_close_all() {
-        let r = ForwardRegistry::default();
-        let audit = AuditLog::default();
-        r.insert(entry(&r, Some(("127.0.0.1", 4000))), &audit).expect("insert");
-        r.insert(entry(&r, Some(("localhost", 4001))), &audit).expect("insert");
-        assert!(r.route("127.0.0.1", 4000).is_some());
-        assert!(r.route("0.0.0.0", 4001).is_some(), "unique port fallback");
-        assert!(r.route("127.0.0.1", 4002).is_none());
-        assert_eq!(r.list().len(), 2);
-        r.close_all(&audit);
-        r.close_all(&audit);
-        assert!(r.list().is_empty());
-        let actions: Vec<_> = audit.take().iter().map(TrustEvent::action).collect();
-        assert_eq!(actions.iter().filter(|a| **a == "session.forward.close").count(), 2);
-        assert!(matches!(r.insert(entry(&r, None), &audit), Err(MooringError::Closed)));
-    }
-
-    #[test]
-    fn caps_forward_count() {
-        let r = ForwardRegistry::default();
-        let audit = AuditLog::default();
-        for _ in 0..MAX_FORWARDS {
-            r.insert(entry(&r, None), &audit).expect("insert");
-        }
-        assert!(matches!(r.insert(entry(&r, None), &audit), Err(MooringError::Invalid { .. })));
-    }
-}
+#[path = "forward_tests.rs"]
+mod tests;

@@ -63,7 +63,7 @@ pub struct SshSession {
     events: mpsc::Receiver<SessionEvent>,
     commands: mpsc::Sender<Command>,
     task: Option<JoinHandle<()>>,
-    handle: HandleSlot,
+    pub(crate) handle: HandleSlot,
     /// The final `Closed` event when `close` consumed it, replayed once by `next_event`.
     final_event: Option<SessionEvent>,
     closed: bool,
