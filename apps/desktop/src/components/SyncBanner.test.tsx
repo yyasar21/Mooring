@@ -26,6 +26,10 @@ describe("shell sync banner (ADR-0017)", () => {
   it("stays silent while sync is healthy and shows a fork wherever the user is", async () => {
     await boot();
     expect(banner()).toBeNull();
+    // the shell grid keeps four items (title, banner slot, panes, status) so the rows never shift without an alarm
+    const deck = document.querySelector(".deck");
+    expect(deck?.children).toHaveLength(4);
+    expect(deck?.children[1]).toHaveAttribute("data-slot", "sync-banner");
     act(() => { mock.simulateAlarm("fork"); });
     const b = screen.getByRole("alert");
     expect(b).toHaveTextContent("Sync fork detected");
