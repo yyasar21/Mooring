@@ -6,6 +6,7 @@ import { useCredentials } from "./credentials";
 import { useSessions } from "./sessions";
 import { useUi } from "./ui";
 import { useTransfers } from "./transfers";
+import { useSync } from "./sync";
 import { adoptWeb } from "./web";
 
 interface AppState {
@@ -55,6 +56,7 @@ function wipe(): void {
   useCredentials.getState().reset();
   useUi.getState().reset();
   useTransfers.getState().reset();
+  useSync.getState().reset();
 }
 
 export const useApp = create<AppState>((set, get) => ({

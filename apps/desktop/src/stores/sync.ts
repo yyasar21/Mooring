@@ -13,10 +13,14 @@ interface SyncState {
   /** The last manual action's result, for the card's outcome line. */
   notice: string | null;
   busy: boolean;
+  /** `alarmKey` of the alarm the user dismissed from the shell banner; cleared on reset (lock). */
+  dismissed: string | null;
 
   load: () => Promise<void>;
   /** Subscribe to `sync:status`; returns unsubscribe. */
   watch: () => () => void;
+  /** Hide the shell banner for the current alarm; the next alarm (or a changed one) shows again. */
+  dismiss: () => void;
   configure: (config: SyncConfig) => Promise<boolean>;
   syncNow: () => Promise<SyncOutcome | null>;
   resolve: (keep: "local" | "remote") => Promise<SyncOutcome | null>;
@@ -37,6 +41,17 @@ export function describeOutcome(o: SyncOutcome): string {
     case "noChange":
       return `Nothing to sync; generation ${o.counter} is current.`;
   }
+}
+
+/**
+ * What the shell banner reacts to: a fork/rollback alarm first, else a failed background run.
+ * The key changes whenever the situation does, so a dismissal never hides the next one.
+ */
+export function alarmKey(s: SyncStatus | null): string | null {
+  if (!s) return null;
+  if (s.alarm) return s.alarm.type === "fork" ? `fork:${s.alarm.remote}` : `rollback:${s.alarm.remote}:${s.alarm.last}`;
+  if (s.lastError) return `error:${s.lastError.code}:${s.lastRunUnix ?? 0}`;
+  return null;
 }
 
 export const useSync = create<SyncState>((set, get) => {
@@ -60,6 +75,7 @@ export const useSync = create<SyncState>((set, get) => {
     error: null,
     notice: null,
     busy: false,
+    dismissed: null,
 
     load: async () => {
       try {
@@ -70,6 +86,8 @@ export const useSync = create<SyncState>((set, get) => {
     },
 
     watch: () => ipc.onSyncStatus((status) => { set({ status }); }),
+
+    dismiss: () => { set({ dismissed: alarmKey(get().status) }); },
 
     configure: async (config) => {
       const r = await attempt(() => ipc.syncConfigure(config), () => "Saved. The storage answered and conditional writes work.");
@@ -96,6 +114,6 @@ export const useSync = create<SyncState>((set, get) => {
       return r === true;
     },
 
-    reset: () => { set({ status: null, error: null, notice: null, busy: false }); },
+    reset: () => { set({ status: null, error: null, notice: null, busy: false, dismissed: null }); },
   };
 });
