@@ -104,3 +104,45 @@ fn golden_ipc_codes_file_is_in_sync() {
     }
     check_sorted_list("ipc-codes.json", &refs);
 }
+
+/// The exact versions `Cargo.lock` must hold for the `WebView` layer. Security review 6
+/// (`docs/security/a3-review-6.md`, N-46, closing review 5 L-32): `tauri` is pinned in
+/// `src-tauri/Cargo.toml`, but `wry` and `tauri-runtime-wry` carry the storage semantics
+/// behind L-29 / L-33 (per-webview `WebView2` environments, `incognito` + `data_directory`)
+/// and are held only by the lock file. A bump must go through security review: update this
+/// list in the same change.
+const LOCKED_WEBVIEW_CRATES: &[(&str, &str)] =
+    &[("wry", "0.57.1"), ("tauri-runtime-wry", "2.12.3")];
+
+fn locked_version(lock: &str, name: &str) -> Option<String> {
+    let header = format!("name = \"{name}\"\n");
+    lock.split("[[package]]\n")
+        .find(|pkg| pkg.starts_with(&header))
+        .and_then(|pkg| pkg.lines().find_map(|l| l.strip_prefix("version = ")))
+        .map(|v| v.trim_matches('"').to_owned())
+}
+
+/// Review 6 N-46: the `WebView` crates stay at the reviewed versions until the next review.
+#[test]
+fn cargo_lock_pins_the_reviewed_webview_crates() {
+    let lock_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.lock");
+    let lock =
+        std::fs::read_to_string(&lock_path).expect("workspace Cargo.lock").replace("\r\n", "\n");
+    for (name, want) in LOCKED_WEBVIEW_CRATES {
+        let have = locked_version(&lock, name);
+        assert_eq!(
+            have.as_deref(),
+            Some(*want),
+            "{name} must stay at {want} (security review 6 N-46 / review 5 L-32); found {have:?}"
+        );
+    }
+    assert_eq!(
+        locked_version("[[package]]\nname = \"x\"\nversion = \"1.2.3\"\n", "x").as_deref(),
+        Some("1.2.3")
+    );
+    assert_eq!(
+        locked_version("[[package]]\nname = \"xy\"\nversion = \"1.2.3\"\n", "x"),
+        None,
+        "exact names only"
+    );
+}
