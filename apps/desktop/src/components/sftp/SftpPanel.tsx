@@ -94,7 +94,7 @@ function Browser({ sessionId }: { sessionId: string }) {
         <aside aria-label="This computer" className="sftp-local">
           <h3 className="m-micro">This computer</h3>
           <dl className="prop-grid mt-3">
-            <dt>Last saved to</dt>
+            <dt>Last saved</dt>
             <dd className="mono" title={lastFolder ?? undefined}>
               {lastFolder ?? <span className="text-text-faint">none</span>}
             </dd>
