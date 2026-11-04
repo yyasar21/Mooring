@@ -35,6 +35,10 @@ deny = [
   { crate = "native-tls", reason = "rustls only (ADR-0001)" },
   # russh needs md5 only to render legacy MD5 host-key fingerprints; Mooring never hashes with it.
   { crate = "md5", reason = "weak hash", wrappers = ["russh"] },
+  # ring is the only crypto provider (ADR-0001/0011). aws-lc-* appear in Cargo.lock only as
+  # weak-feature edges of rustls / rustls-webpki (via sspi); they must never be built.
+  { crate = "aws-lc-rs", reason = "ring only (ADR-0001, ADR-0011 R3)" },
+  { crate = "aws-lc-sys", reason = "ring only; C/asm build (ADR-0001, ADR-0011 R3)" },
 ]
 
 [sources]
