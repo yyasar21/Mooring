@@ -57,13 +57,12 @@ pub(crate) async fn establish(
     cred: &Credential,
     shared: &Shared,
 ) -> Result<Established, VncError> {
-    let mut known = match KnownCerts::load(&t.known_certs) {
-        Ok(k) => k,
-        Err(e) => {
-            tracing::warn!(error = %e, "known_vnc_certs unreadable; treating as empty");
-            KnownCerts::new()
-        }
-    };
+    // L-20: fail closed like RDP. An unreadable store must never drop the pins and with them
+    // the downgrade guard.
+    let mut known = KnownCerts::load(&t.known_certs).map_err(|e| {
+        tracing::warn!(error = %e, "known_vnc_certs unreadable");
+        VncError::protocol("the certificate trust store could not be read")
+    })?;
     if let Some(fp) = t.trusted_once {
         if !known.has_pin(&t.host, t.port) {
             known.add(&t.host, t.port, &fp, time::OffsetDateTime::now_utc());

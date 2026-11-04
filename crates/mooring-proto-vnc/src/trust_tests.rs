@@ -103,3 +103,15 @@ async fn tls_seen_marker_turns_a_stripped_vencrypt_into_a_hard_stop() {
     );
     assert_eq!(srv.stats().chosen_security.len(), chosen, "no security type chosen, no DES sent");
 }
+
+#[tokio::test]
+async fn unreadable_trust_store_fails_closed() {
+    let srv = server(vec![Sec::VncAuth], None).await;
+    let dir = tempfile::tempdir().expect("tmp");
+    // A directory where the file should be: every read fails with an I/O error.
+    let known = dir.path().join("known_vnc_certs");
+    std::fs::create_dir(&known).expect("dir");
+    let mut s = session(srv.addr().port(), pw("pw"), VncConnOptions::default(), &known).await;
+    assert_eq!(outcome(&mut s).await, Err(CloseCode::ProtocolError));
+    assert_eq!(srv.stats().connections, 0, "nothing sent before the store is read");
+}
