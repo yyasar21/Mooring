@@ -24,6 +24,8 @@ mod hostile;
 mod hostile_edges;
 #[path = "e2e_flow/kube.rs"]
 mod kube;
+#[path = "e2e_flow/secrets.rs"]
+mod secrets;
 #[path = "e2e_flow/support.rs"]
 mod support;
 // ADR-0017 S2: vault sync between two devices.

@@ -139,6 +139,8 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     // ADR-0014 K4: Kubernetes tokens live in memory only; every cluster, exec shell, log
     // stream and pod forward ends with the lock.
     crate::kube_sessions::close_all(&state.sessions);
+    // ADR-0016 E2: OIDC windows close; Vault tokens are revoked (ours) or forgotten.
+    state.secrets.on_lock();
     // Unknown or missing reasons from the WebView are recorded as a user lock.
     let reason = reason.and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard = state.vault()?;

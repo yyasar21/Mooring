@@ -111,4 +111,15 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("vsphere_vm_action", Scope::Main),
     ("vsphere_vm_identity", Scope::Main),
     ("vsphere_console", Scope::Main),
+    // ADR-0016 E2: secret sources (main only; the oidc-* window has an empty capability).
+    ("secret_source_list", Scope::Main),
+    ("secret_source_get", Scope::Main),
+    ("secret_source_create", Scope::Main),
+    ("secret_source_update", Scope::Main),
+    ("secret_source_delete", Scope::Main),
+    ("secret_source_test", Scope::Main),
+    ("secret_source_revoke", Scope::Main),
+    ("credential_external_test", Scope::Main),
+    ("secret_source_oidc_begin", Scope::Main),
+    ("secret_source_oidc_status", Scope::Main),
 ];

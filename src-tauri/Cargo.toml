@@ -33,6 +33,7 @@ mooring-proto-kube = { path = "../crates/mooring-proto-kube", version = "0.1.0-r
 mooring-http = { path = "../crates/mooring-http", version = "0.1.0-rc.1" } # ADR-0014 K4: HttpConfig template for the kube client; ADR-0017 S2: trust-prompt errors of the sync Gate; ADR-0015 V2: HttpConfig / trust prompt of the vCenter client (K1 crate)
 mooring-sync = { path = "../crates/mooring-sync", version = "0.1.0-rc.1" } # ADR-0017 S2: vault sync commands (internal crate)
 mooring-vsphere = { path = "../crates/mooring-vsphere", version = "0.1.0-rc.1" } # ADR-0015 V2: inventory sync, power, consoles (workspace crate, no new third-party code)
+mooring-secrets = { path = "../crates/mooring-secrets", version = "0.1.0-rc.1" } # ADR-0016 E2: Vault / OpenBao resolver (E1 crate, no third-party dependency)
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }

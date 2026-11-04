@@ -50,6 +50,9 @@
   "credential_delete": [
     "main"
   ],
+  "credential_external_test": [
+    "main"
+  ],
   "credential_kinds": [
     "main"
   ],
@@ -120,6 +123,33 @@
     "main"
   ],
   "kube_pods": [
+    "main"
+  ],
+  "secret_source_create": [
+    "main"
+  ],
+  "secret_source_delete": [
+    "main"
+  ],
+  "secret_source_get": [
+    "main"
+  ],
+  "secret_source_list": [
+    "main"
+  ],
+  "secret_source_oidc_begin": [
+    "main"
+  ],
+  "secret_source_oidc_status": [
+    "main"
+  ],
+  "secret_source_revoke": [
+    "main"
+  ],
+  "secret_source_test": [
+    "main"
+  ],
+  "secret_source_update": [
     "main"
   ],
   "session_attach": [

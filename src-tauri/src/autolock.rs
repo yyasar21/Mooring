@@ -68,6 +68,8 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     // ADR-0015: sync status and VM power badges (cached / last refresh).
     "vsphere_status",
     "vsphere_vm_power",
+    // ADR-0016 E2: polled while the OIDC window is open.
+    "secret_source_oidc_status",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

@@ -50,6 +50,7 @@
   "sftp.failed",
   "sftp.not_found",
   "source.in_use",
+  "source.not_found",
   "state.internal",
   "state.io",
   "state.poisoned",

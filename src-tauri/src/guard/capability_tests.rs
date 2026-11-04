@@ -46,11 +46,12 @@ fn capabilities() -> Vec<(String, Value)> {
 }
 
 #[test]
-fn exactly_three_capabilities_are_registered() {
+fn exactly_four_capabilities_are_registered() {
     let names: Vec<String> = capabilities().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(names, ["detached.json", "main.json", "web.json"]);
+    assert_eq!(names, ["detached.json", "main.json", "oidc.json", "web.json"]);
     let conf = read_json("tauri.conf.json");
-    assert_eq!(strings(&conf["app"]["security"]["capabilities"]), ["main", "detached", "web"]);
+    let listed = strings(&conf["app"]["security"]["capabilities"]);
+    assert_eq!(listed, ["main", "detached", "web", "oidc"]);
     assert_eq!(conf["app"]["withGlobalTauri"], false);
 }
 
@@ -112,6 +113,20 @@ fn web_capability_grants_nothing() {
     for key in ["remote", "webviews", "local", "platforms"] {
         assert!(w.get(key).is_none(), "web.json must not set {key}");
     }
+}
+
+/// ADR-0016 §4: the OIDC window, like a web window, can call nothing.
+#[test]
+fn oidc_capability_grants_nothing() {
+    let w = read_json("capabilities/oidc.json");
+    assert_eq!(w["identifier"], "oidc");
+    assert_eq!(strings(&w["windows"]), ["oidc-*"]);
+    assert_eq!(w["permissions"], serde_json::json!([]));
+    for key in ["remote", "webviews", "local", "platforms"] {
+        assert!(w.get(key).is_none(), "oidc.json must not set {key}");
+    }
+    assert!(super::check("secret_source_oidc_status", "oidc-0b1e", None).is_err());
+    assert!(super::check("vault_status", "oidc-0b1e", None).is_err());
 }
 
 #[test]

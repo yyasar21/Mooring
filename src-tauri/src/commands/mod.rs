@@ -34,6 +34,9 @@ pub mod kube_forward;
 pub mod kube_jwt;
 pub mod kube_logs;
 pub mod kube_wire;
+// ADR-0016 E2: external secret sources.
+pub mod secret_sources;
+pub mod secret_sources_oidc;
 #[cfg(test)]
 mod test_session;
 // ADR-0010 (A1 exit): auto-lock policy and syslog mirror settings.

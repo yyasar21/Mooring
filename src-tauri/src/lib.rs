@@ -32,6 +32,8 @@ test_util_pub!(kube_sessions);
 test_util_pub!(sync_runner);
 // ADR-0015 (A3 V2): vCenter sync hub and refresh scheduler.
 test_util_pub!(scheduler, vsphere_sync);
+// ADR-0016 E2: token cache / renewer runtime and the OIDC window.
+test_util_pub!(oidc_window, secrets_runtime);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -42,6 +44,9 @@ pub(crate) mod navigation;
 /// Scripted RDP/VNC session and factory for the graphical tests.
 #[cfg(test)]
 mod test_graphical;
+/// Vault mock fixtures for the ADR-0016 E2 tests.
+#[cfg(test)]
+mod test_secrets;
 /// In-process russh server for the session tests (loopback only).
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_ssh_server;
@@ -62,6 +67,8 @@ use crate::commands::{kube, kube_logs};
 use crate::commands::{sync as sync_cmds, sync_join};
 // ADR-0015 §5 (A3 V2)
 use crate::commands::{vsphere, vsphere_console};
+// ADR-0016 E2
+use crate::commands::{secret_sources, secret_sources_oidc};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -92,6 +99,8 @@ pub fn run() {
             window_lock::install(app);
             // ADR-0017 (A3 S2): sync hub + interval runner (runs only while unlocked).
             sync_runner::install(app);
+            // ADR-0016 E2: OIDC window backend + Vault token renewer.
+            oidc_window::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
@@ -200,6 +209,17 @@ pub fn run() {
             vsphere_console::vsphere_vm_action,
             vsphere_console::vsphere_vm_identity,
             vsphere_console::vsphere_console,
+            // ADR-0016 E2: external secret sources
+            secret_sources::secret_source_list,
+            secret_sources::secret_source_get,
+            secret_sources::secret_source_create,
+            secret_sources::secret_source_update,
+            secret_sources::secret_source_delete,
+            secret_sources::secret_source_test,
+            secret_sources::secret_source_revoke,
+            secret_sources::credential_external_test,
+            secret_sources_oidc::secret_source_oidc_begin,
+            secret_sources_oidc::secret_source_oidc_status,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");
