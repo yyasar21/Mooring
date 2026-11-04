@@ -6,6 +6,8 @@
 //! * single-use: a successful lookup removes it;
 //! * bound to the `sessionId` it was made for and to its mode (`folder` / `file`);
 //! * valid for [`PICK_TTL`];
+//! * consumed after [`MAX_REFUSALS`] refused checks (`sftp.exists`, review 4 N-18), so the
+//!   "Replace?" retry is not an unbounded existence oracle for the picked folder;
 //! * cleared on every vault lock ([`Picks::clear`]). A dialog that was open across a lock
 //!   cannot store its pick afterwards: [`Picks::insert`] refuses a stale [`Epoch`].
 //!
@@ -25,6 +27,8 @@ use crate::error::{IpcError, IpcResult};
 pub const PICK_TTL: Duration = Duration::from_secs(10 * 60);
 /// Most picks held at once (oldest dropped first); bounds memory against a looping caller.
 pub const MAX_PICKS: usize = 64;
+/// Refused [`Picks::take_if`] checks after which a pick is consumed anyway (N-18).
+pub const MAX_REFUSALS: u8 = 3;
 /// Length of a `pickId`: 128 bits as lower-case hex.
 pub const PICK_ID_LEN: usize = 32;
 
@@ -58,6 +62,8 @@ struct Pick {
     mode: PickMode,
     path: PathBuf,
     created: Instant,
+    /// Refused checks so far (N-18).
+    refusals: u8,
 }
 
 #[derive(Debug, Default)]
@@ -117,7 +123,8 @@ impl Picks {
                 }
             }
             let id = new_id();
-            let pick = Pick { session_id: session_id.to_owned(), mode, path, created: now };
+            let pick =
+                Pick { session_id: session_id.to_owned(), mode, path, created: now, refusals: 0 };
             i.picks.insert(id.clone(), pick);
             Some(id)
         })
@@ -137,7 +144,8 @@ impl Picks {
 
     /// Like [`take`](Self::take), but the pick is consumed only when `check` accepts its path;
     /// otherwise `check`'s error is returned and the pick stays usable (e.g. `sftp.exists`,
-    /// so the UI can ask "Replace?" and retry with the same pick).
+    /// so the UI can ask "Replace?" and retry with the same pick), up to [`MAX_REFUSALS`]
+    /// refusals: the last one consumes it.
     pub fn take_if<T>(
         &self,
         pick_id: &str,
@@ -152,7 +160,7 @@ impl Picks {
             return Err(refused());
         }
         self.with(|i| {
-            let p = i.picks.get(pick_id).ok_or_else(refused)?;
+            let p = i.picks.get_mut(pick_id).ok_or_else(refused)?;
             if now.saturating_duration_since(p.created) >= PICK_TTL {
                 i.picks.remove(pick_id);
                 return Err(refused());
@@ -160,7 +168,16 @@ impl Picks {
             if p.session_id != session_id || p.mode != mode {
                 return Err(refused());
             }
-            let out = check(&p.path)?;
+            let out = match check(&p.path) {
+                Ok(out) => out,
+                Err(e) => {
+                    p.refusals = p.refusals.saturating_add(1);
+                    if p.refusals >= MAX_REFUSALS {
+                        i.picks.remove(pick_id);
+                    }
+                    return Err(e);
+                }
+            };
             i.picks.remove(pick_id);
             Ok(out)
         })
@@ -234,6 +251,28 @@ mod tests {
         });
         assert_eq!(no.expect_err("check").code, "sftp.exists");
         assert_eq!(p.take(&id, "s", PickMode::Folder, now).expect("still there"), PathBuf::from("/x"));
+    }
+
+    /// Review 4, N-18: the third refused check consumes the pick.
+    #[test]
+    fn refused_checks_are_capped_per_pick() {
+        let p = Picks::default();
+        let now = Instant::now();
+        let id = store_one(&p, "s", PickMode::Folder, now);
+        let exists = |_: &std::path::Path| -> IpcResult<()> { Err(IpcError::new("sftp.exists", "exists")) };
+        for n in 1..=MAX_REFUSALS {
+            let e = p.take_if(&id, "s", PickMode::Folder, now, exists).expect_err("exists");
+            assert_eq!(e.code, "sftp.exists", "refusal {n} answers the check");
+        }
+        assert!(p.is_empty(), "consumed after {MAX_REFUSALS} refusals");
+        assert_eq!(p.take(&id, "s", PickMode::Folder, now).expect_err("gone").code, "input.invalid");
+        // a foreign or wrong-mode attempt does not count against the owner
+        let id = store_one(&p, "s", PickMode::Folder, now);
+        for _ in 0..5 {
+            assert!(p.take_if(&id, "x", PickMode::Folder, now, exists).is_err());
+        }
+        assert!(p.take_if(&id, "s", PickMode::Folder, now, exists).is_err());
+        assert_eq!(p.take(&id, "s", PickMode::Folder, now).expect("still usable"), PathBuf::from("/x"));
     }
 
     #[test]

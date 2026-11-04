@@ -5,7 +5,9 @@
 //! validated (canonical, not inside the app data directory; a file must be a regular file with
 //! a confinable name) and stored in [`crate::picks::Picks`]; the `WebView` receives only an
 //! opaque `pickId` and the display name. While the dialog is open the auto-lock ignores the
-//! main window's focus loss (M-9).
+//! main window's focus loss (M-9, bounded by N-20). A locked vault refuses the call with
+//! `vault.locked` (review 4, N-19): a locked UI never asks for a pick, so such a dialog over the
+//! lock screen could only come from a hostile `WebView`.
 //!
 //! Tests inject a [`LocalPicker`] that answers with a fixed path instead of a dialog.
 
@@ -117,6 +119,9 @@ pub async fn pick_local(
     mode: &str,
 ) -> IpcResult<Option<Picked>> {
     let mode = PickMode::parse(mode)?;
+    if !matches!(crate::commands::vault::status(state)?, crate::commands::vault::VaultStatus::Unlocked) {
+        return Err(IpcError::locked());
+    }
     // The session must exist now; the pick is bound to it.
     crate::commands::forward::control_of(state, session_id)?;
     let epoch = state.picks.epoch();

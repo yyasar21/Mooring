@@ -80,6 +80,37 @@ async fn picks_are_single_use_session_bound_and_expire() {
     close_session(&live).await;
 }
 
+/// A picker that records that it was asked, then cancels.
+struct Spy<'a>(&'a AtomicBool);
+
+impl LocalPicker for Spy<'_> {
+    fn pick(&self, _mode: PickMode, reply: PickReply) {
+        self.0.store(true, Ordering::SeqCst);
+        reply(None);
+    }
+}
+
+/// Review 4, N-19: no dialog while the vault is locked; running sessions are untouched.
+#[tokio::test]
+async fn a_locked_vault_refuses_the_picker() {
+    let root = tempfile::tempdir().expect("root");
+    let srv = server::start_with_sftp(94, root.path().to_path_buf()).await;
+    let live = connect(&srv).await;
+    let (st, sid) = (&live.f.state, live.session_id.as_str());
+    let dst = tempfile::tempdir().expect("dst");
+    crate::commands::vault::lock(st, None).expect("lock");
+    let asked = AtomicBool::new(false);
+    let e = pick_local(st, &Spy(&asked), None, sid, "folder").await.expect_err("locked");
+    assert_eq!(e.code, "vault.locked", "{e:?}");
+    assert!(!asked.load(Ordering::SeqCst), "no dialog opened");
+    assert!(st.picks.is_empty());
+    let master = secrecy::SecretString::from(crate::state::testing::MASTER.to_owned());
+    crate::commands::vault::unlock(st, master).expect("unlock");
+    let picker = FixedPicker(Some(dst.path().into()));
+    assert!(pick_local(st, &picker, None, sid, "folder").await.expect("ok").is_some());
+    close_session(&live).await;
+}
+
 #[tokio::test]
 async fn lock_clears_picks() {
     let root = tempfile::tempdir().expect("root");

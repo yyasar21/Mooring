@@ -9,8 +9,9 @@
 //!   clock, because `Instant` does not advance during suspend on Linux and macOS.
 //! * Window: `Focused(false)` on the main window → `window_hidden` after [`BLUR_GRACE`],
 //!   `Focused(true)` → activity. While a Mooring-owned native dialog is open
-//!   ([`AutoLock::dialog_guard`], the SFTP pick) focus loss is ignored, and the grace restarts
-//!   when the dialog closes.
+//!   ([`AutoLock::dialog_guard`], the SFTP pick) focus loss is ignored, for at most
+//!   [`DIALOG_EXEMPTION`] after the first open dialog was opened (review 4, N-20), and the grace
+//!   restarts when the dialog closes.
 //! * Tauri 2 exposes no OS sleep or screen-lock `RunEvent` on desktop; see the per-OS table in
 //!   `docs/handoff/a1-exit-rust-core-autolock-syslog.md`.
 //!
@@ -36,6 +37,10 @@ pub const SLEEP_GAP: Duration = Duration::from_secs(30);
 /// an alt-tab or a notification does not lock, a screen lock (which takes focus) does within a
 /// minute. Focus loss while a Mooring-owned native dialog is open is not counted at all.
 pub const BLUR_GRACE: Duration = Duration::from_secs(60);
+/// Longest time focus loss is ignored for an open Mooring dialog (review 4, N-20): the pick
+/// TTL. A picker left open (or opened by a hostile `WebView`) does not suspend the
+/// `window_hidden` lock beyond it; after it, focus loss counts again with [`BLUR_GRACE`].
+pub const DIALOG_EXEMPTION: Duration = crate::picks::PICK_TTL;
 /// UI event emitted after an automatic lock.
 pub const LOCKED_EVENT: &str = "vault:locked";
 /// Commands the UI calls on a timer or to render status; they are not user activity. Exported
@@ -70,11 +75,21 @@ struct Inner {
     blurred_at: Option<Instant>,
     /// Mooring-owned native dialogs open right now (`sftp_pick_local`).
     dialogs: u32,
+    /// When the oldest of the open dialogs was opened (`dialogs > 0`).
+    dialog_since: Option<Instant>,
 }
 
 impl Inner {
     fn effective(&self, now: Instant) -> Instant {
         now + self.suspended
+    }
+
+    /// Whether focus loss is exempt now: a dialog is open, for less than [`DIALOG_EXEMPTION`].
+    fn dialog_exempt(&self, now: Instant) -> bool {
+        self.dialogs > 0
+            && self
+                .dialog_since
+                .is_some_and(|t| now.saturating_duration_since(t) < DIALOG_EXEMPTION)
     }
 }
 
@@ -107,13 +122,24 @@ impl AutoLock {
                 last_wall: wall,
                 blurred_at: None,
                 dialogs: 0,
+                dialog_since: None,
             }),
         }
     }
 
     /// Mark a Mooring-owned native dialog as open until the guard is dropped.
     pub fn dialog_guard(&self) -> DialogGuard<'_> {
-        self.with(|i| i.dialogs += 1);
+        self.dialog_guard_at(Instant::now())
+    }
+
+    /// [`dialog_guard`](Self::dialog_guard) opened at `now` (tests drive a simulated clock).
+    pub fn dialog_guard_at(&self, now: Instant) -> DialogGuard<'_> {
+        self.with(|i| {
+            if i.dialogs == 0 {
+                i.dialog_since = Some(now);
+            }
+            i.dialogs += 1;
+        });
         DialogGuard { al: self }
     }
 
@@ -127,6 +153,9 @@ impl AutoLock {
     fn dialog_closed(&self, now: Instant) {
         self.with(|i| {
             i.dialogs = i.dialogs.saturating_sub(1);
+            if i.dialogs == 0 {
+                i.dialog_since = None;
+            }
             // `observe` keeps moving `blurred_at` forward while the dialog is open; never move
             // it back.
             if let Some(b) = i.blurred_at {
@@ -200,13 +229,14 @@ impl AutoLock {
             }
             i.last_mono = now;
             i.last_wall = wall;
-            if i.dialogs > 0 && i.blurred_at.is_some() {
-                // Focus loss to a Mooring dialog is not counted (M-9).
+            let exempt = i.dialog_exempt(now);
+            if exempt && i.blurred_at.is_some() {
+                // Focus loss to a Mooring dialog is not counted (M-9), for a bounded time (N-20).
                 i.blurred_at = Some(now);
             }
             let blur_expired =
                 i.blurred_at.is_some_and(|b| now.saturating_duration_since(b) >= BLUR_GRACE);
-            if blur_expired && i.dialogs == 0 {
+            if blur_expired && !exempt {
                 let t = i.effective(now);
                 i.clock.signal(LockEvent::WindowHidden, t);
             }

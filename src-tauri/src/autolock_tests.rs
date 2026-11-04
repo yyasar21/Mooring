@@ -140,6 +140,37 @@ fn focus_loss_during_a_native_dialog_does_not_lock() {
     assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::WindowHidden));
 }
 
+/// Review 4, N-20: a dialog left open exempts focus loss for at most `DIALOG_EXEMPTION`.
+#[test]
+fn the_dialog_exemption_is_bounded() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(None, true, true), c.mono, c.wall);
+    assert_eq!(DIALOG_EXEMPTION, crate::picks::PICK_TTL);
+    let _pick = al.dialog_guard_at(c.mono);
+    al.focus_changed(false, c.mono);
+    assert_eq!(run_ticks(&f, &al, &mut c, DIALOG_EXEMPTION.saturating_sub(5 * S)), None, "still exempt");
+    // the exemption ends; the last exempt tick restarted the grace
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None, "within BLUR_GRACE after it");
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::WindowHidden));
+    assert!(al.dialog_open(), "locked while the dialog is still open");
+}
+
+/// A second dialog opened later does not extend the first one's exemption.
+#[test]
+fn overlapping_dialogs_do_not_extend_the_exemption() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(None, true, true), c.mono, c.wall);
+    let first = al.dialog_guard_at(c.mono);
+    al.focus_changed(false, c.mono);
+    assert_eq!(run_ticks(&f, &al, &mut c, 8 * MIN), None);
+    let _second = al.dialog_guard_at(c.mono);
+    drop(first);
+    // `first` closing restarts the grace once, then the 10 min bound from `first` still holds
+    assert_eq!(run_ticks(&f, &al, &mut c, 2 * MIN + 65 * S), Some(LockReason::WindowHidden));
+}
+
 #[test]
 fn focus_loss_is_ignored_when_the_policy_says_so() {
     let f = unlocked();

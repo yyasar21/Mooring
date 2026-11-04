@@ -265,6 +265,17 @@ async fn an_existing_local_file_is_replaced_only_with_overwrite() {
     let (tx, _rx) = sink();
     let e = download(st, sid, "/.bashrc", &p, true, tx).await.expect_err("used");
     assert_eq!(e.code, "input.invalid");
+
+    // N-18: probing names with `overwrite: false` consumes the pick after three answers.
+    let p = pick(&live, "folder", dst.path()).await;
+    for _ in 0..crate::picks::MAX_REFUSALS {
+        let (tx, _rx) = sink();
+        let e = download(st, sid, "/.bashrc", &p, false, tx).await.expect_err("exists");
+        assert_eq!(e.code, "sftp.exists", "{e:?}");
+    }
+    let (tx, _rx) = sink();
+    let e = download(st, sid, "/.bashrc", &p, false, tx).await.expect_err("consumed");
+    assert_eq!(e.code, "input.invalid", "{e:?}");
     close_session(&live).await;
 }
 
