@@ -26,6 +26,13 @@ secrecy = { version = "0.10", features = ["serde"] }
 # same version as the root lockfile, no new crate in the tree.
 saphyr-parser = "=0.3.3"
 
+# A2 gates (docs/qa/fuzzing.md, "A2 targets"): each turns on a target whose parser is still
+# being written; without it the target is a compiling no-op so the nightly matrix is ready.
+[features]
+r1 = [] # mooring_core::frame::decode_mfr1, mooring_core::known_certs::parse_bytes
+r3 = [] # mooring-proto-rdp active-stage driver
+r4 = [] # mooring-proto-vnc server-message decoder
+
 [[bin]]
 name = "known_hosts_parse"
 path = "fuzz_targets/known_hosts_parse.rs"
@@ -57,6 +64,34 @@ bench = false
 [[bin]]
 name = "socks5_handshake"
 path = "fuzz_targets/socks5_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mfr1_decode"
+path = "fuzz_targets/mfr1_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "known_certs_parse"
+path = "fuzz_targets/known_certs_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rfb_server_msg"
+path = "fuzz_targets/rfb_server_msg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdp_fastpath"
+path = "fuzz_targets/rdp_fastpath.rs"
 test = false
 doc = false
 bench = false

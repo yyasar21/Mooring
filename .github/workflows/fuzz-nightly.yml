@@ -37,6 +37,12 @@ jobs:
           - vault_header_from_bytes
           - import_age
           - socks5_handshake
+          # A2 (Q2 scaffolding): compiling no-op stubs until their parser lands behind the
+          # fuzz crate's r1 / r3 / r4 feature; the "Stub notice" step flags them in the run.
+          - mfr1_decode
+          - known_certs_parse
+          - rfb_server_msg
+          - rdp_fastpath
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -48,6 +54,13 @@ jobs:
           key: ${{ matrix.target }}
       - name: Install cargo-fuzz ${{ env.CARGO_FUZZ_VERSION }}
         run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      - name: Stub notice
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if grep -q 'PENDING' "fuzz/fuzz_targets/$TARGET.rs"; then
+            echo "::warning::$TARGET is a no-op stub until its feature gate is enabled (docs/qa/fuzzing.md)"
+          fi
       - name: Build
         run: cargo +nightly fuzz build "${{ matrix.target }}"
       # Seeds + past crashes are the starting corpus; new corpus entries stay on the runner.
