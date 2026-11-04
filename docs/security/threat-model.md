@@ -1,8 +1,10 @@
 # Threat model — Mooring (v1, Phase A1)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
-Last change: ADR-0009 typed credentials, the public release pipeline and the public scrub; see
-review [a1-review-3.md](a1-review-3.md). Earlier: A1 items 3–5 (SSH core, forwarding, SFTP,
+Last change: A1 exit (ADR-0010): forwarding, SFTP, auto-lock and syslog mirror over IPC, the
+dialog plugin and the fuzz targets. See review [a1-review-4.md](a1-review-4.md). Earlier:
+ADR-0009 typed credentials, the public release pipeline and the public scrub in
+[a1-review-3.md](a1-review-3.md); A1 items 3–5 (SSH core, forwarding, SFTP,
 ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1–2 in
 [a1-review.md](a1-review.md).
 
@@ -23,6 +25,8 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Copied secret or OTP code | OS clipboard for ≤ 30 s (OTP: at most the code's remaining validity), excluded from history and cloud sync where the OS allows; cleared on lock and on exit | While it is there, any process in the same session and any clipboard manager can read it |
 | Release signing identity | GitHub OIDC → Sigstore certificate for `release.yml` in this repo (cosign keyless); Apple, Azure, RPM and updater keys as GitHub secrets | Whoever can sign as `release.yml` ships trusted binaries to every user (R-REL) |
 | Live port forwards | Loopback listeners in our process; remote listeners on the server | Anyone who reaches the bound address uses the tunnel into the target network |
+| User's local files (SFTP) | Anywhere the OS user can read/write; reached through `sftp_upload` / `sftp_download` | Read: exfiltration of keys and tokens outside Mooring (`~/.ssh`, cloud CLIs). Write: code execution through rc files, `authorized_keys`, autostart entries (B-4) |
+| Syslog mirror stream + config | Network to the collector (UDP/TCP/TLS); config plaintext under `app.syslog` in `mooring.db` | Inventory-class audit content on the wire; a silenced or redirected mirror removes the only off-host copy of the chain (R-SYSLOG) |
 
 ## Attackers
 | ID | Attacker | Capability |
@@ -33,6 +37,20 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | T4 | Malicious remote server / hostile file | Sends hostile protocol bytes to our parsers: SSH transport, keyboard-interactive prompts, terminal escape sequences (OSC 8), SFTP replies and `limits`, server-opened channels. Hands the user a crafted export or header |
 | T5 | Compromised WebView (XSS, malicious remote page in A2) | Runs JS inside the app, calls any exposed IPC command |
 | T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
+
+## Trust boundaries added in A1 exit (ADR-0010)
+- **WebView → local file system (SFTP).** Before ADR-0010 the WebView had no local file reach.
+  The local side of a transfer must be chosen by the user in a native dialog opened **by Rust**.
+  The WebView receives only an opaque, single-use `pickId` and a display name (B-4). Until B-4
+  is fixed, a T5 reaches every user file.
+- **App → syslog collector.** Outbound only. TLS (rustls/ring, system roots, host-name
+  verification) is the default. UDP and TCP are explicit plaintext opt-ins with a UI warning.
+  The collector is trusted to receive inventory-class data, and nothing is read back from it.
+- **OS → app (auto-lock signals).** Window focus and clock jumps. A wrong signal only ever
+  locks early (fail safe); a missed one is covered by the idle timer.
+- **Dialog plugin.** `tauri-plugin-dialog` is registered. `tauri-plugin-fs` is compiled in
+  but never registered, and no `fs:` permission exists. The asset-protocol scope that the
+  dialog extends is inert (`protocol-asset` off).
 
 ## Mitigations (STRIDE)
 | Threat | Mitigation | Status |
@@ -45,7 +63,7 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Tampering: vault header (T1) | Header v2 is AAD of the DEK wrap, including `vault_id` and `keyring_wrap`; v1 AAD unchanged; v1↔v2 relabel fails; KDF floor on read | A0 ✓ / A1 ✓ |
 | Tampering: sealed fields (T1) | XChaCha20-Poly1305 per field, random 24 B nonce, AAD = record id ‖ 0x1F ‖ field; store binds credential id + column (row/column swap → `Tampered`) | A0 ✓ / A1 ✓ |
 | Tampering: keyring wrap (T1, T2) | Second wrap's AAD = header AAD (without wrap) ‖ 0x1F ‖ `keyring`; bound to KDF params, salt, vault id; enable/disable need master password | A1 ✓ (B1 fixed; OS commands on HOLD per R-T2-KR) |
-| Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; syslog mirror to a syslog server optional | A0 ✓ (mirror open) |
+| Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; optional RFC 5424 mirror (`[mooring@… seq hash]`, the hash is the next entry's `prev`) over TLS/TCP/UDP, bounded non-blocking queue, drops counted; enable/disable/change audited with the host | A1 ✓ mirror (review 4). Open: L-17 (a redirect is not seen by the old collector), L-18 (a T2 edit of the stored config silences the mirror without an entry), N-12 (SD-ID PEN), N-13 (no truncated/redacted marker) |
 | Repudiation | Audit entries for vault + credential + session + trust events; `vault.lock` carries `reason ∈ {user, idle, screen_lock, sleep, window_hidden}` | A0 ✓ / A1 partial (lock reasons ✓; keyring/export/credential events with wiring) |
 | Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `mooring_audit::redact` on sinks; no `println!` (lint); `SessionInput::Answer` is redacted in `Debug` and `Serialize` and is a `SecretString` end to end; IPC DTOs have no secret field (tested) | A0 ✓ / A1 ✓ |
 | Information disclosure: SSH credentials in flight (T2) | Vault → `Zeroizing` → `SecretString` → `ConnectParams`, which is moved into the auth round and dropped after it. Auth failure is reported generically | A1 ✓ (R-SSH-STR: russh keeps internal `String` copies; N-1: one extra copy on our side) |
@@ -54,18 +72,18 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Elevation: an imported kubeconfig runs code or reads files (T4) | Event-level YAML parser with caps: 1 MiB, depth 32, 100k nodes, one document. Refused: anchors, aliases, tags, duplicate keys, `exec`, `auth-provider`, `tokenFile`, cert/key paths and CA paths. The whole file is sealed | A1 partial: **M-5** (merge key `<<`, case variants) and **L-10** (quadratic duplicate check); fuzz target owed. Gate: no Kubernetes consumer before all three |
 | Elevation / disclosure: `become` (T4) | Target user is shell-safe and checked before connect; the command is fixed; the password is sent once, only on a detected prompt, within 4 KiB, and never echoed by us | A1 partial: **M-6** (prompt matched in the command echo; failed escalation not detected) |
 | Spoofing: a credential used with the wrong protocol (T5) | The compatibility matrix in `mooring-core` is enforced in Rust on connection create and update, on role set, and at resolve time (inherited credentials included). UI filtering is advisory | A1 ✓ |
-| Information disclosure: SFTP local writes (T4, T5) | `LocalPath` confined to a caller-chosen base: no `..` or absolute paths, canonical prefix check, symlink and directory targets refused, temp file persisted only on success | A1 ✓ on unix (L-7 open: Windows alternate data streams and device names; gate for SFTP IPC) |
+| Information disclosure / elevation: SFTP local reads and writes (T4, T5) | `LocalPath` confined to a base: no `..` or absolute paths, `:` and DOS device names refused on every OS (L-7 ✓), canonical prefix check, symlink and directory targets refused, temp file persisted only on success; app data dir refused as a base; transfer audit and progress carry no path or contents | A1 **B-4 open**: the base directory comes from the WebView. Open: L-15 (silent overwrite), L-16 (a cancelled upload truncates the remote file) |
 | Information disclosure / elevation: remote content in the WebView (T4) | No remote content in `main`; terminal output is rendered by xterm only | A1 partial: **M-4** open (xterm's default OSC 8 handler opens links with `window.open`) |
-| Information disclosure: memory (T2) | `Zeroizing` for DEK/KEK/WrapKey/plaintexts; DEK dropped on lock; pure auto-lock clock (idle 15 min, screen lock, sleep, window hidden) | A1 partial: clock ✓, Argon2 `zeroize` ✓ (L3); Tauri tick + OS signals open; `mlock` open |
+| Information disclosure: memory (T2) | `Zeroizing` for DEK/KEK/WrapKey/plaintexts; DEK dropped on lock; auto-lock: activity = non-passive IPC, 5 s tick, sleep by clock jump, focus loss → `window_hidden`, `vault:locked` wipes the UI stores; policy changes audited | A1 partial: wiring ✓ (review 4). Open: M-8 (`forward_list` poll counts as activity), M-9 (`BLUR_GRACE` 60 s ruling), M-10 (sessions and external forwards survive a lock invisibly); no native screen-lock/pre-sleep hook; `mlock` open |
 | Information disclosure: inventory at rest (T1, T2) | Accepted plaintext (R-INV); data dir 0700 / db 0600 (M2); `secure_delete=ON`; FTS5 `optimize` + WAL truncate on close, rebuild on open (L4) | A1 ✓ (residue bound: deleted rows may persist in FTS segments until close / next open) |
 | Information disclosure: export (T1) | age v1 scrypt (cap 2^20 on import; export pinned 2^18 — L5), passphrase ≥ 12 chars, fields stay sealed inside | A1 ✓ |
 | Brute force on stolen header (T1) | Argon2id; calibrated cost 64 MiB–1 GiB (≤ RAM/4, never below floor 8 MiB/1/1), `t=3`, `p≤4` | A1 ✓ (calibration not yet wired into `vault_create`) |
 | Denial of service: hostile header / import (T4) | Header ≤ 64 KiB; import ≤ 64 MiB in and out; scrypt `log_n ≤ 20` checked before work; KDF ceiling 4 GiB / t 16 / p 16 on read, `m ≤ RAM/2` before derive | A1 ✓ (B2 fixed) |
-| Denial of service: hostile SSH server (T4) | Bounded event mpsc(256) for back-pressure, `Bytes` ≤ 64 KiB; keepalive 30 s × 3; keyboard-interactive 8 rounds × 16 prompts; SFTP listing cap 10 000; forward caps (64 forwards, 128 connections each, 32 KiB buffers); SOCKS handshake 10 s | A1 partial. Open: **M-3** (SFTP `limits` drive request fan-out); L-1 (russh's defaults accept server-opened x11, agent and session channels); no handshake timeout (the UI applies one) |
-| Denial of service: hostile protocol parsers (T4) | `forbid(unsafe)`, size caps, fuzz targets per parser | A1: proptest only for known_hosts and SOCKS (fuzz targets owed). RDP/VNC: A2 |
-| Elevation: port forwards expose internal networks (T5, LAN) | Dynamic forwards bind to loopback only unless the user opts in; local and remote forwards must follow the same rule (M-2). All forwards close with the session; open and close are audited | A1 latent (no IPC yet): **M-2** gate |
+| Denial of service: hostile SSH server (T4) | Bounded event mpsc(256) for back-pressure, `Bytes` ≤ 64 KiB; keepalive 30 s × 3; keyboard-interactive 8 rounds × 16 prompts; SFTP listing cap 10 000; at most 8 SFTP requests in flight per block whatever `limits` says; 8 transfers per session; forward caps (64 forwards, 128 connections each, 32 KiB buffers); SOCKS handshake 10 s | A1 partial. M-3 ✓ (review 4). Open: L-1 (russh's defaults accept server-opened x11, agent and session channels); no handshake timeout (the UI applies one) |
+| Denial of service: hostile protocol parsers (T4) | `forbid(unsafe)`, size caps, fuzz targets per parser (cargo-fuzz nightly + stable corpus replay in `cargo test`) | A1: fuzz targets ✓ for `known_hosts`, SOCKS request, vault header, `import_age`, kubeconfig. Owed: `fingerprint::*`, `otp::decode_seed`, `parse_account`, `export_json`, SOCKS handshake (`fuzz-api` feature); M-11 (kubeconfig target must assert the forbidden-key property). RDP/VNC: A2 |
+| Elevation: port forwards expose internal networks (T5, LAN) | `Exposure::{Loopback, External}` on all three kinds, enforced in the crate; Mooring-side addresses must be IP literals or `localhost` (no implicit DNS); `external` needs the explicit flag (UI confirmation is advisory) and every open/close is audited with `exposure`; all forwards close with the session | A1 ✓ (M-2 fixed, review 4). Open: M-10 (external forwards should close on lock), N-16 (bidi characters in the target host) |
 | Injection: store (T5 via future IPC) | Parameterised SQL only; FTS input quoted per token, operator-only tokens dropped, 256 chars / 16 tokens / limit ≤ 200; names/hosts/tags validated and capped | A1 ✓ |
-| Elevation: WebView → OS (T5) | Capabilities `core:default` only (re-checked for A1 items 3–5: 30 app commands, no plugin); CSP unchanged; `freezePrototype`; every command validates and caps its input and maps errors to `IpcError`; `invoke()` only in `ipc.ts`; no `innerHTML`; remote content in a separate window and capability | A0 ✓ / A1 ✓ (M-4 navigation guard open) / A2 |
+| Elevation: WebView → OS (T5) | Capabilities `core:default` only (re-checked for A1 items 3–5: 30 app commands, no plugin; A1 exit adds `dialog:allow-open`/`allow-save`, to be reverted with B-4; `tauri-plugin-fs` never registered); CSP unchanged; `freezePrototype`; every command validates and caps its input and maps errors to `IpcError`; `invoke()` only in `ipc.ts`; no `innerHTML`; remote content in a separate window and capability | A0 ✓ / A1 ✓ (M-4 navigation guard open) / A2 |
 | Supply chain (T6) | cargo-deny (licenses, bans, advisories), cargo-audit, lockfiles, Dependabot (cargo, npm, actions); exactly one allowed git source (age). Reviewed in A1: age, keyring 4, sysinfo, rusqlite (bundled), russh (ring only; no aws-lc in the lockfile), russh-sftp, hmac/sha1, arboard, base64, @xterm/*, @fontsource/chakra-petch. Reviewed for ADR-0009: saphyr-parser (+ arraydeque, R-YAML-DEQ), ssh-key rc, pem-rfc7468, data-encoding, hmac 0.13, sha1 0.11, sha2 0.11 (`sha2-next`) | A1 reviewed (R-AGE-PIN, R-RSA, R-YAML-DEQ). `ci.yml`/`security.yml` still tag-pinned (L-14) |
 | Supply chain: release pipeline (T6) | Releases are drafts, published by hand. Every release action pinned by SHA; no cache; `persist-credentials: false`; secrets exported only when set and never echoed. `SHA256SUMS` signed with cosign keyless (Rekor), SLSA provenance per file, CycloneDX SBOMs. The Homebrew bump cosign-verifies before rendering; the tap PAT is scoped to one repo | A4 prep: **M-7** (build jobs hold `contents: write`; `finalize` runs `cargo install` and syft with `id-token: write`), L-12, L-13. Workflows not yet executed |
 
@@ -193,6 +211,32 @@ Conditions:
 - L-13: review or replace `artifact-signing-cli`.
 - A human publishes each draft, after running `verify-release.sh`.
 
+### R-SYSLOG — the audit mirror (accepted with conditions, A1 exit)
+- **Plaintext transports.** UDP and TCP send inventory-class audit content (hosts, names,
+  usernames, fingerprints; never secret values) in clear, and anyone on the path can drop or
+  forge messages. They are accepted only as an explicit opt-in:
+  - TLS is the default;
+  - the settings card warns while a plaintext transport is selected and must keep warning while
+    one is saved.
+- **The mirror bounds tampering only after an entry is shipped.** A T2 can stop future shipping
+  by editing `app.syslog` or killing the process. Mitigations:
+  - L-18: audit the start of the mirror and send an hourly heartbeat;
+  - collectors alert on silence;
+  - `dropped` is a lower bound.
+- **SD-ID.** `mooring@0` uses a reserved enterprise number. Use 32473 until an IANA PEN is
+  assigned (N-12).
+
+### R-SFTP-LOCAL — local files reachable through SFTP (A1 exit; B-4 must reduce it)
+After B-4 the residual risk is this: a user who picks a folder can be handed server-named
+files there, and a user who picks a file sends it to the server they chose. Both are the
+intended function.
+
+Two items are open:
+- L-15: overwriting needs a confirmation;
+- L-16: a cancelled upload must leave the remote file intact.
+
+The app data dir stays refused as a base.
+
 ### R-IPC-BUF — inward secrets pass through the IPC JSON buffer (accepted, A1)
 `vault_unlock.password`, `credential_create.secret` and `session_send`'s `Answer.text` arrive
 as JSON strings. The WebView's JS heap and Tauri's deserialisation buffer hold them unwiped
@@ -224,6 +268,13 @@ the user types them anyway.
   makes that visible in the audit log.
 
 ## Open items
+- [ ] **A1 exit (review 4):**
+      - **B-4 (blocker):** dialog opened in Rust with single-use `pickId`; capability back to
+        `core:default`; ADR-0010 amendment.
+      - M-8 (`forward_list` passive), M-9 (`BLUR_GRACE` 60 s, dialog exempt) and M-10
+        (re-adopt sessions after unlock; close external forwards on lock) before the A1 tag.
+      - M-11: kubeconfig fuzz invariant and seeds (Kubernetes gate).
+      - L-15..L-18, N-10..N-16.
 - [ ] **ADR-0009 (review 3):**
       - **B-3 (blocker):** `cert_pem` holds certificates only; `move_certificate` fails
         closed; a UI paste of certificate + key is split.
@@ -247,16 +298,15 @@ the user types them anyway.
         guard still needs confirming.
       - L-1..L-6 and N-1..N-4, as scheduled in [a1-review-2.md](a1-review-2.md).
       - `deny.toml` ignore entry for RUSTSEC-2023-0071 (R-RSA).
-- [ ] **Wiring gates (review 2):** no forwarding IPC before M-2 is fixed; no SFTP IPC before M-3
-      and L-7 are fixed.
+- [x] **Wiring gates (review 2):** M-2, M-3 and L-7 are fixed (review 4).
 - [x] A1: L2 (durable header write + `.bak`) fixed in the Tauri layer (review 2).
-- [ ] A1: fuzz targets `known_hosts_parse` and `socks_parse_request` (proptest only today).
+- [x] A1: fuzz targets `known_hosts_parse` and `socks5_handshake` (request parser) (review 4).
 - [ ] A1: manual clipboard check on each OS:
       - paste works, and the value is cleared after 30 s;
       - the value is absent from history managers, including GNOME/Wayland;
       - macOS Universal Clipboard (Handoff) behaviour.
 - [ ] A1: remaining work:
-      - Tauri auto-lock tick and the OS sleep/lock/window signals.
+      - Tauri auto-lock tick ✓ (review 4); native OS screen-lock / pre-sleep hooks still open.
       - KDF work off the async worker (L-3).
       - Keyring commands per R-T2-KR.
       - Export/import commands with the `vault_id` merge policy.
@@ -270,8 +320,7 @@ the user types them anyway.
       - N5: a KDF refusal is surfaced as `Unlock`.
       - N6: double checkpoint on close.
       - Done: `Store::close()` is called from `RunEvent::Exit` ✓ (review 2).
-- [ ] A1: `cargo-fuzz` targets for `import_age` and `Header::from_bytes` (proptest stand-in
-      only today); `.gitleaks.toml` allow-list for `crates/mooring-vault/tests/vectors/`.
+- [ ] A1: `cargo-fuzz` targets for `import_age` and `Header::from_bytes` ✓ (review 4); `.gitleaks.toml` allow-list for `crates/mooring-vault/tests/vectors/`.
 - [ ] A1 exit: cargo-deny, cargo-audit, gitleaks green in CI (not run in the A1-1/2 review
       environment); `mooring-app` built on macOS, Windows, Linux.
 - [ ] A2: separate WebView + capability for remote pages; RDP certificate pinning UX.

@@ -364,3 +364,24 @@ cargo fmt --all -- --check                                                      
 FTS5 experiment (scratchpad, outside the repo): table above
 ```
 Not run: cargo-deny, cargo-audit, gitleaks, semgrep (not installed); the `mooring-app` build.
+
+## Review 4 — A1 exit (ADR-0010)
+
+The full review is in [a1-review-4.md](a1-review-4.md), filed one review per file like reviews
+[2](a1-review-2.md) and [3](a1-review-3.md). Range `main...a1-exit` (30 commits), 2026-11-04.
+
+**Verdict: `BLOCKER`.**
+- **B-4:** the SFTP commands take any absolute local path from the WebView. A compromised
+  WebView can read any user file and write server-chosen files into any user-writable
+  directory.
+  - Fix: open the dialog in Rust and pass single-use `pickId`s.
+  - The capability returns to `core:default`.
+  - Needs an ADR-0010 amendment.
+- **Before the A1 tag:**
+  - M-8: `forward_list` polling defeats the idle lock.
+  - M-9: ruling `BLUR_GRACE = 60 s`, with Mooring's own dialog exempt.
+  - M-10: a lock orphans sessions and forwards in Rust; external forwards close on lock.
+- **M-11:** the kubeconfig fuzz gate from review 3 is not met.
+- **Low:** L-15..L-18. **Nits:** N-10..N-16.
+- Everything else is approved: forwarding exposure (M-2 cleared), the SFTP fan-out bound (M-3
+  cleared), L-7, rustls/ring with no aws-lc, the RFC 5424 formatter, and the QA-F1 fix.
