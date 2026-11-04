@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-delete"
+description = "Enables the connection_delete command without any pre-configured scope."
+commands.allow = ["connection_delete"]
+
+[[permission]]
+identifier = "deny-connection-delete"
+description = "Denies the connection_delete command without any pre-configured scope."
+commands.deny = ["connection_delete"]

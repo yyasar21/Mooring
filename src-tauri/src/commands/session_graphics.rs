@@ -55,7 +55,10 @@ pub fn frame_ack(state: &AppState, session_id: &str, seq: u32) -> IpcResult<()> 
     Ok(())
 }
 
-/// `session_attach({ sessionId })`: a view (after unlock or re-attach) starts over: in-flight
+/// Re-attach the current view: in-flight credits are dropped and the next message is full.
+/// The `session_attach` command (`commands::detach`) also swaps the view's channels.
+///
+/// A view (after unlock or re-attach) starts over: in-flight
 /// credits are dropped (the old view never acks them) and the next message is a full frame.
 pub fn attach(state: &AppState, session_id: &str) -> IpcResult<Attached> {
     let (g, _, info) = graphical(state, session_id)?;
@@ -104,12 +107,6 @@ pub fn set_view_only(state: &AppState, session_id: &str, view_only: bool) -> Ipc
 #[tauri::command]
 pub fn session_frame_ack(state: State<'_, AppState>, session_id: String, seq: u32) -> IpcResult<()> {
     frame_ack(&state, &session_id, seq)
-}
-
-/// `session_attach({ sessionId })`.
-#[tauri::command]
-pub fn session_attach(state: State<'_, AppState>, session_id: String) -> IpcResult<Attached> {
-    attach(&state, &session_id)
 }
 
 /// `session_screenshot({ sessionId })`.

@@ -40,7 +40,11 @@ export function bytesToBase64(data: Uint8Array): string {
   return btoa(bin);
 }
 
-/** Decode one channel message. Unknown kinds become a `closed` event so the tab never hangs. */
+/**
+ * Decode one channel message. Strict: only the kinds of `mooring_core::SessionEvent` (plus R5's
+ * `detached`/`attached`) are recognised; anything else becomes a `closed` event so the tab never
+ * hangs on a message it cannot interpret.
+ */
 export function decodeSessionEvent(raw: unknown): SessionEvent {
   const w = rec(raw);
   switch (w.kind) {
@@ -71,6 +75,8 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
       return { kind: "reconnecting", attempt: num(w.attempt), delayMs: num(field(w, "delay_ms", "delayMs")) };
     case "detached":
       return { kind: "detached" };
+    case "attached":
+      return { kind: "attached" };
     case "closed":
       return { kind: "closed", reason: str(w.reason), code: closeCode(w.code) };
     default:
@@ -98,6 +104,9 @@ function promptAccount(raw: unknown): PromptAccount {
   };
 }
 
+/** More names than any sane certificate carries; the rest is not shown. */
+const MAX_SAN = 64;
+
 /** A `certificate_trust` prompt without a certificate is still a trust prompt, shown with blanks. */
 export function decodeCertificate(raw: unknown): CertificateInfo {
   const w = rec(raw);
@@ -108,6 +117,7 @@ export function decodeCertificate(raw: unknown): CertificateInfo {
     notBefore: str(field(w, "not_before", "notBefore")),
     notAfter: str(field(w, "not_after", "notAfter")),
     sha256: str(w.sha256),
+    san: (Array.isArray(w.san) ? w.san : []).filter((n): n is string => typeof n === "string").slice(0, MAX_SAN),
     problems: problems.filter((p): p is CertificateProblem => CERTIFICATE_PROBLEMS.includes(p as CertificateProblem)),
   };
 }

@@ -1,8 +1,9 @@
 import { useUi } from "../../stores/ui";
 import { AutoLockCard } from "./AutoLockCard";
 import { SyslogCard } from "./SyslogCard";
+import { KnownCertsCard } from "./KnownCertsCard";
 
-/** Application settings: auto-lock policy and the audit syslog mirror (ADR-0010). */
+/** Application settings: auto-lock policy, the audit syslog mirror (ADR-0010) and the trusted certificates (ADR-0011). */
 export function SettingsView() {
   const setView = useUi((s) => s.setView);
   return (
@@ -16,6 +17,7 @@ export function SettingsView() {
       <div className="settings-scroll">
         <AutoLockCard />
         <SyslogCard />
+        <KnownCertsCard />
       </div>
     </section>
   );

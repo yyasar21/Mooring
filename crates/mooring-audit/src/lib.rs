@@ -9,8 +9,10 @@
 #![forbid(unsafe_code)]
 
 mod chain;
+mod event;
 mod redact;
 pub mod syslog;
 
-pub use chain::{AuditEntry, AuditError, AuditEvent, AuditLog, VerifyReport};
+pub use chain::{AuditEntry, AuditError, AuditLog, VerifyReport};
+pub use event::AuditEvent;
 pub use redact::redact;

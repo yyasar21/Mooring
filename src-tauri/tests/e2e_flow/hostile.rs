@@ -369,7 +369,7 @@ async fn hit_session_ids(st: &AppState, s: &str) {
     let r = sess::open(st, &owned, Size { width: 80, height: 24 }, sk).await;
     check("session_open.connectionId", s, &r);
     assert!(r.is_err());
-    check("window_detach", s, &sess::window_detach(owned));
+    check("window_detach", s, &crate::commands::detach::plan_detach(st, &owned));
 }
 
 pub fn assert_state_healthy(st: &AppState) {

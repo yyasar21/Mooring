@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-update"
+description = "Enables the connection_update command without any pre-configured scope."
+commands.allow = ["connection_update"]
+
+[[permission]]
+identifier = "deny-connection-update"
+description = "Denies the connection_update command without any pre-configured scope."
+commands.deny = ["connection_update"]

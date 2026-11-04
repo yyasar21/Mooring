@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sftp-transfers"
+description = "Enables the sftp_transfers command without any pre-configured scope."
+commands.allow = ["sftp_transfers"]
+
+[[permission]]
+identifier = "deny-sftp-transfers"
+description = "Denies the sftp_transfers command without any pre-configured scope."
+commands.deny = ["sftp_transfers"]

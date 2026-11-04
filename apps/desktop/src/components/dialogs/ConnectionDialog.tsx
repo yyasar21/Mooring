@@ -8,6 +8,9 @@ import { useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { CredentialPicker, pickerOptions } from "../credentials/CredentialPicker";
 import { DialogFooter, Modal } from "./Modal";
+import { ProtocolOptionsSection, useOptionsDraft } from "./options/ProtocolOptionsSection";
+import { useConnOptions } from "../../stores/connOptions";
+import { describeError } from "../../stores/errors";
 
 const PROTOCOLS: { value: Protocol; label: string; port: number | null }[] = [
   { value: "ssh", label: "SSH", port: 22 },
@@ -31,7 +34,9 @@ function inheritedId(folders: { id: string; parentId: string | null; defaultCred
 
 /** Create or edit a connection. Credentials are chosen by reference; secrets never appear here. */
 export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folderId: string; onClose: () => void }) {
-  const existing = useTree((s) => s.connections.find((c) => c.id === id));
+  // After a create whose options failed to save, further submits update that row (no duplicates).
+  const [createdId, setCreatedId] = useState<string | undefined>(undefined);
+  const existing = useTree((s) => s.connections.find((c) => c.id === (id ?? createdId)));
   const folders = useTree((s) => s.folders);
   const creds = useCredentials((s) => s.items);
   const kinds = useCredentials((s) => s.kinds);
@@ -48,6 +53,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const [tags, setTags] = useState(existing?.tags.join(" ") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const options = useOptionsDraft(id, existing?.protocol, protocol);
 
   const portNum = port.trim() === "" ? null : Number(port);
   const portBad = portNum !== null && (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535);
@@ -87,7 +93,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const canUser = effective ? supportsOverride(effective.kind, "username") : true;
   const canDomain = effective ? supportsOverride(effective.kind, "domain") : true;
   const dropped = (cred && !primary) || (gateway && protocol === "rdp" && !gw) || (become && protocol === "ssh" && !bc);
-  const valid = name.trim() !== "" && host.trim() !== "" && !portBad;
+  const valid = name.trim() !== "" && host.trim() !== "" && !portBad && options.valid && !options.loading;
 
   async function submit() {
     setBusy(true);
@@ -106,11 +112,25 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
     };
     const t = useTree.getState();
     const saved = existing ? await t.updateConnection(existing.id, fields) : await t.createConnection(fields);
+    if (!saved) {
+      setBusy(false);
+      setError(useTree.getState().error ?? "could not save the connection");
+      return;
+    }
+    if (!existing) setCreatedId(saved.id);
+    // ADR-0011: options travel on their own command, after the row exists.
+    if (options.shouldSave) {
+      try {
+        await useConnOptions.getState().save(saved.id, protocol, options.value);
+      } catch (e: unknown) {
+        setBusy(false);
+        setError(`The connection was saved, but its ${protocol.toUpperCase()} options were not: ${describeError(e)}`);
+        return;
+      }
+    }
     setBusy(false);
-    if (saved) {
-      t.select({ kind: "connection", id: saved.id });
-      onClose();
-    } else setError(useTree.getState().error ?? "could not save the connection");
+    t.select({ kind: "connection", id: saved.id });
+    onClose();
   }
 
   async function remove() {
@@ -126,7 +146,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   }
 
   return (
-    <Modal title={existing ? "Edit connection" : "New connection"} onClose={onClose} width={560}>
+    <Modal title={existing ? "Edit connection" : "New connection"} onClose={onClose} width={600}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -240,7 +260,9 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
           {dropped && <p className="field-hint">A previous choice does not fit {protocol.toUpperCase()} and was cleared.</p>}
         </div>
 
-        <DialogFooter error={portBad ? "Port must be 1 to 65535." : error}>
+        <ProtocolOptionsSection draft={options} />
+
+        <DialogFooter error={portBad ? "Port must be 1 to 65535." : !options.valid ? "Fix the highlighted options." : error}>
           {existing && (
             <button type="button" className="btn btn-ghost btn-danger" disabled={busy} onClick={() => void remove()}>
               Delete

@@ -28,3 +28,21 @@ export const RUST_PASSIVE = load("ipc-passive.json");
 export const RUST_CODES = load("ipc-codes.json");
 
 export const missing = (name: string) => `skipped: src-tauri/${name} is not checked in yet (rust-core generates it)`;
+
+const MANIFEST = import.meta.glob<unknown>("../../../../src-tauri/ipc-manifest.json", { eager: true, import: "default" });
+
+/** `src-tauri/ipc-manifest.json` (R5): command → window labels allowed to call it; null while absent. */
+export const RUST_MANIFEST: Readonly<Record<string, readonly string[]>> | null = (() => {
+  const hit = Object.values(MANIFEST)[0];
+  if (hit === null || typeof hit !== "object") return null;
+  const out: Record<string, string[]> = {};
+  for (const [cmd, labels] of Object.entries(hit as Record<string, unknown>)) {
+    out[cmd] = Array.isArray(labels) ? labels.filter((l): l is string => typeof l === "string") : [];
+  }
+  return out;
+})();
+
+/** Commands a `detached-<sessionId>` window may call, per the manifest. */
+export const RUST_DETACHED_COMMANDS: ReadonlySet<string> | null = RUST_MANIFEST
+  ? new Set(Object.entries(RUST_MANIFEST).filter(([, labels]) => labels.some((l) => l.startsWith("detached-"))).map(([cmd]) => cmd))
+  : null;

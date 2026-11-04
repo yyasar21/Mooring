@@ -58,7 +58,7 @@ describe("TauriTransport · ADR-0011/0012/0013", () => {
     ]);
   });
 
-  it("names the frame, screenshot, view-only and trust-store commands", async () => {
+  it("names the frame, screenshot, view-only, trust-store and options commands", async () => {
     const t = new TauriTransport();
     await t.sessionFrameAck({ sessionId: "s", seq: 7 });
     reply = { width: 1920, height: 1080 };
@@ -68,12 +68,17 @@ describe("TauriTransport · ADR-0011/0012/0013", () => {
     expect(await t.knownCertsList({ protocol: "vnc" })).toEqual([{ hostHash: "|2|a|b", fingerprint: "SHA256:f", addedAt: "2026-11-04T00:00:00Z" }]);
     reply = { removed: 1 };
     expect(await t.knownCertsRemove({ protocol: "rdp", host: "dc01.example.test", port: 3389 })).toEqual({ removed: 1 });
+    reply = { keyboardLayout: 1033, clipboard: "both", allowTlsWithoutNla: false, caPem: null, maxFps: 30 };
+    expect(await t.connectionOptionsGet({ connectionId: "c" })).toMatchObject({ keyboardLayout: 1033 });
+    expect(await t.connectionOptionsSet({ connectionId: "c", options: { viewOnly: true } as never })).toMatchObject({ maxFps: 30 });
     expect(calls.map((c) => [c.cmd, c.args])).toEqual([
       ["session_frame_ack", { sessionId: "s", seq: 7 }],
       ["session_screenshot", { sessionId: "s" }],
       ["session_set_view_only", { sessionId: "s", viewOnly: true }],
       ["known_certs_list", { protocol: "vnc" }],
       ["known_certs_remove", { protocol: "rdp", host: "dc01.example.test", port: 3389 }],
+      ["connection_options_get", { connectionId: "c" }],
+      ["connection_options_set", { connectionId: "c", options: { viewOnly: true } }],
     ]);
   });
 

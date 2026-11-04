@@ -308,9 +308,16 @@ fn run_tick<R: Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
-/// Builder `on_window_event` hook: focus of the main window.
+/// Whether focus of this window counts as the app being in front: `main`, and the web and
+/// detached windows (ADR-0013), so working in one of them does not start the blur grace.
+pub fn tracks_focus(label: &str) -> bool {
+    label == crate::navigation::MAIN_WINDOW || crate::window_lock::is_secondary(label)
+}
+
+/// Builder `on_window_event` hook: focus of the app's windows. Moving focus from one Mooring
+/// window to another is a blur immediately followed by a focus, which clears the grace.
 pub fn on_window_event<R: Runtime>(window: &tauri::Window<R>, event: &tauri::WindowEvent) {
-    if window.label() != crate::navigation::MAIN_WINDOW {
+    if !tracks_focus(window.label()) {
         return;
     }
     if let tauri::WindowEvent::Focused(focused) = event {

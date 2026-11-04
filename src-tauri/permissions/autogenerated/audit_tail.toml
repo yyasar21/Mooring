@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-audit-tail"
+description = "Enables the audit_tail command without any pre-configured scope."
+commands.allow = ["audit_tail"]
+
+[[permission]]
+identifier = "deny-audit-tail"
+description = "Denies the audit_tail command without any pre-configured scope."
+commands.deny = ["audit_tail"]

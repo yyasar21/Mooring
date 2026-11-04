@@ -7,7 +7,7 @@ const TOOLS: { id: SessionTool; label: string }[] = [
 ];
 
 /** Switches an SSH tab between its terminal, port forwards and the SFTP browser. */
-export function SessionToolbar({ tool, onTool }: { tool: SessionTool; onTool: (t: SessionTool) => void }) {
+export function SessionToolbar({ tool, onTool, onDetach = null }: { tool: SessionTool; onTool: (t: SessionTool) => void; onDetach?: (() => void) | null }) {
   return (
     <div role="toolbar" aria-label="Session tools" className="session-toolbar">
       {TOOLS.map((t) => (
@@ -21,6 +21,10 @@ export function SessionToolbar({ tool, onTool }: { tool: SessionTool; onTool: (t
           {t.label}
         </button>
       ))}
+      <span className="flex-1" />
+      <button type="button" className="btn btn-ghost" disabled={!onDetach} onClick={() => { onDetach?.(); }}>
+        Detach to window
+      </button>
     </div>
   );
 }

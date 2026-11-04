@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-options-get"
+description = "Enables the connection_options_get command without any pre-configured scope."
+commands.allow = ["connection_options_get"]
+
+[[permission]]
+identifier = "deny-connection-options-get"
+description = "Denies the connection_options_get command without any pre-configured scope."
+commands.deny = ["connection_options_get"]

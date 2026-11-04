@@ -171,6 +171,10 @@ pub struct AppState {
     /// Digest and credential id of the last secret `credential_copy_*` placed, so a
     /// `ClipboardOffer` of that text is audited `credential_sent_to_remote` (L-25).
     pub copied_credential: Arc<Mutex<Option<(ValueDigest, String)>>>,
+    /// Open web windows (ADR-0013).
+    pub web: crate::web::WebRegistry,
+    /// Hides / shows the web and detached windows on lock / unlock (ADR-0013).
+    pub lock_observer: crate::window_lock::LockObserver,
 }
 
 /// Errors while loading state at startup.
@@ -231,6 +235,8 @@ impl AppState {
             remote_clipboard: Arc::new(Mutex::new(None)),
             screenshot_clipboard: Arc::new(Mutex::new(None)),
             copied_credential: Arc::new(Mutex::new(None)),
+            web: crate::web::WebRegistry::default(),
+            lock_observer: crate::window_lock::LockObserver::default(),
         })
     }
 

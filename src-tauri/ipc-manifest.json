@@ -1,0 +1,215 @@
+{
+  "app_info": [
+    "main"
+  ],
+  "audit_tail": [
+    "main"
+  ],
+  "audit_verify": [
+    "main"
+  ],
+  "autolock_get": [
+    "main"
+  ],
+  "autolock_set": [
+    "main"
+  ],
+  "connection_create": [
+    "main"
+  ],
+  "connection_delete": [
+    "main"
+  ],
+  "connection_move": [
+    "main"
+  ],
+  "connection_options_get": [
+    "main"
+  ],
+  "connection_options_set": [
+    "main"
+  ],
+  "connection_search": [
+    "main"
+  ],
+  "connection_set_role_credential": [
+    "main"
+  ],
+  "connection_update": [
+    "main"
+  ],
+  "credential_copy_otp": [
+    "main"
+  ],
+  "credential_copy_secret": [
+    "main"
+  ],
+  "credential_create": [
+    "main"
+  ],
+  "credential_delete": [
+    "main"
+  ],
+  "credential_kinds": [
+    "main"
+  ],
+  "credential_list": [
+    "main"
+  ],
+  "credential_parse_account": [
+    "main"
+  ],
+  "credential_replace_secrets": [
+    "main"
+  ],
+  "credential_update_fields": [
+    "main"
+  ],
+  "folder_create": [
+    "main"
+  ],
+  "folder_delete": [
+    "main"
+  ],
+  "folder_move": [
+    "main"
+  ],
+  "folder_rename": [
+    "main"
+  ],
+  "folder_set_default_credential": [
+    "main"
+  ],
+  "forward_close": [
+    "main"
+  ],
+  "forward_list": [
+    "main"
+  ],
+  "forward_open": [
+    "main"
+  ],
+  "known_certs_list": [
+    "main"
+  ],
+  "known_certs_remove": [
+    "main"
+  ],
+  "session_attach": [
+    "main",
+    "detached-<sessionId>"
+  ],
+  "session_close": [
+    "main",
+    "detached-<sessionId>"
+  ],
+  "session_frame_ack": [
+    "main",
+    "detached-<sessionId>"
+  ],
+  "session_list": [
+    "main"
+  ],
+  "session_open": [
+    "main"
+  ],
+  "session_screenshot": [
+    "main",
+    "detached-<sessionId>"
+  ],
+  "session_send": [
+    "main",
+    "detached-<sessionId>"
+  ],
+  "session_set_view_only": [
+    "main"
+  ],
+  "sftp_cancel": [
+    "main"
+  ],
+  "sftp_download": [
+    "main"
+  ],
+  "sftp_list": [
+    "main"
+  ],
+  "sftp_mkdir": [
+    "main"
+  ],
+  "sftp_pick_local": [
+    "main"
+  ],
+  "sftp_remove": [
+    "main"
+  ],
+  "sftp_rename": [
+    "main"
+  ],
+  "sftp_stat": [
+    "main"
+  ],
+  "sftp_transfers": [
+    "main"
+  ],
+  "sftp_upload": [
+    "main"
+  ],
+  "syslog_get": [
+    "main"
+  ],
+  "syslog_set": [
+    "main"
+  ],
+  "syslog_test": [
+    "main"
+  ],
+  "tree_list": [
+    "main"
+  ],
+  "vault_change_password": [
+    "main"
+  ],
+  "vault_create": [
+    "main"
+  ],
+  "vault_lock": [
+    "main"
+  ],
+  "vault_status": [
+    "main"
+  ],
+  "vault_unlock": [
+    "main"
+  ],
+  "web_clear_data": [
+    "main"
+  ],
+  "web_close": [
+    "main"
+  ],
+  "web_focus": [
+    "main"
+  ],
+  "web_list": [
+    "main"
+  ],
+  "web_open": [
+    "main"
+  ],
+  "web_print": [
+    "main"
+  ],
+  "web_reload": [
+    "main"
+  ],
+  "web_zoom": [
+    "main"
+  ],
+  "window_attach": [
+    "main",
+    "detached-<sessionId>"
+  ],
+  "window_detach": [
+    "main"
+  ]
+}

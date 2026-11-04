@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-create"
+description = "Enables the connection_create command without any pre-configured scope."
+commands.allow = ["connection_create"]
+
+[[permission]]
+identifier = "deny-connection-create"
+description = "Denies the connection_create command without any pre-configured scope."
+commands.deny = ["connection_create"]

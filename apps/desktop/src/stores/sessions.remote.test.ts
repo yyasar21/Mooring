@@ -77,7 +77,8 @@ describe("remote session tabs", () => {
   it("a session taken over by another window becomes detached", async () => {
     await useSessions.getState().open("c-kiosk");
     await settle();
-    await mock.sessionAttach({ sessionId: tab()?.sessionId ?? "", onEvent: () => undefined, onFrame: () => undefined });
+    const sid = tab()?.sessionId ?? "";
+    await mock.viewOf(sid).sessionAttach({ sessionId: sid, onEvent: () => undefined, onFrame: () => undefined });
     await settle();
     expect(tab()?.state).toBe("detached");
   });

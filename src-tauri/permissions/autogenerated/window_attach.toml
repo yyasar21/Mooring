@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-window-attach"
+description = "Enables the window_attach command without any pre-configured scope."
+commands.allow = ["window_attach"]
+
+[[permission]]
+identifier = "deny-window-attach"
+description = "Denies the window_attach command without any pre-configured scope."
+commands.deny = ["window_attach"]

@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "detached",
+  "description": "A session tab detached to its own window (ADR-0013). Exactly the six commands one session view needs; Rust also checks that the sessionId is the window's own. No core permission (no event listen, no window API), no vault, credential or session_open command.",
+  "windows": ["detached-*"],
+  "permissions": [
+    "allow-session-attach",
+    "allow-session-send",
+    "allow-session-close",
+    "allow-session-frame-ack",
+    "allow-session-screenshot",
+    "allow-window-attach"
+  ]
+}

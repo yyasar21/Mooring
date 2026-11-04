@@ -12,7 +12,6 @@
   "input.invalid",
   "internal",
   "ipc.forbidden",
-  "ipc.unknown",
   "protocol.unavailable",
   "session.failed",
   "session.not_connected",
@@ -50,5 +49,9 @@
   "vault.seal",
   "vault.tampered",
   "vault.unlock",
-  "vault.weak_password"
+  "vault.weak_password",
+  "web.clear_failed",
+  "web.origin_refused",
+  "web.store_failed",
+  "window.failed"
 ]
