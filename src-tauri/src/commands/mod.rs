@@ -18,3 +18,4 @@ pub mod vault;
 
 // ADR-0010 (A1 exit): auto-lock policy and syslog mirror settings.
 pub mod autolock;
+pub mod syslog;

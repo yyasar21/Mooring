@@ -31,7 +31,7 @@ pub mod test_ssh_server;
 use tauri::Manager;
 
 use crate::commands::{audit, credential_copy, credentials, sessions as session_cmds, tree, vault};
-use crate::commands::autolock as autolock_cmds;
+use crate::commands::{autolock as autolock_cmds, syslog as syslog_cmds};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -48,7 +48,8 @@ pub fn run() {
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
             // the navigation and new-window guard (security review 2, M-4).
             navigation::create_main_window(app)?;
-            // ADR-0010: auto-lock clock + 5 s tick.
+            // ADR-0010: syslog mirror from the stored config, then the auto-lock clock + tick.
+            commands::syslog::start_stored(&app.state::<AppState>());
             autolock::install(app);
             tracing::info!("mooring started");
             Ok(())
@@ -94,6 +95,9 @@ pub fn run() {
             // ADR-0010 (A1 exit): auto-lock + syslog mirror
             autolock_cmds::autolock_get,
             autolock_cmds::autolock_set,
+            syslog_cmds::syslog_get,
+            syslog_cmds::syslog_set,
+            syslog_cmds::syslog_test,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");
