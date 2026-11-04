@@ -29,6 +29,8 @@ pub mod test_ssh_server;
 use tauri::Manager;
 
 use crate::commands::{audit, credential_copy, credentials, sessions as session_cmds, tree, vault};
+// ADR-0010 §Port forwarding / §SFTP
+use crate::commands::forward;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -83,6 +85,10 @@ pub fn run() {
             session_cmds::window_detach,
             audit::audit_tail,
             audit::audit_verify,
+            // ADR-0010 §Port forwarding
+            forward::forward_open,
+            forward::forward_close,
+            forward::forward_list,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

@@ -15,3 +15,7 @@ pub mod credentials;
 pub mod sessions;
 pub mod tree;
 pub mod vault;
+// ADR-0010 §Port forwarding / §SFTP
+pub mod forward;
+#[cfg(test)]
+mod test_session;
