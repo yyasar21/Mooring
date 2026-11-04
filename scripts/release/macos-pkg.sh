@@ -87,7 +87,7 @@ else
   echo "note: no Developer ID Installer certificate; building an unsigned .pkg" >&2
 fi
 
-productbuild --distribution "$WORK/distribution.xml" --package-path "$WORK" "${SIGN_ARGS[@]}" "$OUT"
+productbuild --distribution "$WORK/distribution.xml" --package-path "$WORK" ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} "$OUT"
 
 if ((${#SIGN_ARGS[@]})); then
   if [[ -n "${APPLE_ID:-}" && -n "${APPLE_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then

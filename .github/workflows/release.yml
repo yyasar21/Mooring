@@ -285,6 +285,7 @@ jobs:
           app="target/${{ matrix.target }}/release/bundle/macos/Mooring.app"
           pkg="$RUNNER_TEMP/Mooring_${VERSION}_${{ matrix.arch }}.pkg"
           scripts/release/macos-pkg.sh "$app" "$VERSION" "$pkg"
+          [[ -f "$pkg" ]] || { echo "::error::.pkg was not produced"; exit 1; }
           echo "PKG_PATH=$pkg" >> "$GITHUB_ENV"
 
       - name: Collect release files
@@ -439,7 +440,7 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          find . -maxdepth 1 -type f -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum -- > SHA256SUMS
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%P\n' | LC_ALL=C sort | xargs -d '\n' sha256sum -- > SHA256SUMS
           cat SHA256SUMS
           cosign sign-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json --yes
 
