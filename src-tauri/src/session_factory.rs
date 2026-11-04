@@ -1,11 +1,12 @@
-//! Constructors of graphical sessions (RDP, VNC) behind one small trait, so the Tauri shell
-//! compiles and is tested without `mooring-proto-rdp` / `mooring-proto-vnc` (ADR-0011 R2).
+//! Constructors of graphical sessions (RDP, VNC) behind one small trait, so the Tauri layer
+//! can be tested with scripted sessions (ADR-0011 R2). [`BuiltinFactory`] builds the real
+//! `mooring_proto_rdp::RdpSession` / `mooring_proto_vnc::VncSession`.
 //!
-//! **Merge hook (R3/R4):** replace the two `unavailable(..)` arms in
-//! [`BuiltinFactory::connect`] with the real constructors, e.g.
-//! `mooring_proto_rdp::RdpSession::connect(req.params, RdpOptions { .. }).await` boxed as
-//! `Box<dyn Session>`, mapping `MooringError` with `IpcError::from`. Everything a protocol
-//! needs is in [`GraphicalConnect`].
+//! Trust (R2 contract): the protocol crates only *read* `known_*_certs` and emit the
+//! `certificate_trust` prompt; the Tauri layer writes the pin and audits the answer
+//! (`graphical_task`), then reconnects with `trusted_once` when the pin could not be saved.
+//! View-only is enforced once, in the Tauri gate (`session_set_view_only` toggles it), so the
+//! VNC crate's own switch is started off.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -15,6 +16,8 @@ use std::sync::Arc;
 use mooring_core::frame::FrameSink;
 use mooring_core::session::{ConnectParams, Session};
 use mooring_core::{Protocol, ProtocolOptions};
+
+use mooring_core::AuditBuffer;
 
 use crate::clipboard::Clipboard;
 use crate::error::{IpcError, IpcResult};
@@ -64,18 +67,65 @@ pub trait SessionFactory: Send + Sync {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuiltinFactory;
 
-fn unavailable(name: &str) -> IpcError {
-    IpcError::new("protocol.unavailable", format!("{name} sessions are not available in this build"))
+/// [`mooring_core::clipboard::Clipboard`] over the Tauri clipboard: reads for
+/// `ClipboardOffer`, writes through the tracked [`crate::clipboard::RemoteClipboard`] so a lock
+/// clears remote text. Errors are logged by the inner clipboard, never the text.
+#[derive(Clone)]
+pub struct SessionClipboard(pub Arc<dyn Clipboard>);
+
+impl std::fmt::Debug for SessionClipboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionClipboard").finish_non_exhaustive()
+    }
+}
+
+impl mooring_core::clipboard::Clipboard for SessionClipboard {
+    fn read_text(&self) -> Option<String> {
+        self.0.text().ok().flatten().map(|t| t.as_str().to_owned())
+    }
+
+    fn write_text(&self, text: &str) -> bool {
+        self.0.set(text).is_ok()
+    }
+}
+
+fn wrong_options() -> IpcError {
+    IpcError::invalid("options", "do not match the protocol")
+}
+
+async fn connect_rdp(req: GraphicalConnect) -> IpcResult<Box<dyn Session>> {
+    let ProtocolOptions::Rdp(conn) = req.options else { return Err(wrong_options()) };
+    let mut options = mooring_proto_rdp::RdpOptions::new(req.known_certs, conn)
+        .with_clipboard(Arc::new(SessionClipboard(req.clipboard)));
+    options.trusted_once = req.trusted_once;
+    let session =
+        mooring_proto_rdp::RdpSession::connect(req.params, options, req.frames, AuditBuffer::new())
+            .await
+            .map_err(IpcError::from)?;
+    Ok(Box::new(session))
+}
+
+async fn connect_vnc(req: GraphicalConnect) -> IpcResult<Box<dyn Session>> {
+    let ProtocolOptions::Vnc(mut conn) = req.options else { return Err(wrong_options()) };
+    // View-only lives in the Tauri gate (initialised from `conn.view_only`, toggled by
+    // `session_set_view_only`); a second switch here could not be turned off from IPC.
+    conn.view_only = false;
+    let mut options = mooring_proto_vnc::VncOptions::new(req.known_certs, conn);
+    options.clipboard = Arc::new(SessionClipboard(req.clipboard));
+    options.trusted_once = req.trusted_once;
+    let session =
+        mooring_proto_vnc::VncSession::connect(req.params, options, req.frames, AuditBuffer::new())
+            .await
+            .map_err(IpcError::from)?;
+    Ok(Box::new(session))
 }
 
 impl SessionFactory for BuiltinFactory {
     fn connect(&self, req: GraphicalConnect) -> ConnectFuture {
         Box::pin(async move {
             match req.protocol {
-                // MERGE R3: mooring_proto_rdp::RdpSession::connect(..)
-                Protocol::Rdp => Err(unavailable("RDP")),
-                // MERGE R4: mooring_proto_vnc::VncSession::connect(..)
-                Protocol::Vnc => Err(unavailable("VNC")),
+                Protocol::Rdp => connect_rdp(req).await,
+                Protocol::Vnc => connect_vnc(req).await,
                 other => Err(IpcError::session_failed(format!(
                     "{} is not a graphical protocol",
                     other.name()
@@ -90,31 +140,58 @@ mod tests {
     use super::*;
     use mooring_core::session::{ConnectSecret, Size};
 
-    #[tokio::test]
-    async fn stubs_report_protocol_unavailable() {
-        for (protocol, code) in [
-            (Protocol::Rdp, "protocol.unavailable"),
-            (Protocol::Vnc, "protocol.unavailable"),
-            (Protocol::Ssh, "session.failed"),
-        ] {
-            let req = GraphicalConnect {
-                protocol,
-                params: ConnectParams {
-                    host: "rdp.example.test".into(),
-                    port: 3389,
-                    username: None,
-                    secret: ConnectSecret::None,
-                    r#become: None,
-                    size: Size { width: 800, height: 600 },
-                },
-                options: ProtocolOptions::default_for(protocol),
-                known_certs: PathBuf::from("known_rdp_certs"),
-                frames: FrameSink::new(),
-                clipboard: Arc::new(crate::clipboard::MemoryClipboard::default()),
-                trusted_once: None,
-            };
-            let e = BuiltinFactory.connect(req).await.err().expect("refused");
-            assert_eq!(e.code, code);
+    fn req(protocol: Protocol, options: ProtocolOptions, port: u16) -> GraphicalConnect {
+        GraphicalConnect {
+            protocol,
+            params: ConnectParams {
+                host: "127.0.0.1".into(),
+                port,
+                username: None,
+                secret: ConnectSecret::None,
+                r#become: None,
+                size: Size { width: 800, height: 600 },
+            },
+            options,
+            known_certs: PathBuf::from("/nonexistent/known_certs"),
+            frames: FrameSink::new(),
+            clipboard: Arc::new(crate::clipboard::MemoryClipboard::default()),
+            trusted_once: None,
         }
+    }
+
+    #[tokio::test]
+    async fn refuses_non_graphical_protocols_and_mismatched_options() {
+        let ssh = req(Protocol::Ssh, ProtocolOptions::default_for(Protocol::Ssh), 22);
+        assert_eq!(BuiltinFactory.connect(ssh).await.err().expect("refused").code, "session.failed");
+        let wrong = req(Protocol::Rdp, ProtocolOptions::default_for(Protocol::Vnc), 3389);
+        assert_eq!(BuiltinFactory.connect(wrong).await.err().expect("refused").code, "input.invalid");
+        // RDP refuses ConnectSecret::None at connect (input error, before any TCP).
+        let none = req(Protocol::Rdp, ProtocolOptions::default_for(Protocol::Rdp), 3389);
+        assert_eq!(BuiltinFactory.connect(none).await.err().expect("refused").code, "input.invalid");
+        let port0 = req(Protocol::Vnc, ProtocolOptions::default_for(Protocol::Vnc), 0);
+        assert_eq!(BuiltinFactory.connect(port0).await.err().expect("refused").code, "input.invalid");
+    }
+
+    #[tokio::test]
+    async fn vnc_connects_and_reports_through_the_session() {
+        // Nothing listens on a fresh ephemeral port: the session exists and ends with network.
+        let port = std::net::TcpListener::bind("127.0.0.1:0").expect("bind").local_addr().expect("a").port();
+        let r = req(Protocol::Vnc, ProtocolOptions::default_for(Protocol::Vnc), port);
+        let mut s = BuiltinFactory.connect(r).await.expect("session");
+        assert_eq!(s.protocol(), Protocol::Vnc);
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(20), s.next_event()).await;
+        let Ok(Ok(Some(mooring_core::SessionEvent::Closed { code, .. }))) = ev else { panic!("{ev:?}") };
+        assert_eq!(code, mooring_core::CloseCode::Network);
+    }
+
+    #[test]
+    fn session_clipboard_reads_and_writes_through_the_tracked_clipboard() {
+        use mooring_core::clipboard::Clipboard as _;
+        let inner = Arc::new(crate::clipboard::MemoryClipboard::default());
+        let c = SessionClipboard(inner.clone());
+        assert_eq!(c.read_text(), None);
+        assert!(c.write_text("from remote"));
+        assert_eq!(inner.peek().as_deref(), Some("from remote"));
+        assert_eq!(c.read_text().as_deref(), Some("from remote"));
     }
 }

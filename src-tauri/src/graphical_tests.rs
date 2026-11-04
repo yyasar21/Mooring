@@ -280,15 +280,18 @@ async fn hostile_graphical_ipc_is_refused() {
 }
 
 #[tokio::test]
-async fn builtin_factory_reports_protocol_unavailable() {
+async fn builtin_factory_opens_real_vnc_sessions() {
     let mut b = bench("vnc");
     b.f.state.settings.graphical = std::sync::Arc::new(crate::session_factory::BuiltinFactory);
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<crate::sessions::WireEvent>();
     let sk: crate::sessions::EventSink = std::sync::Arc::new(move |e| tx.send(e).is_ok());
     let out: crate::frame_pump::FrameOut = std::sync::Arc::new(|_| true);
-    let e = sess::open_with(&b.f.state, &b.conn, crate::test_graphical::DESKTOP, sk, Some(out)).await;
-    assert_eq!(e.expect_err("stub").code, "protocol.unavailable");
-    assert!(sess::list(&b.f.state).expect("list").is_empty());
+    let opened = sess::open_with(&b.f.state, &b.conn, crate::test_graphical::DESKTOP, sk, Some(out))
+        .await
+        .expect("the real VNC session starts (TCP runs in its task)");
+    assert_eq!(sess::list(&b.f.state).expect("list").len(), 1);
+    sess::close(&b.f.state, &opened.session_id).await.expect("close");
+    gone(&b).await;
 }
 
 #[test]
