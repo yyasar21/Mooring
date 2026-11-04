@@ -34,6 +34,8 @@ export interface VncConnOptions {
   clipboard: ClipboardPolicy;
   caPem: string | null;
   maxFps: MaxFps;
+  /** Accept a server that offers only None (type 1) although a password credential is set (review 5 L-27; audited when used). */
+  allowNoAuth: boolean;
 }
 
 export interface WebConnOptions {
@@ -70,6 +72,7 @@ export const DEFAULT_VNC_OPTIONS: VncConnOptions = {
   clipboard: "both",
   caPem: null,
   maxFps: 30,
+  allowNoAuth: false,
 };
 
 // ---------- session events (ADR-0011 SessionEvent changes) ----------
@@ -121,10 +124,13 @@ export const INPUT_LIMITS = { codeChars: 32, keyBytes: 32, unicodeChars: 64, min
 // ---------- trust store ----------
 
 export interface KnownCert {
-  /** `|2|salt|hmac` form: the host is never stored in the clear. */
+  /** `|2|salt|hmac` form: the host is never stored in the clear (or the plain `host:port` of a hand-written line). */
   hostHash: string;
   fingerprint: string;
   addedAt: string;
+  /** Filled by Rust (`KnownCerts::list_named`) when the hash matches one of the user's own connections; the UI never recomputes the HMAC (N-33). */
+  host?: string;
+  port?: number;
 }
 
 // ---------- web sessions (ADR-0013) ----------

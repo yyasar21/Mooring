@@ -46,6 +46,18 @@
 }
 .seek:hover { color: var(--text-muted); border-color: var(--accent-line); }
 .seek-caret { color: var(--accent); font: 600 12px/1 var(--font-mono); }
+.sync-indicator { display: inline-flex; align-items: center; gap: 7px; min-width: 0; font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--text-muted); }
+
+/* ---------- sync alarm banner (ADR-0017): one row under the title bar, hot = needs you now ---------- */
+.sync-banner {
+  display: flex; align-items: center; gap: 12px; padding: 7px 14px;
+  border-bottom: 1px solid var(--hot-line); background: var(--hot-soft); color: var(--text); font-size: var(--fs-s);
+}
+.sync-banner .state-dot { border-color: var(--hot); background: var(--hot); box-shadow: var(--glow-hot); }
+.sync-banner[data-kind="error"] .state-dot { background: transparent; box-shadow: none; }
+.sync-banner-text { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; margin: 0; }
+.sync-banner-title { font: 600 var(--fs-2xs)/1.6 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--hot); }
+.sync-banner .btn { flex: none; }
 
 /* ---------- pane splitter ---------- */
 .pane-handle { width: 6px; z-index: 5; cursor: col-resize; position: relative; background: transparent; }

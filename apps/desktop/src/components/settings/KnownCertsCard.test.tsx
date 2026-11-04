@@ -1,5 +1,13 @@
+/// <reference types="vite/client" />
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { MockTransport } from "../../lib/ipc.mock";
+
+/** Everything that ships (no tests, no mocks, not the helper file itself). */
+const UI_SOURCES = import.meta.glob<string>(["../../**/*.{ts,tsx}", "!../../**/*.test.{ts,tsx}", "!../../test/**", "!../../lib/ipc.mock*.ts", "!../../lib/hostHash.ts"], {
+  eager: true,
+  query: "?raw",
+  import: "default",
+});
 import { useTree } from "../../stores/tree";
 import { freshBackend, settle } from "../../test/harness";
 import { KnownCertsCard } from "./KnownCertsCard";
@@ -84,6 +92,24 @@ describe("Settings → Trust: known certificates", () => {
     const c = await card();
     expect(within(c).getByRole("alert")).toHaveTextContent("The vault is locked.");
     expect(c).not.toHaveTextContent("No stored certificates");
+  });
+
+  it("labels from the wire's host/port, never by hashing in the UI (N-33)", async () => {
+    // A pin the mock would not name (no connection) but the wire says belongs to kiosk: the label follows the wire.
+    const list = mock.knownCertsList;
+    mock.knownCertsList = async (a) => (await list(a)).map((r) => ({ ...r, host: "kiosk.example.test", port: 5900 }));
+    await mock.pin(target("vnc", "198.51.100.4", 5901));
+    const c = await card();
+    fireEvent.click(within(c).getByRole("radio", { name: "VNC" }));
+    await vi.waitFor(() => { expect(within(c).getAllByRole("listitem")).toHaveLength(1); });
+    const row = within(c).getAllByRole("listitem")[0];
+    expect(row).toHaveTextContent("kiosk.example.test:5900");
+    expect(row).toHaveTextContent("kiosk"); // the seed connection with that host:port
+  });
+
+  it("no UI module reaches the mock's HMAC helpers (one crypto path, in Rust)", () => {
+    const offenders = Object.entries(UI_SOURCES).filter(([, src]) => /\b(hashHost|hostMatches)\b/.test(src)).map(([p]) => p);
+    expect(offenders).toEqual([]);
   });
 
   it("filterPins matches names, host:port and the fingerprint with or without colons", () => {

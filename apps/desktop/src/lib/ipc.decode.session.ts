@@ -146,7 +146,13 @@ export function frameBuffer(msg: unknown): ArrayBuffer | null {
 
 export function decodeKnownCert(raw: unknown): KnownCert {
   const w = rec(raw);
-  return { hostHash: str(field(w, "host_hash", "hostHash")), fingerprint: str(w.fingerprint), addedAt: str(field(w, "added_at", "addedAt")) };
+  const out: KnownCert = { hostHash: str(field(w, "host_hash", "hostHash")), fingerprint: str(w.fingerprint), addedAt: str(field(w, "added_at", "addedAt")) };
+  const port = w.port;
+  if (typeof w.host === "string" && w.host !== "" && typeof port === "number" && Number.isInteger(port) && port >= 1 && port <= 65535) {
+    out.host = w.host;
+    out.port = port;
+  }
+  return out;
 }
 
 export function decodeWebEvent(raw: unknown): WebEvent {

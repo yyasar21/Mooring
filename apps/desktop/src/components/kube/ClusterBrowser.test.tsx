@@ -11,9 +11,10 @@ import { matchesPod, podStatus } from "./podStatus";
 
 let mock: MockTransport;
 
-async function openCluster() {
+async function openCluster(prepare?: (m: MockTransport) => void) {
   mock = freshBackend();
   mock.logFollowMs = 60_000;
+  prepare?.(mock);
   await useTree.getState().load();
   await useCredentials.getState().load();
   render(<Workspace />);
@@ -26,8 +27,8 @@ const row = (name: string) => screen.getByRole("row", { name: new RegExp(name) }
 
 describe("ClusterBrowser", () => {
   it("opens with kube_open, not session_open, and shows the read-only banner and identity", async () => {
-    const spy = vi.spyOn((await import("../../lib/ipc")).ipc, "sessionOpen");
-    const panel = await openCluster();
+    const spy = vi.fn();
+    const panel = await openCluster((m) => { vi.spyOn(m, "sessionOpen").mockImplementation(spy); });
     expect(spy).not.toHaveBeenCalled();
     expect(within(panel).getByRole("note")).toHaveTextContent("Mooring never mutates this cluster");
     expect(within(panel).getByText("https://k8s.stage.example.test:6443")).toBeInTheDocument();

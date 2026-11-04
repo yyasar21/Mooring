@@ -64,8 +64,17 @@ describe("TauriTransport · ADR-0011/0012/0013", () => {
     reply = { width: 1920, height: 1080 };
     expect(await t.sessionScreenshot({ sessionId: "s" })).toEqual({ width: 1920, height: 1080 });
     await t.sessionSetViewOnly({ sessionId: "s", viewOnly: true });
-    reply = [{ host_hash: "|2|a|b", fingerprint: "SHA256:f", added_at: "2026-11-04T00:00:00Z" }];
-    expect(await t.knownCertsList({ protocol: "vnc" })).toEqual([{ hostHash: "|2|a|b", fingerprint: "SHA256:f", addedAt: "2026-11-04T00:00:00Z" }]);
+    reply = [
+      { host_hash: "|2|a|b", fingerprint: "SHA256:f", added_at: "2026-11-04T00:00:00Z" },
+      { hostHash: "|2|c|d", fingerprint: "SHA256:g", addedAt: "2026-11-04T00:00:00Z", host: "kiosk.example.test", port: 5901 },
+      { hostHash: "|2|e|f", fingerprint: "SHA256:h", addedAt: "2026-11-04T00:00:00Z", host: "", port: 70000 },
+    ];
+    // N-33: `host`/`port` come from Rust (`list_named`); absent, empty or out-of-range ones stay off the row
+    expect(await t.knownCertsList({ protocol: "vnc" })).toEqual([
+      { hostHash: "|2|a|b", fingerprint: "SHA256:f", addedAt: "2026-11-04T00:00:00Z" },
+      { hostHash: "|2|c|d", fingerprint: "SHA256:g", addedAt: "2026-11-04T00:00:00Z", host: "kiosk.example.test", port: 5901 },
+      { hostHash: "|2|e|f", fingerprint: "SHA256:h", addedAt: "2026-11-04T00:00:00Z" },
+    ]);
     reply = { removed: 1 };
     expect(await t.knownCertsRemove({ protocol: "rdp", host: "dc01.example.test", port: 3389 })).toEqual({ removed: 1 });
     reply = { keyboardLayout: 1033, clipboard: "both", allowTlsWithoutNla: false, caPem: null, maxFps: 30 };

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { DEFAULT_RDP_OPTIONS, IpcError } from "../../../lib/ipc";
 import type { MockTransport } from "../../../lib/ipc.mock";
 import { useConnOptions } from "../../../stores/connOptions";
@@ -74,6 +74,27 @@ describe("connection form · protocol options", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
     await settle();
     expect(await mock.connectionOptionsGet({ connectionId: "c-kiosk" })).toMatchObject({ security: "require_tls", viewOnly: false, shared: true });
+  });
+
+  it("VNC: allowNoAuth is off, warns when on, survives a save and a reload (N-34)", async () => {
+    await edit("c-kiosk", "f-desk");
+    const section = screen.getByRole("region", { name: "VNC options" });
+    const toggle = sw(/^Allow servers without authentication/);
+    expect(toggle).not.toBeChecked();
+    expect(within(section).queryByText(/no authentication is accepted/)).toBeNull();
+    fireEvent.click(toggle);
+    expect(within(section).getByText(/A server that offers no authentication is accepted although a password is set/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+    await settle();
+    expect(await mock.connectionOptionsGet({ connectionId: "c-kiosk" })).toMatchObject({ allowNoAuth: true, viewOnly: true });
+    // a second edit/save keeps it (normalizeOptions no longer drops the field)
+    cleanup();
+    await edit("c-kiosk", "f-desk");
+    expect(sw(/^Allow servers without authentication/)).toBeChecked();
+    fireEvent.click(sw(/^Shared session/));
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+    await settle();
+    expect(await mock.connectionOptionsGet({ connectionId: "c-kiosk" })).toMatchObject({ allowNoAuth: true, shared: false });
   });
 
   it("Web: URL rules, origin allow-list editor and the persistent-storage note", async () => {

@@ -58,6 +58,11 @@ describe("RDP / VNC option rules", () => {
     expect(normalizeOptions("ssh", { x: 1 })).toEqual({});
     expect(unknownField("rdp", { keyboardLayout: 1033, colorDepth: 16 })).toBe("colorDepth");
     expect(unknownField("vnc", { viewOnly: true })).toBeNull();
+    // N-34: `allowNoAuth` is part of the mirror, so a load does not flag it and a save does not reset it.
+    expect(unknownField("vnc", { allowNoAuth: true })).toBeNull();
+    expect(normalizeOptions("vnc", { allowNoAuth: true })).toMatchObject({ allowNoAuth: true });
+    expect(normalizeOptions("vnc", { allowNoAuth: "yes" })).toMatchObject({ allowNoAuth: false });
+    expect(DEFAULT_VNC_OPTIONS.allowNoAuth).toBe(false);
   });
 });
 
