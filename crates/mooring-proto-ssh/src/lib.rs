@@ -32,6 +32,7 @@ mod local_path;
 pub mod session;
 pub mod sftp;
 mod sftp_transfer;
+mod sftp_upload;
 mod shared;
 pub mod socks;
 

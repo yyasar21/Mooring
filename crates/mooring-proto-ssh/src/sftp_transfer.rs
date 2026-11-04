@@ -3,7 +3,8 @@
 //! so memory use is bounded by one block whatever the file size.
 //!
 //! Downloads go to a temporary file in the target directory and are renamed into place only
-//! when complete; a failed download leaves no partial file behind.
+//! when complete; a failed download leaves no partial file behind. Uploads do the same on the
+//! server side (`sftp_upload`).
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -34,7 +35,7 @@ fn joined<T>(r: Result<T, tokio::task::JoinError>) -> Result<T, MooringError> {
 }
 
 /// Run a blocking local file operation off the async runtime.
-async fn blocking<T, F>(f: F) -> Result<T, MooringError>
+pub(crate) async fn blocking<T, F>(f: F) -> Result<T, MooringError>
 where
     T: Send + 'static,
     F: FnOnce() -> std::io::Result<T> + Send + 'static,
@@ -43,13 +44,13 @@ where
 }
 
 /// One remote file handle, closed on every path out of a transfer.
-struct RemoteFile<'a> {
+pub(crate) struct RemoteFile<'a> {
     client: &'a SftpClient,
-    handle: String,
+    pub(crate) handle: String,
 }
 
 impl RemoteFile<'_> {
-    async fn close(self) -> Result<(), SftpError> {
+    pub(crate) async fn close(self) -> Result<(), SftpError> {
         self.client.raw.close(self.handle).await.map(|_| ())
     }
 }
@@ -89,7 +90,7 @@ struct Block {
 }
 
 impl SftpClient {
-    async fn open_remote(
+    pub(crate) async fn open_remote(
         &self,
         path: &str,
         flags: OpenFlags,
@@ -244,32 +245,7 @@ impl SftpClient {
         }
     }
 
-    /// Upload `local` (inside the caller's base directory) to `remote`, creating or
-    /// truncating it. `progress` gets `(bytes_done, Some(total))` after every block.
-    pub async fn upload(
-        &self,
-        local: &LocalPath,
-        remote: &str,
-        mut progress: impl FnMut(u64, Option<u64>),
-    ) -> Result<u64, MooringError> {
-        check_remote(remote)?;
-        let source = local.resolve_existing_file()?;
-        let (src, total) = blocking(move || {
-            let f = std::fs::File::open(source)?;
-            let len = f.metadata()?.len();
-            Ok((f, len))
-        })
-        .await?;
-        let flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
-        let file = self.open_remote(remote, flags).await?;
-        let result = self.upload_from(&file.handle, remote, src, total, &mut progress).await;
-        let closed = file.close().await;
-        let done = result?;
-        closed.map_err(|e| sftp_err(&e, remote))?;
-        Ok(done)
-    }
-
-    async fn upload_from(
+    pub(crate) async fn upload_from(
         &self,
         handle: &str,
         remote: &str,

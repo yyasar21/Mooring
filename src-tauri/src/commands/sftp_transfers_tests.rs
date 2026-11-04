@@ -267,3 +267,62 @@ async fn an_existing_local_file_is_replaced_only_with_overwrite() {
     assert_eq!(e.code, "input.invalid");
     close_session(&live).await;
 }
+
+/// Names in `dir` that look like upload part files.
+fn part_files(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .expect("dir")
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.contains(".mooring-part-"))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_upload_over_an_existing_file_keeps_it_and_leaves_no_part_file() {
+    let root = tempfile::tempdir().expect("root");
+    std::fs::write(root.path().join("big.bin"), b"original").expect("seed");
+    let srv = server::start_with_sftp(86, root.path().to_path_buf()).await;
+    let live = connect(&srv).await;
+    let (st, sid) = (&live.f.state, live.session_id.as_str());
+    let src = tempfile::tempdir().expect("src");
+    let file = src.path().join("big.bin");
+    std::fs::write(&file, payload(8 * 1024 * 1024)).expect("write");
+
+    let (first_tx, first_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let go_rx = std::sync::Mutex::new(go_rx);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let held: ProgressSink = Arc::new(move |p: Progress| {
+        if p.state == "running" && p.bytes_done > 0 && first_tx.send(()).is_ok() {
+            let _ = go_rx.lock().expect("lock").recv_timeout(Duration::from_secs(10));
+        }
+        tx.send(p).is_ok()
+    });
+    let p = pick(&live, "file", &file).await;
+    let started = upload(st, sid, &p, "/", held).await.expect("start");
+    tokio::task::spawn_blocking(move || first_rx.recv_timeout(Duration::from_secs(20)))
+        .await
+        .expect("join")
+        .expect("first block");
+    assert_eq!(part_files(root.path()).len(), 1, "data goes to a part file");
+    assert_eq!(std::fs::read(root.path().join("big.bin")).expect("r"), b"original");
+    cancel(st, sid, &started.transfer_id).expect("cancel");
+    go_tx.send(()).expect("release");
+    assert_eq!(finish(&mut rx).await.last().expect("last").state, "cancelled");
+    // The part file is removed by a background cleanup task that owns the client.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !part_files(root.path()).is_empty() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(part_files(root.path()), Vec::<String>::new(), "no part file");
+    assert_eq!(std::fs::read(root.path().join("big.bin")).expect("r"), b"original", "intact");
+
+    // A completed upload replaces the file and leaves no part file.
+    let (tx, mut rx) = sink();
+    let p = pick(&live, "file", &file).await;
+    upload(st, sid, &p, "/", tx).await.expect("upload");
+    assert_eq!(finish(&mut rx).await.last().expect("last").state, "done");
+    assert_eq!(std::fs::read(root.path().join("big.bin")).expect("r"), payload(8 * 1024 * 1024));
+    assert!(part_files(root.path()).is_empty());
+    close_session(&live).await;
+}
