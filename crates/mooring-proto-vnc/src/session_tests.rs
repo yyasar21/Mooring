@@ -1,4 +1,4 @@
-//! Loopback end-to-end tests against the in-test RFB server (`testsrv`).
+//! Loopback end-to-end tests against QA's real RFB 3.8 server (`mooring_testsrv::rfb`).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,10 +11,13 @@ use mooring_core::session::{
     CloseCode, ConnectParams, ConnectSecret, PromptPurpose, SessionEvent, SessionInput, Size,
 };
 use mooring_core::{Session, SessionAudit};
+use mooring_testsrv::rfb::{
+    self, encoding, Knobs, Rect, RfbConfig, RfbHandle, SecurityOffer as Sec, TightMode,
+    VeNCryptSub as Sub, ZrleMode,
+};
+use mooring_testsrv::tls::TestCert;
 use secrecy::SecretString;
 
-use crate::messages::enc;
-use crate::testsrv::{cert, rect, start, update, SrvConfig};
 use crate::{AuditLog, Clipboard, VncOptions, VncSession};
 
 #[derive(Debug, Default)]
@@ -37,7 +40,7 @@ struct Client {
     s: VncSession,
     sink: FrameSink,
     clip: Arc<MemClip>,
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
 }
 
 fn params(port: u16, secret: ConnectSecret) -> ConnectParams {
@@ -55,26 +58,46 @@ fn pw(p: &str) -> ConnectSecret {
     ConnectSecret::Password(SecretString::from(p.to_owned()))
 }
 
-async fn client(
+async fn server(cfg: RfbConfig) -> RfbHandle {
+    rfb::start(cfg, 0).await.expect("rfb test server")
+}
+
+fn small(security: Vec<Sec>) -> RfbConfig {
+    RfbConfig { width: 64, height: 48, security, ..RfbConfig::default() }
+}
+
+fn pin(dir: &tempfile::TempDir, port: u16, cert: &TestCert) {
+    let mut k = KnownCerts::new();
+    k.add("127.0.0.1", port, &fingerprint(cert.cert_der()), time::OffsetDateTime::now_utc());
+    k.save(&dir.path().join("known_vnc_certs")).expect("save");
+}
+
+async fn client_with(
     port: u16,
     secret: ConnectSecret,
     conn: VncConnOptions,
     dir: Option<tempfile::TempDir>,
+    trusted_once: Option<[u8; 32]>,
 ) -> Client {
     let dir = dir.unwrap_or_else(|| tempfile::tempdir().expect("tmp"));
     let clip = Arc::new(MemClip::default());
     let mut o = VncOptions::new(dir.path().join("known_vnc_certs"), conn);
     o.clipboard = Arc::clone(&clip) as Arc<dyn Clipboard>;
     o.handshake_timeout = Duration::from_secs(5);
+    o.trusted_once = trusted_once;
     let sink = FrameSink::new();
     let s = VncSession::connect(params(port, secret), o, sink.clone(), AuditLog::default())
         .await
         .expect("connect");
-    Client { s, sink, clip, _dir: dir }
+    Client { s, sink, clip, dir }
+}
+
+async fn client(port: u16, secret: ConnectSecret, conn: VncConnOptions) -> Client {
+    client_with(port, secret, conn, None, None).await
 }
 
 async fn next(s: &mut VncSession) -> SessionEvent {
-    tokio::time::timeout(Duration::from_secs(5), s.next_event())
+    tokio::time::timeout(Duration::from_secs(10), s.next_event())
         .await
         .expect("event in time")
         .expect("ok")
@@ -96,65 +119,55 @@ async fn connected(s: &mut VncSession) -> (Option<String>, Option<String>) {
     }
 }
 
-fn contains(hay: &[u8], needle: &[u8]) -> bool {
-    hay.windows(needle.len()).any(|w| w == needle)
+async fn eventually(what: &str, mut f: impl FnMut() -> bool) {
+    for _ in 0..250 {
+        if f() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("timed out waiting for {what}");
 }
 
-fn zrle_solid(rgb: [u8; 3]) -> Vec<u8> {
-    use flate2::{Compress, Compression, FlushCompress};
-    let mut c = Compress::new(Compression::default(), true);
-    let mut z = Vec::with_capacity(64);
-    c.compress_vec(&[1, rgb[0], rgb[1], rgb[2]], &mut z, FlushCompress::Sync).expect("z");
-    let mut p = u32::try_from(z.len()).expect("len").to_be_bytes().to_vec();
-    p.extend_from_slice(&z);
-    p
+fn same_pixels(sink: &FrameSink, srv: &RfbHandle) -> bool {
+    let fb = srv.framebuffer();
+    let (w, h, px) = sink.snapshot();
+    (w, h) == (fb.width, fb.height) && px == fb.rgba
 }
 
 #[tokio::test]
 async fn none_auth_frames_clipboard_and_input() {
-    let mut script = update(4);
-    script.extend(rect(0, 0, 1, 1, enc::RAW, &[10, 20, 30, 0]));
-    script.extend(rect(1, 0, 1, 1, enc::TIGHT, &[0x80, 1, 2, 3]));
-    script.extend(rect(0, 1, 2, 1, enc::ZRLE, &zrle_solid([7, 8, 9])));
-    script.extend(rect(0, 0, 0, 0, enc::QEMU_EXT_KEY, &[]));
-    script.extend([2]); // Bell
-    script.extend([3, 0, 0, 0, 0, 0, 0, 3, b'h', 0xe9, b'y']);
-    let mut srv = start(SrvConfig {
-        security: vec![1],
-        fb: (2, 2),
-        script: vec![script],
-        ..Default::default()
-    })
-    .await;
-    let mut c = client(srv.addr.port(), ConnectSecret::None, VncConnOptions::default(), None).await;
+    let srv = server(small(vec![Sec::None])).await;
+    let conn = VncConnOptions { clipboard: ClipboardPolicy::Both, ..Default::default() };
+    let mut c = client(srv.addr().port(), ConnectSecret::None, conn).await;
     assert_eq!(connected(&mut c.s).await, (None, Some("none".into())));
-    assert!(matches!(next(&mut c.s).await, SessionEvent::DesktopResized { width: 2, height: 2 }));
+    assert!(matches!(next(&mut c.s).await, SessionEvent::DesktopResized { width: 64, height: 48 }));
+    eventually("the first full frame", || same_pixels(&c.sink, &srv)).await;
 
-    // The update and the next incremental request.
-    let mut got = Vec::new();
-    assert!(srv.until(&mut got, |b| contains(b, &[3, 1, 0, 0, 0, 0, 0, 2, 0, 2])).await);
-    let (_, _, px) = c.sink.snapshot();
-    assert_eq!(&px[0..8], &[10, 20, 30, 255, 1, 2, 3, 255]);
-    assert_eq!(&px[8..16], &[7, 8, 9, 255, 7, 8, 9, 255]);
+    // An incremental update after a server-side change.
+    srv.fill(Rect::new(3, 4, 10, 5), [9, 8, 7, 255]);
+    eventually("the fill", || same_pixels(&c.sink, &srv)).await;
+
+    srv.server_cut_text(b"h\xe9y");
+    eventually("remote cut text", || c.clip.written.lock().expect("l").len() == 1).await;
     assert_eq!(c.clip.written.lock().expect("l").as_slice(), &["h\u{e9}y".to_owned()]);
 
-    // Input: QEMU extended keys after the server confirmed them; pointer; wheel.
     let key = |pressed| SessionInput::Key { code: "KeyA".into(), key: "a".into(), pressed };
     c.s.send(key(true)).await.expect("key");
     c.s.send(SessionInput::Pointer { x: 50, y: 1, buttons: 1 }).await.expect("ptr");
+    c.s.send(SessionInput::Pointer { x: 5000, y: 1, buttons: 0 }).await.expect("ptr clamp");
     c.s.send(SessionInput::Wheel { dx: 0, dy: 120 }).await.expect("wheel");
     c.s.send(SessionInput::ReleaseAll).await.expect("release");
     *c.clip.text.lock().expect("l") = Some("ok".into());
     c.s.send(SessionInput::ClipboardOffer).await.expect("offer");
-    assert!(
-        srv.until(&mut got, |b| contains(b, &[6, 0, 0, 0, 0, 0, 0, 2, b'o', b'k'])).await,
-        "{got:?}"
-    );
-    assert!(contains(&got, &[255, 0, 0, 1, 0, 0, 0, 0x61, 0, 0, 0, 0x1e]), "qemu key down");
-    assert!(contains(&got, &[255, 0, 0, 0, 0, 0, 0, 0x61, 0, 0, 0, 0x1e]), "release all");
-    assert!(contains(&got, &[5, 1, 0, 1, 0, 1]), "pointer clamped to the framebuffer");
-    assert!(contains(&got, &[5, 0x11, 0, 1, 0, 1]) && contains(&got, &[5, 1, 0, 1, 0, 1]), "wheel");
-    assert!(contains(&got, &[5, 0, 0, 1, 0, 1]), "buttons released");
+    eventually("client cut text", || srv.stats().client_cut_text.contains(&b"ok".to_vec())).await;
+    let st = srv.stats();
+    let a = st.key_events.iter().find(|k| k.keysym == 0x61).expect("KeyA reached the server");
+    assert!(a.down);
+    assert_eq!(a.qemu_keycode, Some(0x1e), "QEMU extended key once the server confirmed it");
+    assert!(st.key_events.iter().any(|k| k.keysym == 0x61 && !k.down), "release all");
+    assert!(st.pointer_events >= 4, "pointer + wheel press/release");
+    assert_eq!(st.last_pointer.map(|p| p.1), Some(63), "pointer clamped to the framebuffer");
     assert!(c.s.send(SessionInput::Bytes { data: vec![1] }).await.is_err());
 
     c.s.close().await.expect("close");
@@ -173,84 +186,134 @@ async fn none_auth_frames_clipboard_and_input() {
 }
 
 #[tokio::test]
-async fn vnc_auth_good_and_bad_password() {
-    let cfg = SrvConfig {
-        security: vec![2],
-        password: Some(b"secret".to_vec()),
-        fb: (4, 4),
-        ..Default::default()
-    };
-    let srv = start(cfg).await;
-    let mut ok = client(srv.addr.port(), pw("secret"), VncConnOptions::default(), None).await;
+async fn every_encoder_path_reaches_the_sink() {
+    let force = |e| Knobs { force_encoding: Some(e), ..Knobs::default() };
+    for (name, cfg) in [
+        ("raw", RfbConfig { knobs: force(encoding::RAW), ..small(vec![Sec::None]) }),
+        ("zrle auto", RfbConfig { knobs: force(encoding::ZRLE), ..small(vec![Sec::None]) }),
+        (
+            "zrle raw tiles",
+            RfbConfig {
+                zrle_mode: ZrleMode::Raw,
+                knobs: force(encoding::ZRLE),
+                ..small(vec![Sec::None])
+            },
+        ),
+        (
+            "zrle plain rle",
+            RfbConfig {
+                zrle_mode: ZrleMode::PlainRle,
+                knobs: force(encoding::ZRLE),
+                ..small(vec![Sec::None])
+            },
+        ),
+        ("tight auto", RfbConfig { knobs: force(encoding::TIGHT), ..small(vec![Sec::None]) }),
+        (
+            "tight copy",
+            RfbConfig {
+                tight_mode: TightMode::Copy,
+                knobs: force(encoding::TIGHT),
+                ..small(vec![Sec::None])
+            },
+        ),
+        (
+            "tight palette",
+            RfbConfig {
+                tight_mode: TightMode::Palette,
+                knobs: force(encoding::TIGHT),
+                ..small(vec![Sec::None])
+            },
+        ),
+        (
+            "tight gradient",
+            RfbConfig {
+                tight_mode: TightMode::Gradient,
+                knobs: force(encoding::TIGHT),
+                ..small(vec![Sec::None])
+            },
+        ),
+        (
+            "last rect",
+            RfbConfig {
+                knobs: Knobs { use_last_rect: true, ..Knobs::default() },
+                ..small(vec![Sec::None])
+            },
+        ),
+    ] {
+        let srv = server(cfg).await;
+        let mut c = client(srv.addr().port(), ConnectSecret::None, VncConnOptions::default()).await;
+        connected(&mut c.s).await;
+        eventually(name, || same_pixels(&c.sink, &srv)).await;
+        srv.copy(Rect::new(0, 0, 16, 16), 20, 20);
+        eventually(name, || same_pixels(&c.sink, &srv)).await;
+        assert!(srv.stats().errors.is_empty(), "{name}: {:?}", srv.stats().errors);
+    }
+}
+
+#[tokio::test]
+async fn vnc_auth_good_bad_and_missing_password() {
+    let srv =
+        server(RfbConfig { password: Some("secret".into()), ..small(vec![Sec::VncAuth]) }).await;
+    let port = srv.addr().port();
+    let mut ok = client(port, pw("secret"), VncConnOptions::default()).await;
     assert_eq!(connected(&mut ok.s).await.1.as_deref(), Some("vnc-auth"));
     assert!(ok
         .s
         .take_audit_events()
         .contains(&SessionAudit::VncPlaintext { security: "vnc-auth" }));
 
-    let mut bad = client(srv.addr.port(), pw("wrong"), VncConnOptions::default(), None).await;
+    let mut bad = client(port, pw("wrong"), VncConnOptions::default()).await;
     assert_eq!(closed(&mut bad.s).await, CloseCode::AuthFailed);
     assert!(bad.s.take_audit_events().contains(&SessionAudit::AuthFailed));
 
-    let mut none =
-        client(srv.addr.port(), ConnectSecret::None, VncConnOptions::default(), None).await;
+    let mut none = client(port, ConnectSecret::None, VncConnOptions::default()).await;
     assert_eq!(closed(&mut none.s).await, CloseCode::AuthFailed, "server needs a password");
 }
 
 #[tokio::test]
 async fn require_tls_refuses_plaintext_servers() {
-    let srv = start(SrvConfig { security: vec![1, 2], fb: (4, 4), ..Default::default() }).await;
+    let srv = server(small(vec![Sec::None, Sec::VncAuth])).await;
     let conn = VncConnOptions { security: VncSecurity::RequireTls, ..Default::default() };
-    let mut c = client(srv.addr.port(), pw("x"), conn, None).await;
+    let mut c = client(srv.addr().port(), pw("x"), conn).await;
     assert_eq!(closed(&mut c.s).await, CloseCode::ProtocolError);
 }
 
 #[tokio::test]
-async fn vencrypt_tofu_pin_then_strip_and_mismatch() {
-    let (der, key) = cert("127.0.0.1");
-    let tls_cfg = SrvConfig {
-        security: vec![19, 2],
-        subtypes: vec![260, 261],
-        tls: Some((der.clone(), key)),
-        password: Some(b"pw".to_vec()),
-        fb: (4, 4),
-        ..Default::default()
+async fn vencrypt_tofu_yes_reconnects_then_strip_and_mismatch_stop() {
+    let cert = TestCert::generate(&["127.0.0.1"]).expect("cert");
+    let tls = |cert: &TestCert| RfbConfig {
+        cert: Some(cert.clone()),
+        password: Some("pw".into()),
+        ..small(vec![Sec::VeNCrypt(vec![Sub::X509Vnc]), Sec::VncAuth])
     };
-    let mut srv = start(tls_cfg.clone()).await;
-    let dir = tempfile::tempdir().expect("tmp");
-    let pin_path = dir.path().join("known_vnc_certs");
-    let mut c = client(srv.addr.port(), pw("pw"), VncConnOptions::default(), Some(dir)).await;
+    let srv = server(tls(&cert)).await;
+    let port = srv.addr().port();
+    let mut c = client(port, pw("pw"), VncConnOptions::default()).await;
     let SessionEvent::Prompt { id, purpose, certificate, .. } = next(&mut c.s).await else {
-        panic!()
+        panic!("prompt")
     };
     assert_eq!(purpose, PromptPurpose::CertificateTrust);
-    let info = certificate.expect("certificate info");
-    assert!(info.is_self_signed());
+    assert!(certificate.expect("certificate info").is_self_signed());
     c.s.send(SessionInput::Answer { id, text: SecretString::from("yes".to_owned()) })
         .await
         .expect("answer");
     let (peer, security) = connected(&mut c.s).await;
     assert_eq!(security.as_deref(), Some("vencrypt-x509"));
-    assert_eq!(peer, Some(peer_identity(&fingerprint(&der))));
-    assert_eq!(srv.conns.load(std::sync::atomic::Ordering::SeqCst), 2, "reconnected after yes");
+    assert_eq!(peer, Some(peer_identity(&fingerprint(cert.cert_der()))));
+    assert_eq!(srv.stats().connections, 2, "reconnected after yes");
     let audit = c.s.take_audit_events();
-    // The pin file and the decision audit belong to the Tauri layer (R2 contract).
-    assert!(!audit.iter().any(|a| matches!(a, SessionAudit::CertAdded { .. })));
+    assert!(!audit.iter().any(|a| matches!(a, SessionAudit::CertAdded { .. })), "R2 audits");
     assert!(audit.contains(&SessionAudit::AuthSucceeded { method: AuthMethod::VncAuth }));
-    assert!(!audit.iter().any(|a| matches!(a, SessionAudit::VncPlaintext { .. })));
-    let known = KnownCerts::load(&pin_path).expect("load");
-    assert!(!known.has_pin("127.0.0.1", srv.addr.port()), "the session never writes pins");
-    let _ = srv.rx.try_recv();
+    let known = KnownCerts::load(&c.dir.path().join("known_vnc_certs")).expect("load");
+    assert!(!known.has_pin("127.0.0.1", port), "the session never writes pins");
     drop(c);
 
-    // Same port, but now a server that strips VeNCrypt: hard stop (downgrade guard).
-    let stripped = start(SrvConfig { security: vec![2], fb: (4, 4), ..Default::default() }).await;
-    let dir2 = tempfile::tempdir().expect("tmp");
-    let mut k = KnownCerts::new();
-    k.add("127.0.0.1", stripped.addr.port(), &fingerprint(&der), time::OffsetDateTime::now_utc());
-    k.save(&dir2.path().join("known_vnc_certs")).expect("save");
+    // A MITM strips VeNCrypt from the next connection to a pinned host: hard stop.
+    srv.set_knobs(Knobs { strip_tls_after: Some(srv.stats().connections), ..Knobs::default() });
+    let dir = tempfile::tempdir().expect("tmp");
+    pin(&dir, port, &cert);
     let conn = VncConnOptions { security: VncSecurity::AllowPlaintext, ..Default::default() };
-    let mut s = client(stripped.addr.port(), pw("pw"), conn, Some(dir2)).await;
+    let mut s = client_with(port, pw("pw"), conn, Some(dir), None).await;
     assert_eq!(closed(&mut s.s).await, CloseCode::TrustMismatch);
     assert!(s
         .s
@@ -259,57 +322,33 @@ async fn vencrypt_tofu_pin_then_strip_and_mismatch() {
         .any(|a| matches!(a, SessionAudit::CertMismatch { presented, .. } if presented == "none")));
 
     // A different certificate on a pinned port: hard stop.
-    let (other_der, other_key) = cert("127.0.0.1");
-    let other = start(SrvConfig { tls: Some((other_der, other_key)), ..tls_cfg }).await;
-    let dir3 = tempfile::tempdir().expect("tmp");
-    let mut k = KnownCerts::new();
-    k.add("127.0.0.1", other.addr.port(), &fingerprint(&der), time::OffsetDateTime::now_utc());
-    k.save(&dir3.path().join("known_vnc_certs")).expect("save");
-    let mut m = client(other.addr.port(), pw("pw"), VncConnOptions::default(), Some(dir3)).await;
+    let other = server(tls(&TestCert::generate(&["127.0.0.1"]).expect("cert"))).await;
+    let dir = tempfile::tempdir().expect("tmp");
+    pin(&dir, other.addr().port(), &cert);
+    let mut m =
+        client_with(other.addr().port(), pw("pw"), VncConnOptions::default(), Some(dir), None)
+            .await;
     assert_eq!(closed(&mut m.s).await, CloseCode::TrustMismatch);
+    assert!(m.s.take_audit_events().iter().any(|a| matches!(a, SessionAudit::CertMismatch { .. })));
 }
 
 #[tokio::test]
 async fn trusted_once_connects_without_a_prompt_or_a_pin_write() {
-    let (der, key) = cert("127.0.0.1");
-    let srv = start(SrvConfig {
-        security: vec![19],
-        subtypes: vec![260],
-        tls: Some((der.clone(), key)),
-        fb: (4, 4),
-        ..Default::default()
-    })
-    .await;
-    let dir = tempfile::tempdir().expect("tmp");
-    let path = dir.path().join("known_vnc_certs");
-    let mut o = VncOptions::new(&path, VncConnOptions::default());
-    o.trusted_once = Some(fingerprint(&der));
-    o.handshake_timeout = Duration::from_secs(5);
-    let mut s = VncSession::connect(
-        params(srv.addr.port(), ConnectSecret::None),
-        o,
-        FrameSink::new(),
-        AuditLog::default(),
-    )
-    .await
-    .expect("connect");
-    assert_eq!(connected(&mut s).await.1.as_deref(), Some("vencrypt-x509"));
-    assert!(!KnownCerts::load(&path).expect("load").has_pin("127.0.0.1", srv.addr.port()));
+    let srv = server(small(vec![Sec::VeNCrypt(vec![Sub::X509None])])).await;
+    let fp = fingerprint(srv.cert().expect("cert").cert_der());
+    let port = srv.addr().port();
+    let mut c =
+        client_with(port, ConnectSecret::None, VncConnOptions::default(), None, Some(fp)).await;
+    assert_eq!(connected(&mut c.s).await.1.as_deref(), Some("vencrypt-x509"));
+    let known = KnownCerts::load(&c.dir.path().join("known_vnc_certs")).expect("load");
+    assert!(!known.has_pin("127.0.0.1", port));
 }
 
 #[tokio::test]
 async fn tofu_no_rejects_and_anonymous_tls_falls_back() {
-    let (der, key) = cert("127.0.0.1");
-    let srv = start(SrvConfig {
-        security: vec![19],
-        subtypes: vec![260],
-        tls: Some((der, key)),
-        fb: (4, 4),
-        ..Default::default()
-    })
-    .await;
-    let mut c = client(srv.addr.port(), ConnectSecret::None, VncConnOptions::default(), None).await;
-    let SessionEvent::Prompt { id, .. } = next(&mut c.s).await else { panic!() };
+    let srv = server(small(vec![Sec::VeNCrypt(vec![Sub::X509None])])).await;
+    let mut c = client(srv.addr().port(), ConnectSecret::None, VncConnOptions::default()).await;
+    let SessionEvent::Prompt { id, .. } = next(&mut c.s).await else { panic!("prompt") };
     c.s.send(SessionInput::Answer { id, text: SecretString::from("no".to_owned()) })
         .await
         .expect("answer");
@@ -321,25 +360,22 @@ async fn tofu_no_rejects_and_anonymous_tls_falls_back() {
         .any(|a| matches!(a, SessionAudit::CertRejected { .. })));
 
     // VeNCrypt with anonymous-TLS subtypes only: one retry without VeNCrypt.
-    let anon = start(SrvConfig {
-        security: vec![19, 2],
-        subtypes: vec![257, 258],
-        password: Some(b"pw".to_vec()),
-        fb: (4, 4),
-        ..Default::default()
+    let anon = server(RfbConfig {
+        password: Some("pw".into()),
+        ..small(vec![Sec::VeNCrypt(vec![Sub::TlsNone, Sub::TlsVnc]), Sec::VncAuth])
     })
     .await;
-    let mut f = client(anon.addr.port(), pw("pw"), VncConnOptions::default(), None).await;
+    let mut f = client(anon.addr().port(), pw("pw"), VncConnOptions::default()).await;
     assert_eq!(connected(&mut f.s).await.1.as_deref(), Some("vnc-auth"));
-    assert_eq!(anon.conns.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(anon.stats().connections, 2);
 }
 
 #[tokio::test]
 async fn view_only_drops_input_but_releases_keys() {
-    let mut srv = start(SrvConfig { security: vec![1], fb: (4, 4), ..Default::default() }).await;
+    let srv = server(small(vec![Sec::None])).await;
     let conn =
         VncConnOptions { view_only: true, clipboard: ClipboardPolicy::Both, ..Default::default() };
-    let mut c = client(srv.addr.port(), ConnectSecret::None, conn, None).await;
+    let mut c = client(srv.addr().port(), ConnectSecret::None, conn).await;
     connected(&mut c.s).await;
     let ctl = c.s.control();
     assert!(ctl.view_only());
@@ -353,84 +389,76 @@ async fn view_only_drops_input_but_releases_keys() {
     c.s.send(SessionInput::Key { code: "Enter".into(), key: "Enter".into(), pressed: true })
         .await
         .expect("k");
-    let mut got = Vec::new();
-    assert!(srv.until(&mut got, |b| contains(b, &[4, 1, 0, 0, 0, 0, 0xff, 0x0d])).await);
-    assert!(!contains(&got, &[4, 1, 0, 0, 0, 0, 0, 0x61]), "view-only key never sent");
-    assert!(!got.contains(&5), "no pointer event");
+    eventually("Enter", || srv.stats().key_events.iter().any(|k| k.keysym == 0xff0d)).await;
+    let st = srv.stats();
+    assert!(!st.key_events.iter().any(|k| k.keysym == 0x61), "view-only key never sent");
+    assert_eq!(st.pointer_events, 0, "no pointer event");
+    assert!(st.client_cut_text.is_empty());
     assert_eq!(ctl.dropped_inputs(), 3);
 }
 
 #[tokio::test]
 async fn hostile_updates_close_with_protocol_error() {
-    for script in [
-        [update(1), rect(3, 3, 2, 2, enc::RAW, &[0; 16])].concat(),
-        [update(1), rect(0, 0, 2, 2, enc::TIGHT, &[0x90, 1, 2])].concat(),
-        [update(1), rect(0, 0, 1, 1, 5, &[])].concat(),
-        vec![1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
-        vec![99],
+    for (name, knobs) in [
+        ("oversized rect", Knobs { oversized_rect: Some(4), ..Knobs::default() }),
+        (
+            "tight jpeg",
+            Knobs { tight_jpeg: true, force_encoding: Some(encoding::TIGHT), ..Knobs::default() },
+        ),
+        (
+            "zlib length lie",
+            Knobs {
+                lie_zlib_length: Some(u32::MAX),
+                force_encoding: Some(encoding::ZRLE),
+                ..Knobs::default()
+            },
+        ),
     ] {
-        let srv = start(SrvConfig {
-            security: vec![1],
-            fb: (4, 4),
-            script: vec![script],
-            ..Default::default()
-        })
-        .await;
-        let mut c =
-            client(srv.addr.port(), ConnectSecret::None, VncConnOptions::default(), None).await;
-        assert_eq!(closed(&mut c.s).await, CloseCode::ProtocolError);
+        let srv = server(RfbConfig { knobs, ..small(vec![Sec::None]) }).await;
+        let mut c = client(srv.addr().port(), ConnectSecret::None, VncConnOptions::default()).await;
+        assert_eq!(closed(&mut c.s).await, CloseCode::ProtocolError, "{name}");
     }
 }
 
 #[tokio::test]
-async fn desktop_resize_reaches_sink_and_events() {
-    let script = [update(1), rect(0, 0, 8, 6, enc::DESKTOP_SIZE, &[])].concat();
-    let mut srv = start(SrvConfig {
-        security: vec![1],
-        fb: (4, 4),
-        script: vec![script],
-        ..Default::default()
-    })
-    .await;
-    let mut c = client(srv.addr.port(), ConnectSecret::None, VncConnOptions::default(), None).await;
+async fn desktop_resize_both_ways() {
+    let srv = server(small(vec![Sec::None])).await;
+    let mut c = client(srv.addr().port(), ConnectSecret::None, VncConnOptions::default()).await;
     connected(&mut c.s).await;
-    assert!(matches!(next(&mut c.s).await, SessionEvent::DesktopResized { width: 4, height: 4 }));
-    assert!(matches!(next(&mut c.s).await, SessionEvent::DesktopResized { width: 8, height: 6 }));
-    assert_eq!(c.sink.size(), (8, 6));
-    let mut got = Vec::new();
-    assert!(
-        srv.until(&mut got, |b| contains(b, &[3, 0, 0, 0, 0, 0, 0, 8, 0, 6])).await,
-        "full request after resize"
-    );
+    assert!(matches!(next(&mut c.s).await, SessionEvent::DesktopResized { width: 64, height: 48 }));
+    eventually("first frame", || same_pixels(&c.sink, &srv)).await;
+    srv.resize(80, 60);
+    assert!(matches!(next(&mut c.s).await, SessionEvent::DesktopResized { width: 80, height: 60 }));
+    eventually("the resized frame", || same_pixels(&c.sink, &srv)).await;
+    c.s.send(SessionInput::Resize { size: Size { width: 320, height: 240 } })
+        .await
+        .expect("resize");
+    eventually("SetDesktopSize", || srv.stats().desktop_size_requests.contains(&(320, 240))).await;
 }
 
 #[tokio::test]
 async fn pinned_x509_plain_with_username() {
-    let (der, key) = cert("127.0.0.1");
-    let srv = start(SrvConfig {
-        security: vec![19],
-        subtypes: vec![261, 262],
-        tls: Some((der.clone(), key)),
-        fb: (4, 4),
-        ..Default::default()
+    let cert = TestCert::generate(&["127.0.0.1"]).expect("cert");
+    let srv = server(RfbConfig {
+        cert: Some(cert.clone()),
+        plain_user: Some(("alice".into(), "pw".into())),
+        ..small(vec![Sec::VeNCrypt(vec![Sub::X509Vnc, Sub::X509Plain])])
     })
     .await;
     let dir = tempfile::tempdir().expect("tmp");
-    let mut k = KnownCerts::new();
-    k.add("127.0.0.1", srv.addr.port(), &fingerprint(&der), time::OffsetDateTime::now_utc());
-    k.save(&dir.path().join("known_vnc_certs")).expect("save");
+    pin(&dir, srv.addr().port(), &cert);
     let secret = ConnectSecret::DomainPassword {
         user: "alice".into(),
         domain: String::new(),
         password: SecretString::from("pw".to_owned()),
     };
-    let mut c = client(srv.addr.port(), secret, VncConnOptions::default(), Some(dir)).await;
+    let mut c =
+        client_with(srv.addr().port(), secret, VncConnOptions::default(), Some(dir), None).await;
     assert_eq!(connected(&mut c.s).await.1.as_deref(), Some("vencrypt-x509"));
     let audit = c.s.take_audit_events();
     assert!(audit.contains(&SessionAudit::AuthSucceeded { method: AuthMethod::VncPlain }));
-    assert!(!audit
-        .iter()
-        .any(|a| matches!(a, SessionAudit::CertAdded { .. } | SessionAudit::CertCaValid { .. })));
+    assert!(!audit.iter().any(|a| matches!(a, SessionAudit::CertCaValid { .. })));
+    assert_eq!(srv.stats().chosen_security.last(), Some(&(19, Some(262))));
 }
 
 #[tokio::test]

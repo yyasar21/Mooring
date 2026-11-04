@@ -39,5 +39,3 @@ pub use wire::Parsed;
 
 #[cfg(test)]
 mod session_tests;
-#[cfg(test)]
-mod testsrv;

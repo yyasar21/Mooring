@@ -34,3 +34,5 @@ x509-parser = "0.18"
 proptest = { workspace = true }
 tempfile = { workspace = true }
 rcgen = { workspace = true }
+# QA's loopback RFB 3.8 server (A2 Q2): dev-only, never a product dependency.
+mooring-testsrv = { path = "../mooring-testsrv" }

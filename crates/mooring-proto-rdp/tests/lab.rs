@@ -86,11 +86,3 @@ async fn lab_rdp_connects_and_draws() {
     assert!(actions.contains(&"session.auth.succeeded"), "{actions:?}");
     s.close().await.expect("close");
 }
-
-/// Merge TODO (Q2): QA's in-process `IronRDP` acceptor (`crates/mooring-testsrv`) was not in this
-/// worktree. When it lands, replace this with a non-ignored loopback test: TOFU prompt → yes
-/// → NLA with a test account → `Connected { security: "nla" }` → `DesktopResized` → a blit
-/// visible in `FrameSink::take_frame`, plus resize, clipboard both ways and mismatch.
-#[tokio::test]
-#[ignore = "TODO(merge): wire to mooring-testsrv's RDP acceptor"]
-async fn todo_loopback_connect_and_frame_against_mooring_testsrv() {}

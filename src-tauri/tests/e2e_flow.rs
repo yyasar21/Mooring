@@ -16,6 +16,8 @@ use mooring_app_lib::{commands, error, sessions, state, test_ssh_server};
 
 #[path = "e2e_flow/credential_kinds.rs"]
 mod credential_kinds;
+#[path = "e2e_flow/graphical.rs"]
+mod graphical;
 #[path = "e2e_flow/hostile.rs"]
 mod hostile;
 #[path = "e2e_flow/hostile_edges.rs"]

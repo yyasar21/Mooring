@@ -57,6 +57,7 @@ mooring-app = { path = ".", features = ["test-util"] }
 tempfile = { workspace = true }
 russh = { workspace = true }   # in-process SSH server for session_open tests (already a workspace dep)
 russh-sftp = { workspace = true } # SFTP subsystem of the in-process test server (already a workspace dep)
+mooring-testsrv = { path = "../crates/mooring-testsrv" } # A2 e2e_flow: loopback RFB/RDP servers (QA, dev-only)
 
 [lints]
 workspace = true
