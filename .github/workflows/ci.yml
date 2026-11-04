@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo clippy --workspace --all-targets --message-format=short -- -D warnings 2>&1 | tee clippy.log || {
+          cargo clippy --workspace --all-targets --message-format=short --color never -- -D warnings 2>&1 | tee clippy.log || {
             { grep -aE ": (error|warning)(\[E[0-9]+\])?: " clippy.log | head -60 | sed 's/^/::error::/'; } || true
             echo "::group::clippy tail"; tail -n 40 clippy.log; echo "::endgroup::"
             tail -n 12 clippy.log | sed 's/^/::error::tail: /'
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo test --workspace 2>&1 | tee test.log || {
+          cargo test --workspace --color never 2>&1 | tee test.log || {
             { grep -E "^(test .* FAILED|---- .* stdout ----|error(\[E[0-9]+\])?:|thread '.*' panicked)" test.log | head -60 | sed 's/^/::error::/'; } || true
             tail -n 30 test.log | sed 's/^/::error::tail: /'
             exit 1
