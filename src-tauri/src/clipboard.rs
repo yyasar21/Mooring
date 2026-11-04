@@ -40,6 +40,25 @@ pub trait Clipboard: Send + Sync {
         let _ = (width, height, rgba);
         Err(ClipboardError)
     }
+    /// Size of the image on the clipboard, `None` when there is none.
+    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
+        Ok(None)
+    }
+}
+
+/// Clear the clipboard if it still holds an image of `size` (the screenshot Mooring put
+/// there; image bytes are not compared because the OS may convert them, e.g. to BMP or PNG).
+/// Returns whether it cleared; text or another-sized image the user copied is left alone.
+pub fn clear_image_if_unchanged(
+    clipboard: &dyn Clipboard,
+    size: (u32, u32),
+) -> Result<bool, ClipboardError> {
+    if clipboard.current()?.is_none() && clipboard.current_image()? == Some(size) {
+        clipboard.clear()?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 /// The clipboard a remote session writes to: every value it sets is remembered (by digest) in
@@ -87,6 +106,10 @@ impl Clipboard for RemoteClipboard {
 
     fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
         self.inner.set_image(width, height, rgba)
+    }
+
+    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
+        self.inner.current_image()
     }
 }
 
@@ -175,9 +198,42 @@ impl Clipboard for SystemClipboard {
         })
     }
 
-    // `set_image` keeps the default (unavailable): arboard is built with
-    // `default-features = false`, and images need its `image-data` feature, which pulls the
-    // `image` crate (PNG encoding on Linux). Decision needed, see a2-rust-core-r2 handoff.
+    // arboard `image-data` (src-tauri/Cargo.toml): RGBA in, the OS format out (PNG on
+    // X11/Wayland, TIFF on macOS, DIB/PNG on Windows). Kept out of clipboard history like text.
+    fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
+        let (w, h) = (
+            usize::try_from(width).map_err(|_| ClipboardError)?,
+            usize::try_from(height).map_err(|_| ClipboardError)?,
+        );
+        if w.checked_mul(h).and_then(|n| n.checked_mul(4)) != Some(rgba.len()) {
+            return Err(ClipboardError);
+        }
+        self.with(|cb| {
+            let set = cb.set();
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let set = arboard::SetExtLinux::exclude_from_history(set);
+            #[cfg(target_os = "macos")]
+            let set = arboard::SetExtApple::exclude_from_history(set);
+            #[cfg(windows)]
+            let set = arboard::SetExtWindows::exclude_from_cloud(
+                arboard::SetExtWindows::exclude_from_history(set),
+            );
+            let image =
+                arboard::ImageData { width: w, height: h, bytes: std::borrow::Cow::Borrowed(rgba) };
+            set.image(image).map_err(|e| sys_err(&e))
+        })
+    }
+
+    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
+        self.with(|cb| match cb.get_image() {
+            Ok(img) => Ok(Some((
+                u32::try_from(img.width).map_err(|_| ClipboardError)?,
+                u32::try_from(img.height).map_err(|_| ClipboardError)?,
+            ))),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(e) => Err(sys_err(&e)),
+        })
+    }
 }
 
 /// In-memory clipboard for tests.
@@ -205,6 +261,7 @@ impl MemoryClipboard {
 impl Clipboard for MemoryClipboard {
     fn set(&self, text: &str) -> Result<(), ClipboardError> {
         *self.value.lock().map_err(|_| ClipboardError)? = Some(Zeroizing::new(text.to_owned()));
+        *self.image.lock().map_err(|_| ClipboardError)? = None;
         Ok(())
     }
 
@@ -214,6 +271,7 @@ impl Clipboard for MemoryClipboard {
 
     fn clear(&self) -> Result<(), ClipboardError> {
         *self.value.lock().map_err(|_| ClipboardError)? = None;
+        *self.image.lock().map_err(|_| ClipboardError)? = None;
         Ok(())
     }
 
@@ -224,7 +282,12 @@ impl Clipboard for MemoryClipboard {
     fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
         let d: ValueDigest = Sha256::digest(rgba).into();
         *self.image.lock().map_err(|_| ClipboardError)? = Some((width, height, d));
+        *self.value.lock().map_err(|_| ClipboardError)? = None;
         Ok(())
+    }
+
+    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
+        Ok(self.image.lock().map_err(|_| ClipboardError)?.map(|(w, h, _)| (w, h)))
     }
 }
 
@@ -256,6 +319,19 @@ mod tests {
         assert_eq!(remote.text().expect("t").as_deref().map(String::as_str), Some("from the remote desktop"));
         let d = last.lock().expect("l").expect("d");
         assert!(clear_if_unchanged(&*inner, &d).expect("clear"));
-        assert!(SystemClipboard::default().set_image(1, 1, &[0; 4]).is_err(), "no image-data");
+        assert!(SystemClipboard::default().set_image(2, 2, &[0; 4]).is_err(), "size mismatch");
+    }
+
+    #[test]
+    fn screenshot_is_cleared_only_while_it_is_still_there() {
+        let cb = MemoryClipboard::default();
+        cb.set_image(4, 2, &[7; 32]).expect("image");
+        assert!(clear_image_if_unchanged(&cb, (4, 2)).expect("ok"));
+        assert_eq!(cb.peek_image(), None);
+        cb.set_image(4, 2, &[7; 32]).expect("image");
+        assert!(!clear_image_if_unchanged(&cb, (8, 2)).expect("ok"), "another image");
+        cb.set("the user copied text").expect("set");
+        assert!(!clear_image_if_unchanged(&cb, (4, 2)).expect("ok"), "text is left alone");
+        assert_eq!(cb.peek().as_deref(), Some("the user copied text"));
     }
 }

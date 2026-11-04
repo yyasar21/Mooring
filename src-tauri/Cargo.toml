@@ -35,7 +35,7 @@ sha2 = { workspace = true }
 rand_core = { workspace = true } # review 4 B-4: random 128-bit pickId (already used by mooring-vault / proto-ssh)
 hex = { workspace = true }       # review 4 B-4: pickId encoding (already used by mooring-audit)
 base64 = { workspace = true }
-arboard = { workspace = true }
+arboard = { workspace = true, features = ["image-data"] } # A2 session_screenshot: RGBA to the OS clipboard; adds the `image` crate (MIT OR Apache-2.0; png on Linux, tiff on macOS, png+bmp on Windows)
 serde = { workspace = true }
 serde_json = { workspace = true }
 secrecy = { workspace = true }

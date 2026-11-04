@@ -78,6 +78,9 @@ pub fn screenshot(state: &AppState, session_id: &str) -> IpcResult<DesktopSize> 
         .clipboard
         .set_image(width, height, &rgba)
         .map_err(|_| IpcError::new("clipboard.unavailable", "the clipboard cannot take an image"))?;
+    if let Ok(mut shot) = state.screenshot_clipboard.lock() {
+        *shot = Some((width, height));
+    }
     state.audit(AuditEvent::SessionScreenshot { connection, width, height });
     Ok(DesktopSize { width, height })
 }

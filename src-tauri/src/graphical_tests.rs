@@ -85,6 +85,13 @@ async fn frames_flow_with_credits_attach_and_screenshot() {
     let image = b.f.clipboard.peek_image().expect("image on the clipboard");
     assert_eq!((image.0, image.1), (4, 2));
     assert!(audit(&b).contains(r#""event":"session_screenshot""#));
+    // vault_lock / exit clear the screenshot while it is still on the clipboard.
+    b.f.state.clear_pending_clipboard();
+    assert_eq!(b.f.clipboard.peek_image(), None, "screenshot cleared on lock");
+    gfx::screenshot(&b.f.state, &ui.session_id).expect("screenshot");
+    crate::clipboard::Clipboard::set(&*b.f.clipboard, "copied by the user").expect("set");
+    b.f.state.clear_pending_clipboard();
+    assert_eq!(b.f.clipboard.peek().as_deref(), Some("copied by the user"), "user copy kept");
 
     sess::close(&b.f.state, &ui.session_id).await.expect("close");
     let closed = expect_kind(&mut ui, "closed").await;

@@ -156,6 +156,9 @@ pub struct AppState {
     /// Digest of the text a remote session last wrote to the OS clipboard (ADR-0011
     /// clipboard): cleared on vault lock and on exit when still unchanged.
     pub remote_clipboard: Arc<Mutex<Option<ValueDigest>>>,
+    /// Size of the last `session_screenshot` image put on the OS clipboard: cleared on vault
+    /// lock and on exit when still there (remote screen content does not outlive a lock).
+    pub screenshot_clipboard: Arc<Mutex<Option<(u32, u32)>>>,
 }
 
 /// Errors while loading state at startup.
@@ -214,6 +217,7 @@ impl AppState {
             pending_clipboard: Arc::new(Mutex::new(None)),
             picks: Picks::default(),
             remote_clipboard: Arc::new(Mutex::new(None)),
+            screenshot_clipboard: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -288,6 +292,12 @@ impl AppState {
             // ADR-0011: remote-originated text does not outlive a lock or the process.
             if clipboard::clear_if_unchanged(&*self.settings.clipboard, &expected) == Ok(true) {
                 tracing::info!("remote clipboard text cleared");
+            }
+        }
+        let shot = self.screenshot_clipboard.lock().ok().and_then(|mut p| p.take());
+        if let Some(size) = shot {
+            if clipboard::clear_image_if_unchanged(&*self.settings.clipboard, size) == Ok(true) {
+                tracing::info!("session screenshot cleared from the clipboard");
             }
         }
         let pending = self.pending_clipboard.lock().ok().and_then(|mut p| p.take());
