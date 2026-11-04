@@ -158,7 +158,7 @@ export function SyncCard() {
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void useSync.getState().resolve("local")}>Resolve: keep local</button>
               <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void useSync.getState().resolve("remote")}>Resolve: keep remote</button>
             </div>
-            <p className="field-hint">Mooring asks you to confirm in a system dialog before anything is discarded.</p>
+            <p className="field-hint">Mooring asks you to confirm in a system dialog with three buttons (Cancel, Discard and resolve, Not now) before anything is discarded. Return and Escape refuse; only a click on the action confirms.</p>
           </div>
         )}
 

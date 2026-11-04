@@ -29,6 +29,8 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     expect(within(c).queryByRole("button", { name: "Sync now" })).toBeNull();
     fireEvent.click(within(c).getByRole("button", { name: "Set up…" }));
     const dlg = screen.getByRole("dialog", { name: "Set up vault sync" });
+    // 6b B-6: the sync trust prompt is two three-button system dialogs
+    expect(dlg).toHaveTextContent("two system dialogs with three buttons each: “Trust once (this sync only)”, then “Trust and remember”");
     fireEvent.click(within(dlg).getByRole("button", { name: "Save and check" }));
     expect(within(dlg).getByRole("alert")).toHaveTextContent("Fix the highlighted fields.");
     expect(within(dlg).getByLabelText("Endpoint")).toHaveAttribute("aria-invalid", "true");
@@ -121,6 +123,7 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     const banner = within(c).getByRole("alert");
     expect(banner).toHaveTextContent("Fork detected");
     expect(banner).toHaveTextContent("Two devices published generation 2 by laptop.");
+    expect(banner).toHaveTextContent("three buttons (Cancel, Discard and resolve, Not now)"); // 6b B-6
     expect(within(c).getByRole("button", { name: "Sync now" })).toBeDisabled();
     mock.confirmResolve = false;
     fireEvent.click(within(banner).getByRole("button", { name: "Resolve: keep remote" }));

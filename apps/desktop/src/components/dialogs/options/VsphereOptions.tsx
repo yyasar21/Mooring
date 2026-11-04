@@ -46,8 +46,9 @@ export function VsphereOptions({ value, errors, onChange }: { value: VsphereConn
         />
         {value.allowPowerActions && (
           <Warn>
-            Each action asks for confirmation in a dialog Mooring opens itself, names the VM and the vCenter, and is recorded in the audit
-            log. Power off and reset are like pulling the plug and may lose data. Enabling this is logged as a warning.
+            Each action asks for confirmation in a system dialog with three buttons (Cancel, the action, Not now) that names the VM and
+            the vCenter; Return and Escape refuse, only a click on the action confirms, and every answer is recorded in the audit log.
+            Power off and reset are like pulling the plug and may lose data. Enabling this is logged as a warning.
           </Warn>
         )}
       </div>

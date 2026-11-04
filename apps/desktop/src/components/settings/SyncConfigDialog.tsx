@@ -20,7 +20,7 @@ export function BackendFields({ b, onChange, show, idPrefix = "sy" }: { b: SyncB
   );
   return (
     <>
-      {field("endpoint", "Endpoint", "https://s3.example.test", "https://host[:port] of AWS S3, MinIO or Ceph RGW. The certificate is pinned on first use (a native prompt).")}
+      {field("endpoint", "Endpoint", "https://s3.example.test", "https://host[:port] of AWS S3, MinIO or Ceph RGW. The certificate is checked on first use in two system dialogs with three buttons each: “Trust once (this sync only)”, then “Trust and remember”. Return and Escape refuse.")}
       <div className="settings-grid">
         {field("bucket", "Bucket", "team-vault", "Must honour conditional writes; the first save checks.")}
         {field("region", "Region", "us-east-1", "Signing region.")}

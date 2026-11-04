@@ -236,6 +236,8 @@ describe("vSphere · VM inspector", () => {
     const panel = () => within(details()).getByRole("region", { name: "Virtual machine" });
     const actionSpy = vi.spyOn(mock, "vsphereVmAction");
 
+    // 6b B-6: the hints describe the three-button system dialog (only a click on the action confirms)
+    expect(within(panel()).getByRole("button", { name: "Power" })).toHaveAttribute("title", expect.stringContaining("three buttons (Cancel, the action, Not now)"));
     fireEvent.click(within(panel()).getByRole("button", { name: "Power" }));
     fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /^Power off/ }));
     await settle();
@@ -286,6 +288,7 @@ describe("vSphere · VM inspector", () => {
       const opts = (await mock.connectionOptionsGet({ connectionId: "c-vc" })) as VsphereConnOptions;
       await useConnOptions.getState().save("c-vc", "vsphere-console", { ...opts, allowVmrc: true });
     });
+    expect(vmrc).toHaveAttribute("title", expect.stringContaining("three buttons (Cancel, Open, Not now)"));
     fireEvent.click(vmrc);
     await settle();
     expect(within(details()).getAllByRole("status").at(-1)).toHaveTextContent("Ticket handed to VMware Remote Console.");
