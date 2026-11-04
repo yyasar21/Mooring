@@ -22,6 +22,9 @@ mooring-proto-ssh = { path = "../crates/mooring-proto-ssh" }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
+# kubeconfig oracle re-scans accepted input with mooring-core's own YAML event parser (M-11);
+# same version as the root lockfile, no new crate in the tree.
+saphyr-parser = "=0.3.3"
 
 [[bin]]
 name = "known_hosts_parse"

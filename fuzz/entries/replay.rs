@@ -12,7 +12,20 @@ pub fn fuzz_dir() -> PathBuf {
 /// Run `entry` on every file in `fuzz/corpus/<target>/` and `fuzz/regressions/<target>/`
 /// (dot-files skipped). Returns how many inputs ran. Panics, naming the file, when the entry
 /// panics, and when the seed corpus is missing or empty (a silent pass would hide a broken path).
+#[allow(dead_code)] // not every including test uses both forms
 pub fn replay(target: &str, entry: fn(&[u8])) -> usize {
+    replay_except(target, entry, &[])
+}
+
+/// [`replay`], minus the named files in `fuzz/regressions/<target>/`. Only for a regression
+/// whose parser fix is still open; the caller must replay it in its own `#[ignore]`d test that
+/// names the finding, and each name must exist (a stale exception fails).
+#[allow(dead_code)] // not every including test uses both forms
+pub fn replay_except(target: &str, entry: fn(&[u8]), open_regressions: &[&str]) -> usize {
+    for name in open_regressions {
+        let path = fuzz_dir().join("regressions").join(target).join(name);
+        assert!(path.is_file(), "open regression {} does not exist", path.display());
+    }
     let mut ran = 0;
     for kind in ["corpus", "regressions"] {
         let dir = fuzz_dir().join(kind).join(target);
@@ -24,6 +37,10 @@ pub fn replay(target: &str, entry: fn(&[u8])) -> usize {
             .map(|e| e.expect("read corpus entry").path())
             .filter(|p| p.is_file())
             .filter(|p| p.file_name().is_some_and(|n| !n.to_string_lossy().starts_with('.')))
+            .filter(|p| {
+                kind != "regressions"
+                    || !p.file_name().is_some_and(|n| open_regressions.iter().any(|o| n == *o))
+            })
             .collect();
         files.sort();
         for file in files {
