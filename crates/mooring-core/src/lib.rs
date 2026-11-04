@@ -17,6 +17,7 @@ pub mod error;
 pub mod frame;
 pub mod known_certs;
 pub mod model;
+pub mod options;
 pub mod session;
 pub mod tree;
 
