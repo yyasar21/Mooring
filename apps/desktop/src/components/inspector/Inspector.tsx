@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { HudLabel, ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import { folderPath, useTree } from "../../stores/tree";
-import { useSessions } from "../../stores/sessions";
+import { lineState, useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
 
@@ -69,7 +69,7 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
           {tab && (
             <Prop k="Session">
               <span className="inline-flex items-center gap-2" style={{ color: tab.prompt ? "var(--hot)" : undefined }}>
-                <StateDot state={tab.state} /> {tab.prompt ? "waiting for you" : tab.state}
+                <StateDot state={lineState(tab.state)} /> {tab.prompt ? "waiting for you" : tab.state}
               </span>
             </Prop>
           )}

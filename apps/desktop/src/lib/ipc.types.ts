@@ -2,8 +2,10 @@
 // Nothing here ever carries a secret outward: credentials are metadata + ids only.
 import type { ProtocolName } from "@mooring/ui";
 import type { ExitIpc } from "./ipc.types.exit";
+import type { CertificateInfo, CloseCode, FrameHandler, ProtocolOptions, RemoteIpc } from "./ipc.types.remote";
 
 export * from "./ipc.types.exit";
+export * from "./ipc.types.remote";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -46,6 +48,8 @@ export interface ConnectionSummary {
   gatewayCredentialId: string | null;
   becomeCredentialId: string | null;
   tags: string[];
+  /** ADR-0011 per-protocol options; absent from a backend without migration 0005. */
+  options?: ProtocolOptions;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,6 +67,8 @@ export interface ConnectionFields {
   gatewayCredentialId: string | null;
   becomeCredentialId: string | null;
   tags: string[];
+  /** Omitted = leave the stored options unchanged (update) or `{}` (create). */
+  options?: ProtocolOptions;
 }
 
 export interface ConnectionHit {
@@ -190,7 +196,7 @@ export interface Size {
 }
 
 /** Why a prompt was raised; set by Rust, never derived from server text (review 2, L-2). */
-export type PromptPurpose = "host_key_trust" | "keyboard_interactive" | "credential" | "other";
+export type PromptPurpose = "host_key_trust" | "certificate_trust" | "keyboard_interactive" | "credential" | "other";
 
 /**
  * `purpose: "credential"` only (ADR-0009 `prompt` kind): what the connect-time form should ask.
@@ -203,12 +209,27 @@ export interface PromptAccount {
   needsDomain: boolean;
 }
 
+/**
+ * ADR-0011: `frame` is gone (pixels use the MFR1 `onFrame` channel), `closed` carries a code,
+ * `connected` the negotiated security, and RDP/VNC add `desktop_resized` and `reconnecting`.
+ * `detached` (ADR-0013) tells this view another window took the session over.
+ */
 export type SessionEvent =
-  | { kind: "connected"; protocol: Protocol; peerIdentity: string | null }
+  | { kind: "connected"; protocol: Protocol; peerIdentity: string | null; security: string | null }
   | { kind: "bytes"; data: Uint8Array }
-  | { kind: "frame"; x: number; y: number; width: number; height: number; rgba: Uint8Array }
-  | { kind: "prompt"; id: number; message: string; secret: boolean; purpose: PromptPurpose; account: PromptAccount | null }
-  | { kind: "closed"; reason: string };
+  | {
+      kind: "prompt";
+      id: number;
+      message: string;
+      secret: boolean;
+      purpose: PromptPurpose;
+      account: PromptAccount | null;
+      certificate: CertificateInfo | null;
+    }
+  | { kind: "desktop_resized"; width: number; height: number }
+  | { kind: "reconnecting"; attempt: number; delayMs: number }
+  | { kind: "detached" }
+  | { kind: "closed"; reason: string; code: CloseCode | "unknown" };
 
 export type SessionInput =
   | { kind: "bytes"; data: Uint8Array }
@@ -216,8 +237,17 @@ export type SessionInput =
   | { kind: "answer"; id: number; text: string }
   /** Answer to a `credential` prompt. Inward only; Rust holds `password` as a SecretString. */
   | { kind: "credential_answer"; id: number; username: string; domain: string | null; password: string }
+  /** Framebuffer pixels; `buttons` uses POINTER_BUTTON bits (not the DOM order). */
   | { kind: "pointer"; x: number; y: number; buttons: number }
-  | { kind: "key"; scancode: number; pressed: boolean };
+  /** `code` = KeyboardEvent.code (≤ 32 ASCII, layout independent), `key` = KeyboardEvent.key (≤ 32 B). */
+  | { kind: "key"; code: string; key: string; pressed: boolean }
+  /** 120 per notch, DOM sign: dy > 0 scrolls down, dx > 0 scrolls right. */
+  | { kind: "wheel"; dx: number; dy: number }
+  /** Text the IME composed, ≤ 64 chars per message. */
+  | { kind: "unicode"; text: string }
+  | { kind: "release_all" }
+  /** Rust reads the OS clipboard itself and announces it; the text never crosses IPC. */
+  | { kind: "clipboard_offer" };
 
 export type SessionEventHandler = (event: SessionEvent) => void;
 
@@ -244,8 +274,8 @@ export interface AuditVerify {
   brokenAt: number | null;
 }
 
-/** Every command of ADR-0008 / ADR-0009 / ADR-0010 (plus A0 vault/app commands and `window_detach`). */
-export interface Ipc extends ExitIpc {
+/** Every command of ADR-0008 … ADR-0013 (plus the A0 vault/app commands). */
+export interface Ipc extends ExitIpc, RemoteIpc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;
@@ -283,7 +313,8 @@ export interface Ipc extends ExitIpc {
   credentialCopyOtp(args: { id: string }): Promise<{ clearsInMs: number; validForMs: number }>;
   credentialParseAccount(args: { input: string }): Promise<ParsedAccount>;
 
-  sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler }): Promise<{ sessionId: string }>;
+  /** `onFrame` is required for rdp/vnc and refused for ssh (`input.invalid "onFrame"`). */
+  sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler; onFrame?: FrameHandler }): Promise<{ sessionId: string }>;
   sessionSend(args: { sessionId: string; input: SessionInput }): Promise<void>;
   sessionClose(args: { sessionId: string }): Promise<void>;
   sessionList(): Promise<SessionInfo[]>;
@@ -291,8 +322,8 @@ export interface Ipc extends ExitIpc {
   auditTail(args: { limit: number; before: number | null }): Promise<AuditEntry[]>;
   auditVerify(): Promise<AuditVerify>;
 
-  /** Not in ADR-0008 yet: moves a live session into its own window (rust-core to add). */
-  windowDetach(args: { sessionId: string }): Promise<void>;
+  /** ADR-0013: moves a live session into `detached-<sessionId>`; refused for web sessions. */
+  windowDetach(args: { sessionId: string }): Promise<{ windowLabel: string }>;
 
   /** ADR-0010: the backend locked the vault on its own (idle, screen lock, ...). Returns unsubscribe. */
   onVaultLocked(handler: VaultLockedHandler): () => void;

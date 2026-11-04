@@ -5,10 +5,11 @@
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AuditEntry, Ipc, ProgressHandler, PromptAccount, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
+import type { AuditEntry, FrameHandler, Ipc, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockTransport } from "./ipc.mock";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
+import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 
 export * from "./ipc.types";
 
@@ -27,24 +28,7 @@ export function inTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-// ---------- base64 (Bytes.data on the wire) ----------
-
-export function bytesToBase64(data: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < data.length; i += 0x8000) {
-    bin += String.fromCharCode(...data.subarray(i, i + 0x8000));
-  }
-  return btoa(bin);
-}
-
-export function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-// ---------- wire <-> UI shapes ----------
+export { base64ToBytes, bytesToBase64, decodeSessionEvent, encodeSessionInput } from "./ipc.decode.session";
 
 type WireRecord = Record<string, unknown>;
 
@@ -53,68 +37,6 @@ function str(v: unknown): string {
 }
 function num(v: unknown): number {
   return typeof v === "number" ? v : 0;
-}
-
-/** Decode one channel message. Unknown kinds become a `closed` event so the tab never hangs. */
-export function decodeSessionEvent(raw: unknown): SessionEvent {
-  const w = (typeof raw === "object" && raw !== null ? raw : {}) as WireRecord;
-  switch (w.kind) {
-    case "connected":
-      return {
-        kind: "connected",
-        protocol: str(w.protocol) as Protocol,
-        peerIdentity: typeof w.peer_identity === "string" ? w.peer_identity : null,
-      };
-    case "bytes":
-      return { kind: "bytes", data: base64ToBytes(str(w.data)) };
-    case "frame":
-      return {
-        kind: "frame",
-        x: num(w.x),
-        y: num(w.y),
-        width: num(w.width),
-        height: num(w.height),
-        rgba: base64ToBytes(str(w.rgba)),
-      };
-    case "prompt":
-      return {
-        kind: "prompt",
-        id: num(w.id),
-        message: str(w.message),
-        secret: w.secret === true,
-        purpose: promptPurpose(w.purpose),
-        account: w.purpose === "credential" ? promptAccount(w.account) : null,
-      };
-    case "closed":
-      return { kind: "closed", reason: str(w.reason) };
-    default:
-      return { kind: "closed", reason: "unrecognised session event" };
-  }
-}
-
-/** Unknown or missing purposes fall back to "other": never the trust dialog. */
-function promptPurpose(v: unknown): PromptPurpose {
-  return v === "host_key_trust" || v === "keyboard_interactive" || v === "credential" ? v : "other";
-}
-
-/** `account` of a credential prompt (snake_case on the wire). Missing = ask for everything. */
-function promptAccount(raw: unknown): PromptAccount {
-  const w = (typeof raw === "object" && raw !== null ? raw : {}) as WireRecord;
-  return {
-    username: typeof w.username === "string" ? w.username : null,
-    domain: typeof w.domain === "string" ? w.domain : null,
-    needsUsername: w.needs_username !== false,
-    needsDomain: w.needs_domain === true,
-  };
-}
-
-export function encodeSessionInput(input: SessionInput): WireRecord {
-  switch (input.kind) {
-    case "bytes":
-      return { kind: "bytes", data: bytesToBase64(input.data) };
-    default:
-      return { ...input };
-  }
 }
 
 /** Audit entries arrive flattened (`seq`, `at`, `prev`, `event`, ...event fields). */
@@ -133,8 +55,10 @@ export function decodeAuditEntry(raw: unknown): AuditEntry {
  * The only commands the UI may call from a timer (`setInterval`). Each must be passive on the
  * backend (`PASSIVE_COMMANDS` in `src-tauri/src/autolock.rs`): a polled command that counts as
  * activity keeps the idle lock from ever firing (review 4, M-8). A guard test enforces both.
+ * `session_frame_ack` is sent per drawn frame (30–60/s, from requestAnimationFrame), so it must
+ * never count as activity either (ADR-0011).
  */
-export const POLLED_COMMANDS: readonly string[] = ["audit_verify", "forward_list"];
+export const POLLED_COMMANDS: readonly string[] = ["audit_verify", "forward_list", "session_frame_ack"];
 
 // ---------- Tauri transport ----------
 
@@ -179,13 +103,8 @@ export class TauriTransport implements Ipc {
   credentialCopyOtp: Ipc["credentialCopyOtp"] = (a) => call("credential_copy_otp", { ...a });
   credentialParseAccount: Ipc["credentialParseAccount"] = (a) => call("credential_parse_account", { ...a });
 
-  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent }) => {
-    const channel = new Channel<unknown>();
-    channel.onmessage = (msg) => {
-      onEvent(decodeSessionEvent(msg));
-    };
-    return call("session_open", { connectionId, size, onEvent: channel });
-  };
+  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame }) =>
+    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}) });
   sessionSend: Ipc["sessionSend"] = ({ sessionId, input }) =>
     call("session_send", { sessionId, input: encodeSessionInput(input) });
   sessionClose: Ipc["sessionClose"] = (a) => call("session_close", { ...a });
@@ -198,6 +117,32 @@ export class TauriTransport implements Ipc {
   auditVerify: Ipc["auditVerify"] = () => call("audit_verify");
 
   windowDetach: Ipc["windowDetach"] = (a) => call("window_detach", { ...a });
+  windowAttach: Ipc["windowAttach"] = (a) => call("window_attach", { ...a });
+  sessionAttach: Ipc["sessionAttach"] = ({ sessionId, onEvent, onFrame }) =>
+    call("session_attach", { sessionId, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}) });
+
+  // ---------- ADR-0011 / ADR-0012 ----------
+
+  sessionFrameAck: Ipc["sessionFrameAck"] = (a) => call("session_frame_ack", { ...a });
+  sessionScreenshot: Ipc["sessionScreenshot"] = (a) => call("session_screenshot", { ...a });
+  sessionSetViewOnly: Ipc["sessionSetViewOnly"] = (a) => call("session_set_view_only", { ...a });
+  knownCertsList: Ipc["knownCertsList"] = async (a) => (await call<unknown[]>("known_certs_list", { ...a })).map(decodeKnownCert);
+  knownCertsRemove: Ipc["knownCertsRemove"] = (a) => call("known_certs_remove", { ...a });
+
+  // ---------- ADR-0013 ----------
+
+  webOpen: Ipc["webOpen"] = ({ connectionId, onEvent }) => {
+    const channel = new Channel<unknown>();
+    channel.onmessage = (msg) => { onEvent(decodeWebEvent(msg)); };
+    return call("web_open", { connectionId, onEvent: channel });
+  };
+  webClose: Ipc["webClose"] = (a) => call("web_close", { ...a });
+  webFocus: Ipc["webFocus"] = (a) => call("web_focus", { ...a });
+  webReload: Ipc["webReload"] = (a) => call("web_reload", { ...a });
+  webPrint: Ipc["webPrint"] = (a) => call("web_print", { ...a });
+  webClearData: Ipc["webClearData"] = (a) => call("web_clear_data", { ...a });
+  webZoom: Ipc["webZoom"] = (a) => call("web_zoom", { ...a });
+  webList: Ipc["webList"] = async () => (await call<unknown[]>("web_list")).map(decodeWebWindow);
 
   // ---------- ADR-0010 ----------
 
@@ -237,6 +182,22 @@ export class TauriTransport implements Ipc {
       off?.();
     };
   };
+}
+
+function eventChannel(onEvent: SessionEventHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => { onEvent(decodeSessionEvent(msg)); };
+  return channel;
+}
+
+/** The raw MFR1 channel (ADR-0011): binary bodies arrive as ArrayBuffer; anything else is dropped. */
+function frameChannel(onFrame: FrameHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => {
+    const buf = frameBuffer(msg);
+    if (buf) onFrame(buf);
+  };
+  return channel;
 }
 
 function progressChannel(onProgress: ProgressHandler): Channel {

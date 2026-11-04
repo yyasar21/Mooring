@@ -3,6 +3,7 @@
 // Session/audit methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
 import type {
+  CloseCode,
   ConnectionFields,
   ConnectionSummary,
   CredentialRole,
@@ -18,7 +19,9 @@ import { echo } from "./ipc.mock.shell";
 import { credentialValidFor, supportsOverride } from "./credentials";
 
 import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
-import { MockExitBase, type MockOptions } from "./ipc.mock.exit";
+import type { MockOptions } from "./ipc.mock.exit";
+import { MockWebBase } from "./ipc.mock.web";
+import type { RemoteTarget } from "./ipc.mock.remote";
 
 export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
@@ -35,7 +38,7 @@ interface MockSession {
   line: string;
 }
 
-export class MockTransport extends MockExitBase implements Ipc {
+export class MockTransport extends MockWebBase implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
   creds = new MockCredentials(seedCredentials());
@@ -60,6 +63,7 @@ export class MockTransport extends MockExitBase implements Ipc {
 
   protected requireSsh(sessionId: string): void {
     const s = this.sessions.get(sessionId);
+    if (!s && this.remote.has(sessionId)) throw new IpcError("input.invalid", "invalid sessionId: not an SSH session");
     if (!s) throw new IpcError("session.not_found", "session not found");
     if (s.info.protocol !== "ssh") throw new IpcError("input.invalid", "invalid sessionId: not an SSH session");
     if (s.info.state !== "connected") throw new IpcError("session.not_connected", "the session is not connected yet");
@@ -96,6 +100,19 @@ export class MockTransport extends MockExitBase implements Ipc {
 
   private resolve(c: ConnectionSummary): ConnectionSummary {
     return { ...c, tags: [...c.tags], effectiveCredentialId: this.effective(c.credentialId, c.folderId) };
+  }
+
+  protected target(connectionId: string): RemoteTarget {
+    const c = this.connection(connectionId);
+    const port = c.port ?? (c.protocol === "rdp" ? 3389 : c.protocol === "vnc" ? 5900 : 443);
+    return { connectionId, protocol: c.protocol, name: c.name, host: c.host, port, tags: [...c.tags], options: c.options };
+  }
+
+  protected attachOther(sessionId: string, onEvent: SessionEventHandler) {
+    const s = this.sessions.get(sessionId);
+    if (!s) return null;
+    s.emit = onEvent;
+    return { protocol: s.info.protocol, state: s.info.state, size: { width: 80, height: 24 } };
   }
 
   private isDescendant(id: string, of: string): boolean {
@@ -329,18 +346,20 @@ export class MockTransport extends MockExitBase implements Ipc {
 
   // ---------- sessions ----------
 
-  sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, onEvent }) => {
+  sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, size, onEvent, onFrame }) => {
     await this.unlocked();
     const c = this.resolve(this.connection(connectionId));
     const cred = c.effectiveCredentialId ? this.creds.get(c.effectiveCredentialId) : null;
     if (cred) this.compatible(cred.id, c.protocol, "primary");
+    if (c.protocol === "rdp" || c.protocol === "vnc") return this.openRemote(this.target(connectionId), size, onEvent, onFrame);
+    if (onFrame && c.protocol === "ssh") throw new IpcError("input.invalid", "invalid onFrame: not accepted for ssh sessions");
     const str = (v: unknown) => (typeof v === "string" ? v : null);
     const askCredential =
       cred?.kind === "prompt"
         ? {
             username: c.usernameOverride ?? str(cred.fields.username),
             domain: c.domainOverride ?? str(cred.fields.domain),
-            needsDomain: c.protocol === "rdp",
+            needsDomain: false,
           }
         : null;
     const sessionId = this.id("s");
@@ -364,6 +383,7 @@ export class MockTransport extends MockExitBase implements Ipc {
           secret: false,
           purpose: "host_key_trust",
           account: null,
+          certificate: null,
         });
       } else this.afterTrust(s);
     });
@@ -381,12 +401,13 @@ export class MockTransport extends MockExitBase implements Ipc {
         secret: true,
         purpose: "credential",
         account: { username: a.username, domain: a.domain, needsUsername: true, needsDomain: a.needsDomain },
+        certificate: null,
       });
       return;
     }
     if (s.needsOtp) {
       s.pending = "otp";
-      s.emit({ kind: "prompt", id: 2, message: "Verification code:", secret: true, purpose: "keyboard_interactive", account: null });
+      s.emit({ kind: "prompt", id: 2, message: "Verification code:", secret: true, purpose: "keyboard_interactive", account: null, certificate: null });
       return;
     }
     this.connect(s);
@@ -396,19 +417,24 @@ export class MockTransport extends MockExitBase implements Ipc {
     s.pending = null;
     s.info.state = "connected";
     this.record("session_opened", { connection: s.info.connectionId, protocol: s.info.protocol });
-    s.emit({ kind: "connected", protocol: s.info.protocol, peerIdentity: `SHA256:mock-${s.host}` });
+    s.emit({ kind: "connected", protocol: s.info.protocol, peerIdentity: `SHA256:mock-${s.host}`, security: null });
     s.emit({ kind: "bytes", data: enc.encode(`Mock shell on ${s.host}. Input is echoed.\r\n$ `) });
   }
 
-  private end(s: MockSession, reason: string): void {
+  private end(s: MockSession, reason: string, code: CloseCode = "server_ended"): void {
     s.info.state = "closed";
     this.dropSession(s.info.sessionId);
     this.sessions.delete(s.info.sessionId);
     this.record("session_closed", { connection: s.info.connectionId, reason });
-    s.emit({ kind: "closed", reason });
+    s.emit({ kind: "closed", reason, code });
   }
 
   sessionSend: Ipc["sessionSend"] = async ({ sessionId, input }) => {
+    const r = this.remote.get(sessionId);
+    if (r) {
+      this.sendRemote(r, input);
+      return;
+    }
     const s = this.sessions.get(sessionId);
     if (!s) throw new IpcError("session.not_found", "session not found");
     switch (input.kind) {
@@ -416,7 +442,7 @@ export class MockTransport extends MockExitBase implements Ipc {
         if (s.pending !== "credential" || input.id !== 3) throw new IpcError("input.invalid", "no such prompt");
         const ok = input.username.trim() !== "" && input.password.length > 0;
         this.record("credential_prompted", { connection: s.info.connectionId, username: input.username.trim() });
-        this.later(() => { if (ok) this.connect(s); else this.end(s, "authentication failed"); });
+        this.later(() => { if (ok) this.connect(s); else this.end(s, "authentication failed", "auth_failed"); });
         return;
       }
       case "answer": {
@@ -426,9 +452,9 @@ export class MockTransport extends MockExitBase implements Ipc {
           if (yes) {
             this.trustedHosts.add(s.host);
             this.later(() => { this.afterTrust(s); });
-          } else this.later(() => { this.end(s, "host key rejected"); });
+          } else this.later(() => { this.end(s, "host key rejected", "trust_rejected"); });
         } else if (s.pending === "otp" && input.id === 2) {
-          this.later(() => { if (input.text.length > 0) this.connect(s); else this.end(s, "authentication failed"); });
+          this.later(() => { if (input.text.length > 0) this.connect(s); else this.end(s, "authentication failed", "auth_failed"); });
         } else throw new IpcError("input.invalid", "no such prompt");
         return;
       }
@@ -444,29 +470,22 @@ export class MockTransport extends MockExitBase implements Ipc {
   };
 
   sessionClose: Ipc["sessionClose"] = async ({ sessionId }) => {
+    const r = this.remote.get(sessionId);
+    if (r) {
+      this.endRemote(r, "closed by user", "user");
+      return;
+    }
     const s = this.sessions.get(sessionId);
     if (!s) throw new IpcError("session.not_found", "session not found");
-    this.end(s, "closed by user");
+    this.end(s, "closed by user", "user");
   };
 
-  sessionList: Ipc["sessionList"] = async () => [...this.sessions.values()].map((s) => ({ ...s.info }));
-
-  // ---------- audit ----------
-
-  auditTail: Ipc["auditTail"] = async ({ limit, before }) => {
-    const capped = Math.max(1, Math.min(limit, 500));
-    return this.audit
-      .filter((e) => before === null || e.seq < before)
-      .slice()
-      .reverse()
-      .slice(0, capped)
-      .map((e) => ({ ...e, details: { ...e.details } }));
-  };
-
-  auditVerify: Ipc["auditVerify"] = async () => ({ ok: true, entries: this.audit.length, brokenAt: null });
+  sessionList: Ipc["sessionList"] = async () => [...[...this.sessions.values()].map((s) => ({ ...s.info })), ...this.remoteInfos()];
 
   windowDetach: Ipc["windowDetach"] = async ({ sessionId }) => {
-    // No-op in the browser: there is no second window to move the session into.
+    // The browser has no second window: the session is only recorded as detached.
+    if (!this.sessions.has(sessionId) && !this.remote.has(sessionId)) throw new IpcError("session.not_found", "session not found");
     this.detached.push(sessionId);
+    return { windowLabel: `detached-${sessionId}` };
   };
 }
