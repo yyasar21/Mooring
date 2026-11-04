@@ -13,3 +13,24 @@
   border: 1px solid var(--accent-line); box-shadow: var(--glow-accent);
 }
 .remote-stats [data-tone="hot"] { color: var(--hot); }
+
+.remote-toolbar { gap: 6px; }
+.remote-toolbar .spacer { flex: 1; }
+.remote-note { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+.remote-body .term-bezel { overflow: hidden; }
+
+/* connection state over the canvas */
+.link-banner {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; width: min(440px, calc(100% - 32px));
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; font-size: var(--fs-s);
+  background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  animation: pop-in var(--dur-mid) var(--ease-out);
+}
+.link-banner .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.link-countdown { font: 600 var(--fs-xl)/1 var(--font-display); letter-spacing: 0.06em; color: var(--accent); text-shadow: var(--text-glow); }
+.link-banner[data-tone="hot"] .link-countdown { color: var(--hot); }
+
+.cert-details { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: var(--fs-xs); }
+.cert-details dt { color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em; font: 500 var(--fs-2xs)/1.6 var(--font-display); }
+.cert-details dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.cert-fp { color: var(--accent); }

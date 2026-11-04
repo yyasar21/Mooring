@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { Kbd } from "@mooring/ui";
-import { useSessions, type Tab } from "../stores/sessions";
+import { isGraphical, useSessions, type Tab } from "../stores/sessions";
+import { RemoteSessionTab } from "./remote/RemoteSessionTab";
 import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";
 import { PromptModal } from "./terminal/PromptModal";
@@ -34,6 +35,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
   const reconnect = useSessions((s) => s.reconnect);
   const terminal = c?.protocol === "ssh" || c?.protocol === "kubernetes";
   const ssh = c?.protocol === "ssh";
+  const graphical = isGraphical(c?.protocol ?? tab.protocol);
   const [tool, setTool] = useState<SessionTool>("terminal");
   const liveSession = tab.state === "connected" ? tab.sessionId : null;
 
@@ -73,6 +75,8 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
         </>
       ) : terminal ? (
         bezel
+      ) : graphical ? (
+        <RemoteSessionTab tab={tab} active={active} connection={c} />
       ) : (
         <div className="panel-note m-hud">
           <div className="max-w-sm">
@@ -86,7 +90,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </div>
         </div>
       )}
-      {tab.state === "closed" && (
+      {tab.state === "closed" && !graphical && (
         <div className="dropped m-hud" data-tone="hot">
           <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>
           <span className="text-text-muted">Disconnected: {tab.reason ?? "session ended"}</span>

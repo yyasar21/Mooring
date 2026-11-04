@@ -42,6 +42,15 @@ export function subscribeFrames(tabId: string, listener: FrameListener): () => v
   };
 }
 
+/** Take the queued, undrawn messages of a tab (to return their credits). */
+export function drainFrames(tabId: string): ArrayBuffer[] {
+  const f = frames.get(tabId);
+  if (!f) return [];
+  const q = f.queue;
+  f.queue = [];
+  return q;
+}
+
 export function dropFrames(tabId?: string): void {
   if (tabId === undefined) frames.clear();
   else frames.delete(tabId);

@@ -120,6 +120,11 @@ export function RemoteCanvas(props: RemoteCanvasProps) {
     return () => {
       off();
       if (frameId) cancelRaf(frameId);
+      // Received but never drawn (unmount, lock): return their credits so the pump keeps going.
+      for (const m of pending.splice(0)) {
+        const seq = peekSeq(m);
+        if (seq !== null) cb.current.onAck(seq);
+      }
       canvas.removeEventListener("webglcontextlost", lost);
       canvas.removeEventListener("webglcontextrestored", restored);
       renderer.current?.dispose();

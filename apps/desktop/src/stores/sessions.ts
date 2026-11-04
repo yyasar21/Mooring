@@ -14,7 +14,8 @@ import {
 } from "../lib/ipc";
 import type { LineState } from "@mooring/ui";
 import { errorText } from "./errors";
-import { dropFrames, pushFrame } from "./frames";
+import { drainFrames, dropFrames, pushFrame } from "./frames";
+import { peekSeq } from "../lib/frame/mfr1";
 import { useTree } from "./tree";
 
 export type TabState = "connecting" | "connected" | "reconnecting" | "detached" | "closed";
@@ -151,7 +152,8 @@ export function ackFrame(tabId: string, seq: number): void {
   if (sid) ackSession(sid, seq);
 }
 
-function ackSession(sessionId: string, seq: number): void {
+/** The same by session id: still valid while the tab is being torn down (lock). */
+export function ackSession(sessionId: string, seq: number): void {
   ipc.sessionFrameAck({ sessionId, seq }).catch(() => undefined);
 }
 
@@ -239,8 +241,8 @@ export const useSessions = create<SessionState>((set, get) => {
     if (tabOf(tabId)) pushFrame(tabId, message, ack);
     else {
       const sid = [...tabOfSession].find(([, t]) => t === tabId)?.[0];
-      const view = new DataView(message);
-      if (sid && message.byteLength >= 8) ackSession(sid, view.getUint32(4, true));
+      const seq = peekSeq(message);
+      if (sid && seq !== null) ackSession(sid, seq);
     }
   };
 
@@ -450,6 +452,13 @@ export const useSessions = create<SessionState>((set, get) => {
 
     reset: () => {
       outputs.clear();
+      // Sessions outlive a lock: give back the credits of frames no canvas will draw now.
+      for (const t of get().tabs) {
+        for (const m of drainFrames(t.id)) {
+          const seq = peekSeq(m);
+          if (t.sessionId && seq !== null) ackSession(t.sessionId, seq);
+        }
+      }
       dropFrames();
       set({ tabs: [], activeTab: null, error: null });
     },

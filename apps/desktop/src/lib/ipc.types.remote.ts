@@ -96,6 +96,9 @@ export interface CertificateInfo {
 /** One MFR1 message from the `onFrame` channel. The UI must ack its `seq` once drawn. */
 export type FrameHandler = (message: ArrayBuffer) => void;
 
+/** ADR-0011 reconnect schedule: 1, 2, 4, 8, 16, 30 s (±20 %), at most 6 attempts. */
+export const RECONNECT_MAX_ATTEMPTS = 6;
+
 // ---------- inputs ----------
 
 /** ADR-0011 pointer buttons (not the DOM order): 1 left, 2 middle, 4 right, 8 back, 16 forward. */
