@@ -107,6 +107,8 @@ pub type SessionRegistry = Arc<Mutex<HashMap<String, SessionHandle>>>;
 pub struct Ready {
     vault: Arc<Mutex<Option<Vault>>>,
     store: Arc<Mutex<StoreSlot>>,
+    /// ADR-0016 E2: resolves `external_ref` credentials at connect (and on every reconnect).
+    pub(crate) secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
 }
 
 impl Ready {
@@ -175,6 +177,8 @@ pub struct AppState {
     pub web: crate::web::WebRegistry,
     /// Hides / shows the web and detached windows on lock / unlock (ADR-0013).
     pub lock_observer: crate::window_lock::LockObserver,
+    /// ADR-0016 E2: token cache, renewer, OIDC flows (memory only).
+    pub secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
 }
 
 /// Errors while loading state at startup.
@@ -223,11 +227,15 @@ impl AppState {
         if store.root_folder()?.is_none() {
             store.create_folder(None, ROOT_FOLDER_NAME)?;
         }
+        let audit = Arc::new(Mutex::new(audit));
+        let secrets =
+            Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
         Ok(Self {
+            secrets,
             data_dir,
             vault: Arc::new(Mutex::new(vault)),
             store: Arc::new(Mutex::new(StoreSlot { store: Some(store), bound_to: None })),
-            audit: Arc::new(Mutex::new(audit)),
+            audit,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             settings,
             pending_clipboard: Arc::new(Mutex::new(None)),
@@ -259,7 +267,11 @@ impl AppState {
 
     /// A `'static` handle on the vault and the store (session tasks).
     pub fn ready(&self) -> Ready {
-        Ready { vault: Arc::clone(&self.vault), store: Arc::clone(&self.store) }
+        Ready {
+            vault: Arc::clone(&self.vault),
+            store: Arc::clone(&self.store),
+            secrets: Arc::clone(&self.secrets),
+        }
     }
 
     /// Persist the current vault header (contains no secret material).
@@ -339,6 +351,8 @@ impl AppState {
     /// purge, review condition 1) and drop the live sessions. Called from `RunEvent::Exit`.
     pub fn shutdown(&self) {
         self.clear_pending_clipboard();
+        // ADR-0016 E2: revoke Mooring-minted Vault tokens (bounded), forget all.
+        self.secrets.shutdown();
         if let Ok(mut sessions) = self.sessions.lock() {
             for (_, handle) in sessions.drain() {
                 handle.abort();

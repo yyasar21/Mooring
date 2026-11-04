@@ -94,4 +94,15 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("kube_exec_open", Scope::Main),
     ("kube_logs_open", Scope::Main),
     ("kube_logs_close", Scope::Main),
+    // ADR-0016 E2: secret sources (main only; the oidc-* window has an empty capability).
+    ("secret_source_list", Scope::Main),
+    ("secret_source_get", Scope::Main),
+    ("secret_source_create", Scope::Main),
+    ("secret_source_update", Scope::Main),
+    ("secret_source_delete", Scope::Main),
+    ("secret_source_test", Scope::Main),
+    ("secret_source_revoke", Scope::Main),
+    ("credential_external_test", Scope::Main),
+    ("secret_source_oidc_begin", Scope::Main),
+    ("secret_source_oidc_status", Scope::Main),
 ];

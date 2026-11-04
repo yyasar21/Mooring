@@ -3978,6 +3978,7 @@ dependencies = [
  "mooring-proto-rdp",
  "mooring-proto-ssh",
  "mooring-proto-vnc",
+ "mooring-secrets",
  "mooring-store",
  "mooring-testsrv",
  "mooring-vault",

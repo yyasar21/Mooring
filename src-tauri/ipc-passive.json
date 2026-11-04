@@ -6,6 +6,7 @@
   "kube_access",
   "kube_namespaces",
   "kube_pods",
+  "secret_source_oidc_status",
   "session_frame_ack",
   "session_list",
   "sftp_transfers",

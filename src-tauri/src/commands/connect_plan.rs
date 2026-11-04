@@ -134,8 +134,14 @@ fn become_of(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<Become> {
     })
 }
 
-/// Resolve everything for `session_open` (and each graphical reconnect).
-pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<Plan> {
+/// Resolve everything for `session_open` (and each graphical reconnect). An `external_ref`
+/// primary or `become` credential is resolved first, outside every lock (ADR-0016 §3).
+pub(crate) async fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<Plan> {
+    let ext = external::prefetch(ready, connection_id).await?;
+    plan_with(ready, connection_id, size, &ext)
+}
+
+fn plan_with(ready: &Ready, connection_id: &str, size: Size, ext: &external::External) -> IpcResult<Plan> {
     let id = dto::connection_id("connectionId", connection_id)?;
     ready.with_ready(|vault, store| {
         let c = store.get_connection(id)?;
@@ -157,7 +163,9 @@ pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<
             None => (None, ConnectSecret::None),
             Some(r) => {
                 used.push(r.id.to_string());
-                if protocol == Protocol::Ssh {
+                if let CredentialFields::ExternalRef(_) = &r.fields {
+                    external::secret(ext.primary(r.id)?, protocol)?
+                } else if protocol == Protocol::Ssh {
                     ssh_secret(store, vault, &r)?
                 } else {
                     graphical_secret(store, vault, &r, protocol)?
@@ -167,7 +175,11 @@ pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<
         let r#become = match store.resolve_credential(id, Role::Become)? {
             Some(r) if protocol == Protocol::Ssh => {
                 used.push(r.id.to_string());
-                Some(become_of(store, vault, &r)?)
+                if let CredentialFields::ExternalRef(_) = &r.fields {
+                    Some(external::become_of(ext.r#become(r.id)?)?)
+                } else {
+                    Some(become_of(store, vault, &r)?)
+                }
             }
             _ => None,
         };
@@ -271,3 +283,8 @@ pub(crate) fn kube(ready: &Ready, connection_id: &str) -> IpcResult<KubePlan> {
     })
 }
 // --- end ADR-0014 K4 ----------------------------------------------------------------------
+
+// --- ADR-0016 E2: external_ref resolution ----------------------------------------------------
+#[path = "connect_plan_external.rs"]
+mod external;
+pub(crate) use external::source_error;

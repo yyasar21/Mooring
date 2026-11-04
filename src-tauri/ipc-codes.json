@@ -1,6 +1,7 @@
 [
   "audit.io",
   "clipboard.unavailable",
+  "credential.in_use",
   "credential.incompatible",
   "credential.kind_unsupported",
   "credential.kubeconfig_rejected",
@@ -33,6 +34,8 @@
   "sftp.exists",
   "sftp.failed",
   "sftp.not_found",
+  "source.in_use",
+  "source.not_found",
   "state.internal",
   "state.io",
   "state.poisoned",

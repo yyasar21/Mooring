@@ -130,7 +130,7 @@ pub async fn open_with(
     if frames.is_some() {
         return Err(IpcError::invalid("onFrame", "only rdp and vnc sessions send frames"));
     }
-    let Plan { params, used, .. } = connect_plan::plan(&state.ready(), connection_id, size)?;
+    let Plan { params, used, .. } = connect_plan::plan(&state.ready(), connection_id, size).await?;
     for cred in used {
         state.audit(AuditEvent::CredentialUsed {
             credential: cred,

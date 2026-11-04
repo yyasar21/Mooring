@@ -63,6 +63,8 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "kube_access",
     "kube_namespaces",
     "kube_pods",
+    // ADR-0016 E2: polled while the OIDC window is open.
+    "secret_source_oidc_status",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

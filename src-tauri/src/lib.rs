@@ -28,6 +28,8 @@ test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_fac
 test_util_pub!(guard, route, web, window_lock);
 // ADR-0014 K4: Kubernetes cluster / exec sessions.
 test_util_pub!(kube_sessions);
+// ADR-0016 E2: token cache / renewer runtime and the OIDC window.
+test_util_pub!(oidc_window, secrets_runtime);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -38,6 +40,9 @@ pub(crate) mod navigation;
 /// Scripted RDP/VNC session and factory for the graphical tests.
 #[cfg(test)]
 mod test_graphical;
+/// Vault mock fixtures for the ADR-0016 E2 tests.
+#[cfg(test)]
+mod test_secrets;
 /// In-process russh server for the session tests (loopback only).
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_ssh_server;
@@ -54,6 +59,8 @@ use crate::commands::{conn_options, known_certs, session_graphics};
 use crate::commands::{detach, web as web_cmds};
 // ADR-0014 K4
 use crate::commands::{kube, kube_logs};
+// ADR-0016 E2
+use crate::commands::{secret_sources, secret_sources_oidc};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -82,6 +89,8 @@ pub fn run() {
             autolock::install(app);
             // ADR-0013: web and detached windows hide while the vault is locked.
             window_lock::install(app);
+            // ADR-0016 E2: OIDC window backend + Vault token renewer.
+            oidc_window::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
@@ -173,6 +182,17 @@ pub fn run() {
             kube::kube_exec_open,
             kube_logs::kube_logs_open,
             kube_logs::kube_logs_close,
+            // ADR-0016 E2: external secret sources
+            secret_sources::secret_source_list,
+            secret_sources::secret_source_get,
+            secret_sources::secret_source_create,
+            secret_sources::secret_source_update,
+            secret_sources::secret_source_delete,
+            secret_sources::secret_source_test,
+            secret_sources::secret_source_revoke,
+            secret_sources::credential_external_test,
+            secret_sources_oidc::secret_source_oidc_begin,
+            secret_sources_oidc::secret_source_oidc_status,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

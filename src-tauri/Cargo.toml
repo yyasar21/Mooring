@@ -31,6 +31,7 @@ mooring-proto-rdp = { path = "../crates/mooring-proto-rdp", version = "0.1.0-rc.
 mooring-proto-vnc = { path = "../crates/mooring-proto-vnc", version = "0.1.0-rc.1" } # ADR-0012: VNC sessions (own RFB 3.8 client)
 mooring-proto-kube = { path = "../crates/mooring-proto-kube", version = "0.1.0-rc.1" } # ADR-0014 K4: read-only Kubernetes sessions (K3 crate, reviewed with K3)
 mooring-http = { path = "../crates/mooring-http", version = "0.1.0-rc.1" } # ADR-0014 K4: HttpConfig template for the kube client (K1 crate)
+mooring-secrets = { path = "../crates/mooring-secrets", version = "0.1.0-rc.1" } # ADR-0016 E2: Vault / OpenBao resolver (E1 crate, no third-party dependency)
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }
