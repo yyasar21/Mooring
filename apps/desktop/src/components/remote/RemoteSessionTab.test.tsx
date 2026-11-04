@@ -34,7 +34,8 @@ describe("RemoteSessionTab", () => {
     const dialog = screen.getByRole("alertdialog", { name: "Verify server certificate" });
     expect(dialog).toHaveTextContent("CN=dc01.example.test");
     expect(dialog).toHaveTextContent("Self-signed");
-    fireEvent.click(screen.getByRole("button", { name: "Trust and connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Trust and remember" }));
+    await vi.waitFor(() => { expect(tab()?.state).toBe("connected"); });
     await settle();
     expect(screen.queryByRole("alertdialog")).toBeNull();
     const tools = screen.getByRole("toolbar", { name: "Remote desktop tools" });
@@ -67,9 +68,24 @@ describe("RemoteSessionTab", () => {
     mock.reconnectDelaysMs = [4000, 8000];
     act(() => { mock.dropLink(tab()?.sessionId ?? "", 1); });
     await settle(1);
-    expect(screen.getByText("Link lost · reconnecting")).toBeInTheDocument();
+    expect(screen.getByText(/^Link lost · reconnecting to /)).toBeInTheDocument();
     expect(screen.getByText(/Attempt 1 of 6/)).toBeInTheDocument();
     expect(screen.getByLabelText("Next attempt in 4 seconds")).toHaveTextContent("4 s");
+    expect(screen.getByRole("list", { name: "Attempt 1 of 6" }).children).toHaveLength(6);
+  });
+
+  it("Cancel reconnect ends the retries and leaves a closed tab with Reconnect", async () => {
+    await act(async () => { await useSessions.getState().open("c-kiosk"); });
+    render(<TabUnderTest connectionId="c-kiosk" />);
+    await settle();
+    mock.reconnectDelaysMs = [60_000];
+    act(() => { mock.dropLink(tab()?.sessionId ?? "", 1); });
+    await settle(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel reconnect" }));
+    await settle();
+    expect(tab()).toMatchObject({ state: "closed", closeCode: "user" });
+    expect(screen.getByText("Session closed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reconnect" })).toBeEnabled();
   });
 
   it("names the close code and offers Reconnect", async () => {

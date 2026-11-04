@@ -23,6 +23,14 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "transfer.limit": "Too many transfers are running. Wait for one to finish.",
   "transfer.not_found": "That transfer has already finished.",
   "syslog.not_configured": "Save the syslog settings before sending a test entry.",
+  "session.trust_rejected": "You rejected the server certificate, so Mooring did not connect. Nothing was stored.",
+  "session.trust_mismatch":
+    "The server certificate changed since you trusted it, so Mooring stopped. If the server was reinstalled, confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and connect again.",
+  "session.unsupported_security":
+    "The server offers only security Mooring refuses (for example an old RFB version, or TLS without NLA while that option is off).",
+  "protocol.unavailable": "This protocol is not available in this build of Mooring.",
+  "ipc.forbidden": "This window is not allowed to do that. Use the main Mooring window.",
+  "clipboard.unavailable": "The system clipboard is not available right now.",
 };
 
 export function describeError(e: unknown): string {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PendingPrompt } from "../../stores/sessions";
 import { useSessions } from "../../stores/sessions";
 import { CredentialPrompt } from "./CredentialPrompt";
-import { CertificateDetails } from "../remote/CertificateDetails";
+import { CertificateTrustDialog } from "../remote/CertificateTrustDialog";
 
 /**
  * Inline modal over the terminal for a session `Prompt` (TOFU host key, keyboard-interactive).
@@ -13,6 +13,7 @@ import { CertificateDetails } from "../remote/CertificateDetails";
  */
 export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
   if (prompt.purpose === "credential") return <CredentialPrompt tabId={tabId} prompt={prompt} host={host} />;
+  if (prompt.purpose === "certificate_trust" && !prompt.secret) return <CertificateTrustDialog tabId={tabId} prompt={prompt} />;
   return <AnswerPrompt tabId={tabId} prompt={prompt} host={host} />;
 }
 
@@ -20,8 +21,7 @@ function AnswerPrompt({ tabId, prompt, host }: { tabId: string; prompt: PendingP
   const answer = useSessions((s) => s.answer);
   const [text, setText] = useState("");
   const firstRef = useRef<HTMLInputElement & HTMLButtonElement>(null);
-  const isCert = prompt.purpose === "certificate_trust" && !prompt.secret;
-  const isTrust = (prompt.purpose === "host_key_trust" || isCert) && !prompt.secret;
+  const isTrust = prompt.purpose === "host_key_trust" && !prompt.secret;
   const headingId = `prompt-h-${tabId}`;
   const bodyId = `prompt-b-${tabId}`;
 
@@ -51,22 +51,19 @@ function AnswerPrompt({ tabId, prompt, host }: { tabId: string; prompt: PendingP
         }}
       >
         <p aria-hidden className="m-micro mb-2" style={{ color: "var(--hot)" }}>
-          {isCert ? "Untrusted certificate" : isTrust ? "Unknown host key" : "Remote prompt"}
+          {isTrust ? "Unknown host key" : "Remote prompt"}
         </p>
         <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
           <span aria-hidden className="tab-attn" />
-          {isCert ? "Verify server certificate" : isTrust ? "Verify host identity" : `${host} asks`}
+          {isTrust ? "Verify host identity" : `${host} asks`}
         </h2>
         <p id={bodyId} className="mono mt-3 whitespace-pre-wrap border-l-2 border-[var(--hot-line)] bg-bg-sunken p-3 text-text select-text">
           {prompt.message}
         </p>
-        {isCert && prompt.certificate && <CertificateDetails cert={prompt.certificate} />}
         {isTrust ? (
           <>
             <p className="mt-3 text-[length:var(--fs-s)] text-text-muted">
-              {isCert
-                ? "Compare the SHA-256 fingerprint with one you got from the server owner. Trusting pins this certificate for this host and port; if it changes later, the connection stops."
-                : "Compare the fingerprint with one you got from the server owner. Trusting records it in the audit log."}
+              Compare the fingerprint with one you got from the server owner. Trusting records it in the audit log.
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="btn btn-ghost" onClick={() => { send("no"); }}>
