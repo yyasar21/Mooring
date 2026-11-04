@@ -54,6 +54,27 @@ impl RemoteFile<'_> {
     }
 }
 
+/// Removes the temporary download file when a transfer is dropped mid-way (cancel). The
+/// `NamedTempFile` may be owned by an in-flight blocking write at that moment and would only
+/// be deleted once that write returns; this guard deletes the path at once, so "cancelled"
+/// means "no partial file" without a race (review 4, N-15).
+struct RemoveOnDrop(Option<PathBuf>);
+
+impl RemoveOnDrop {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            // Best effort: already gone when the NamedTempFile was dropped first.
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
 /// Where a download lands.
 struct Target {
     parent: PathBuf,
@@ -179,6 +200,7 @@ impl SftpClient {
     ) -> Result<u64, MooringError> {
         let Target { parent, path: target, overwrite } = to;
         let mut tmp = Some(blocking(move || tempfile::NamedTempFile::new_in(parent)).await?);
+        let mut guard = RemoveOnDrop(tmp.as_ref().map(|t| t.path().to_path_buf()));
         let mut done = 0u64;
         progress(0, total);
         loop {
@@ -210,7 +232,10 @@ impl SftpClient {
             .await,
         )?;
         match persisted {
-            Ok(()) => Ok(done),
+            Ok(()) => {
+                guard.disarm();
+                Ok(done)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(MooringError::Invalid {
                 field: "local path",
                 reason: crate::TARGET_EXISTS.to_owned(),

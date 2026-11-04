@@ -207,13 +207,7 @@ async fn cancel_stops_a_download_and_leaves_no_partial_file() {
     assert_eq!(last.state, "cancelled", "{last:?}");
     assert!(last.bytes_done < 8 * 1024 * 1024);
     assert!(list(st, sid).expect("list").is_empty(), "finished transfers are not listed");
-    // The temp file is dropped (deleted) when the in-flight block write returns.
-    for _ in 0..100 {
-        if std::fs::read_dir(dst.path()).expect("dir").count() == 0 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    // Deterministic (N-15): the temp file is removed before the final event is sent.
     assert_eq!(std::fs::read_dir(dst.path()).expect("dir").count(), 0, "no partial file");
     let e = cancel(st, sid, &started.transfer_id).expect_err("already gone");
     assert_eq!(e.code, "transfer.not_found");

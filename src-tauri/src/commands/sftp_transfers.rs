@@ -11,8 +11,9 @@
 //!
 //! Each transfer runs in its own task, streams in 256 KiB blocks (≤ 8 requests in flight,
 //! crate-enforced), reports `Progress` after every block and ends with exactly one final
-//! `done` / `failed` / `cancelled` event and one `sftp_transfer` audit entry (direction,
-//! bytes, outcome; never contents). A cancelled download leaves no partial local file.
+//! `done` / `failed` / `cancelled` event, preceded by one `sftp_transfer` audit entry
+//! (direction, bytes, outcome; never contents). A cancelled download leaves no partial local
+//! file by the time its final event is sent.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -195,18 +196,19 @@ fn start(
             Err(Some(reason)) => ("failed", done.load(Ordering::Relaxed), Some(reason)),
         };
         let total = matches!(state, "done").then_some(bytes);
-        let p = Progress { transfer_id: id.clone(), bytes_done: bytes, bytes_total: total, state, error };
-        let _ = sink(p);
+        // Audit first: when the UI (or a test) sees the final event, the entry is written.
         record_audit(
             &audit,
             AuditEvent::SftpTransfer {
                 connection,
-                transfer: id,
+                transfer: id.clone(),
                 direction: direction.as_str().to_owned(),
                 bytes,
                 outcome: state.to_owned(),
             },
         );
+        let p = Progress { transfer_id: id, bytes_done: bytes, bytes_total: total, state, error };
+        let _ = sink(p);
     });
     Ok(Started { transfer_id })
 }
