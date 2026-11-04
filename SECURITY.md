@@ -112,4 +112,7 @@ Mooring client must be treated as an alert. Every app start with a stored config
 `"enabled":false` when it is off), a redirect writes `audit_syslog_changed` to the old collector
 and then to the new one, and a running mirror sends `audit_heartbeat { seq }` every hour.
 Collectors should alert when a host that has sent `audit_syslog_started` misses two
-consecutive heartbeats.
+consecutive heartbeats. Messages are RFC 5424 with `APP-NAME` `mooring` and the structured-data
+element `[mooring@32473 seq="…" hash="…"]` (32473 is the RFC 5612 documentation enterprise
+number, used until Mooring's own IANA number is assigned); `trunc="1"` or `redacted="1"` marks a
+line whose MSG no longer matches its `hash`, so verify those against the local log.
