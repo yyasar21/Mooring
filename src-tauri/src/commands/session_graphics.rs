@@ -67,6 +67,8 @@ pub fn attach(state: &AppState, session_id: &str) -> IpcResult<Attached> {
 /// `session_screenshot({ sessionId })`: the Rust framebuffer goes to the OS clipboard as an
 /// image (no pixels cross IPC). Audited `session_screenshot`.
 pub fn screenshot(state: &AppState, session_id: &str) -> IpcResult<DesktopSize> {
+    // L-26: never behind the lock screen (it would re-fill the clipboard the lock cleared).
+    state.with_ready(|_, _| Ok(()))?;
     let (g, connection, _) = graphical(state, session_id)?;
     let (w, h, rgba) = g.frames.snapshot();
     if w == 0 || h == 0 {
@@ -87,9 +89,12 @@ pub fn screenshot(state: &AppState, session_id: &str) -> IpcResult<DesktopSize> 
 
 /// `session_set_view_only({ sessionId, viewOnly })`: drop pointer, key, wheel, text and
 /// clipboard input while on (`release_all` always passes).
+/// Needs an unlocked vault; audited `session_view_only` (L-26).
 pub fn set_view_only(state: &AppState, session_id: &str, view_only: bool) -> IpcResult<()> {
-    let (g, _, _) = graphical(state, session_id)?;
+    state.with_ready(|_, _| Ok(()))?;
+    let (g, connection, _) = graphical(state, session_id)?;
     g.view_only.store(view_only, Ordering::Relaxed);
+    state.audit(AuditEvent::SessionViewOnly { connection, view_only });
     Ok(())
 }
 

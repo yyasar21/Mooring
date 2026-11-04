@@ -252,6 +252,16 @@ async fn view_only_drops_input_but_release_all_passes() {
     gfx::set_view_only(&b.f.state, &ui.session_id, false).expect("off");
     sess::send(&b.f.state, &ui.session_id, WireInput::Wheel { dx: 0, dy: 120 }).await.expect("wheel");
     assert!(matches!(conn.input().await, SessionInput::Wheel { dx: 0, dy: 120 }), "DOM sign unchanged");
+    // L-26: each toggle is audited; screenshot and the toggle need an unlocked vault.
+    let log = audit(&b);
+    assert_eq!(log.matches(r#""event":"session_view_only""#).count(), 2, "{log}");
+    assert!(log.contains(r#""view_only":true"#) && log.contains(r#""view_only":false"#), "{log}");
+    conn.frames.resize(4, 2).expect("resize");
+    crate::commands::vault::lock(&b.f.state, None).expect("lock");
+    let e = gfx::set_view_only(&b.f.state, &ui.session_id, true).expect_err("locked");
+    assert_eq!(e.code, "vault.locked");
+    assert_eq!(gfx::screenshot(&b.f.state, &ui.session_id).expect_err("locked").code, "vault.locked");
+    assert_eq!(b.f.clipboard.peek_image(), None, "nothing captured behind the lock");
 }
 
 #[tokio::test]

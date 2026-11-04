@@ -260,6 +260,13 @@ pub enum AuditEvent {
         /// Height in pixels.
         height: u32,
     },
+    /// `session_set_view_only` toggled a session's view-only switch (ADR-0012 §IPC, L-26).
+    SessionViewOnly {
+        /// Connection id.
+        connection: String,
+        /// The new state.
+        view_only: bool,
+    },
     /// `connection_options_set` changed stored options (review 5 L-22). Field **names** only;
     /// no values except the SHA-256 fingerprints of a new `caPem`.
     ConnectionOptionsChanged {
