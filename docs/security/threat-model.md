@@ -273,6 +273,10 @@ the user types them anyway.
   forwarding is never requested.
 - TOFU accepted but `known_hosts` not writable: the key is trusted for this session only. N-3
   makes that visible in the audit log.
+- GHSA-wrw7-89jp-8q8g (`glib` 0.18, Linux only): pulled in by Tauri's GTK/WebKitGTK bindings,
+  which pin the gtk-rs 0.18 line; no Mooring code calls `glib` directly. Fixed upstream in
+  gtk-rs 0.20, which Tauri has not adopted yet. Revisit at every Tauri minor; the alert is left
+  open on purpose until then.
 
 ## Open items
 - [ ] **A1 exit (review 4, re-review after fix round 4: `APPROVE WITH NITS`):**
