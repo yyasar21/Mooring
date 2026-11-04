@@ -268,6 +268,11 @@ fn confirm_refused_has_a_stable_wire_name() {
     let v = serde_json::to_value(&e).expect("json");
     assert_eq!(v["event"], "confirm_refused");
     assert_eq!(v["reason"], "busy");
+    let v = serde_json::to_value(AuditEvent::ConfirmRefusedSuppressed { count: 7 }).expect("json");
+    assert_eq!(
+        (v["event"].clone(), v["count"].clone()),
+        ("confirm_refused_suppressed".into(), 7.into())
+    );
 }
 
 #[test]

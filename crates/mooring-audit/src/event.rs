@@ -663,4 +663,10 @@ pub enum AuditEvent {
         /// `busy` | `cooldown`.
         reason: String,
     },
+    /// Native-confirmation refusals beyond the first 16 of an hour of process uptime, counted
+    /// and written once per hour (`confirm_refused_suppressed`, review 6b N-47).
+    ConfirmRefusedSuppressed {
+        /// Refusals that got no row of their own.
+        count: u64,
+    },
 }

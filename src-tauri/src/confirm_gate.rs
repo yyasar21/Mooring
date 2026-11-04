@@ -9,8 +9,12 @@
 //!   fork resolution) the same action on the same target is refused for [`COOLDOWN`]
 //!   (`confirm.cooldown`), so a stray Enter cannot be fished for by re-asking at once.
 //!
-//! Both refusals are audited (`confirm_refused`). The gate lives in `AppState::confirm`; every
-//! prompter (`vsphere_confirm::Prompt`, `sync_gate`) acquires a [`Slot`] before showing.
+//! Both refusals are audited (`confirm_refused`), bounded (6b N-47): the first [`AUDITED`]
+//! refusals of each hour of process uptime get a row each, the rest are counted and written
+//! as one `confirm_refused_suppressed { count }` row when the next hour starts, so a T5 that
+//! loops a command behind an open dialog cannot grow the hash chain without bound. The gate
+//! lives in `AppState::confirm`; every prompter (`vsphere_confirm::Prompt`, `sync_gate`)
+//! acquires a [`Slot`] before showing.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -23,6 +27,10 @@ use crate::state::record_audit;
 
 /// How long a cancelled destructive confirmation blocks the same action on the same target.
 pub const COOLDOWN: Duration = Duration::from_secs(10);
+/// Refusals audited one by one per [`AUDIT_WINDOW`] (N-47).
+pub const AUDITED: u32 = 16;
+/// The process-uptime window of the refusal budget.
+pub const AUDIT_WINDOW: Duration = Duration::from_secs(3600);
 
 /// What a confirmation is about (audit names only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,10 +43,40 @@ pub struct Scope<'s> {
     pub destructive: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Inner {
     open: bool,
     cooldowns: HashMap<String, Instant>,
+    /// Start of the current refusal-budget window.
+    window: Instant,
+    /// Refusals audited in this window.
+    audited: u32,
+    /// Refusals counted only in this window.
+    suppressed: u64,
+}
+
+impl Inner {
+    fn new(now: Instant) -> Self {
+        Self { open: false, cooldowns: HashMap::new(), window: now, audited: 0, suppressed: 0 }
+    }
+
+    /// Account one refusal at `now`: `(write its own row, summary of the closed window)`.
+    fn refusal(&mut self, now: Instant) -> (bool, Option<u64>) {
+        let mut summary = None;
+        if now.saturating_duration_since(self.window) >= AUDIT_WINDOW {
+            summary = (self.suppressed > 0).then_some(self.suppressed);
+            self.window = now;
+            self.audited = 0;
+            self.suppressed = 0;
+        }
+        if self.audited < AUDITED {
+            self.audited += 1;
+            (true, summary)
+        } else {
+            self.suppressed += 1;
+            (false, summary)
+        }
+    }
 }
 
 /// The process-wide gate.
@@ -87,7 +125,7 @@ impl Drop for Slot<'_> {
 impl ConfirmGate {
     /// A gate with the production cool-down.
     pub fn new(audit: Arc<Mutex<AuditLog>>) -> Self {
-        Self { inner: Mutex::new(Inner::default()), audit, cooldown: COOLDOWN }
+        Self { inner: Mutex::new(Inner::new(Instant::now())), audit, cooldown: COOLDOWN }
     }
 
     /// Override the cool-down (tests).
@@ -109,24 +147,29 @@ impl ConfirmGate {
             let mut g = self.inner.lock().map_err(|_| IpcError::poisoned())?;
             g.cooldowns.retain(|_, until| *until > now);
             if g.open {
-                Some("busy")
+                Some(("busy", g.refusal(now)))
             } else if scope.destructive && g.cooldowns.contains_key(&key) {
-                Some("cooldown")
+                Some(("cooldown", g.refusal(now)))
             } else {
                 g.open = true;
                 None
             }
         };
-        if let Some(reason) = refused {
+        if let Some((reason, (own_row, summary))) = refused {
             tracing::warn!(kind = scope.kind, reason, "native confirmation refused");
-            record_audit(
-                &self.audit,
-                AuditEvent::ConfirmRefused {
-                    kind: scope.kind.to_owned(),
-                    target: scope.target.to_owned(),
-                    reason: reason.to_owned(),
-                },
-            );
+            if let Some(count) = summary {
+                record_audit(&self.audit, AuditEvent::ConfirmRefusedSuppressed { count });
+            }
+            if own_row {
+                record_audit(
+                    &self.audit,
+                    AuditEvent::ConfirmRefused {
+                        kind: scope.kind.to_owned(),
+                        target: scope.target.to_owned(),
+                        reason: reason.to_owned(),
+                    },
+                );
+            }
             return Err(match reason {
                 "busy" => IpcError::new("confirm.busy", "another confirmation dialog is already open"),
                 _ => IpcError::new(
@@ -214,6 +257,38 @@ mod tests {
         // The cool-down expires.
         assert_eq!(g.acquire_at(POWER, t0 + Duration::from_millis(9_999)).expect_err("still").code, "confirm.cooldown");
         g.acquire_at(POWER, t0 + COOLDOWN).expect("expired").done(true);
+    }
+
+    /// 6b N-47: the first 16 refusals of an hour get a row each; the rest are counted and
+    /// written once as `confirm_refused_suppressed { count }` when the next hour starts.
+    #[test]
+    fn refusal_rows_are_bounded_per_hour_of_uptime() {
+        let (dir, g) = gate();
+        let t0 = Instant::now();
+        let slot = g.acquire_at(VMRC, t0).expect("open dialog");
+        for _ in 0..100 {
+            assert_eq!(g.acquire_at(POWER, t0 + Duration::from_secs(1)).expect_err("busy").code, "confirm.busy");
+        }
+        let rows = events(&dir);
+        assert_eq!(rows.len(), 16, "{rows:?}");
+        assert!(rows.iter().all(|r| r.contains("\"event\":\"confirm_refused\"")));
+        // Still the same hour: counted only.
+        assert_eq!(g.acquire_at(POWER, t0 + AUDIT_WINDOW - Duration::from_secs(1)).expect_err("busy").code, "confirm.busy");
+        assert_eq!(events(&dir).len(), 16);
+        // The next hour: one summary for the 85 counted refusals, then a fresh budget.
+        assert_eq!(g.acquire_at(POWER, t0 + AUDIT_WINDOW).expect_err("busy").code, "confirm.busy");
+        let rows = events(&dir);
+        assert_eq!(rows.len(), 18);
+        assert!(rows[16].contains("\"event\":\"confirm_refused_suppressed\"") && rows[16].contains("\"count\":85"), "{}", rows[16]);
+        assert!(rows[17].contains("\"event\":\"confirm_refused\""));
+        slot.done(true);
+        // A window without suppressed refusals writes no summary.
+        g.acquire_at(VMRC, t0 + 3 * AUDIT_WINDOW).expect("free").done(true);
+        let held = g.acquire_at(VMRC, t0 + 3 * AUDIT_WINDOW).expect("open");
+        assert_eq!(g.acquire_at(POWER, t0 + 3 * AUDIT_WINDOW).expect_err("busy").code, "confirm.busy");
+        assert_eq!(events(&dir).len(), 19);
+        assert!(!events(&dir).iter().skip(18).any(|r| r.contains("suppressed")));
+        drop(held);
     }
 
     #[test]
