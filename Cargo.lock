@@ -3142,6 +3142,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironrdp-input"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4d1d7a821b8fac70d5fc6b60ec509fa59cca9110fbdf22e4804ccf968441c4d"
+dependencies = [
+ "bitvec",
+ "ironrdp-pdu",
+ "smallvec",
+]
+
+[[package]]
 name = "ironrdp-pdu"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3816,9 +3827,31 @@ name = "mooring-proto-rdp"
 version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
+ "ironrdp-cliprdr",
+ "ironrdp-connector",
+ "ironrdp-core",
+ "ironrdp-displaycontrol",
+ "ironrdp-dvc",
+ "ironrdp-graphics",
+ "ironrdp-input",
+ "ironrdp-pdu",
+ "ironrdp-session",
+ "ironrdp-svc",
+ "ironrdp-tokio",
  "mooring-core",
+ "proptest",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "secrecy",
+ "socket2",
+ "tempfile",
+ "time",
  "tokio",
+ "tokio-rustls",
  "tracing",
+ "x509-parser",
+ "zeroize",
 ]
 
 [[package]]

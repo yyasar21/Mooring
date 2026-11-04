@@ -1,47 +1,44 @@
-//! RDP session for Mooring, built on `IronRDP`.
+//! RDP session for Mooring, built on `IronRDP` component crates (ADR-0011).
 //!
-//! Phase A0 ships the crate boundary only; the implementation lands in the phase that owns it
-//! (see docs/adr/0004-session-abstraction.md). Rules that already apply here:
-//! every byte from the remote side is hostile, parsers get fuzz targets, no `unsafe`.
+//! - NLA (`CredSSP` / `NTLMv2`) is required; TLS-only only with `allowTlsWithoutNla` (audited as
+//!   `session.rdp.legacy_security`); Standard RDP Security (RC4) is never offered; Kerberos
+//!   is off (no KDC traffic).
+//! - TLS is our own rustls (ring) client with a TOFU verifier over `known_rdp_certs`
+//!   ([`mooring_core::known_certs`]): unknown + invalid chain → `Prompt { purpose:
+//!   certificate_trust }` and a reconnect after `yes`; a changed pin → `trust_mismatch`.
+//! - The active stage writes into a [`mooring_core::FrameSink`]; Display Control resizes,
+//!   cliprdr carries text only, keys map from W3C `code` to scancodes.
+//!
+//! Constructor (R2):
+//! ```ignore
+//! let session = RdpSession::connect(params, RdpOptions::new(known_rdp_certs_path, conn_opts)
+//!     .with_clipboard(os_clipboard), frame_sink, audit_sink).await?;
+//! ```
+//! Every byte from the server is hostile; our parsers have [`fuzz`] entry points.
 
 #![forbid(unsafe_code)]
 
-use async_trait::async_trait;
-use mooring_core::session::{ConnectParams, Session, SessionEvent, SessionInput};
-use mooring_core::{MooringError, Protocol};
+mod active;
+mod active_clip;
+pub mod cert;
+pub mod clipboard;
+mod connect;
+mod creds;
+mod driver;
+mod errors;
+pub mod fuzz;
+pub mod input;
+pub mod keymap;
+mod options;
+mod session;
+mod shared;
+mod tls;
 
-/// RDP session handle.
-#[derive(Debug)]
-pub struct RdpSession {
-    _params: ConnectParams,
-}
+#[cfg(test)]
+mod test_certs;
 
-impl RdpSession {
-    /// Open a session. Not implemented in Phase A0.
-    #[allow(clippy::unused_async)] // the real implementation awaits the handshake
-    pub async fn connect(params: ConnectParams) -> Result<Self, MooringError> {
-        Err(MooringError::Protocol {
-            protocol: "rdp",
-            reason: format!("not implemented yet (host {})", params.host),
-        })
-    }
-}
-
-#[async_trait]
-impl Session for RdpSession {
-    fn protocol(&self) -> Protocol {
-        Protocol::Rdp
-    }
-
-    async fn send(&mut self, _input: SessionInput) -> Result<(), MooringError> {
-        Err(MooringError::Closed)
-    }
-
-    async fn next_event(&mut self) -> Result<Option<SessionEvent>, MooringError> {
-        Ok(None)
-    }
-
-    async fn close(&mut self) -> Result<(), MooringError> {
-        Ok(())
-    }
-}
+pub use active::{to_rect, RESIZE_DEBOUNCE};
+pub use cert::{CertParseError, MAX_CERT_DER};
+pub use connect::clamp_desktop;
+pub use options::{AuditSink, LocalClipboard, RdpOptions};
+pub use session::{RdpSession, CHANNEL_CAPACITY};
