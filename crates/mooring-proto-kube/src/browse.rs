@@ -80,9 +80,9 @@ struct ListMeta {
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
-struct List<T> {
+pub(crate) struct List<T> {
     metadata: ListMeta,
-    items: Vec<T>,
+    pub(crate) items: Vec<T>,
 }
 
 #[derive(Deserialize, Default)]

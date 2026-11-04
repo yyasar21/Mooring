@@ -132,7 +132,7 @@ async fn create_vault_add_connection_run_uname_close_and_lock() {
     for (name, code) in &locked {
         assert_eq!(*code, "vault.locked", "{name} after lock");
     }
-    assert_eq!(locked.len(), 22, "every vault-gated command is covered");
+    assert_eq!(locked.len(), 44, "every vault-gated command is covered");
     assert_eq!(support::change_password_while_locked(st), "vault.unlock");
     assert_eq!(vault::status(st).expect("status"), VaultStatus::Locked, "still locked");
     assert_eq!(sess::list(st).expect("session_list is not gated"), vec![]);

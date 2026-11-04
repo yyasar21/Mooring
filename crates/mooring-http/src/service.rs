@@ -4,8 +4,11 @@
 //! Same connector, verifier, rate limit, concurrency slots and head deadline as the helpers.
 //! Requests may carry a path-only URI (joined to the base) or an absolute URI of the base
 //! origin; any other authority is refused. No retries (the body is not replayable), redirects
-//! refused, response bodies capped ([`CappedBody`]). Upgrades (`exec`, `portforward`) work:
-//! the response keeps hyper's upgrade handle.
+//! refused, response bodies capped ([`CappedBody`]). A service built with
+//! [`HttpClient::buffered_service`] also puts the helpers' request deadline on every body
+//! (lists, gets, reviews: a dripped body fails with `Timeout`); [`HttpClient::service`] leaves
+//! bodies unbounded in time for long-lived streams (watch, logs), which carry their own caps.
+//! Upgrades (`exec`, `portforward`) work: the response keeps hyper's upgrade handle.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -28,6 +31,7 @@ use crate::parse::content_length;
 pub struct HttpService {
     client: HttpClient,
     cap: usize,
+    body_deadline: bool,
 }
 
 impl HttpClient {
@@ -37,7 +41,16 @@ impl HttpClient {
         if body_cap == 0 || body_cap > MAX_BODY_CEILING {
             return Err(HttpError::InvalidRequest("body_cap must be 1..=256 MiB"));
         }
-        Ok(HttpService { client: self.clone(), cap: body_cap })
+        Ok(HttpService { client: self.clone(), cap: body_cap, body_deadline: false })
+    }
+
+    /// Like [`HttpClient::service`], but every response body must be fully read within
+    /// `timeouts.request` (the budget of the buffered helpers), else it fails with
+    /// [`HttpError::Timeout`]. For non-streaming calls only.
+    pub fn buffered_service(&self, body_cap: usize) -> Result<HttpService, HttpError> {
+        let mut s = self.service(body_cap)?;
+        s.body_deadline = true;
+        Ok(s)
     }
 }
 
@@ -73,7 +86,11 @@ impl HttpService {
         }
         content_length(resp.headers(), self.cap)?;
         let cap = self.cap;
-        Ok(resp.map(|b| CappedBody::new(b, cap)))
+        let budget = self.body_deadline.then_some(self.client.inner.cfg.timeouts.request);
+        Ok(resp.map(|b| match budget {
+            Some(d) => CappedBody::new(b, cap).with_deadline(d),
+            None => CappedBody::new(b, cap),
+        }))
     }
 }
 

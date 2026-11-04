@@ -3,6 +3,8 @@
 
 use http::Method;
 
+use crate::browse::{List, PodIn, MAX_CONTAINERS, MAX_PORTS};
+use crate::client::MAX_JSON_BODY;
 use crate::frame::{decode_exec, ExecFrame, PfDecoder, PfEvent};
 use crate::guard::{check, GuardPolicy, RequestShape, Route};
 use crate::logs::{sanitize_line, Sanitizer};
@@ -79,5 +81,53 @@ pub fn fuzz_guard_path(data: &[u8]) {
             }
             _ => assert!(*method == Method::GET || *method == Method::HEAD),
         }
+    }
+}
+
+/// An API server `PodList` body: the 16 MiB cap is checked before `serde_json` runs, and
+/// every summary has bounded, clean strings (name ≤ 253 chars, image ≤ 512, ≤ 64
+/// containers, ≤ 32 ports).
+pub fn fuzz_pod_list_json(data: &[u8]) {
+    if data.len() > MAX_JSON_BODY {
+        return;
+    }
+    let Ok(list) = serde_json::from_slice::<List<PodIn>>(data) else { return };
+    let bounded = |s: &str, max: usize| s.chars().count() <= max && clean_text(s);
+    for pod in list.items {
+        let p = pod.summary();
+        assert!(bounded(&p.name, 253) && bounded(&p.phase, 32));
+        assert!(p.node.as_deref().is_none_or(|n| bounded(n, 253)));
+        assert!(p.created_at.as_deref().is_none_or(|c| bounded(c, 40)));
+        assert!(p.containers.len() <= MAX_CONTAINERS);
+        for c in &p.containers {
+            assert!(bounded(&c.name, 63) && bounded(&c.image, 512));
+            assert!(c.ports.len() <= MAX_PORTS && c.ports.iter().all(|p| *p != 0));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pod_list_entry_accepts_a_list_and_survives_hostile_bodies() {
+        let list = br#"{"kind":"PodList","metadata":{"continue":"c2"},"items":[{"metadata":
+            {"name":"web-0\u202e","creationTimestamp":"2026-11-01T00:00:00Z"},"spec":{"nodeName":
+            "node-1.example.test","containers":[{"name":"app","image":"registry.example.test/web:1",
+            "ports":[{"containerPort":8080},{"containerPort":0},{"containerPort":70000}]}]},
+            "status":{"phase":"Running\u001b[31m","containerStatuses":[{"name":"app","ready":true,
+            "restartCount":-5}]}}]}"#;
+        fuzz_pod_list_json(list);
+        let long = format!(
+            r#"{{"items":[{{"metadata":{{"name":"{}"}},"spec":{{"containers":[{}]}}}}]}}"#,
+            "n".repeat(1000),
+            std::iter::repeat_n(r#"{"name":"c","image":"i"}"#, 100).collect::<Vec<_>>().join(",")
+        );
+        fuzz_pod_list_json(long.as_bytes());
+        for hostile in [&b""[..], b"[", b"{\"items\":5}", b"\xff\xfe", b"{\"items\":[null]}"] {
+            fuzz_pod_list_json(hostile);
+        }
+        fuzz_pod_list_json(&vec![b'['; MAX_JSON_BODY + 1]);
     }
 }

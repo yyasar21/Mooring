@@ -11,11 +11,16 @@ use tokio::sync::mpsc;
 use crate::commands::credential_copy;
 use crate::commands::credentials::{self, NewCredential, WireSecrets};
 use crate::commands::sessions::{self as sess, WireInput};
+use crate::commands::sync::{self, ConfigureInput};
+use crate::commands::sync_config::BackendInput;
+use crate::commands::sync_join::{self, JoinInput};
 use crate::commands::tree::{self, ConnectionFields};
-use crate::commands::{audit, vault};
+use crate::commands::vsphere_confirm::{FixedConfirm, Prompt};
+use crate::commands::{audit, secret_sources, secret_sources_oidc, vault, vsphere, vsphere_vm};
 use crate::error::IpcResult;
 use crate::sessions::EventSink;
 use crate::state::AppState;
+use crate::sync_runner::SyncHub;
 
 pub type Events = mpsc::UnboundedReceiver<serde_json::Value>;
 
@@ -70,6 +75,9 @@ fn code<T>(r: IpcResult<T>) -> &'static str {
 }
 
 /// Call every vault-gated command with otherwise valid arguments; returns (command, code).
+/// The secret-source, vault-sync and vSphere commands (A3) are appended by
+/// [`vault_gated_codes_a3`]; `secret_source_revoke` and `secret_source_oidc_status` are not
+/// gated (they only drop or report in-memory state) and are left out on purpose.
 pub async fn vault_gated_codes(
     st: &AppState,
     folder: &str,
@@ -82,7 +90,7 @@ pub async fn vault_gated_codes(
     let no_fields = serde_json::json!({"username": "y"});
     let (s, _rx) = sink();
     let size = Size { width: 80, height: 24 };
-    vec![
+    let mut out = vec![
         ("tree_list", code(tree::list(st))),
         ("folder_create", code(tree::create_folder(st, folder, "x"))),
         ("folder_rename", code(tree::rename_folder(st, folder, "x"))),
@@ -108,6 +116,72 @@ pub async fn vault_gated_codes(
         ("session_open", code(sess::open(st, conn, size, s).await)),
         ("audit_tail", code(audit::tail(st, 10, None))),
         ("audit_verify", code(audit::verify(st))),
+    ];
+    out.extend(vault_gated_codes_a3(st, folder, cred, conn).await);
+    out
+}
+
+/// The A3 commands (ADR-0016 secret sources, ADR-0017 vault sync, ADR-0015 vSphere) with
+/// well-formed arguments: every one must refuse with `vault.locked` before any I/O.
+async fn vault_gated_codes_a3(
+    st: &AppState,
+    folder: &str,
+    cred: &str,
+    conn: &str,
+) -> Vec<(&'static str, &'static str)> {
+    let source_id = mooring_core::SecretSourceId::new().to_string();
+    let source = serde_json::json!({
+        "name": "lab vault",
+        "address": "https://vault.example.test:8200",
+        "authMethod": "token",
+        "credentialId": cred,
+    });
+    let hub = SyncHub::new("e2e");
+    let backend = || BackendInput {
+        kind: "s3".into(),
+        endpoint: "https://s3.example.test".into(),
+        region: "us-east-1".into(),
+        bucket: "team-vault".into(),
+        prefix: "mooring".into(),
+        path_style: None,
+    };
+    let configure = ConfigureInput {
+        backend: backend(),
+        credential_id: cred.into(),
+        interval_minutes: Some(30),
+    };
+    let join = JoinInput {
+        backend: backend(),
+        credential_id: cred.into(),
+        vault_id: "6f1e0a4c-2b3d-4e5f-8a9b-0c1d2e3f4a5b".into(),
+        password: "not the master pw".into(),
+        interval_minutes: None,
+    };
+    let yes = FixedConfirm::new(true);
+    let p = || Prompt::new(&yes);
+    vec![
+        ("secret_source_list", code(secret_sources::list(st))),
+        ("secret_source_get", code(secret_sources::get(st, &source_id))),
+        ("secret_source_create", code(secret_sources::create(st, &source))),
+        ("secret_source_update", code(secret_sources::update(st, &source_id, &source).await)),
+        ("secret_source_delete", code(secret_sources::delete(st, &source_id).await)),
+        ("secret_source_test", code(secret_sources::test(st, &source_id).await)),
+        ("credential_external_test", code(secret_sources::external_test(st, cred).await)),
+        ("secret_source_oidc_begin", code(secret_sources_oidc::begin(st, &source_id).await)),
+        ("sync_configure", code(sync::configure(st, &hub, None, None, configure).await)),
+        ("sync_status", code(sync::status(st, &hub))),
+        ("sync_now", code(sync::run_once(st, &hub, None, None).await)),
+        ("sync_resolve_fork", code(sync::resolve_fork(st, &hub, None, None, "local").await)),
+        ("sync_disable", code(sync::disable(st, &hub, None, None, false).await)),
+        ("vault_join", code(sync_join::join(st, &hub, None, None, join).await)),
+        ("vsphere_test", code(vsphere::test(st, p(), conn).await)),
+        ("vsphere_sync_enable", code(vsphere::sync_enable(st, p(), conn, folder).await)),
+        ("vsphere_sync_disable", code(vsphere::sync_disable(st, conn, true))),
+        ("vsphere_refresh", code(vsphere::refresh(st, p(), conn).await)),
+        ("vsphere_status", code(vsphere::status(st, conn))),
+        ("vsphere_vm_power", code(vsphere_vm::power_state(st, conn).await)),
+        ("vsphere_vm_action", code(vsphere_vm::action(st, p(), conn, "start").await)),
+        ("vsphere_vm_identity", code(vsphere_vm::identity(st, p(), conn).await)),
     ]
 }
 

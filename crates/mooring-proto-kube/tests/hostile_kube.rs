@@ -168,13 +168,10 @@ async fn hostile_names_never_reach_the_server() {
     m.read_only();
 }
 
-/// A slow-loris server (one byte every 50 ms) should hit a body deadline instead of holding
-/// the caller for as long as the body cap allows. Today only the response *head* has a
-/// deadline on the kube tower path (`mooring_http::HttpService`); a 1.4 KB pod list dripped
-/// at 50 ms/byte completes after ~70 s instead of failing. Decision needed (Q2 handoff,
-/// QA-Q2-1): a body deadline for buffered JSON calls in `mooring-proto-kube` / `mooring-http`.
+/// A slow-loris server (one byte every 50 ms) hits the body deadline of the buffered kube
+/// service (QA-Q2-1: `HttpClient::buffered_service` puts `timeouts.request` on the whole
+/// body of lists, gets and reviews) instead of holding the caller until the byte cap.
 #[tokio::test]
-#[ignore = "QA-Q2-1: no body deadline on the kube JSON path (docs/handoff/a3-qa-q2.md)"]
 async fn slow_loris_times_out() {
     let m = start(KubeKnobs::default()).await;
     m.srv.set_http_knobs(HttpKnobs {

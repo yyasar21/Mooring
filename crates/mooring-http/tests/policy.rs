@@ -221,3 +221,26 @@ async fn tower_service_joins_the_base_and_refuses_other_origins() {
         .expect("r");
     assert!(matches!(svc.call(req).await, Err(HttpError::InvalidRequest(_))));
 }
+
+/// QA-Q2-1: a dripped body on the tower path. The buffered service fails with `Timeout`
+/// inside the request budget; the plain (stream) service reads it to the end.
+#[tokio::test]
+async fn buffered_service_puts_the_request_deadline_on_the_body() {
+    use tower_service::Service as _;
+    let s = pinned(handler(|_| async { dripping(40, Duration::from_millis(50)) })).await;
+    let mut cfg = s.config();
+    cfg.timeouts.request = Duration::from_millis(400);
+    let c = HttpClient::new(cfg).expect("client");
+    let req =
+        || http::Request::get("/drip").body(http_body_util::Empty::<Bytes>::new()).expect("r");
+
+    let started = Instant::now();
+    let resp = c.buffered_service(1024).expect("svc").call(req()).await.expect("head");
+    let err = http_body_util::BodyExt::collect(resp.into_body()).await.expect_err("drip");
+    assert!(matches!(err, HttpError::Timeout), "{err}");
+    assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+
+    let resp = c.service(1024).expect("svc").call(req()).await.expect("head");
+    let body = http_body_util::BodyExt::collect(resp.into_body()).await.expect("stream").to_bytes();
+    assert_eq!(body.len(), 40);
+}

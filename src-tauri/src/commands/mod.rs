@@ -31,7 +31,6 @@ pub mod sftp_transfers;
 pub mod kube;
 pub(crate) mod kube_cluster;
 pub mod kube_forward;
-pub mod kube_jwt;
 pub mod kube_logs;
 pub mod kube_wire;
 // ADR-0016 E2: external secret sources.

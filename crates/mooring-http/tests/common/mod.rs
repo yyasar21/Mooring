@@ -51,6 +51,18 @@ pub fn chunked(n: usize, size: usize) -> Response<Body> {
     Response::new(StreamBody::new(futures_util::stream::iter(frames)).boxed())
 }
 
+/// A slow-loris body: `n` one-byte chunks, one every `every` (no `Content-Length`).
+pub fn dripping(n: usize, every: std::time::Duration) -> Response<Body> {
+    let frames = futures_util::stream::unfold(0usize, move |i| async move {
+        if i >= n {
+            return None;
+        }
+        tokio::time::sleep(every).await;
+        Some((Ok::<_, Infallible>(Frame::data(Bytes::from_static(b"a"))), i + 1))
+    });
+    Response::new(StreamBody::new(frames).boxed())
+}
+
 pub fn ok_json() -> Handler {
     handler(|_| async { full(200, r#"{"ok":true}"#) })
 }
