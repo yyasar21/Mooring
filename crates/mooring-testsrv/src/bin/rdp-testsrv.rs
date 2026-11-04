@@ -31,9 +31,17 @@ fn config(a: &Args) -> Result<RdpConfig, String> {
         knobs: RdpKnobs {
             out_of_bounds_bitmap: a.get("out-of-bounds")?,
             drop_after_accept: a.has("drop-after-accept"),
+            advertised_desktop: a.str("desktop").map(parse_size).transpose()?,
         },
         ..RdpConfig::default()
     })
+}
+
+/// `--desktop WxH`: the size advertised to the client (hostile sizes allowed).
+fn parse_size(v: &str) -> Result<(u16, u16), String> {
+    let (w, h) = v.split_once('x').ok_or_else(|| format!("bad --desktop {v:?} (WxH)"))?;
+    let n = |s: &str| s.parse::<u16>().map_err(|_| format!("bad --desktop {v:?} (WxH)"));
+    Ok((n(w)?, n(h)?))
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -51,6 +59,7 @@ async fn main() -> Result<(), String> {
             "domain",
             "out-of-bounds",
             "clipboard-text",
+            "desktop",
         ],
     )?;
     let srv = rdp::start(config(&a)?, a.get_or("port", 3389)?).map_err(|e| e.to_string())?;

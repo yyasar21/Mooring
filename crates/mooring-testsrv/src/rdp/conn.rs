@@ -108,7 +108,8 @@ fn e<E: std::fmt::Display>(stage: &'static str) -> impl FnOnce(E) -> String {
 
 async fn serve(shared: &Arc<Shared>, tcp: tokio::net::TcpStream) -> Result<(), String> {
     let cfg = &shared.config;
-    let size = DesktopSize { width: cfg.width, height: cfg.height };
+    let (width, height) = cfg.knobs.advertised_desktop.unwrap_or((cfg.width, cfg.height));
+    let size = DesktopSize { width, height };
     let protocol = match cfg.security {
         RdpSecurity::Tls => SecurityProtocol::SSL,
         RdpSecurity::Nla => SecurityProtocol::HYBRID | SecurityProtocol::HYBRID_EX,

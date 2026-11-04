@@ -50,6 +50,9 @@ pub struct RdpKnobs {
     pub out_of_bounds_bitmap: Option<u16>,
     /// Close the TCP connection right after the connection sequence (no bitmap).
     pub drop_after_accept: bool,
+    /// Advertise this desktop size in the Demand Active (Bitmap capability) instead of the
+    /// framebuffer's, e.g. 65535 × 65535 (B-5). The server's own framebuffer is unchanged.
+    pub advertised_desktop: Option<(u16, u16)>,
 }
 
 #[derive(Debug, Clone)]

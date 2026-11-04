@@ -21,7 +21,7 @@ use ironrdp_session::{
     ActiveStage, ActiveStageBuilder, ActiveStageOutput, GracefulDisconnectReason,
 };
 use ironrdp_tokio::{single_sequence_step_read, split_tokio_framed, FramedWrite, TokioFramed};
-use mooring_core::frame::{Cursor, PixelOrder, Rect, MAX_CURSOR};
+use mooring_core::frame::{Cursor, PixelOrder, Rect, MAX_CURSOR, MAX_DIM};
 use mooring_core::session::{CloseCode, SessionEvent, SessionInput};
 use mooring_core::FrameSink;
 use tokio::io::{ReadHalf, WriteHalf};
@@ -81,6 +81,16 @@ pub fn to_rect(r: &InclusiveRectangle, w: u16, h: u16) -> Option<Rect> {
     Some(Rect::new(r.left, r.top, right - r.left + 1, bottom - r.top + 1))
 }
 
+/// B-5: the desktop size comes from the server's Demand Active and is unbounded in
+/// `IronRDP`. Check it before anything allocates `w × h × 4` bytes for it.
+pub(crate) fn check_desktop(size: DesktopSize) -> Result<(), End> {
+    let (w, h) = (size.width, size.height);
+    if w == 0 || h == 0 || w > MAX_DIM || h > MAX_DIM {
+        return Err(end(CloseCode::ProtocolError, "the server desktop size is not supported"));
+    }
+    Ok(())
+}
+
 /// Copy a damaged region of the decoded image into the sink (RGBA, alpha forced opaque).
 pub(crate) fn blit(sink: &FrameSink, image: &DecodedImage, r: &InclusiveRectangle) {
     let Some(rect) = to_rect(r, image.width(), image.height()) else {
@@ -132,9 +142,13 @@ impl<'a> Active<'a> {
         sink: FrameSink,
         commands: &'a mut mpsc::Receiver<Command>,
         clip: ClipState,
-    ) -> (Self, TokioFramed<RdpStream>) {
+    ) -> Result<(Self, TokioFramed<RdpStream>), End> {
         let Established { framed, result, .. } = est;
         let size = result.desktop_size;
+        check_desktop(size)?;
+        sink.resize(size.width, size.height).map_err(|_| {
+            end(CloseCode::ProtocolError, "the server desktop size is not supported")
+        })?;
         let factory = result.activation_factory;
         let stage = ActiveStageBuilder {
             static_channels: result.static_channels,
@@ -161,15 +175,18 @@ impl<'a> Active<'a> {
             input: InputMapper::new(),
             pending_resize: None,
         };
-        (me, framed)
+        Ok((me, framed))
     }
 
     async fn resized(&mut self, size: DesktopSize) -> Result<(), End> {
-        self.size = size;
-        self.image = DecodedImage::new(PixelFormat::RgbA32, size.width, size.height);
+        check_desktop(size)?;
         self.sink.resize(size.width, size.height).map_err(|_| {
             end(CloseCode::ProtocolError, "the server desktop size is not supported")
         })?;
+        self.size = size;
+        if (self.image.width(), self.image.height()) != (size.width, size.height) {
+            self.image = DecodedImage::new(PixelFormat::RgbA32, size.width, size.height);
+        }
         let event = SessionEvent::DesktopResized {
             width: u32::from(size.width),
             height: u32::from(size.height),

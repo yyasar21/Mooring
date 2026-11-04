@@ -108,6 +108,10 @@ impl Driver {
                     Err(e) => return e,
                 },
                 Ok(Attempt::Connected(est)) => {
+                    // B-5: refuse a hostile desktop size before anything is allocated for it.
+                    if let Err(e) = crate::active::check_desktop(est.result.desktop_size) {
+                        return e;
+                    }
                     // The password is not needed after NLA: zeroize our copy now.
                     drop(creds);
                     self.shared.set_connected();
@@ -120,14 +124,16 @@ impl Driver {
                         return end(CloseCode::User, "closed by user");
                     }
                     let clip = ClipState::new(clip_queue, self.clipboard.clone(), self.policy);
-                    let (active, framed) = Active::new(
+                    return match Active::new(
                         *est,
                         &self.shared,
                         self.sink.clone(),
                         &mut self.commands,
                         clip,
-                    );
-                    return active.run(framed).await;
+                    ) {
+                        Ok((active, framed)) => active.run(framed).await,
+                        Err(e) => e,
+                    };
                 }
             }
         }

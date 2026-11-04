@@ -35,6 +35,8 @@ mod shared;
 mod tls;
 
 #[cfg(test)]
+mod hostile_tests;
+#[cfg(test)]
 mod test_certs;
 
 pub use active::{to_rect, RESIZE_DEBOUNCE};
