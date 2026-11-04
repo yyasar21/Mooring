@@ -158,6 +158,9 @@ pub fn get(state: &AppState) -> IpcResult<Option<SyslogStatus>> {
 
 /// Persist, (re)start or stop the mirror, and audit the change. Disabling is recorded before
 /// the mirror stops (the old collector sees it); enabling after it starts (the new one does).
+/// A redirect (enabled → enabled) records the change twice (review 4, L-17): first while the
+/// old mirror is still installed, so the old collector learns where the stream went (the
+/// replaced mirror drains its queue), then on the new mirror.
 pub fn set(state: &AppState, config: SyslogConfig, roots: TlsRoots) -> IpcResult<SyslogStatus> {
     let config = config.validated().map_err(|e| syslog_error(&e))?;
     let json = serde_json::to_string(&config)
@@ -172,6 +175,10 @@ pub fn set(state: &AppState, config: SyslogConfig, roots: TlsRoots) -> IpcResult
         facility: config.facility,
     };
     if config.enabled {
+        let redirect = state.audit.lock().map_err(|_| IpcError::poisoned())?.mirror().is_some();
+        if redirect {
+            state.audit(event.clone());
+        }
         state.audit.lock().map_err(|_| IpcError::poisoned())?.set_mirror(mirror);
         state.audit(event);
     } else {

@@ -96,6 +96,28 @@ fn set_mirrors_entries_get_reports_counters_and_disable_stops() {
 }
 
 #[test]
+fn a_redirect_is_seen_by_both_collectors() {
+    let f = unlocked();
+    let (old, old_port) = udp_collector();
+    let (new, new_port) = udp_collector();
+    set(&f.state, udp(old_port, true), TlsRoots::System).expect("set");
+    assert!(recv(&old).contains(" audit_syslog_changed "));
+    set(&f.state, udp(new_port, true), TlsRoots::System).expect("redirect");
+    let to_old = recv(&old);
+    assert!(to_old.contains(" audit_syslog_changed "), "{to_old}");
+    assert!(to_old.contains(&format!(r#""port":{new_port}"#)), "old collector learns the target");
+    let to_new = recv(&new);
+    assert!(to_new.contains(" audit_syslog_changed ") && to_new.contains(&format!(r#""port":{new_port}"#)));
+    f.state.audit(AuditEvent::VaultUnlocked);
+    assert!(recv(&new).contains(" vault_unlocked "));
+    old.set_read_timeout(Some(Duration::from_millis(300))).expect("timeout");
+    let mut buf = [0u8; 64];
+    assert!(old.recv(&mut buf).is_err(), "nothing more to the old collector");
+    let audit = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("audit");
+    assert_eq!(audit.matches(r#""event":"audit_syslog_changed""#).count(), 3, "{audit}");
+}
+
+#[test]
 fn stored_config_restarts_with_a_new_process() {
     let f = unlocked();
     let (server, port) = udp_collector();
