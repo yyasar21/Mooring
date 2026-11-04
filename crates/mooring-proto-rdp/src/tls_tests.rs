@@ -158,7 +158,9 @@ async fn loopback_pin_does_not_bypass_the_signature_check() {
     let (der, _) = self_signed(&[HOST]);
     let (_, wrong_key) = self_signed(&[HOST]);
     let err = handshake(der.clone(), &wrong_key, pinned(&der)).await.expect_err("must fail");
-    assert!(!err.is_empty());
+    // N-23: specifically the handshake signature, not an unrelated failure.
+    assert!(err.contains("BadSignature") || err.contains("signature"), "{err}");
+    assert!(!err.contains("UnknownIssuer"), "the pin was accepted: {err}");
 }
 
 #[tokio::test]

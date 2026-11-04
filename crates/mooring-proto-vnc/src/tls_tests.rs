@@ -117,6 +117,65 @@ fn unparsable_leaf_still_gets_a_fingerprint() {
     assert_eq!(info.subject, "(unparsable certificate)");
 }
 
+/// N-23: a server that presents the pinned certificate without its private key fails on the
+/// handshake signature, and only there.
+#[tokio::test]
+async fn loopback_pin_does_not_bypass_the_signature_check() {
+    use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+    use rustls::server::{ClientHello, ResolvesServerCert};
+    use rustls::sign::CertifiedKey;
+
+    #[derive(Debug)]
+    struct Fixed(Arc<CertifiedKey>);
+    impl ResolvesServerCert for Fixed {
+        fn resolve(&self, _hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+            Some(Arc::clone(&self.0))
+        }
+    }
+
+    async fn handshake(leaf: &CertificateDer<'static>, key: &KeyPair) -> Result<(), String> {
+        let p = Arc::new(rustls::crypto::ring::default_provider());
+        let pkcs8 = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der()));
+        let signing = p.key_provider.load_private_key(pkcs8).expect("key");
+        let certified = Arc::new(CertifiedKey::new(vec![leaf.clone()], signing));
+        let server = rustls::ServerConfig::builder_with_provider(p)
+            .with_safe_default_protocol_versions()
+            .expect("versions")
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(Fixed(certified)));
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let srv = tokio::spawn(async move {
+            let (s, _) = listener.accept().await.expect("accept");
+            let _ = acceptor.accept(s).await;
+        });
+        let roots = root_store(None, false).expect("roots");
+        let v = Arc::new(TofuVerifier::new(pinned(leaf), HOST, PORT, roots));
+        let config = client_config(v).expect("config");
+        let tcp = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let out = tokio_rustls::TlsConnector::from(Arc::new(config))
+            .connect(server_name(HOST).expect("name"), tcp)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+        srv.abort();
+        out
+    }
+
+    let make = || {
+        let key = KeyPair::generate().expect("key");
+        let params = CertificateParams::new(vec![HOST.to_owned()]).expect("params");
+        let cert = params.self_signed(&key).expect("cert");
+        (cert.der().clone(), key)
+    };
+    let (leaf, key) = make();
+    handshake(&leaf, &key).await.expect("pinned handshake with the right key");
+    let (_, wrong) = make();
+    let err = handshake(&leaf, &wrong).await.expect_err("must fail");
+    assert!(err.contains("BadSignature") || err.contains("signature"), "{err}");
+}
+
 #[test]
 fn chain_problem_mapping() {
     use rustls::Error::InvalidCertificate as I;
