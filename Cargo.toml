@@ -104,7 +104,7 @@ assert_is_empty = "allow"           # style only; assert!(x.is_empty()) reads fi
 lto = "thin"
 codegen-units = 1
 strip = true
-panic = "abort"
+panic = "unwind" # ADR-0011: a protocol/decoder panic ends one session task, not the process
 
 # The export path runs real scrypt (log N = 18, ADR-0006); keep debug test runs fast.
 [profile.dev.package.scrypt]

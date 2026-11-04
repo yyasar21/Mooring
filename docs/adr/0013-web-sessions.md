@@ -1,6 +1,6 @@
 # ADR-0013: Web sessions in isolated windows, and detaching a tab to a window
 
-Status: Proposed · 2026-11-04 (Phase A2; extends ADR-0003, ADR-0008 `window_detach`, ADR-0011)
+Status: Accepted · 2026-11-04 (Phase A2; extends ADR-0003, ADR-0008 `window_detach`, ADR-0011)
 
 ## Context
 Admin consoles (vCenter, Grafana, OPNsense, Rancher, Argo CD) are web pages. Rendering them in
@@ -176,6 +176,12 @@ boundary). T5 in `main` is unchanged.
   (`allowHttp`) tries `invoke`, the channel fetch, `location = "tauri://localhost"`,
   `window.open`, a download, a file input and `getUserMedia`. Each attempt must fail and the
   matching audit entry must appear.
+
+## Owner decisions (2026-11-04)
+6. Certificates: OS trust only in A2. A self-signed console fails until the user trusts the CA in
+   the OS store; a rustls TOFU proxy is an A3 ADR candidate.
+7. Storage is ephemeral by default; persistent cookies are a per-connection opt-in shown in the
+   connection form and audited when enabled.
 
 ## Sources
 Tauri 2.12.5 source (`webview/mod.rs` remote-origin ACL check and its test, `ipc/channel.rs`

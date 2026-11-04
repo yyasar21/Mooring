@@ -1,6 +1,6 @@
 # ADR-0012: VNC session — own RFB 3.8 client, VeNCrypt and certificate TOFU
 
-Status: Proposed · 2026-11-04 (Phase A2; builds on ADR-0011's frame path, trust store and reconnect)
+Status: Accepted · 2026-11-04 (Phase A2; builds on ADR-0011's frame path, trust store and reconnect)
 
 ## Context
 `mooring-proto-vnc` is a stub. A2 needs an RFB 3.8 client (RFC 6143) for TigerVNC, x11vnc,
@@ -159,6 +159,12 @@ Every other session command (`session_open` with `onFrame`, `session_send`,
   `known_certs_parse` (shared). Each target asserts no panic, output ≤ the caps, and
   `FrameSink` bounds respected.
 - Bench: VNC joins `frame_bench` (ADR-0011) with ZRLE at 10/25/100 % dirty.
+
+## Owner decisions (2026-11-04)
+4. Default `prefer_tls`; `require_tls` is a per-connection option and the UI shows the plaintext
+   state of a session that fell back.
+5. No Tight JPEG in A2 (no SIMD `unsafe` decoder). Tight basic, ZRLE and Raw only; JPEG is
+   revisited when a `forbid(unsafe)` decoder exists.
 
 ## Sources
 RFC 6143 (RFB 3.8); VeNCrypt subtypes per the RFB community spec (rfbproto, "VeNCrypt"); QEMU

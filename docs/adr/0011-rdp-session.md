@@ -1,6 +1,6 @@
 # ADR-0011: RDP session (IronRDP), certificate trust and the shared frame path
 
-Status: Proposed · 2026-11-04 (Phase A2; extends ADR-0004, ADR-0008, ADR-0009, ADR-0010)
+Status: Accepted · 2026-11-04 (Phase A2; extends ADR-0004, ADR-0008, ADR-0009, ADR-0010)
 
 ## Context
 A2 needs a Royal-TS-class RDP client: NLA, a certificate trust model as strict as SSH's
@@ -228,6 +228,14 @@ are `session.trust_mismatch`, `session.trust_rejected` and `session.unsupported_
 | Q1 | qa-engineer | fuzz targets above + upstream targets in nightly; `frame_bench` | R1, R3, R4 |
 | Q2 | qa-engineer | acceptor-based RDP server and RFB test server; E2E with mock frames; capability tests (ADR-0013) | R2–R5 |
 | S1 | security-reviewer | review 5: threat model T3/T4/T5 rows, R-RDP-FFI, R-RDP-STR, R-CLIP, R-WEB-* | all |
+
+## Owner decisions (2026-11-04)
+1. Release profile switches to `panic = "unwind"` so a decoder or IronRDP panic ends one session
+   task, never the process (Cargo.toml, orchestrator).
+2. R-RDP-FFI accepted for A2: `sspi/scard` and its C deps are tolerated with the risk recorded;
+   an upstream pull request to make `scard` optional is filed and tracked in the threat model.
+3. `x509` smart-card logon, Kerberos and RD Gateway are deferred to A3; A2 ships NLA with
+   `domain_user` / `user_password` only.
 
 ## Sources
 crates.io API (2026-11-04) for versions/licences; crate sources read locally: `ironrdp-tls`
