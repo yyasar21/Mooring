@@ -20,7 +20,7 @@ import { credentialValidFor, supportsOverride } from "./credentials";
 
 import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
 import type { MockOptions } from "./ipc.mock.exit";
-import { MockWebBase } from "./ipc.mock.web";
+import { MockOptionsBase } from "./ipc.mock.options";
 import type { RemoteTarget } from "./ipc.mock.remote";
 
 export type { MockOptions } from "./ipc.mock.exit";
@@ -38,7 +38,7 @@ interface MockSession {
   line: string;
 }
 
-export class MockTransport extends MockWebBase implements Ipc {
+export class MockTransport extends MockOptionsBase implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
   creds = new MockCredentials(seedCredentials());
@@ -107,6 +107,8 @@ export class MockTransport extends MockWebBase implements Ipc {
     const port = c.port ?? (c.protocol === "rdp" ? 3389 : c.protocol === "vnc" ? 5900 : 443);
     return { connectionId, protocol: c.protocol, name: c.name, host: c.host, port, tags: [...c.tags], options: c.options };
   }
+
+  protected storeOptions(id: string, options: NonNullable<ConnectionSummary["options"]>): void { this.connection(id).options = options; }
 
   protected attachOther(sessionId: string, onEvent: SessionEventHandler) {
     const s = this.sessions.get(sessionId);
@@ -253,7 +255,9 @@ export class MockTransport extends MockWebBase implements Ipc {
     await this.unlocked();
     const c = this.connection(a.id);
     this.checkFields(a);
-    Object.assign(c, { ...a, name: a.name.trim(), host: a.host.trim(), tags: [...a.tags] });
+    // Rust keeps options_json only while the protocol stays the same.
+    const options = a.options ?? (a.protocol === c.protocol ? c.options : undefined);
+    Object.assign(c, { ...a, name: a.name.trim(), host: a.host.trim(), tags: [...a.tags], options });
     c.updatedAt = new Date().toISOString();
     return this.resolve(c);
   };

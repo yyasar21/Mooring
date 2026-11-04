@@ -6,10 +6,10 @@ import { decodeMfr1 } from "./frame/mfr1";
 
 describe("A2 session event decoding", () => {
   it("decodes certificate prompts, resize, detach and close codes", () => {
-    const cert = { subject: "CN=dc01.example.test", issuer: "CN=dc01.example.test", not_before: "a", not_after: "b", sha256: "ab", problems: ["self_signed", "bogus", "expired"] };
+    const cert = { subject: "CN=dc01.example.test", issuer: "CN=dc01.example.test", not_before: "a", not_after: "b", sha256: "ab", san: ["dc01.example.test", 7, "192.0.2.10"], problems: ["self_signed", "bogus", "expired"] };
     expect(decodeSessionEvent({ kind: "prompt", id: 1, message: "m", secret: false, purpose: "certificate_trust", certificate: cert })).toEqual({
       kind: "prompt", id: 1, message: "m", secret: false, purpose: "certificate_trust", account: null,
-      certificate: { subject: "CN=dc01.example.test", issuer: "CN=dc01.example.test", notBefore: "a", notAfter: "b", sha256: "ab", problems: ["self_signed", "expired"] },
+      certificate: { subject: "CN=dc01.example.test", issuer: "CN=dc01.example.test", notBefore: "a", notAfter: "b", sha256: "ab", san: ["dc01.example.test", "192.0.2.10"], problems: ["self_signed", "expired"] },
     });
     // A certificate on any other purpose is not shown.
     expect(decodeSessionEvent({ kind: "prompt", id: 1, purpose: "other", certificate: cert })).toMatchObject({ certificate: null });
@@ -18,6 +18,11 @@ describe("A2 session event decoding", () => {
     expect(decodeSessionEvent({ kind: "closed", reason: "r", code: "made_up" })).toEqual({ kind: "closed", reason: "r", code: "unknown" });
     expect(decodeSessionEvent({ kind: "connected", protocol: "rdp", peer_identity: "x509 SHA256:ab", security: "nla" })).toMatchObject({ security: "nla" });
     expect(decodeSessionEvent({ kind: "reconnecting", attempt: 1, delay_ms: Number.NaN })).toEqual({ kind: "reconnecting", attempt: 1, delayMs: 0 });
+    // R2 sends snake_case `delay_ms`; the ADR's camelCase `delayMs` is accepted too.
+    expect(decodeSessionEvent({ kind: "reconnecting", attempt: 2, delay_ms: 1043 })).toEqual({ kind: "reconnecting", attempt: 2, delayMs: 1043 });
+    expect(decodeSessionEvent({ kind: "reconnecting", attempt: 3, delayMs: 3900 })).toEqual({ kind: "reconnecting", attempt: 3, delayMs: 3900 });
+    // A certificate without `san` (older R1 payload) decodes with an empty list.
+    expect(decodeSessionEvent({ kind: "prompt", id: 2, purpose: "certificate_trust", certificate: { sha256: "ab" } })).toMatchObject({ certificate: { san: [], problems: [] } });
   });
 });
 
@@ -39,7 +44,7 @@ describe("MockTransport · RDP/VNC", () => {
     await tick();
     expect(events[0]).toMatchObject({ kind: "prompt", purpose: "certificate_trust", certificate: { problems: ["self_signed"] } });
     await m.sessionSend({ sessionId, input: { kind: "answer", id: 1, text: "yes" } });
-    await tick();
+    await vi.waitFor(() => { expect(events.some((e) => e.kind === "connected")).toBe(true); });
     expect(events.find((e) => e.kind === "connected")).toMatchObject({ security: "nla", peerIdentity: expect.stringMatching(/^x509 SHA256:/) as unknown });
     expect(events.find((e) => e.kind === "desktop_resized")).toEqual({ kind: "desktop_resized", width: 800, height: 600 }); // even width
     expect(frames).toHaveLength(1);

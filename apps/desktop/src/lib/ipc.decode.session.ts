@@ -98,6 +98,9 @@ function promptAccount(raw: unknown): PromptAccount {
   };
 }
 
+/** More names than any sane certificate carries; the rest is not shown. */
+const MAX_SAN = 64;
+
 /** A `certificate_trust` prompt without a certificate is still a trust prompt, shown with blanks. */
 export function decodeCertificate(raw: unknown): CertificateInfo {
   const w = rec(raw);
@@ -108,6 +111,7 @@ export function decodeCertificate(raw: unknown): CertificateInfo {
     notBefore: str(field(w, "not_before", "notBefore")),
     notAfter: str(field(w, "not_after", "notAfter")),
     sha256: str(w.sha256),
+    san: (Array.isArray(w.san) ? w.san : []).filter((n): n is string => typeof n === "string").slice(0, MAX_SAN),
     problems: problems.filter((p): p is CertificateProblem => CERTIFICATE_PROBLEMS.includes(p as CertificateProblem)),
   };
 }

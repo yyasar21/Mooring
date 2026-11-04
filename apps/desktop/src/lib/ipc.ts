@@ -126,6 +126,8 @@ export class TauriTransport implements Ipc {
   sessionFrameAck: Ipc["sessionFrameAck"] = (a) => call("session_frame_ack", { ...a });
   sessionScreenshot: Ipc["sessionScreenshot"] = (a) => call("session_screenshot", { ...a });
   sessionSetViewOnly: Ipc["sessionSetViewOnly"] = (a) => call("session_set_view_only", { ...a });
+  connectionOptionsGet: Ipc["connectionOptionsGet"] = (a) => call("connection_options_get", { ...a });
+  connectionOptionsSet: Ipc["connectionOptionsSet"] = (a) => call("connection_options_set", { ...a });
   knownCertsList: Ipc["knownCertsList"] = async (a) => (await call<unknown[]>("known_certs_list", { ...a })).map(decodeKnownCert);
   knownCertsRemove: Ipc["knownCertsRemove"] = (a) => call("known_certs_remove", { ...a });
 

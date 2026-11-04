@@ -22,6 +22,7 @@ import { IpcError } from "./ipc.error";
 import { T0 } from "./ipc.seed";
 import { MockExitBase } from "./ipc.mock.exit";
 import { SyntheticDesktop } from "./frame/synthetic";
+import { hashHost } from "./hostHash";
 
 /** What the remote mock needs to know about a connection. */
 export interface RemoteTarget {
@@ -87,7 +88,7 @@ export abstract class MockRemoteBase extends MockExitBase {
   private remoteIds = 0;
 
   protected pinKey(t: RemoteTarget): string {
-    return `${t.protocol}|${t.host}:${t.port}`;
+    return `${t.protocol}|${t.host.toLowerCase()}:${String(t.port)}`;
   }
 
   certificateFor(t: RemoteTarget): CertificateInfo {
@@ -97,8 +98,17 @@ export abstract class MockRemoteBase extends MockExitBase {
       notBefore: T0,
       notAfter: "2027-11-01T08:00:00Z",
       sha256: fakeSha256(t.host),
+      san: [t.host],
       problems: ["self_signed"],
     };
+  }
+
+  /** Store a pin for `t` with a salted HMAC host field, like `KnownCerts::add_and_save`. */
+  async pin(t: RemoteTarget, addedAt = new Date().toISOString()): Promise<void> {
+    const salt = new Uint8Array(32);
+    crypto.getRandomValues(salt);
+    const hostHash = await hashHost(t.host, t.port, salt);
+    this.knownCerts.set(this.pinKey(t), { hostHash, fingerprint: `SHA256:${fakeSha256(t.host)}`, addedAt });
   }
 
   /** `session_open` for rdp/vnc (called by MockTransport after the shared checks). */
@@ -235,9 +245,8 @@ export abstract class MockRemoteBase extends MockExitBase {
         const t = s.target;
         this.record("trust_decision", { host: t.host, fingerprint: `SHA256:${fakeSha256(t.host)}`, decision: yes ? "accepted" : "rejected" });
         if (yes) {
-          this.knownCerts.set(this.pinKey(t), { hostHash: `|2|bW9jaw==|${btoa(this.pinKey(t))}`, fingerprint: `SHA256:${fakeSha256(t.host)}`, addedAt: new Date().toISOString() });
-          // ADR-0011: the pin is written and the session reconnects on a new TCP connection.
-          this.later(() => { this.remoteConnected(s); });
+          // ADR-0011: the pin is written (hashed, as Rust does) and the session reconnects on a new TCP connection.
+          void this.pin(t).then(() => { this.later(() => { this.remoteConnected(s); }); });
         } else this.later(() => { this.endRemote(s, "certificate rejected", "trust_rejected"); });
         return;
       }
@@ -304,7 +313,7 @@ export abstract class MockRemoteBase extends MockExitBase {
     await this.unlocked();
     if (host.trim() === "") throw new IpcError("input.invalid", "invalid host");
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new IpcError("input.invalid", "invalid port");
-    const removed = this.knownCerts.delete(`${protocol}|${host}:${port}`) ? 1 : 0;
+    const removed = this.knownCerts.delete(`${protocol}|${host.toLowerCase()}:${String(port)}`) ? 1 : 0;
     if (removed) this.record("trust_cert_removed", { protocol, host });
     return { removed };
   };

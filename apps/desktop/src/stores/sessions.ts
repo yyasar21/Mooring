@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   ipc,
+  isIpcError,
   type CertificateInfo,
   type CloseCode,
   type PromptAccount,
@@ -12,8 +13,9 @@ import {
   type Size,
   type VncConnOptions,
 } from "../lib/ipc";
+import { optionsOf, useConnOptions } from "./connOptions";
 import type { LineState } from "@mooring/ui";
-import { errorText } from "./errors";
+import { describeError, errorText } from "./errors";
 import { drainFrames, dropFrames, pushFrame } from "./frames";
 import { peekSeq } from "../lib/frame/mfr1";
 import { useTree } from "./tree";
@@ -136,7 +138,7 @@ function protocolOf(connectionId: string): Protocol | null {
 
 function viewOnlyOf(connectionId: string): boolean {
   const c = useTree.getState().connections.find((x) => x.id === connectionId);
-  return c?.protocol === "vnc" && (c.options as Partial<VncConnOptions> | undefined)?.viewOnly === true;
+  return c?.protocol === "vnc" && (optionsOf(connectionId) as Partial<VncConnOptions> | undefined)?.viewOnly === true;
 }
 
 function blankTab(id: string, connectionId: string, protocol: Protocol | null, p: Partial<Tab> = {}): Tab {
@@ -182,6 +184,12 @@ interface SessionState {
   adopt: (live: SessionInfo[]) => void;
   /** Drop every tab and buffered output (lock). Live backend sessions are re-adopted on unlock. */
   reset: () => void;
+}
+
+/** A `session_open` refusal that is a trust decision keeps its close code, so the banner can say why. */
+function openFailureCode(e: unknown): CloseCode | null {
+  const code = isIpcError(e) ? e.code : "";
+  return code === "session.trust_mismatch" ? "trust_mismatch" : code === "session.trust_rejected" ? "trust_rejected" : null;
 }
 
 let tabSeq = 0;
@@ -279,7 +287,7 @@ export const useSessions = create<SessionState>((set, get) => {
         await ipc.sessionClose({ sessionId }); // tab closed while connecting
       }
     } catch (e: unknown) {
-      patch(tabId, { state: "closed", reason: errorText(e) });
+      patch(tabId, { state: "closed", reason: describeError(e), closeCode: openFailureCode(e) });
     }
   };
 
@@ -304,6 +312,7 @@ export const useSessions = create<SessionState>((set, get) => {
       tabSeq += 1;
       const id = `tab-${tabSeq}`;
       const protocol = protocolOf(connectionId);
+      if (isGraphical(protocol)) await useConnOptions.getState().load(connectionId); // initial view-only
       set({ tabs: [...get().tabs, blankTab(id, connectionId, protocol)], activeTab: id });
       await start(id, connectionId, initialSize(protocol, opts.size));
       return id;
