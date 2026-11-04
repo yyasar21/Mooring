@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { LockReason } from "../lib/ipc";
 import { useApp } from "../stores/app";
+import { VaultJoin } from "./VaultJoin";
 
 const LOCK_TEXT: Record<Exclude<LockReason, "user"> | "unknown", string> = {
   idle: "Locked after a period of inactivity.",
@@ -28,6 +29,9 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
+  // ADR-0017: a fresh device may pull an existing synced vault instead of creating one.
+  const [join, setJoin] = useState(false);
+  if (join) return <VaultJoin onBack={() => { setJoin(false); }} />;
 
   const mismatch = mode === "create" && confirm.length > 0 && confirm !== password;
   const tooShort = mode === "create" && password.length > 0 && password.length < 12;
@@ -115,7 +119,11 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
 
         <div className="airlock-foot">
           <span className="m-micro">Argon2id · XChaCha20-Poly1305</span>
-          <span className="m-micro">Local only</span>
+          {mode === "create" ? (
+            <button type="button" className="airlock-link" onClick={() => { setJoin(true); }}>Join a synced vault instead</button>
+          ) : (
+            <span className="m-micro">Local only</span>
+          )}
         </div>
       </form>
     </main>

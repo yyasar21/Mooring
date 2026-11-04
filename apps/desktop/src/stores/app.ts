@@ -19,6 +19,7 @@ interface AppState {
   createVault: (password: string) => Promise<void>;
   unlock: (password: string) => Promise<void>;
   lock: () => Promise<void>;
+  adoptJoined: () => Promise<void>;
   /** The backend locked the vault (idle, screen lock, ...): drop everything and show the reason. */
   lockedByBackend: (reason: LockReason | "unknown") => void;
 }
@@ -90,6 +91,12 @@ export const useApp = create<AppState>((set, get) => ({
     } catch (e: unknown) {
       set({ lastError: errorText(e) });
     }
+  },
+
+  /** ADR-0017 join (S2): `vault_join` already replaced the bootstrap vault; the shell loads the synced data. */
+  adoptJoined: async () => {
+    set({ vault: "unlocked", lastError: null, lockReason: null });
+    await loadVaultData();
   },
 
   lock: async () => {
