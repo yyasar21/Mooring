@@ -1,0 +1,2 @@
+@cert-authority *.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEv1Ei80RVTFO94uu4zSt+PRYArWMcOFpdfM4jx3hUWa
+@revoked 192.0.2.11 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINvBtMkA/+SNV1tdpcY4BAEl9l2w/j4kSUt26phkV9mG

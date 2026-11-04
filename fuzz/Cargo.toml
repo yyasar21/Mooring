@@ -1,0 +1,66 @@
+# cargo-fuzz workspace (nightly + libFuzzer). Deliberately its own workspace: the main
+# `cargo test --workspace` never builds libfuzzer-sys. The entry logic lives in `entries/` and is
+# replayed on stable by `crates/*/tests/fuzz_corpus.rs`. See docs/qa/fuzzing.md.
+[package]
+name = "mooring-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4.13" # libFuzzer driver for cargo-fuzz; fuzz crate only, never in the app
+mooring-core = { path = "../crates/mooring-core" }
+mooring-vault = { path = "../crates/mooring-vault" }
+mooring-proto-ssh = { path = "../crates/mooring-proto-ssh" }
+# Same versions / features as the root workspace (entries name them directly).
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
+secrecy = { version = "0.10", features = ["serde"] }
+
+[[bin]]
+name = "known_hosts_parse"
+path = "fuzz_targets/known_hosts_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kubeconfig_parse"
+path = "fuzz_targets/kubeconfig_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_header_from_bytes"
+path = "fuzz_targets/vault_header_from_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_age"
+path = "fuzz_targets/import_age.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "socks5_handshake"
+path = "fuzz_targets/socks5_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+
+# Mirror of the root workspace patch (patches only apply from the workspace root).
+[patch.crates-io]
+age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }

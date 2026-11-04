@@ -1,0 +1,4 @@
+a: &x {k: v}
+b:
+  <<: *x
+contexts: [{name: c, context: {cluster: x}}]

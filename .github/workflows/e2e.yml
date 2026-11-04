@@ -1,0 +1,53 @@
+# UI end-to-end flows (apps/desktop/e2e): the real React UI on the Vite dev server with the
+# mock transport, driven by headless Chromium through Playwright. No Tauri build, no display
+# server. The Rust side of the same flows is `cargo test -p mooring-app --test e2e_flow` (ci.yml).
+# Actions are pinned by commit SHA with the tag in a comment (security review 3, L-14), the same
+# pins as ci.yml.
+name: e2e
+on:
+  push:
+    branches: [main]
+    paths: ["apps/desktop/**", "packages/ui/**", "pnpm-lock.yaml", ".github/workflows/e2e.yml"]
+  pull_request:
+    paths: ["apps/desktop/**", "packages/ui/**", "pnpm-lock.yaml", ".github/workflows/e2e.yml"]
+  workflow_dispatch:
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+permissions: { contents: read }
+
+env:
+  # Exact version; the browser build is the one this release pins.
+  PLAYWRIGHT_VERSION: "1.63.0"
+
+jobs:
+  ui-flows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (version from package.json)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Playwright is not an app dependency yet (see docs/handoff/a1-exit-qa.md): a pinned global
+      # copy, resolved by the harness through NODE_PATH, plus its Chromium and system libraries.
+      - name: Install Playwright ${{ env.PLAYWRIGHT_VERSION }} + Chromium
+        run: |
+          npm install --global --no-fund --no-audit "playwright@${PLAYWRIGHT_VERSION}"
+          playwright install --with-deps chromium
+          echo "NODE_PATH=$(npm root --global)" >> "$GITHUB_ENV"
+      - name: Type-check the e2e boot module against the mock transport
+        working-directory: apps/desktop
+        run: pnpm exec tsc -p e2e/tsconfig.json
+      - name: UI flows
+        run: node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/flows.e2e.mjs
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-screenshots
+          path: apps/desktop/e2e/results/
+          if-no-files-found: ignore
+          retention-days: 14
