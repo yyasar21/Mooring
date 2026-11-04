@@ -85,15 +85,20 @@ fn io(e: &std::io::Error) -> StatusCode {
 }
 
 /// Apply the permission bits of `attrs`, if any, to the file `f`.
+#[cfg(unix)]
 fn set_mode(f: &std::fs::File, attrs: &FileAttributes) -> Result<(), StatusCode> {
-    #[cfg(unix)]
     if let Some(mode) = attrs.permissions {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(mode & 0o7777);
         f.set_permissions(perms).map_err(|e| io(&e))?;
     }
-    #[cfg(not(unix))]
-    let _ = (f, attrs);
+    Ok(())
+}
+
+/// Windows has no POSIX mode bits; the attributes are accepted and ignored.
+#[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
+fn set_mode(_f: &std::fs::File, _attrs: &FileAttributes) -> Result<(), StatusCode> {
     Ok(())
 }
 
