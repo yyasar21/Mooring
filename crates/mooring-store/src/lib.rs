@@ -9,6 +9,7 @@
 //! * [`Store::open`] / [`Store::open_in_memory`] — pragmas + migrations ([`schema`])
 //! * folders, connections + tags, credentials, inheritance — methods on [`Store`]
 //! * [`Store::search`] — FTS5 prefix search over connection name, host and tags
+//! * [`Store::connection_options`] — per-protocol options (`options_json`, migration 0005)
 
 #![forbid(unsafe_code)]
 
@@ -18,6 +19,7 @@ mod credentials;
 mod error;
 mod folders;
 mod legacy;
+mod options;
 mod roles;
 pub mod schema;
 mod search;

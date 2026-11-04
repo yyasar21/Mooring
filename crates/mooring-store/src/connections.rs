@@ -127,7 +127,8 @@ impl Store {
         self.get_connection(c.id)
     }
 
-    /// Replace every mutable field of an existing connection, including its tags.
+    /// Replace every mutable field of an existing connection, including its tags. A protocol
+    /// change resets the connection's options to `{}` (they belong to the old protocol).
     pub fn update_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
         self.check_links(c, &v)?;
@@ -135,7 +136,9 @@ impl Store {
         let n = tx.execute(
             "UPDATE connection SET folder_id = ?2, name = ?3, protocol = ?4, host = ?5, port = ?6,
                                    credential_id = ?7, updated_at = ?8, username_override = ?9,
-                                   domain_override = ?10
+                                   domain_override = ?10,
+                                   options_json = CASE WHEN protocol = ?4 THEN options_json
+                                                       ELSE '{}' END
              WHERE id = ?1",
             params![
                 c.id.to_string(),
