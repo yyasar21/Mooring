@@ -84,4 +84,14 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("web_zoom", Scope::Main),
     ("web_list", Scope::Main),
     ("window_attach", Scope::Session),
+    // ADR-0015 §5 (A3 V2)
+    ("vsphere_test", Scope::Main),
+    ("vsphere_sync_enable", Scope::Main),
+    ("vsphere_sync_disable", Scope::Main),
+    ("vsphere_refresh", Scope::Main),
+    ("vsphere_status", Scope::Main),
+    ("vsphere_vm_power", Scope::Main),
+    ("vsphere_vm_action", Scope::Main),
+    ("vsphere_vm_identity", Scope::Main),
+    ("vsphere_console", Scope::Main),
 ];

@@ -29,6 +29,8 @@ mooring-store = { path = "../crates/mooring-store", version = "0.1.0-rc.1" }
 mooring-proto-ssh = { path = "../crates/mooring-proto-ssh", version = "0.1.0-rc.1" }
 mooring-proto-rdp = { path = "../crates/mooring-proto-rdp", version = "0.1.0-rc.1" } # ADR-0011: RDP sessions (IronRDP); R-RDP-FFI tree accepted by the owner
 mooring-proto-vnc = { path = "../crates/mooring-proto-vnc", version = "0.1.0-rc.1" } # ADR-0012: VNC sessions (own RFB 3.8 client)
+mooring-http = { path = "../crates/mooring-http", version = "0.1.0-rc.1" } # ADR-0015 V2: HttpConfig / trust prompt of the vCenter client (workspace crate, no new third-party code)
+mooring-vsphere = { path = "../crates/mooring-vsphere", version = "0.1.0-rc.1" } # ADR-0015 V2: inventory sync, power, consoles (workspace crate, no new third-party code)
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }

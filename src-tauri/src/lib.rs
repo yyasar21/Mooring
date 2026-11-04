@@ -26,6 +26,8 @@ test_util_pub!(autolock);
 test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_factory, session_task);
 // ADR-0013 (A2 R5): command ACL, web windows, detach routing, lock hiding.
 test_util_pub!(guard, route, web, window_lock);
+// ADR-0015 (A3 V2): vCenter sync hub and refresh scheduler.
+test_util_pub!(scheduler, vsphere_sync);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -50,17 +52,20 @@ use crate::commands::{forward, sftp, sftp_pick, sftp_transfers};
 use crate::commands::{conn_options, known_certs, session_graphics};
 // ADR-0013 §IPC
 use crate::commands::{detach, web as web_cmds};
+// ADR-0015 §5 (A3 V2)
+use crate::commands::{vsphere, vsphere_console};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
 ///
 /// # Panics
 /// Panics only if the Tauri runtime itself cannot start (no display, broken `WebView` install).
+#[allow(clippy::too_many_lines)] // the `generate_handler!` command list
 pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
-        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`); the `main`
-        // capability grants the WebView no dialog permission.
+        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`, ADR-0015 power /
+        // certificate / VMRC confirmations); the `main` capability grants no dialog permission.
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
@@ -157,6 +162,16 @@ pub fn run() {
             web_cmds::web_zoom,
             web_cmds::web_list,
             detach::window_attach,
+            // ADR-0015 §5 (A3 V2)
+            vsphere::vsphere_test,
+            vsphere::vsphere_sync_enable,
+            vsphere::vsphere_sync_disable,
+            vsphere::vsphere_refresh,
+            vsphere::vsphere_status,
+            vsphere_console::vsphere_vm_power,
+            vsphere_console::vsphere_vm_action,
+            vsphere_console::vsphere_vm_identity,
+            vsphere_console::vsphere_console,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

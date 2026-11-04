@@ -181,6 +181,33 @@
   "vault_unlock": [
     "main"
   ],
+  "vsphere_console": [
+    "main"
+  ],
+  "vsphere_refresh": [
+    "main"
+  ],
+  "vsphere_status": [
+    "main"
+  ],
+  "vsphere_sync_disable": [
+    "main"
+  ],
+  "vsphere_sync_enable": [
+    "main"
+  ],
+  "vsphere_test": [
+    "main"
+  ],
+  "vsphere_vm_action": [
+    "main"
+  ],
+  "vsphere_vm_identity": [
+    "main"
+  ],
+  "vsphere_vm_power": [
+    "main"
+  ],
   "web_clear_data": [
     "main"
   ],

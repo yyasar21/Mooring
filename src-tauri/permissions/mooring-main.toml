@@ -74,4 +74,14 @@ permissions = [
   "allow-web-zoom",
   "allow-web-list",
   "allow-window-attach",
+  # ADR-0015 V2: vSphere
+  "allow-vsphere-test",
+  "allow-vsphere-sync-enable",
+  "allow-vsphere-sync-disable",
+  "allow-vsphere-refresh",
+  "allow-vsphere-status",
+  "allow-vsphere-vm-power",
+  "allow-vsphere-vm-action",
+  "allow-vsphere-vm-identity",
+  "allow-vsphere-console",
 ]

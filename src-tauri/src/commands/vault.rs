@@ -102,6 +102,8 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
     reseal_legacy(state);
     // ADR-0013: web and detached windows come back.
     state.lock_observer.notify(false);
+    // ADR-0015: scheduled vCenter refreshes run only while unlocked.
+    crate::scheduler::start_all(&crate::vsphere_sync::VsCtx::of(state));
     Ok(VaultStatus::Unlocked)
 }
 
@@ -143,6 +145,8 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     let reason = v.lock_with_reason(reason);
     drop(guard);
     state.audit(AuditEvent::VaultLocked { reason: reason.as_str().to_owned() });
+    // ADR-0015: stop the vCenter schedulers and log their sessions out.
+    state.vsphere.on_lock();
     // ADR-0013: no web or detached window stays visible outside the lock screen.
     state.lock_observer.notify(true);
     Ok(VaultStatus::Locked)

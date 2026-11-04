@@ -24,6 +24,8 @@ mod hostile;
 mod hostile_edges;
 #[path = "e2e_flow/support.rs"]
 mod support;
+#[path = "e2e_flow/vsphere.rs"]
+mod vsphere;
 
 use std::time::Duration;
 

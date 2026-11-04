@@ -59,6 +59,9 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "session_frame_ack",
     // ADR-0013: polled by the web-session list (R5).
     "web_list",
+    // ADR-0015: sync status and VM power badges (cached / last refresh).
+    "vsphere_status",
+    "vsphere_vm_power",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

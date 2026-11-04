@@ -81,6 +81,10 @@ impl From<StoreError> for IpcError {
                 Self::new("tree.not_found", format!("{kind} not found"))
             }
             StoreError::Tree(reason) => tree_error(&reason),
+            StoreError::SyncedReadOnly => Self::new(
+                "tree.synced_readonly",
+                "this item is synced from vCenter; only credentials, tags and options can change",
+            ),
             StoreError::Vault(v) => v.into(),
             StoreError::Credential(c) => c.into(),
             StoreError::Corrupt { what } => {
@@ -187,6 +191,7 @@ mod tests {
                 "credential.secret_missing",
             ),
             (StoreError::Downgrade { found: 9, supported: 1 }, "store.io"),
+            (StoreError::SyncedReadOnly, "tree.synced_readonly"),
         ];
         for (e, code) in cases {
             assert_eq!(IpcError::from(e).code, code);
