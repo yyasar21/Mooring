@@ -177,3 +177,56 @@ fn audit_mapping_carries_names_and_the_connection() {
     assert_eq!(serde_json::to_value(&f).expect("json")["category"], "locked");
     assert_eq!(locked().code(), "credential.external_unavailable");
 }
+
+/// Every `SecretsError` variant maps to the code `SecretsError::code()` names, and every
+/// such code is in the checked-in `ipc-codes.json` (the golden scanner reads only literals
+/// in this crate, so the mapping must spell them out).
+#[test]
+fn every_secrets_error_code_is_in_the_golden_list() {
+    use mooring_http::{CertProtocol, CertTrust, CertificateInfo, TrustDecision, TrustVerdict};
+    let trust = TrustDecision {
+        protocol: CertProtocol::Vault,
+        host: "vault.example.test".into(),
+        port: 8200,
+        fingerprint: [7; 32],
+        trust: CertTrust::Unknown,
+        verdict: TrustVerdict::Prompt,
+        info: CertificateInfo {
+            subject: "CN=vault.example.test".into(),
+            issuer: "CN=vault.example.test".into(),
+            not_before: time::OffsetDateTime::UNIX_EPOCH,
+            not_after: time::OffsetDateTime::UNIX_EPOCH,
+            sha256: "07".repeat(32),
+            san: vec![],
+            problems: vec![],
+        },
+    };
+    let variants = [
+        SecretsError::Unavailable { category: Category::Network, detail: "x" },
+        SecretsError::Trust(Box::new(trust)),
+        SecretsError::RootToken,
+        SecretsError::NotFound,
+        SecretsError::Shape { missing: vec!["password".into()], extra: vec![], invalid: None },
+        SecretsError::Invalid("x"),
+    ];
+    let golden = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/ipc-codes.json"))
+        .expect("ipc-codes.json");
+    let golden: Vec<String> = serde_json::from_str(&golden).expect("json list");
+    let mut seen = std::collections::BTreeSet::new();
+    for e in &variants {
+        let ipc = ipc_error(e);
+        assert_eq!(ipc.code, e.code(), "{e:?}");
+        assert!(golden.iter().any(|c| c == ipc.code), "{} missing from ipc-codes.json", ipc.code);
+        seen.insert(ipc.code);
+    }
+    assert_eq!(
+        seen.into_iter().collect::<Vec<_>>(),
+        [
+            "credential.external_not_found",
+            "credential.external_root_token",
+            "credential.external_shape",
+            "credential.external_unavailable",
+            "input.invalid",
+        ]
+    );
+}

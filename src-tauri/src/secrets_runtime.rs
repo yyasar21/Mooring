@@ -81,9 +81,20 @@ impl SecretsAudit for AuditBridge {
     }
 }
 
-/// `SecretsError` → IPC. Every message is value-free by construction (mooring-secrets).
+/// `SecretsError` → IPC with literal codes, so the golden `ipc-codes.json` scanner lists
+/// them (it reads literals in this crate only). The match mirrors `SecretsError::code()`
+/// (ADR-0016 §7); a test asserts the two agree for every variant. Every message is
+/// value-free by construction (mooring-secrets).
 pub fn ipc_error(e: &SecretsError) -> IpcError {
-    IpcError::new(e.code(), e.to_string())
+    let code = match e {
+        SecretsError::Unavailable { .. } | SecretsError::Trust(_) => "credential.external_unavailable",
+        SecretsError::RootToken => "credential.external_root_token",
+        SecretsError::NotFound => "credential.external_not_found",
+        SecretsError::Shape { .. } => "credential.external_shape",
+        SecretsError::Invalid(_) => "input.invalid",
+    };
+    debug_assert_eq!(code, e.code(), "ipc_error drifted from SecretsError::code()");
+    IpcError::new(code, e.to_string())
 }
 
 /// `credential.external_unavailable` with the `locked` category.

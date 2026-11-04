@@ -1,6 +1,10 @@
 [
   "audit.io",
   "clipboard.unavailable",
+  "credential.external_not_found",
+  "credential.external_root_token",
+  "credential.external_shape",
+  "credential.external_unavailable",
   "credential.in_use",
   "credential.incompatible",
   "credential.kind_unsupported",
