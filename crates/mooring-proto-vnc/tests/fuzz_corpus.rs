@@ -56,7 +56,7 @@ fn vencrypt_negotiation_corpus() {
     assert!(replay::replay("vencrypt_negotiation", vencrypt_negotiation::run) >= 2);
 }
 
-/// The full handshake seed must reach ServerInit, or the fuzzer only explores the version.
+/// The full handshake seed must reach `ServerInit`, or the fuzzer only explores the version.
 #[test]
 fn handshake_seed_reaches_server_init() {
     use mooring_proto_vnc::handshake::{

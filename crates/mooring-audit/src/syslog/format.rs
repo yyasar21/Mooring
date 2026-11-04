@@ -68,8 +68,8 @@ pub fn severity(event: &AuditEvent) -> Severity {
         AuditEvent::BecomeFailed { .. }
         | AuditEvent::CertRemoved { .. }
         | AuditEvent::SessionWeakSecurity { .. }
-        | AuditEvent::CredentialSentToRemote { .. } => Severity::Warning,
-        AuditEvent::ConnectionOptionsChanged { weakened: true, .. } => Severity::Warning,
+        | AuditEvent::CredentialSentToRemote { .. }
+        | AuditEvent::ConnectionOptionsChanged { weakened: true, .. } => Severity::Warning,
         _ => Severity::Notice,
     }
 }

@@ -117,10 +117,7 @@ pub fn tight(data: &[u8]) {
 }
 
 /// Run `parse` on `buf`; on `Done` return the rest. `Need` must ask for more than it has.
-fn step<'a, T>(
-    buf: &'a [u8],
-    parse: impl Fn(&[u8]) -> crate::wire::PResult<T>,
-) -> Option<(T, &'a [u8])> {
+fn step<T>(buf: &[u8], parse: impl Fn(&[u8]) -> crate::wire::PResult<T>) -> Option<(T, &[u8])> {
     match parse(buf) {
         Ok(Parsed::Done(v, used)) => {
             assert!(used <= buf.len(), "a parser consumed more than it was given");

@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(mode(&dir) & 0o777, 0o700);
     }
 
-    /// L-24: whatever `MOORING_LOG` says, CredSSP targets stay at info.
+    /// L-24: whatever `MOORING_LOG` says, `CredSSP` targets stay at info.
     #[test]
     fn credssp_targets_never_log_below_info() {
         use std::sync::Mutex;

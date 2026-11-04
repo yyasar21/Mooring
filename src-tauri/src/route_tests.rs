@@ -101,7 +101,7 @@ fn main_reattach_replaces_its_channels_without_detached() {
     assert_eq!(new.kinds(), ["bytes"]);
 }
 
-/// U3: a detached view attaching again (React StrictMode double mount) tells only its
+/// U3: a detached view attaching again (React `StrictMode` double mount) tells only its
 /// previous channel; the fresh one never sees `detached`.
 #[test]
 fn detached_reattach_tells_only_the_previous_channel() {
