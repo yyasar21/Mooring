@@ -5,6 +5,12 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 
 | Date | Phase | Role | Note |
 | --- | --- | --- | --- |
+| 2026-11-04 | A1 exit | orchestrator | [a1-orchestrator.md](a1-orchestrator.md) — round 4: ADR-0010 forwarding/SFTP/auto-lock/syslog over IPC, fuzz + E2E, review 4 |
+| 2026-11-04 | A1 exit | security-reviewer | [../security/a1-review-4.md](../security/a1-review-4.md) — review 4: BLOCKER B-4 → fixed; re-review APPROVE WITH NITS (M-12, L-19 open) |
+| 2026-11-04 | A1 exit | rust-core | [a1-exit-rust-core-forward-sftp.md](a1-exit-rust-core-forward-sftp.md) — forward_*/sftp_* commands, Rust-side pick dialog (B-4) |
+| 2026-11-04 | A1 exit | rust-core | [a1-exit-rust-core-autolock-syslog.md](a1-exit-rust-core-autolock-syslog.md) — auto-lock wiring, RFC 5424 mirror, heartbeat |
+| 2026-11-04 | A1 exit | ui-engineer | [a1-exit-ui.md](a1-exit-ui.md) — Forwards/SFTP panels, settings cards, lock survival |
+| 2026-11-04 | A1 exit | qa-engineer | [a1-exit-qa.md](a1-exit-qa.md) — cargo-fuzz workspace (5 targets), nightly job, Playwright E2E, QA-F1/F2 |
 | 2026-11-04 | pub | ui-engineer | [public-site.md](public-site.md) — GitHub Pages landing site (site/, pages.yml) |
 | 2026-11-03 | A1+ | orchestrator | [a1-orchestrator.md](a1-orchestrator.md) — round 3: ADR-0009 credentials, public launch prep, reviews |
 | 2026-11-03 | A1+ | rust-core | [a1-rust-core-fixes-3.md](a1-rust-core-fixes-3.md) — review-3 fix round (B-3, M-5..M-7, L-*, N-*) |

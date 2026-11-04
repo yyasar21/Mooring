@@ -51,6 +51,24 @@
 - Gate (cloud Linux): 390 Rust tests / 0 failed / 3 ignored; clippy + fmt clean; 109 UI tests;
   build clean; vectors verified; `verify-release.test.sh` 10/10.
 
+## Round 4 — A1 exit (2026-11-04)
+- ADR-0010 (forwarding, SFTP, auto-lock, syslog over IPC) accepted, amended after review 4.
+- rust-core: `forward_open/close/list`, `sftp_*` incl. `sftp_pick_local` (dialog opened from
+  Rust, single-use `pickId`; capability stays `core:default`), `sftp_transfers`, auto-lock
+  wiring (activity hook with passive list `ipc-passive.json`, 5 s tick, 60 s blur grace, sleep
+  by clock jump), external forwards closed on lock, RFC 5424 mirror (udp/tcp/tls, rustls+ring,
+  `mooring@32473`, heartbeat, redirect audited on both collectors), QA-F2 kubeconfig fix.
+- ui: Forwards panel, SFTP two-pane browser + transfers drawer, auto-lock and syslog settings,
+  lock-survival re-adoption, ESLint no-alert, contract tests against `ipc-codes.json` /
+  `ipc-passive.json`.
+- qa: `fuzz/` workspace (known_hosts, kubeconfig with security oracle, vault header, import_age,
+  socks5), stable corpus replay in `cargo test`, `fuzz-nightly.yml`, Playwright E2E (5 flows,
+  `e2e.yml`, `make e2e`).
+- Security review 4: BLOCKER B-4 (local path from WebView) + M-8..M-11, L-15..L-18, N-10..N-16 →
+  all fixed in fix round 4; re-review APPROVE WITH NITS.
+- Gate (cloud Linux): 485 Rust tests / 0 failed / 3 ignored, clippy + fmt clean; 185 vitest;
+  E2E 5/5; build clean.
+
 ## Left open
 - `make dev` on macOS/Windows: manual checks owed — clipboard clear + history exclusion, OSC 8
   link guard, real ssh-agent, lab SSH (`MOORING_LAB_HOST`), keyring round trip.
@@ -59,9 +77,10 @@
   `KdfParams::DEFAULT` instead of calibrating.
 - Security L2 (fsync + `.bak` on header write), M1 (Windows keyring persistence), N3, fuzz
   targets for `Header::from_bytes` / `import_age` (needs nightly + cargo-fuzz).
-- A1 exit still owes: auto-lock wiring (idle/OS signals), keyring commands (HOLD until
-  biometric ACL), forwarding + SFTP IPC and UI, syslog mirror (item 5), cargo-fuzz targets and
-  nightly job, Playwright/tauri-driver E2E, 3-OS CI run after push, review-2 lows L-3/L-4/N-*.
+- A1 exit still owes: keyring commands (HOLD until biometric ACL), 3-OS CI run after push,
+  review-2 lows L-3/L-4/N-*, review-4 M-12 (non-ASCII kubeconfig keys — gate for any Kubernetes
+  consumer), L-19 (upload part-file mode), N-17..N-22; IANA PEN request for the syslog SD-ID;
+  owed fuzz targets (fingerprint::*, otp::decode_seed, parse_account, export_json).
 
 ## Before going public
 - Publish from a single squashed commit into a fresh repository (security ruling G-1); never make
