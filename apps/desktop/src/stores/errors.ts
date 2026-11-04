@@ -76,6 +76,9 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "sync.header_mismatch": "The synced vault's password changed on another device. Sync stops until this device adopts the new password.",
   "sync.keyring_header": "Sync is not available while the vault is wrapped in the system keyring.",
   "sync.too_large": "The vault is too large to sync (64 MiB limit).",
+  // Native confirmation dialogs (security review 6, M-16).
+  "confirm.busy": "Another confirmation dialog is already open. Answer it first.",
+  "confirm.cooldown": "You cancelled this action a moment ago. Wait a few seconds before asking again.",
   // Shared by the vCenter (ADR-0015) and sync (ADR-0017) HTTP clients.
   "http.trust_prompt": "The server's certificate is not trusted yet. Run Refresh now or Sync now to review and trust it; background runs cannot ask.",
   "http.trust_rejected": "You rejected the server's certificate, so Mooring did not connect. Nothing was stored.",
