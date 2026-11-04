@@ -1,18 +1,38 @@
 import { useEffect, useRef } from "react";
-import { subscribeOutput, useSessions } from "../../stores/sessions";
+import { subscribeOutput } from "../../stores/output";
+import type { Size } from "../../lib/ipc";
 import { useUi } from "../../stores/ui";
 import { isAppShortcut } from "../../lib/shortcuts";
 import { createTerminal, themeFromCss, type TermHandle } from "./xterm";
 
 const enc = new TextEncoder();
 
-/** One xterm per tab. Kept mounted while the tab exists so scrollback survives tab switches. */
-export function TerminalView({ tabId, active }: { tabId: string; active: boolean }) {
+export interface TerminalViewProps {
+  /** Output buffer key (`stores/output.ts`): the tab id, or the detached view's key. */
+  tabId: string;
+  active: boolean;
+  /** A prompt is open over the terminal: it must not take focus. */
+  blocked: boolean;
+  onData: (data: Uint8Array) => void;
+  onResize: (size: Size) => void;
+  /** A change makes the terminal send its size again (after the session comes back from a window). */
+  resyncKey?: number;
+}
+
+/**
+ * One xterm per tab. Kept mounted while the tab exists so scrollback survives tab switches. It
+ * holds no store: the main window and the detached window wire input and resizes themselves.
+ */
+export function TerminalView({ tabId, active, blocked, onData, onResize, resyncKey = 0 }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<TermHandle | null>(null);
   const lastSize = useRef("");
+  const syncRef = useRef<() => void>(() => undefined);
+  const cb = useRef({ onData, onResize });
+  useEffect(() => {
+    cb.current = { onData, onResize };
+  });
   const theme = useUi((s) => s.theme);
-  const blocked = useSessions((s) => s.tabs.find((t) => t.id === tabId)?.prompt !== null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -21,7 +41,7 @@ export function TerminalView({ tabId, active }: { tabId: string; active: boolean
     const term = createTerminal(host, {
       fontFamily: font,
       theme: themeFromCss(),
-      onData: (d) => void useSessions.getState().send(tabId, enc.encode(d)),
+      onData: (d) => { cb.current.onData(enc.encode(d)); },
       shouldPassKey: (e) => !isAppShortcut(e),
     });
     termRef.current = term;
@@ -32,11 +52,12 @@ export function TerminalView({ tabId, active }: { tabId: string; active: boolean
       const key = `${cols}x${rows}`;
       if (cols > 0 && rows > 0 && key !== lastSize.current) {
         lastSize.current = key;
-        void useSessions.getState().resize(tabId, { width: cols, height: rows });
+        cb.current.onResize({ width: cols, height: rows });
       }
     };
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(sync);
     ro?.observe(host);
+    syncRef.current = sync;
     sync();
 
     return () => {
@@ -50,6 +71,12 @@ export function TerminalView({ tabId, active }: { tabId: string; active: boolean
   useEffect(() => {
     termRef.current?.setTheme(themeFromCss());
   }, [theme]);
+
+  useEffect(() => {
+    if (resyncKey === 0) return;
+    lastSize.current = "";
+    syncRef.current();
+  }, [resyncKey]);
 
   useEffect(() => {
     if (active && !blocked) {

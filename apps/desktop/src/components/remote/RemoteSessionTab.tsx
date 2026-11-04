@@ -38,6 +38,7 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
   const close = useSessions((s) => s.close);
   const setViewOnly = useSessions((s) => s.setViewOnly);
   const screenshot = useSessions((s) => s.screenshot);
+  const detach = useSessions((s) => s.detach);
   const [stats, setStats] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -131,6 +132,9 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
         </button>
         <button type="button" className="btn btn-ghost" aria-pressed={stats} onClick={() => { setStats((v) => !v); }}>
           Stats
+        </button>
+        <button type="button" className="btn btn-ghost" disabled={!connected || !tab.sessionId} onClick={() => void detach(tab.id)}>
+          Detach to window
         </button>
       </div>
       <div className="session-body remote-body">

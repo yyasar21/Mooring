@@ -41,8 +41,8 @@ export function backoffProgress(r: { delayMs: number; since: number }, now: numb
 
 /**
  * The connection state over a remote canvas: connecting, reconnecting with the backoff countdown
- * (the Tauri layer retries; the UI only shows it), detached to another window, or closed with
- * the reason and a Reconnect button.
+ * (the Tauri layer retries; the UI only shows it), or closed with the reason and a Reconnect
+ * button. A detached session shows `DetachedPlaceholder` instead (Workspace).
  */
 export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReconnect }: {
   tab: Tab;
@@ -94,15 +94,6 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
             Cancel reconnect
           </button>
         </div>
-      </div>
-    );
-  }
-
-  if (tab.state === "detached") {
-    return (
-      <div className="link-banner m-hud" role="status">
-        <span className="m-micro">Detached</span>
-        <span className="text-text-muted">This session is shown in its own window.</span>
       </div>
     );
   }

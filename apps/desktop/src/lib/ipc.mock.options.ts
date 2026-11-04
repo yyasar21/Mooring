@@ -4,10 +4,10 @@
 import type { ProtocolOptions, RemoteIpc } from "./ipc.types";
 import { MAX_FPS_VALUES, OPTION_LIMITS, type MaxFps } from "./ipc.types.remote";
 import { IpcError } from "./ipc.error";
-import { MockWebBase } from "./ipc.mock.web";
+import { MockDetachBase } from "./ipc.mock.detach";
 import { hasOptions, normalizeOptions, unknownField, validateOptions } from "./validate.options";
 
-export abstract class MockOptionsBase extends MockWebBase {
+export abstract class MockOptionsBase extends MockDetachBase {
   /** Replace the stored options of a connection (MockTransport owns the rows). */
   protected abstract storeOptions(connectionId: string, options: ProtocolOptions): void;
 

@@ -27,6 +27,8 @@ export interface MockOptions {
   delayMs?: number;
   /** Delay between simulated transfer blocks; 0 = next macrotask. */
   transferStepMs?: number;
+  /** Web windows also report a refused navigation and a refused download (browser demo). */
+  webDemo?: boolean;
 }
 
 interface MockTransfer {

@@ -55,12 +55,14 @@ describe("sessions store", () => {
     expect(mock.sessions.size + mock.remote.size).toBe(2);
   });
 
-  it("detach hands the session id to window_detach and drops the tab", async () => {
+  it("detach hands the session id to window_detach; the tab stays and turns into the placeholder", async () => {
     const id = await useSessions.getState().open("c-web01");
     const sid = useSessions.getState().tabs[0]?.sessionId;
     expect(await useSessions.getState().detach(id)).toBe(true);
     expect(mock.detached).toEqual([sid]);
-    expect(useSessions.getState().tabs).toHaveLength(0);
+    expect(useSessions.getState().tabs).toHaveLength(1);
+    await settle();
+    expect(useSessions.getState().tabs[0]?.state).toBe("detached");
   });
 
   it("rejecting the host key closes the tab state with a reason", async () => {

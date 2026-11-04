@@ -53,3 +53,32 @@
 .cert-ack { display: flex; align-items: flex-start; gap: 8px; font-size: var(--fs-xs); color: var(--text); }
 .cert-ack input { margin-top: 2px; accent-color: var(--hot); }
 .cert-ack:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+
+/* ---------- web session card (ADR-0013: the page lives in its own window) ---------- */
+.web-zoom { display: inline-flex; align-items: center; }
+.web-zoom .btn { min-width: 30px; justify-content: center; }
+.web-card {
+  position: absolute; left: 50%; top: 40px; transform: translateX(-50%); width: min(560px, calc(100% - 32px));
+  max-height: calc(100% - 56px); overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 18px 20px;
+  background: var(--surface);
+}
+.web-title { font-size: var(--fs-xl); line-height: 1.15; overflow-wrap: anywhere; }
+.web-note { margin-top: 6px; font-size: var(--fs-s); color: var(--text-faint); }
+.web-error { padding: 6px 10px; background: var(--hot-soft); color: var(--hot); font-size: var(--fs-s); }
+.web-card .actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.web-card .actions > span { flex: 1; min-width: 0; font-size: var(--fs-s); }
+.web-notices { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.web-notices li {
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-left: 2px solid var(--hot-line); background: var(--hot-soft);
+}
+.web-notices .actions { margin-top: 2px; }
+.web-notice-origin { font: 400 var(--fs-s)/1.3 var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
+
+/* ---------- detach: placeholder in main, slim bar in the detached window ---------- */
+.detached-card { z-index: 12; }
+.detached-bar {
+  position: absolute; left: 0; right: 0; top: 0; height: var(--bar-h); display: flex; align-items: center; gap: 8px;
+  padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--bg-sunken);
+}
+.detached-bar .spacer { flex: 1; }
+.detached-root { position: fixed; inset: 0; background: var(--bg); }

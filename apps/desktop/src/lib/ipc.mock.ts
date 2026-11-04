@@ -44,11 +44,11 @@ export class MockTransport extends MockOptionsBase implements Ipc {
   creds = new MockCredentials(seedCredentials());
   trustedHosts = new Set<string>();
   sessions = new Map<string, MockSession>();
-  detached: string[] = [];
   private ids = 0;
 
   constructor(opts: MockOptions = {}) {
     super(opts);
+    this.webDemo = opts.webDemo ?? false;
     this.record("vault_unlocked", {});
     this.record("session_opened", { connection: "c-web01", protocol: "ssh", peer_identity: "SHA256:mock-web01" });
     this.record("session_closed", { connection: "c-web01", reason: "closed by user" });
@@ -110,11 +110,8 @@ export class MockTransport extends MockOptionsBase implements Ipc {
 
   protected storeOptions(id: string, options: NonNullable<ConnectionSummary["options"]>): void { this.connection(id).options = options; }
 
-  protected attachOther(sessionId: string, onEvent: SessionEventHandler) {
-    const s = this.sessions.get(sessionId);
-    if (!s) return null;
-    s.emit = onEvent;
-    return { protocol: s.info.protocol, state: s.info.state, size: { width: 80, height: 24 } };
+  protected sshSession(sessionId: string): MockSession | null {
+    return this.sessions.get(sessionId) ?? null;
   }
 
   private isDescendant(id: string, of: string): boolean {
@@ -485,11 +482,4 @@ export class MockTransport extends MockOptionsBase implements Ipc {
   };
 
   sessionList: Ipc["sessionList"] = async () => [...[...this.sessions.values()].map((s) => ({ ...s.info })), ...this.remoteInfos()];
-
-  windowDetach: Ipc["windowDetach"] = async ({ sessionId }) => {
-    // The browser has no second window: the session is only recorded as detached.
-    if (!this.sessions.has(sessionId) && !this.remote.has(sessionId)) throw new IpcError("session.not_found", "session not found");
-    this.detached.push(sessionId);
-    return { windowLabel: `detached-${sessionId}` };
-  };
 }

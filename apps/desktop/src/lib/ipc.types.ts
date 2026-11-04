@@ -212,7 +212,9 @@ export interface PromptAccount {
 /**
  * ADR-0011: `frame` is gone (pixels use the MFR1 `onFrame` channel), `closed` carries a code,
  * `connected` the negotiated security, and RDP/VNC add `desktop_resized` and `reconnecting`.
- * `detached` (ADR-0013) tells this view another window took the session over.
+ * `detached` (ADR-0013) tells this view another window took the session over; `attached` tells
+ * `main` the session came back (window_attach or the detached window closed): call
+ * `session_attach` again with fresh channels.
  */
 export type SessionEvent =
   | { kind: "connected"; protocol: Protocol; peerIdentity: string | null; security: string | null }
@@ -229,6 +231,7 @@ export type SessionEvent =
   | { kind: "desktop_resized"; width: number; height: number }
   | { kind: "reconnecting"; attempt: number; delayMs: number }
   | { kind: "detached" }
+  | { kind: "attached" }
   | { kind: "closed"; reason: string; code: CloseCode | "unknown" };
 
 export type SessionInput =
