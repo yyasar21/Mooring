@@ -272,7 +272,7 @@ pub(crate) fn kube(ready: &Ready, connection_id: &str) -> IpcResult<KubePlan> {
             resolved.tls_server_name = Some(name.clone());
         }
         let token_expires_at = match &resolved.auth {
-            KubeAuth::Token(t) => crate::commands::kube_jwt::peek_exp(t.expose_secret()),
+            KubeAuth::Token(t) => kubeconfig::peek_exp(t.expose_secret()),
             KubeAuth::ClientCert { .. } => None,
         };
         if token_expires_at.is_some_and(|t| t <= time::OffsetDateTime::now_utc()) {

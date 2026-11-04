@@ -25,9 +25,11 @@ use saphyr_parser::{Event, Parser, Span};
 
 use super::CredentialError;
 
+mod jwt;
 mod names;
 mod resolve;
 
+pub use jwt::peek_exp;
 pub use names::{is_dns_label, is_dns_subdomain, KubeServer};
 pub use resolve::{resolve, CaSource, KubeAuth, KubeResolveError, Resolved, MAX_CA_PEM, MAX_TOKEN};
 
