@@ -1,0 +1,36 @@
+[package]
+name = "mooring-secrets"
+description = "Mooring external secrets: Vault / OpenBao KV v2 over mooring-http, in-memory token cache, external_ref resolution (ADR-0016)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# No new third-party crate (ADR-0016 §6): everything below is already in the workspace and the
+# lockfile through mooring-http / mooring-core.
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.1" }
+bytes = "1"
+hex = { workspace = true }
+rand_core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+mooring-testsrv = { path = "../mooring-testsrv" } # QA mock API servers (A3 Q1/Q2), dev-only

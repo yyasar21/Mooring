@@ -2,7 +2,7 @@
 //! input. Nothing in this module carries secret material outward.
 
 use mooring_core::{Connection, ConnectionId, CredentialId, Folder, FolderId, Protocol};
-use mooring_store::{ConnectionHit, CredentialKind, CredentialMeta, Store};
+use mooring_store::{ConnectionHit, CredentialKind, CredentialMeta, Store, SyncFlags};
 use serde::Serialize;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -92,30 +92,41 @@ pub struct FolderDto {
     pub default_credential_id: Option<String>,
     /// Position in the store's sibling order (`sort`, then name).
     pub sort: i64,
+    /// ADR-0015: the vCenter connection id of a synced (read-only) folder; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_source: Option<String>,
+    /// ADR-0015: `datacenter-3`, `host-7`, …; absent on the synced root and normal folders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
 }
 
-fn folder_dto(f: &Folder, sort: usize) -> FolderDto {
+fn folder_dto(f: &Folder, sort: usize, sync: Option<&SyncFlags>) -> FolderDto {
     FolderDto {
         id: f.id.to_string(),
         parent_id: f.parent.map(|p| p.to_string()),
         name: f.name.clone(),
         default_credential_id: f.default_credential.map(|c| c.to_string()),
         sort: i64::try_from(sort).unwrap_or(i64::MAX),
+        sync_source: sync.map(|s| s.source.clone()),
+        external_id: sync.and_then(|s| s.external_id.clone()),
     }
 }
 
 /// Every folder as DTOs, in store order.
 pub fn folders(store: &Store) -> IpcResult<Vec<FolderDto>> {
-    Ok(store.list_folders()?.iter().enumerate().map(|(i, f)| folder_dto(f, i)).collect())
+    let sync = store.sync_flags()?;
+    let all = store.list_folders()?;
+    Ok(all.iter().enumerate().map(|(i, f)| folder_dto(f, i, sync.get(&f.id.to_string()))).collect())
 }
 
 /// One folder as a DTO (its `sort` is its position in the store order).
 pub fn folder(store: &Store, id: FolderId) -> IpcResult<FolderDto> {
+    let sync = store.sync_flags()?;
     let all = store.list_folders()?;
     all.iter()
         .enumerate()
         .find(|(_, f)| f.id == id)
-        .map(|(i, f)| folder_dto(f, i))
+        .map(|(i, f)| folder_dto(f, i, sync.get(&f.id.to_string())))
         .ok_or_else(|| IpcError::new("tree.not_found", "folder not found"))
 }
 
@@ -154,11 +165,21 @@ pub struct ConnectionDto {
     /// Last change. The store does not expose `updated_at` for connections yet, so this is
     /// `createdAt` (see handoff, Left open).
     pub updated_at: String,
+    /// ADR-0015: vCenter connection id of a synced VM row; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_source: Option<String>,
+    /// ADR-0015: `vm-42`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    /// ADR-0015: `present` | `missing` (missing once; removed after the second miss).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_state: Option<String>,
 }
 
 /// One connection as a DTO, with its effective credential.
 pub fn connection(store: &Store, c: &Connection) -> IpcResult<ConnectionDto> {
     let effective = store.effective_credential(c.id)?;
+    let sync = store.connection_sync(c.id)?;
     Ok(ConnectionDto {
         id: c.id.to_string(),
         folder_id: c.folder.to_string(),
@@ -175,6 +196,9 @@ pub fn connection(store: &Store, c: &Connection) -> IpcResult<ConnectionDto> {
         tags: c.tags.clone(),
         created_at: ts(c.created_at),
         updated_at: ts(c.created_at),
+        sync_source: sync.as_ref().map(|s| s.source.clone()),
+        external_id: sync.as_ref().and_then(|s| s.external_id.clone()),
+        sync_state: sync.and_then(|s| s.state),
     })
 }
 
@@ -285,7 +309,7 @@ mod tests {
     #[test]
     fn dtos_are_camel_case() {
         let f = Folder::new(None, "Root").expect("folder");
-        let json = serde_json::to_string(&folder_dto(&f, 0)).expect("json");
+        let json = serde_json::to_string(&folder_dto(&f, 0, None)).expect("json");
         assert!(json.contains("\"parentId\":null") && json.contains("\"defaultCredentialId\""));
         let store = Store::open_in_memory().expect("store");
         let vault = mooring_vault::Vault::create(

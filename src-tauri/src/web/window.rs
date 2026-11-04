@@ -23,16 +23,25 @@ use super::{native_title, sanitize_title, Storage, WebPlan, WebRegistry, WebSink
 use crate::state::record_audit;
 
 /// Best effort only (the empty capability is the boundary): uploads are denied by policy, so
-/// file inputs and the File System Access pickers do nothing (R-WEB-UPLOAD).
+/// file inputs, `showPicker()` on them, file drops onto them and the File System Access
+/// pickers do nothing (R-WEB-UPLOAD, review 5 N-32). Installed in every frame.
 pub const INIT_SCRIPT: &str = r"(() => {
   const deny = () => Promise.reject(new DOMException('Uploads are disabled', 'NotAllowedError'));
   for (const name of ['showOpenFilePicker', 'showSaveFilePicker', 'showDirectoryPicker']) {
     try { Object.defineProperty(window, name, { value: deny, configurable: false }); } catch (_) {}
   }
-  document.addEventListener('click', (e) => {
-    const t = e.target;
-    if (t instanceof HTMLInputElement && t.type === 'file') { e.preventDefault(); e.stopImmediatePropagation(); }
-  }, true);
+  const isFile = (t) => t instanceof HTMLInputElement && t.type === 'file';
+  try {
+    const proto = HTMLInputElement.prototype;
+    const showPicker = proto.showPicker;
+    Object.defineProperty(proto, 'showPicker', { configurable: false, value: function () {
+      if (isFile(this)) { throw new DOMException('Uploads are disabled', 'NotAllowedError'); }
+      return showPicker ? showPicker.apply(this, arguments) : undefined;
+    } });
+  } catch (_) {}
+  const stop = (e) => { e.preventDefault(); e.stopImmediatePropagation(); };
+  document.addEventListener('click', (e) => { if (isFile(e.target)) stop(e); }, true);
+  document.addEventListener('drop', (e) => { if (isFile(e.target)) stop(e); }, true);
 })();";
 
 /// What the callbacks share.
@@ -47,7 +56,13 @@ struct Ctx {
 }
 
 impl Ctx {
+    /// A refused navigation: audited and sent to the UI for the window's first 16 refusals,
+    /// counted afterwards (N-43; the close writes the summary row).
     fn blocked(&self, origin: String) {
+        if !super::refusal_audited(&self.registry, &self.connection) {
+            tracing::debug!(origin = %origin, "web navigation blocked (counted)");
+            return;
+        }
         tracing::info!(origin = %origin, "web navigation blocked");
         record_audit(&self.audit, AuditEvent::WebNavigationBlocked {
             connection: self.connection.clone(),
@@ -98,9 +113,11 @@ pub fn build<R: Runtime>(
             .devtools(false)
             .zoom_hotkeys_enabled(false)
             .general_autofill_enabled(false)
-            .initialization_script(INIT_SCRIPT);
+            .initialization_script_for_all_frames(INIT_SCRIPT);
     builder = match &plan.storage {
         Storage::Ephemeral => builder.incognito(true),
+        // L-29: an own WebView2 environment per ephemeral window, InPrivate inside it.
+        Storage::EphemeralDirectory(dir) => builder.incognito(true).data_directory(dir.clone()),
         Storage::Directory(dir) => builder.data_directory(dir.clone()),
         Storage::Identifier(id) => builder.data_store_identifier(*id),
     };

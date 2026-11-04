@@ -99,9 +99,9 @@ describe("polled commands (M-8)", () => {
     for (const p of all) {
       for (const c of p.commands) expect({ file: p.file, command: c, polled: POLLED_COMMANDS.includes(c) }).toEqual({ file: p.file, command: c, polled: true });
     }
-    // The tracer works: the two real pollers are found through their local helpers.
+    // The tracer works: the real pollers are found through their local helpers.
     const reached = new Set(all.flatMap((p) => p.commands));
-    expect([...reached].sort()).toEqual(["audit_verify", "forward_list"]);
+    expect([...reached].sort()).toEqual(["audit_verify", "forward_list", "kube_pods", "secret_source_oidc_status", "vsphere_status", "vsphere_vm_power"]);
   });
 
   it("maps every transport method to a command", () => {
@@ -117,7 +117,13 @@ describe("polled commands (M-8)", () => {
 
   // Commands the UI already treats as passive whose Rust side lands with a later task: while the
   // checked-in list lacks one, its check is skipped with a message instead of failing.
-  const PENDING_RUST: Record<string, string> = { session_frame_ack: "R2 (ADR-0011) adds it to PASSIVE_COMMANDS" };
+  const PENDING_RUST: Record<string, string> = {
+    session_frame_ack: "R2 (ADR-0011) adds it to PASSIVE_COMMANDS",
+    kube_access: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
+    kube_namespaces: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
+    kube_pods: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
+    // vsphere_status / vsphere_vm_power (V2) and sync_status (S2) shipped; checked against ipc-passive.json.
+  };
 
   for (const c of POLLED_COMMANDS) {
     const pending = RUST_PASSIVE !== null && !RUST_PASSIVE.has(c) && c in PENDING_RUST;

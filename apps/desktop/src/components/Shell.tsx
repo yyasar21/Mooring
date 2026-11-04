@@ -11,16 +11,19 @@ import { SettingsView } from "./settings/SettingsView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
 import { Telemetry } from "./Telemetry";
+import { SyncBanner, SyncIndicator } from "./SyncBanner";
 import { useShortcuts } from "./useShortcuts";
 
-/** Main window once the vault is unlocked: tree | tabs (or audit) | inspector, over a telemetry strip. */
+/** Main window once the vault is unlocked: title bar, sync alarm (if any), tree | tabs (or audit) | inspector, telemetry strip. */
 export function Shell() {
   const ui = useUi();
   useShortcuts();
 
   return (
-    <div className="deck grid h-full grid-rows-[42px_1fr_var(--status-h)]">
+    <div className="deck grid h-full grid-rows-[42px_auto_1fr_var(--status-h)]">
       <TitleBar />
+      {/* Always one grid item, so the `auto` row stays the banner's even while there is no alarm (U5). */}
+      <div className="min-h-0" data-slot="sync-banner"><SyncBanner /></div>
       <div
         className="grid min-h-0"
         style={{
@@ -83,6 +86,7 @@ function TitleBar() {
         <span className="flex-1 truncate">Open a connection</span>
         <Kbd>mod K</Kbd>
       </button>
+      <SyncIndicator />
       <nav aria-label="Views" className="ml-auto flex items-center gap-1">
         <button
           type="button"

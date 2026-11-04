@@ -3,6 +3,8 @@
 // (decoded in ipc.decode.session.ts), `IpcError` on failure, no secret or pixel ever outward
 // except MFR1 frames on the dedicated `onFrame` channel.
 import type { Protocol, SessionEventHandler, Size } from "./ipc.types";
+import type { KubeConnOptions } from "./ipc.types.kube";
+import type { VsphereConnOptions } from "./ipc.types.vsphere";
 
 // ---------- per-protocol connection options (connection.options, migration 0005) ----------
 
@@ -32,6 +34,8 @@ export interface VncConnOptions {
   clipboard: ClipboardPolicy;
   caPem: string | null;
   maxFps: MaxFps;
+  /** Accept a server that offers only None (type 1) although a password credential is set (review 5 L-27; audited when used). */
+  allowNoAuth: boolean;
 }
 
 export interface WebConnOptions {
@@ -44,7 +48,7 @@ export interface WebConnOptions {
 }
 
 /** The serde type for the connection's protocol; `{}` for protocols without options. */
-export type ProtocolOptions = RdpConnOptions | VncConnOptions | WebConnOptions | Record<string, never>;
+export type ProtocolOptions = RdpConnOptions | VncConnOptions | WebConnOptions | KubeConnOptions | VsphereConnOptions | Record<string, never>;
 
 export const DEFAULT_RDP_OPTIONS: RdpConnOptions = {
   keyboardLayout: 0x0409,
@@ -68,21 +72,28 @@ export const DEFAULT_VNC_OPTIONS: VncConnOptions = {
   clipboard: "both",
   caPem: null,
   maxFps: 30,
+  allowNoAuth: false,
 };
 
 // ---------- session events (ADR-0011 SessionEvent changes) ----------
 
+/**
+ * `trust_conflict` (review 6b L-35): the trust store holds two different pins for the host after a
+ * sync merge. A hard stop like `trust_mismatch`: Rust never retries it, and the UI offers no
+ * automatic reconnect, only the known-certificates manager.
+ */
 export type CloseCode =
   | "user"
   | "network"
   | "auth_failed"
   | "trust_rejected"
   | "trust_mismatch"
+  | "trust_conflict"
   | "server_ended"
   | "protocol_error"
   | "vault_locked";
 export const CLOSE_CODES: readonly CloseCode[] = [
-  "user", "network", "auth_failed", "trust_rejected", "trust_mismatch", "server_ended", "protocol_error", "vault_locked",
+  "user", "network", "auth_failed", "trust_rejected", "trust_mismatch", "trust_conflict", "server_ended", "protocol_error", "vault_locked",
 ];
 
 export type CertificateProblem = "self_signed" | "unknown_issuer" | "name_mismatch" | "expired" | "not_yet_valid";
@@ -119,10 +130,13 @@ export const INPUT_LIMITS = { codeChars: 32, keyBytes: 32, unicodeChars: 64, min
 // ---------- trust store ----------
 
 export interface KnownCert {
-  /** `|2|salt|hmac` form: the host is never stored in the clear. */
+  /** `|2|salt|hmac` form: the host is never stored in the clear (or the plain `host:port` of a hand-written line). */
   hostHash: string;
   fingerprint: string;
   addedAt: string;
+  /** Filled by Rust (`KnownCerts::list_named`) when the hash matches one of the user's own connections; the UI never recomputes the HMAC (N-33). */
+  host?: string;
+  port?: number;
 }
 
 // ---------- web sessions (ADR-0013) ----------

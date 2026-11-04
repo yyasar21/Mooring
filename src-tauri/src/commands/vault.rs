@@ -100,8 +100,12 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
     }
     state.audit(AuditEvent::VaultUnlocked);
     reseal_legacy(state);
+    // Review 5 L-30: persistent web stores without a persistent web connection go.
+    crate::web::sweep::orphan_stores(state);
     // ADR-0013: web and detached windows come back.
     state.lock_observer.notify(false);
+    // ADR-0015: scheduled vCenter refreshes run only while unlocked.
+    crate::scheduler::start_all(&crate::vsphere_sync::VsCtx::of(state));
     Ok(VaultStatus::Unlocked)
 }
 
@@ -134,6 +138,9 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     state.picks.clear();
     // Review 4 M-10: no LAN-exposed listener keeps running behind a locked UI.
     crate::commands::forward::close_external(state);
+    // ADR-0014 K4: Kubernetes tokens live in memory only; every cluster, exec shell, log
+    // stream and pod forward ends with the lock.
+    crate::kube_sessions::close_all(&state.sessions);
     // Unknown or missing reasons from the WebView are recorded as a user lock.
     let reason = reason.and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard = state.vault()?;
@@ -142,7 +149,13 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     };
     let reason = v.lock_with_reason(reason);
     drop(guard);
+    // ADR-0016 E2: OIDC windows close; Vault tokens are revoked (ours) or forgotten. Review 6b
+    // L-34 (a): only **after** the key wipe, so a login that reads the bumped epoch can no
+    // longer open its material from the vault (`on_lock` needs nothing from the vault).
+    state.secrets.on_lock();
     state.audit(AuditEvent::VaultLocked { reason: reason.as_str().to_owned() });
+    // ADR-0015: stop the vCenter schedulers and log their sessions out.
+    state.vsphere.on_lock();
     // ADR-0013: no web or detached window stays visible outside the lock screen.
     state.lock_observer.notify(true);
     Ok(VaultStatus::Locked)

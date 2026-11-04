@@ -107,6 +107,8 @@ pub type SessionRegistry = Arc<Mutex<HashMap<String, SessionHandle>>>;
 pub struct Ready {
     vault: Arc<Mutex<Option<Vault>>>,
     store: Arc<Mutex<StoreSlot>>,
+    /// ADR-0016 E2: resolves `external_ref` credentials at connect (and on every reconnect).
+    pub(crate) secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
 }
 
 impl Ready {
@@ -144,6 +146,8 @@ impl Ready {
 pub struct AppState {
     /// `$APP_DATA`: vault header, audit log, `mooring.db`, `known_hosts`.
     pub data_dir: PathBuf,
+    /// `$APP_CACHE` (default `$APP_DATA/cache`): Windows ephemeral web profiles (L-29).
+    pub cache_dir: PathBuf,
     /// `None` until a vault is created or its header loaded.
     pub vault: Arc<Mutex<Option<Vault>>>,
     /// Connection tree and sealed credentials (ADR-0005).
@@ -174,6 +178,12 @@ pub struct AppState {
     pub web: crate::web::WebRegistry,
     /// Hides / shows the web and detached windows on lock / unlock (ADR-0013).
     pub lock_observer: crate::window_lock::LockObserver,
+    /// vCenter sessions, refresh status and schedulers (ADR-0015).
+    pub vsphere: crate::vsphere_sync::VsphereHub,
+    /// ADR-0016 E2: token cache, renewer, OIDC flows (memory only).
+    pub secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
+    /// Review 6 M-16: single flight and cool-down of the Rust-native confirmations.
+    pub confirm: Arc<crate::confirm_gate::ConfirmGate>,
 }
 
 /// Errors while loading state at startup.
@@ -222,11 +232,19 @@ impl AppState {
         if store.root_folder()?.is_none() {
             store.create_folder(None, ROOT_FOLDER_NAME)?;
         }
+        // L-37: a join that crashed between the apply and the header rename.
+        let vault = crate::commands::sync_join::recover_staged_header(&data_dir, &store, vault);
+        let audit = Arc::new(Mutex::new(audit));
+        let secrets =
+            Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
         Ok(Self {
+            secrets,
+            confirm: Arc::new(crate::confirm_gate::ConfirmGate::new(Arc::clone(&audit))),
+            cache_dir: data_dir.join("cache"),
             data_dir,
             vault: Arc::new(Mutex::new(vault)),
             store: Arc::new(Mutex::new(StoreSlot { store: Some(store), bound_to: None })),
-            audit: Arc::new(Mutex::new(audit)),
+            audit,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             settings,
             pending_clipboard: Arc::new(Mutex::new(None)),
@@ -236,7 +254,15 @@ impl AppState {
             copied_credential: Arc::new(Mutex::new(None)),
             web: crate::web::WebRegistry::default(),
             lock_observer: crate::window_lock::LockObserver::default(),
+            vsphere: crate::vsphere_sync::VsphereHub::default(),
         })
+    }
+
+    /// Use the OS cache directory for the Windows ephemeral web profiles (set once in setup).
+    #[must_use]
+    pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
+        self.cache_dir = cache_dir;
+        self
     }
 
     /// `$APP_DATA/known_hosts`.
@@ -258,7 +284,11 @@ impl AppState {
 
     /// A `'static` handle on the vault and the store (session tasks).
     pub fn ready(&self) -> Ready {
-        Ready { vault: Arc::clone(&self.vault), store: Arc::clone(&self.store) }
+        Ready {
+            vault: Arc::clone(&self.vault),
+            store: Arc::clone(&self.store),
+            secrets: Arc::clone(&self.secrets),
+        }
     }
 
     /// Persist the current vault header (contains no secret material).
@@ -283,6 +313,13 @@ impl AppState {
         drop(f);
         std::fs::rename(&tmp, &path)?;
         sync_dir(&self.data_dir);
+        // 6b L-37 (b): a staged joined header of this same vault is older than what was just
+        // written (password change, KDF upgrade); it must never be installed over it.
+        if crate::commands::sync_join::staged_vault_id(&self.data_dir).as_deref()
+            == Some(header.vault_id.to_string().as_str())
+        {
+            crate::commands::sync_join::discard_staged(self);
+        }
         Ok(())
     }
 
@@ -338,6 +375,8 @@ impl AppState {
     /// purge, review condition 1) and drop the live sessions. Called from `RunEvent::Exit`.
     pub fn shutdown(&self) {
         self.clear_pending_clipboard();
+        // ADR-0016 E2: revoke Mooring-minted Vault tokens (bounded), forget all.
+        self.secrets.shutdown();
         if let Ok(mut sessions) = self.sessions.lock() {
             for (_, handle) in sessions.drain() {
                 handle.abort();
@@ -368,7 +407,7 @@ pub fn record_audit(log: &Mutex<AuditLog>, event: AuditEvent) {
     }
 }
 
-fn create_private(path: &Path) -> std::io::Result<File> {
+pub(crate) fn create_private(path: &Path) -> std::io::Result<File> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -380,7 +419,7 @@ fn create_private(path: &Path) -> std::io::Result<File> {
 }
 
 /// Make the rename durable (unix). Best effort: some filesystems refuse a directory fsync.
-fn sync_dir(dir: &Path) {
+pub(crate) fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     if let Err(e) = File::open(dir).and_then(|d| d.sync_all()) {
         tracing::debug!(kind = ?e.kind(), "directory sync skipped");

@@ -79,6 +79,60 @@ Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test 
 Still Q1: `framebuffer_ops`, `rfb_handshake`, `raw_copyrect_bounds`, `vencrypt_negotiation`,
 `cut_text` as separate targets, and the pinned upstream IronRDP targets.
 
+## A3 targets (ADR-0014..0017)
+
+The A3 gates are gone for every parser the crates expose (Q2). Each target below fuzzes the
+real code, has a seed corpus in `fuzz/corpus/<target>/` and an (empty) regression directory,
+and is replayed on stable by the owning crate's `tests/fuzz_corpus.rs`, which also pins that
+the accepting seeds keep being accepted (so the fuzzer never loses its path past the refusal
+branch).
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `kubeconfig_resolve` | `kubeconfig_resolve.rs` | `mooring_core::credential::kubeconfig::resolve` | 0014 §3 | mooring-core |
+| `external_ref_parse` | `external_ref_parse.rs` | `mooring_core::credential::{fuzz_external_ref, parse_vault_reference}` | 0016 §2 | mooring-core |
+| `kube_exec_frames` | `kube_exec_frames.rs` | `mooring_proto_kube::{decode_exec, fuzz::fuzz_exec_frame}` | 0014 §5 | mooring-proto-kube |
+| `kube_log_sanitize` | `kube_log_sanitize.rs` | `mooring_proto_kube::{sanitize_line, fuzz::fuzz_log_line}` | 0014 §5 | mooring-proto-kube |
+| `kube_portforward_frames` | `kube_portforward_frames.rs` | `mooring_proto_kube::{PfDecoder, fuzz::fuzz_portforward_frame}` | 0014 §5 | mooring-proto-kube |
+| `kube_guard_path` | `kube_guard_path.rs` | `mooring_proto_kube::fuzz::fuzz_guard_path` (request guard) | 0014 §4 | mooring-proto-kube |
+| `vsphere_inventory_json` | `vsphere_inventory_json.rs` | `mooring_vsphere::fuzz::fuzz_inventory_json` (`[selector, body]`) | 0015 §1–2 | mooring-vsphere |
+| `vsphere_session_token` | `vsphere_session_token.rs` | `mooring_vsphere::parse_session_token` | 0015 §1 | mooring-vsphere |
+| `vsphere_ticket_url` | `vsphere_ticket_url.rs` | `mooring_vsphere::fuzz::fuzz_ticket_url` (`parse_vmrc_ticket`) | 0015 §4 | mooring-vsphere |
+| `vault_kv_response` | `vault_kv_response.rs` | `mooring_secrets::fuzz::fuzz_kv_response` | 0016 §3 | mooring-secrets |
+| `vault_login_response` | `vault_login_response.rs` | `mooring_secrets::fuzz::fuzz_login_response` | 0016 §3 | mooring-secrets |
+| `oidc_callback_url` | `oidc_callback_url.rs` | `mooring_secrets::{parse_callback, fuzz::fuzz_oidc_callback_url}` | 0016 §4 | mooring-secrets |
+| `sync_blob_parse` | `sync_blob_parse.rs` | `mooring_sync::{decode_msy1, fuzz::fuzz_msy1}` | 0017 §2 | mooring-sync |
+| `sync_snapshot_json` | `sync_snapshot_json.rs` | `mooring_sync::fuzz::fuzz_snapshot_json` (`Snapshot::decode`) | 0017 §1 | mooring-sync |
+| `http_certificate_info` | `http_certificate_info.rs` | `mooring_http::fuzz::fuzz_certificate_info` | 0011 / 0014 §3 | mooring-http |
+| `http_response_headers` | `http_response_headers.rs` | `mooring_http::fuzz::fuzz_response_headers` (`[selector, value]`) | 0014 §4 | mooring-http |
+| `http_json_body` | `http_json_body.rs` | `mooring_http::fuzz::fuzz_json_body` (`decode_json`) | 0014 §4 | mooring-http |
+| `jwt_exp_peek` | `jwt_exp_peek.rs` | `mooring_core::credential::kubeconfig::peek_exp` | 0014 §3 | mooring-core |
+| `kube_pod_list_json` | `kube_pod_list_json.rs` | `mooring_proto_kube::fuzz::fuzz_pod_list_json` | 0014 §5 | mooring-proto-kube |
+
+Selector-prefixed targets take the first byte as the model / header selector and the rest as
+the body (see the crate's `fuzz.rs`); their seeds carry that byte. `sync_blob_parse` seeds
+include the committed `test-vectors/blob-v1.hex` blob so the fuzzer starts past the header
+checks. The seed under `http_certificate_info` is a throwaway self-signed EC certificate for
+`k.example.test` (no key is committed; kubeconfig seeds use token auth for the same reason).
+
+### Still gated (no-op stub)
+
+One target remains a compiling no-op behind a fuzz-crate feature; the nightly "Stub notice"
+step flags it.
+
+| Target | Gate | Blocker |
+| --- | --- | --- |
+| `s3_error_xml` | `s1` | `mooring-sync` parses no XML (presigned PUT/GET/HEAD/DELETE only, errors from status + `ETag`). Keep gated until a listing / error-body parser exists, or drop the target in the ADR. |
+
+To activate one: run `cargo check --bins --features <gate>` in `fuzz/`, fix the call, add the
+stable replay to the owning crate's `tests/fuzz_corpus.rs`, delete the gate and the `PENDING`
+marker in the wrapper.
+
+The nightly job runs these families with `-malloc_limit_mb=1024`, as it does the RDP/VNC
+targets: an API body, frame or blob parser must not allocate before it checks the size.
+`ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is not run: the hostile
+kubeconfig cases are plain `cargo test`s in `crates/mooring-core/tests/hostile_kubeconfig.rs`.
+
 ## Layout
 
 ```
@@ -125,7 +179,9 @@ readable files. `fuzz/.gitattributes` keeps every input byte-exact (no CRLF norm
 Without nightly, the stable side still works and is what CI runs on every push:
 
 ```sh
-cargo test -p mooring-proto-ssh -p mooring-core -p mooring-vault --test fuzz_corpus
+cargo test -p mooring-proto-ssh -p mooring-core -p mooring-vault -p mooring-proto-rdp \
+  -p mooring-proto-vnc -p mooring-http -p mooring-proto-kube -p mooring-vsphere \
+  -p mooring-secrets -p mooring-sync --test fuzz_corpus
 cd fuzz && cargo check --bins     # the targets compile on stable; only running them needs nightly
 ```
 

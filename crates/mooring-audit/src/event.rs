@@ -75,6 +75,81 @@ pub enum AuditEvent {
         /// Connection id.
         connection: String,
     },
+    // --- ADR-0016 E2: external secrets (ids, names, counts, categories; never a value) ---
+    /// Logged in to a secret source, or renewed its token (`secret.login`).
+    SecretLogin {
+        /// Source id.
+        source: String,
+        /// `token` | `approle` | `oidc` | `renew`.
+        method: String,
+        /// Cached lifetime (s).
+        ttl: u64,
+    },
+    /// An `external_ref` was resolved (`secret.resolved`; the reference is inventory class).
+    SecretResolved {
+        /// Connection id, when resolved for a connect.
+        connection: Option<String>,
+        /// The `external_ref` credential.
+        credential: String,
+        /// Source id.
+        source: String,
+        /// `<mount>/<path>`.
+        reference: String,
+        /// KV version read.
+        version: u64,
+        /// Target kind.
+        target_kind: String,
+        /// Field and secret names filled.
+        fields: Vec<String>,
+    },
+    /// A login, resolution or OIDC flow failed (`secret.failed`).
+    SecretFailed {
+        /// Connection id, when resolving for a connect.
+        connection: Option<String>,
+        /// Source id.
+        source: String,
+        /// `network | tls | auth_failed | forbidden | not_found | shape | locked | …`.
+        category: String,
+    },
+    /// A cached token was dropped, and revoked when Mooring minted it (`secret.revoked`).
+    SecretRevoked {
+        /// Source id.
+        source: String,
+    },
+    /// A source was created, changed or deleted (`secret.source_changed`). Field **names**
+    /// only (the fields actually set or changed, review 6 N-42); no values except the
+    /// SHA-256 fingerprints of a new `caPem`.
+    SecretSourceChanged {
+        /// Source id.
+        source: String,
+        /// Changed field names, or `created` / `deleted`.
+        changed: Vec<String>,
+        /// `SHA256:<hex>` of every certificate in a new or changed `caPem`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ca_pem: Vec<String>,
+        /// `caPem` or `allowHttp` changed, or an `allowedOrigins` entry was added (a trust
+        /// change).
+        warning: bool,
+    },
+    /// A secret-source action was refused (`secret.refused`: OIDC navigation, delete in use).
+    SecretRefused {
+        /// Source id, when known.
+        source: Option<String>,
+        /// `oidc_navigation` | `delete` | `resolve` | ….
+        action: String,
+        /// Error code, or the refused origin of a navigation.
+        detail: String,
+    },
+    /// Refusals of one OIDC window beyond the first 16, counted and written once when the
+    /// window closes (`secret.refused_suppressed`, review 6 N-43).
+    SecretRefusedSuppressed {
+        /// Source id.
+        source: String,
+        /// `oidc_navigation`.
+        action: String,
+        /// Refusals that got no row of their own.
+        count: u64,
+    },
     /// Vault exported (`format`: `age`, `json`, ...).
     VaultExported {
         /// Export format.
@@ -181,6 +256,82 @@ pub enum AuditEvent {
     AuditHeartbeat {
         /// Heartbeat number since this process started the mirror loop (1, 2, ...).
         seq: u64,
+    },
+    // ---- ADR-0017 (A3 S2): vault sync -----------------------------------------------------
+    /// Sync settings stored (`sync_configure`). Never the access key or its secrets.
+    #[serde(rename = "sync.configured")]
+    SyncConfigured {
+        /// Endpoint origin (`https://host[:port]`).
+        endpoint: String,
+        /// Bucket name.
+        bucket: String,
+        /// Key prefix.
+        prefix: String,
+        /// Credential id (`s3_access_key`).
+        credential: String,
+        /// Interval of the background run; `None` = manual only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_minutes: Option<u32>,
+    },
+    /// Sync turned off on this device (`sync_disable`).
+    #[serde(rename = "sync.disabled")]
+    SyncDisabled {
+        /// Whether the remote objects were deleted too.
+        delete_remote: bool,
+    },
+    /// Local changes published as generation `counter`.
+    #[serde(rename = "sync.pushed")]
+    SyncPushed {
+        /// Generation.
+        counter: u64,
+        /// Blob size.
+        bytes: u64,
+    },
+    /// A remote generation fast-forwarded onto this device.
+    #[serde(rename = "sync.pulled")]
+    SyncPulled {
+        /// Generation.
+        counter: u64,
+    },
+    /// Both sides changed: merged and published.
+    #[serde(rename = "sync.merged")]
+    SyncMerged {
+        /// Generation published.
+        counter: u64,
+        /// Conflict copies / reported conflicts.
+        conflicts: u64,
+    },
+    /// Hard stop: diverging histories.
+    #[serde(rename = "sync.fork_detected")]
+    SyncForkDetected {
+        /// Remote generation.
+        remote: u64,
+        /// Last generation this device saw.
+        last: u64,
+    },
+    /// Hard stop: the remote generation went backwards (never applied).
+    #[serde(rename = "sync.rollback_detected")]
+    SyncRollbackDetected {
+        /// Remote generation (0 = vanished).
+        remote: u64,
+        /// Last generation this device saw.
+        last: u64,
+    },
+    /// A fork or rollback resolved by the user (`sync_resolve_fork`); the other side is gone.
+    #[serde(rename = "sync.fork_resolved")]
+    SyncForkResolved {
+        /// `local` | `remote`.
+        keep: String,
+        /// Generation after the resolution.
+        counter: u64,
+    },
+    /// This device joined a synced vault (`vault_join`).
+    #[serde(rename = "sync.joined")]
+    SyncJoined {
+        /// Vault id.
+        vault: String,
+        /// Generation pulled.
+        counter: u64,
     },
     // ---- ADR-0011 / ADR-0012 (A2): graphical sessions ----------------------------------
     /// A TLS certificate trust decision for RDP / VNC (`trust.cert.*`).
@@ -299,6 +450,14 @@ pub enum AuditEvent {
         /// Refused origin only: paths may carry tokens.
         origin: String,
     },
+    /// Refused navigations of a web window beyond the first 16, counted and written once
+    /// when the window closes (`web.navigation_blocked_suppressed`, review 6 N-43).
+    WebNavigationBlockedSuppressed {
+        /// Connection id.
+        connection: String,
+        /// Refusals that got no row of their own.
+        count: u64,
+    },
     /// A download from a web window was refused (`web.download_blocked`).
     WebDownloadBlocked {
         /// Connection id.
@@ -324,5 +483,190 @@ pub enum AuditEvent {
         connection: String,
         /// Session id.
         session: String,
+    },
+    // --- ADR-0014 K4: Kubernetes sessions (no token, body, query or log byte is recorded) ---
+    /// A cluster session connected (`kube.cluster.opened`).
+    KubeClusterOpened {
+        /// Connection id.
+        connection: String,
+        /// API server URL.
+        server: String,
+        /// `SelfSubjectReview` user, when allowed.
+        identity: Option<String>,
+    },
+    /// A cluster session ended (`kube.cluster.closed`).
+    KubeClusterClosed {
+        /// Connection id.
+        connection: String,
+        /// Safe reason.
+        reason: String,
+    },
+    /// The read-only guard refused a request before it left the process (`kube.refused`).
+    KubeRequestRefused {
+        /// Connection id.
+        connection: String,
+        /// Upper-case method.
+        method: String,
+        /// Route template or `unlisted`.
+        template: String,
+    },
+    /// An exec shell opened (`kube.exec.opened`).
+    KubeExecOpened {
+        /// Connection id.
+        connection: String,
+        /// Namespace.
+        namespace: String,
+        /// Pod.
+        pod: String,
+        /// Container, `None` = the pod's default.
+        container: Option<String>,
+        /// The shell (closed list).
+        argv0: String,
+    },
+    /// An exec shell ended (`kube.exec.closed`).
+    KubeExecClosed {
+        /// Connection id.
+        connection: String,
+        /// Namespace.
+        namespace: String,
+        /// Pod.
+        pod: String,
+        /// Container.
+        container: Option<String>,
+        /// Close code name.
+        code: String,
+    },
+    /// A log stream opened (`kube.logs.opened`).
+    KubeLogsOpened {
+        /// Connection id.
+        connection: String,
+        /// Stream id.
+        stream: String,
+        /// Namespace.
+        namespace: String,
+        /// Pod.
+        pod: String,
+        /// Container.
+        container: Option<String>,
+        /// `follow=true`.
+        follow: bool,
+    },
+    /// A log stream ended (`kube.logs.closed`).
+    KubeLogsClosed {
+        /// Connection id.
+        connection: String,
+        /// Stream id.
+        stream: String,
+        /// Namespace.
+        namespace: String,
+        /// Pod.
+        pod: String,
+        /// Container.
+        container: Option<String>,
+        /// Stopped at the byte cap.
+        truncated: bool,
+        /// `end`, `user`, `session_closed`, `vault_locked`, or an error code.
+        reason: String,
+    },
+    /// A pod port-forward opened (`kube.forward.opened`, ADR-0010 fields).
+    KubeForwardOpened {
+        /// Connection id.
+        connection: String,
+        /// `fwd-<n>`.
+        id: String,
+        /// Local listener.
+        bind: String,
+        /// `ns/pod:port`.
+        target: String,
+        /// Always `loopback` in A3.
+        exposure: String,
+    },
+    /// A pod port-forward closed (`kube.forward.closed`).
+    KubeForwardClosed {
+        /// Connection id.
+        connection: String,
+        /// `fwd-<n>`.
+        id: String,
+        /// Local listener.
+        bind: String,
+        /// `ns/pod:port`.
+        target: String,
+    },
+    /// A vCenter inventory refresh started (ADR-0015 §2). `trigger`: `manual` | `schedule` |
+    /// `import`.
+    VsphereSyncStarted {
+        /// vCenter connection id.
+        connection: String,
+        /// What started it.
+        trigger: String,
+    },
+    /// A refresh was written in one transaction.
+    VsphereSyncFinished {
+        /// vCenter connection id.
+        connection: String,
+        /// New items.
+        added: u64,
+        /// Renamed / moved / details changed.
+        changed: u64,
+        /// Missing once (kept, marked `missing`).
+        missing: u64,
+        /// Removed after two consecutive misses.
+        removed: u64,
+        /// Duration in milliseconds.
+        ms: u64,
+    },
+    /// A refresh failed and changed nothing (`code` is the IPC error code).
+    VsphereSyncFailed {
+        /// vCenter connection id.
+        connection: String,
+        /// Error code.
+        code: String,
+    },
+    /// A VM power action (ADR-0015 §3), recorded before (`outcome: requested`) and after
+    /// (`done` | `already` | `cancelled` | an error code).
+    VspherePower {
+        /// vCenter connection id.
+        connection: String,
+        /// VM managed-object id (`vm-42`).
+        vm: String,
+        /// `start` | `shutdown` | `reboot` | `stop` | `reset`.
+        action: String,
+        /// Outcome.
+        outcome: String,
+    },
+    /// A VM console was opened (`kind`: `client` | `vmrc`). The VMRC ticket is never recorded.
+    VsphereConsole {
+        /// vCenter connection id.
+        connection: String,
+        /// VM managed-object id.
+        vm: String,
+        /// Console path.
+        kind: String,
+    },
+    /// A trust file holds more than one fingerprint for one `host:port` after a sync apply
+    /// (review 6 L-35, `trust_conflict`): two devices accepted different certificates. Names
+    /// only; nothing is resolved automatically.
+    TrustConflict {
+        /// Trust file name (`known_rdp_certs`, …).
+        file: String,
+        /// `host:port` of the user's connection.
+        host: String,
+    },
+    /// A Rust-native confirmation was refused without a dialog (review 6 M-16,
+    /// `confirm_refused`): `busy` (one open at a time) or `cooldown` (the same destructive
+    /// action was cancelled less than 10 s ago).
+    ConfirmRefused {
+        /// Dialog kind (`vsphere_power`, `vsphere_trust`, `vmrc`, `sync_trust`, `sync_fork`).
+        kind: String,
+        /// Target names only (connection id, `vm-42`, `host:port`), never a secret.
+        target: String,
+        /// `busy` | `cooldown`.
+        reason: String,
+    },
+    /// Native-confirmation refusals beyond the first 16 of an hour of process uptime, counted
+    /// and written once per hour (`confirm_refused_suppressed`, review 6b N-47).
+    ConfirmRefusedSuppressed {
+        /// Refusals that got no row of their own.
+        count: u64,
     },
 }

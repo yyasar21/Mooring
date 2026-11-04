@@ -8,6 +8,11 @@ members = [
   "crates/mooring-proto-ssh",
   "crates/mooring-proto-rdp",
   "crates/mooring-proto-vnc",
+  "crates/mooring-http",
+  "crates/mooring-vsphere",
+  "crates/mooring-proto-kube",
+  "crates/mooring-sync",
+  "crates/mooring-secrets", # A3 E1: Vault / OpenBao KV v2 client on mooring-http (ADR-0016)
   "crates/mooring-testsrv", # dev-only loopback RFB/RDP test servers (A2 Q2); never a product dependency
   "src-tauri",
 ]
@@ -21,6 +26,11 @@ default-members = [
   "crates/mooring-proto-ssh",
   "crates/mooring-proto-rdp",
   "crates/mooring-proto-vnc",
+  "crates/mooring-http",
+  "crates/mooring-vsphere",
+  "crates/mooring-proto-kube",
+  "crates/mooring-sync",
+  "crates/mooring-secrets",
 ]
 
 [workspace.package]
@@ -43,7 +53,7 @@ age = { version = "0.12", features = ["armor"] }          # ADR-0006: age-compat
 keyring = "4"                                             # ADR-0006: OS keyring wrap (Keychain / Credential Manager / Secret Service via zbus), opt-in; used by mooring-app only
 sysinfo = { version = "0.40", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
 # ssh (ADR-0007): ring backend only, aws-lc-rs off
-russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] } # no flate2: compression is none only (review 5 N-35)
 russh-sftp = "3"
 # data
 rusqlite = { version = "0.41", features = ["bundled"] } # ADR-0005: single SQLite store, bundled for 3-OS parity

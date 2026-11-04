@@ -50,6 +50,9 @@
   "credential_delete": [
     "main"
   ],
+  "credential_external_test": [
+    "main"
+  ],
   "credential_kinds": [
     "main"
   ],
@@ -93,6 +96,60 @@
     "main"
   ],
   "known_certs_remove": [
+    "main"
+  ],
+  "kube_access": [
+    "main"
+  ],
+  "kube_contexts": [
+    "main"
+  ],
+  "kube_exec_open": [
+    "main"
+  ],
+  "kube_logs_close": [
+    "main"
+  ],
+  "kube_logs_open": [
+    "main"
+  ],
+  "kube_namespaces": [
+    "main"
+  ],
+  "kube_open": [
+    "main"
+  ],
+  "kube_pod": [
+    "main"
+  ],
+  "kube_pods": [
+    "main"
+  ],
+  "secret_source_create": [
+    "main"
+  ],
+  "secret_source_delete": [
+    "main"
+  ],
+  "secret_source_get": [
+    "main"
+  ],
+  "secret_source_list": [
+    "main"
+  ],
+  "secret_source_oidc_begin": [
+    "main"
+  ],
+  "secret_source_oidc_status": [
+    "main"
+  ],
+  "secret_source_revoke": [
+    "main"
+  ],
+  "secret_source_test": [
+    "main"
+  ],
+  "secret_source_update": [
     "main"
   ],
   "session_attach": [
@@ -154,6 +211,21 @@
   "sftp_upload": [
     "main"
   ],
+  "sync_configure": [
+    "main"
+  ],
+  "sync_disable": [
+    "main"
+  ],
+  "sync_now": [
+    "main"
+  ],
+  "sync_resolve_fork": [
+    "main"
+  ],
+  "sync_status": [
+    "main"
+  ],
   "syslog_get": [
     "main"
   ],
@@ -172,6 +244,9 @@
   "vault_create": [
     "main"
   ],
+  "vault_join": [
+    "main"
+  ],
   "vault_lock": [
     "main"
   ],
@@ -179,6 +254,33 @@
     "main"
   ],
   "vault_unlock": [
+    "main"
+  ],
+  "vsphere_console": [
+    "main"
+  ],
+  "vsphere_refresh": [
+    "main"
+  ],
+  "vsphere_status": [
+    "main"
+  ],
+  "vsphere_sync_disable": [
+    "main"
+  ],
+  "vsphere_sync_enable": [
+    "main"
+  ],
+  "vsphere_test": [
+    "main"
+  ],
+  "vsphere_vm_action": [
+    "main"
+  ],
+  "vsphere_vm_identity": [
+    "main"
+  ],
+  "vsphere_vm_power": [
     "main"
   ],
   "web_clear_data": [

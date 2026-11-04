@@ -64,7 +64,8 @@ fn unknown_fields_wrong_protocol_and_closed_lists_are_refused() {
     }
     assert!(ProtocolOptions::default_for(Protocol::Vnc).fits(Protocol::Vnc));
     assert!(!ProtocolOptions::default_for(Protocol::Vnc).fits(Protocol::Rdp));
-    assert!(ProtocolOptions::default_for(Protocol::Kubernetes).fits(Protocol::Ssh));
+    assert!(!ProtocolOptions::default_for(Protocol::VsphereConsole).fits(Protocol::Ssh));
+    assert!(!ProtocolOptions::default_for(Protocol::Kubernetes).fits(Protocol::Ssh));
 }
 
 #[test]
@@ -99,8 +100,35 @@ fn web_url_and_origin_rules() {
         "https://app.example.test/ space",
         "javascript:alert(1)",
         "app.example.test",
+        // review 5 N-31: the RFC 6761 localhost zone is app surface on Windows.
+        "https://tauri.localhost/",
+        "https://ipc.localhost/",
+        "https://IPC.LocalHost:8443/",
+        "https://a.b.localhost./",
     ] {
         assert!(web(json!({ "url": bad })).is_err(), "{bad}");
+    }
+    assert!(
+        web(json!({"url": "http://localhost:1420/", "allowHttp": true})).is_ok(),
+        "plain localhost"
+    );
+    assert!(web(
+        json!({"url": "https://a.example.test", "allowedOrigins": ["https://ipc.localhost"]})
+    )
+    .is_err());
+    assert!(web(json!({"url": "https://a.example.test", "allowedOrigins": ["https://localhost"]}))
+        .is_ok());
+    for (host, sub) in [
+        ("localhost", false),
+        ("localhost.", false),
+        ("tauri.localhost", true),
+        ("TAURI.LOCALHOST.", true),
+        ("a.b.localhost", true),
+        (".localhost", false),
+        ("notlocalhost", false),
+        ("localhost.example.test", false),
+    ] {
+        assert_eq!(is_localhost_subdomain(host), sub, "{host}");
     }
     let origins: Vec<String> = (0..17).map(|i| format!("https://sso{i}.example.test")).collect();
     assert!(web(json!({"url": "https://a.example.test", "allowedOrigins": origins[..16]})).is_ok());

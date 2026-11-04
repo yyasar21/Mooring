@@ -7,11 +7,10 @@
 //! entries are always written hashed. Lines are kept verbatim so a rewrite never loses entries
 //! Mooring does not understand.
 
-use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use hmac::{KeyInit, Mac};
 use rand_core::{OsRng, RngCore};
@@ -41,6 +40,13 @@ pub enum TrustDecision {
     Mismatch {
         /// Fingerprint of the stored key, `SHA256:<base64>` (or `revoked`).
         expected_fp: String,
+    },
+    /// The store holds more than one distinct key of one type for this host (review 6b
+    /// L-35: a sync merge kept two devices' different answers): hard stop until the user
+    /// removes the extra entries. Several key *types* per host are normal and no conflict.
+    Conflict {
+        /// The key types with more than one distinct key, sorted.
+        key_types: Vec<String>,
     },
 }
 
@@ -195,6 +201,27 @@ impl KnownHosts {
         self.entries.is_empty()
     }
 
+    /// The key types with more than one distinct (non-revoked) key for `host:port`, sorted
+    /// (review 6b L-35). Empty means no conflict.
+    pub fn conflicting_key_types(&self, host: &str, port: u16) -> Vec<String> {
+        let name = host_pattern(host, port);
+        let mut keys: Vec<(String, Vec<u8>)> = self
+            .entries
+            .iter()
+            .filter(|e| e.marker == Marker::None && hosts_match(&e.hosts, &name))
+            .filter_map(|e| Some((e.key.algorithm().as_str().to_owned(), e.key.to_bytes().ok()?)))
+            .collect();
+        keys.sort();
+        keys.dedup();
+        let mut out: Vec<String> = Vec::new();
+        for w in keys.windows(2) {
+            if w[0].0 == w[1].0 && out.last().is_none_or(|t| *t != w[0].0) {
+                out.push(w[0].0.clone());
+            }
+        }
+        out
+    }
+
     /// Decide whether `key` is trusted for `host:port`.
     pub fn check(&self, host: &str, port: u16, key: &PublicKey) -> TrustDecision {
         let name = host_pattern(host, port);
@@ -205,6 +232,10 @@ impl KnownHosts {
             .any(|e| e.marker == Marker::Revoked && e.key.key_data() == key.key_data())
         {
             return TrustDecision::Mismatch { expected_fp: "revoked".to_owned() };
+        }
+        let key_types = self.conflicting_key_types(host, port);
+        if !key_types.is_empty() {
+            return TrustDecision::Conflict { key_types };
         }
         let mut stored = matching.iter().filter(|e| e.marker == Marker::None);
         let Some(first) = stored.clone().next() else {
@@ -292,11 +323,10 @@ impl KnownHosts {
     }
 }
 
-/// One mutex per `known_hosts` path, shared by every session in the process.
+/// One mutex per `known_hosts` path, shared by every session in the process and by the
+/// vault-sync apply (the registry of `mooring_core::known_certs::write_lock`).
 fn path_lock(path: &Path) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let mut map = LOCKS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
-    Arc::clone(map.entry(path.to_path_buf()).or_default())
+    mooring_core::known_certs::write_lock(path)
 }
 
 enum LineParse {

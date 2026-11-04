@@ -2,11 +2,12 @@
 
 use std::collections::BTreeSet;
 
-use mooring_core::{Connection, ConnectionId, FolderId, Role};
+use mooring_core::{Connection, ConnectionId, FolderId, Protocol, Role};
 use rusqlite::{params, OptionalExtension, Row};
 
-use crate::error::{invalid, not_found, Result};
+use crate::error::{invalid, not_found, Result, StoreError};
 use crate::folders::folder_exists;
+use crate::sync::{connection_source, ensure_folder_editable};
 use crate::util::{check_name, fmt_ts, now, parse_id, parse_opt_id, parse_ts, protocol_from_str};
 use crate::{Store, MAX_TAGS};
 
@@ -96,11 +97,31 @@ impl Store {
 }
 
 impl Store {
+    /// ADR-0015 §2: a synced connection keeps its folder, name, protocol, host and port (only
+    /// the overlays change); an ordinary connection may not move into a synced folder.
+    fn ensure_update_allowed(&self, c: &Connection, v: &Validated) -> Result<()> {
+        if connection_source(&self.conn, c.id)?.is_none() {
+            return ensure_folder_editable(&self.conn, c.folder);
+        }
+        let old = self.get_connection(c.id)?;
+        let same = old.folder == c.folder
+            && old.name == v.name
+            && old.host == v.host
+            && old.port == c.port
+            && old.protocol == c.protocol;
+        if same {
+            Ok(())
+        } else {
+            Err(StoreError::SyncedReadOnly)
+        }
+    }
+
     /// Insert a connection (validated again here; fields of `Connection` are public).
     /// Returns the stored form (trimmed name/host, normalised tags).
     pub fn create_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
         self.check_links(c, &v)?;
+        ensure_folder_editable(&self.conn, c.folder)?;
         let tx = self.conn.unchecked_transaction()?;
         let created = fmt_ts(c.created_at)?;
         tx.execute(
@@ -132,6 +153,7 @@ impl Store {
     pub fn update_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
         self.check_links(c, &v)?;
+        self.ensure_update_allowed(c, &v)?;
         let tx = self.conn.unchecked_transaction()?;
         let n = tx.execute(
             "UPDATE connection SET folder_id = ?2, name = ?3, protocol = ?4, host = ?5, port = ?6,
@@ -181,6 +203,9 @@ impl Store {
 
     /// Delete a connection and its tags.
     pub fn delete_connection(&self, id: ConnectionId) -> Result<()> {
+        if connection_source(&self.conn, id)?.is_some() {
+            return Err(StoreError::SyncedReadOnly);
+        }
         let n = self.conn.execute("DELETE FROM connection WHERE id = ?1", [id.to_string()])?;
         if n == 0 {
             return Err(not_found("connection", &id));
@@ -204,6 +229,32 @@ impl Store {
             .query_map([folder.to_string()], row_to_raw)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         raws.into_iter().map(|r| self.decode(r)).collect()
+    }
+
+    /// Ids of every connection of `protocol` inside `folder` or any folder below it (one
+    /// recursive query, bounded by the folder count), sorted. `folder_delete` uses it to find
+    /// the web stores and windows the SQL cascade would otherwise leave behind (review 5 L-30).
+    pub fn connection_ids_under(
+        &self,
+        folder: FolderId,
+        protocol: Protocol,
+    ) -> Result<Vec<ConnectionId>> {
+        let mut stmt = self.conn.prepare(
+            "WITH RECURSIVE
+               bound(n) AS (SELECT count(*) FROM folder),
+               sub(id, depth) AS (
+                 SELECT id, 0 FROM folder WHERE id = ?1
+                 UNION ALL
+                 SELECT f.id, sub.depth + 1 FROM folder f JOIN sub ON f.parent_id = sub.id, bound
+                 WHERE sub.depth <= bound.n
+               )
+             SELECT c.id FROM connection c JOIN sub ON c.folder_id = sub.id
+             WHERE c.protocol = ?2 ORDER BY c.id",
+        )?;
+        let ids = stmt
+            .query_map(params![folder.to_string(), protocol.name()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.iter().map(|id| parse_id(id)).collect()
     }
 
     pub(crate) fn tags_of(&self, id: &str) -> Result<Vec<String>> {
@@ -268,6 +319,33 @@ mod tests {
         assert!(check_host("").is_err());
         assert!(check_host(&"h".repeat(2049)).is_err());
         assert!(check_host("h\u{7}").is_err());
+    }
+
+    #[test]
+    fn connection_ids_under_walks_the_subtree_by_protocol() {
+        let s = Store::open_in_memory().expect("open");
+        let root = s.create_folder(None, "root").expect("root");
+        let a = s.create_folder(Some(root.id), "a").expect("a");
+        let b = s.create_folder(Some(a.id), "b").expect("b");
+        let other = s.create_folder(Some(root.id), "other").expect("other");
+        let mk = |folder: FolderId, name: &str, p: Protocol| {
+            let c = Connection::new(folder, name, p, "h.example.test").expect("valid");
+            s.create_connection(&c).expect("create").id
+        };
+        let web_a = mk(a.id, "wa", Protocol::Web);
+        let web_b = mk(b.id, "wb", Protocol::Web);
+        mk(b.id, "ssh", Protocol::Ssh);
+        let web_other = mk(other.id, "wo", Protocol::Web);
+        let mut want = vec![web_a, web_b];
+        want.sort();
+        assert_eq!(s.connection_ids_under(a.id, Protocol::Web).expect("under a"), want);
+        assert_eq!(s.connection_ids_under(b.id, Protocol::Ssh).expect("ssh").len(), 1);
+        assert_eq!(s.connection_ids_under(root.id, Protocol::Web).expect("root").len(), 3);
+        assert_eq!(s.connection_ids_under(other.id, Protocol::Web).expect("other"), [web_other]);
+        assert!(s
+            .connection_ids_under(FolderId::new(), Protocol::Web)
+            .expect("missing")
+            .is_empty());
     }
 
     #[test]

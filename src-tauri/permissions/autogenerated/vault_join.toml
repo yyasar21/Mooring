@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vault-join"
+description = "Enables the vault_join command without any pre-configured scope."
+commands.allow = ["vault_join"]
+
+[[permission]]
+identifier = "deny-vault-join"
+description = "Denies the vault_join command without any pre-configured scope."
+commands.deny = ["vault_join"]

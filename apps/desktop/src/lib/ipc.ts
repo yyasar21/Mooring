@@ -5,13 +5,12 @@
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AuditEntry, FrameHandler, Ipc, ProgressHandler, SessionEventHandler } from "./ipc.types";
+import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, PodEventHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
-import { MockTransport } from "./ipc.mock";
-import { detachedDemoTransport } from "./ipc.mock.demo";
-import { bootRoute } from "./route";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
+import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
+import { decodeSyncStatus } from "./ipc.decode.sync";
 
 export * from "./ipc.types";
 
@@ -60,7 +59,13 @@ export function decodeAuditEntry(raw: unknown): AuditEntry {
  * `session_frame_ack` is sent per drawn frame (30–60/s, from requestAnimationFrame), so it must
  * never count as activity either (ADR-0011).
  */
-export const POLLED_COMMANDS: readonly string[] = ["audit_verify", "forward_list", "session_frame_ack"];
+export const POLLED_COMMANDS: readonly string[] = [
+  "audit_verify", "forward_list", "session_frame_ack",
+  // ADR-0014 §6, ADR-0015 §5, ADR-0017 §5: passive by contract.
+  "kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status",
+  // ADR-0016 §4 (E2): polled every second while an OIDC window is open.
+  "secret_source_oidc_status",
+];
 
 // ---------- Tauri transport ----------
 
@@ -105,8 +110,8 @@ export class TauriTransport implements Ipc {
   credentialCopyOtp: Ipc["credentialCopyOtp"] = (a) => call("credential_copy_otp", { ...a });
   credentialParseAccount: Ipc["credentialParseAccount"] = (a) => call("credential_parse_account", { ...a });
 
-  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame }) =>
-    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}) });
+  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame, kube }) =>
+    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}), ...(kube ? { kube } : {}) });
   sessionSend: Ipc["sessionSend"] = ({ sessionId, input }) =>
     call("session_send", { sessionId, input: encodeSessionInput(input) });
   sessionClose: Ipc["sessionClose"] = (a) => call("session_close", { ...a });
@@ -174,17 +179,66 @@ export class TauriTransport implements Ipc {
   syslogSet: Ipc["syslogSet"] = (config) => call("syslog_set", { ...config });
   syslogTest: Ipc["syslogTest"] = () => call("syslog_test");
 
-  onVaultLocked: Ipc["onVaultLocked"] = (handler) => {
-    let off: (() => void) | null = null;
-    let dead = false;
-    void listen("vault:locked", (e) => { handler({ reason: decodeLockReason(e.payload) }); }).then((unlisten) => {
-      if (dead) unlisten();
-      else off = unlisten;
-    });
-    return () => {
-      dead = true;
-      off?.();
-    };
+  // ---------- ADR-0014 (Kubernetes) ----------
+
+  kubeOpen: Ipc["kubeOpen"] = (a) => call("kube_open", { ...a });
+  kubeAccess: Ipc["kubeAccess"] = async (a) => decodeAccess(await call<unknown>("kube_access", { ...a }));
+  kubeNamespaces: Ipc["kubeNamespaces"] = async (a) => decodeNamespaces(await call<unknown>("kube_namespaces", { ...a }));
+  kubePods: Ipc["kubePods"] = async (a) => decodePodList(await call<unknown>("kube_pods", { ...a }));
+  kubeWatch: Ipc["kubeWatch"] = ({ onEvent, ...a }) => call("kube_watch", { ...a, onEvent: podChannel(onEvent) });
+  kubeUnwatch: Ipc["kubeUnwatch"] = (a) => call("kube_unwatch", { ...a });
+  kubeLogs: Ipc["kubeLogs"] = ({ onChunk, ...a }) => call("kube_logs", { ...a, onChunk: logChannel(onChunk) });
+  kubeLogsStop: Ipc["kubeLogsStop"] = (a) => call("kube_logs_stop", { ...a });
+
+  // ---------- ADR-0015 (vSphere) ----------
+
+  vsphereTest: Ipc["vsphereTest"] = (a) => call("vsphere_test", { ...a });
+  vsphereSyncEnable: Ipc["vsphereSyncEnable"] = (a) => call("vsphere_sync_enable", { ...a });
+  vsphereSyncDisable: Ipc["vsphereSyncDisable"] = (a) => call("vsphere_sync_disable", { ...a });
+  vsphereRefresh: Ipc["vsphereRefresh"] = (a) => call("vsphere_refresh", { ...a });
+  vsphereStatus: Ipc["vsphereStatus"] = (a) => call("vsphere_status", { ...a });
+  vsphereVmPower: Ipc["vsphereVmPower"] = (a) => call("vsphere_vm_power", { ...a });
+  vsphereVmAction: Ipc["vsphereVmAction"] = (a) => call("vsphere_vm_action", { ...a });
+  vsphereVmIdentity: Ipc["vsphereVmIdentity"] = (a) => call("vsphere_vm_identity", { ...a });
+  vsphereConsole: Ipc["vsphereConsole"] = (a) => call("vsphere_console", { ...a });
+
+  // ---------- ADR-0016 (external secrets) ----------
+
+  secretSourceList: Ipc["secretSourceList"] = () => call("secret_source_list");
+  secretSourceGet: Ipc["secretSourceGet"] = (a) => call("secret_source_get", { ...a });
+  secretSourceCreate: Ipc["secretSourceCreate"] = (a) => call("secret_source_create", { ...a });
+  secretSourceUpdate: Ipc["secretSourceUpdate"] = (a) => call("secret_source_update", { ...a });
+  secretSourceDelete: Ipc["secretSourceDelete"] = (a) => call("secret_source_delete", { ...a });
+  secretSourceTest: Ipc["secretSourceTest"] = (a) => call("secret_source_test", { ...a });
+  secretSourceRevoke: Ipc["secretSourceRevoke"] = (a) => call("secret_source_revoke", { ...a });
+  credentialExternalTest: Ipc["credentialExternalTest"] = (a) => call("credential_external_test", { ...a });
+  secretSourceOidcBegin: Ipc["secretSourceOidcBegin"] = (a) => call("secret_source_oidc_begin", { ...a });
+  secretSourceOidcStatus: Ipc["secretSourceOidcStatus"] = (a) => call("secret_source_oidc_status", { ...a });
+
+  // ---------- ADR-0017 (vault sync) ----------
+
+  syncConfigure: Ipc["syncConfigure"] = (a) => call("sync_configure", { ...a });
+  syncStatus: Ipc["syncStatus"] = () => call<unknown>("sync_status").then(decodeSyncStatus);
+  syncNow: Ipc["syncNow"] = () => call("sync_now");
+  syncResolveFork: Ipc["syncResolveFork"] = (a) => call("sync_resolve_fork", { ...a });
+  syncDisable: Ipc["syncDisable"] = (a) => call("sync_disable", { ...a });
+  vaultJoin: Ipc["vaultJoin"] = (a) => call("vault_join", { ...a });
+  onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(decodeSyncStatus(payload)); });
+
+  onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
+}
+
+/** Subscribe to a Tauri event; the returned function unsubscribes, also when called before `listen` resolved. */
+function subscribe(event: string, handler: (payload: unknown) => void): () => void {
+  let off: (() => void) | null = null;
+  let dead = false;
+  void listen<unknown>(event, (e) => { handler(e.payload); }).then((unlisten) => {
+    if (dead) unlisten();
+    else off = unlisten;
+  });
+  return () => {
+    dead = true;
+    off?.();
   };
 }
 
@@ -210,18 +264,44 @@ function progressChannel(onProgress: ProgressHandler): Channel {
   return channel;
 }
 
-function pickTransport(): Ipc {
-  if (inTauri()) return new TauriTransport();
-  // Plain `vite dev`: a detached-window URL gets a demo session behind the detached ACL.
-  const route = bootRoute();
-  if (route.kind === "detached") return detachedDemoTransport(route.sessionId);
-  // Transfers move slowly enough to watch the progress bars; web windows show their notices.
-  return new MockTransport({ transferStepMs: 350, webDemo: true });
+function podChannel(onEvent: PodEventHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => { onEvent(decodePodEvent(msg)); };
+  return channel;
 }
 
+function logChannel(onChunk: LogChunkHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => { onChunk(decodeLogChunk(msg)); };
+  return channel;
+}
+
+/**
+ * Outside Tauri the transport arrives with `bootTransport()` (the mock is its own chunk and never
+ * ships in the Tauri bundle). Until then every call fails loudly instead of touching `invoke`.
+ */
+const PENDING: Ipc = new Proxy({} as Ipc, {
+  get(_target, prop) {
+    if (typeof prop !== "string") return undefined;
+    if (prop.startsWith("on")) return () => () => undefined;
+    return () => Promise.reject(new IpcError("internal", `transport not ready: ${prop} called before bootTransport()`));
+  },
+});
+
 /** The process-wide transport. Tests may swap it with `setIpc(new MockTransport())`. */
-export let ipc: Ipc = pickTransport();
+export let ipc: Ipc = inTauri() ? new TauriTransport() : PENDING;
 
 export function setIpc(next: Ipc): void {
   ipc = next;
+}
+
+/**
+ * Plain `vite dev` / Playwright: load `MockTransport` as a lazy chunk and install it, unless a
+ * transport is already set (`e2e/boot.ts` installs its own before importing `main`). In Tauri
+ * this is a no-op and the chunk is never requested.
+ */
+export async function bootTransport(): Promise<void> {
+  if (ipc !== PENDING) return;
+  const { devTransport } = await import("./ipc.mock.demo");
+  if (ipc === PENDING) ipc = devTransport();
 }

@@ -1,6 +1,7 @@
-//! Certificate TOFU trust store shared by RDP and VNC (ADR-0011 §Trust, ADR-0012 §Trust).
+//! Certificate TOFU trust store shared by RDP, VNC and the HTTPS clients (ADR-0011 §Trust,
+//! ADR-0012 §Trust, ADR-0014 §1).
 //!
-//! One file per protocol (`$APP_DATA/known_rdp_certs`, `$APP_DATA/known_vnc_certs`, see
+//! One file per protocol (`$APP_DATA/known_rdp_certs`, `$APP_DATA/known_kube_certs`, …, see
 //! [`CertProtocol::file_name`]), one entry per line:
 //!
 //! ```text
@@ -22,6 +23,7 @@
 mod info;
 mod marker;
 mod named;
+mod protocol;
 
 use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
@@ -39,6 +41,7 @@ pub use info::{
     MAX_SAN, MAX_SAN_LEN,
 };
 pub use marker::TLS_MARKER;
+pub use protocol::CertProtocol;
 
 type HmacSha256 = hmac::Hmac<sha2_next::Sha256>;
 
@@ -50,26 +53,6 @@ pub const MAX_LINES: usize = 10_000;
 pub const KEY_TYPE: &str = "x509-sha256";
 const HASH_MAGIC: &str = "|2|";
 const SALT_LEN: usize = 32;
-
-/// Which store a certificate pin belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CertProtocol {
-    /// `known_rdp_certs`.
-    Rdp,
-    /// `known_vnc_certs`.
-    Vnc,
-}
-
-impl CertProtocol {
-    /// File name under the app data directory.
-    pub const fn file_name(self) -> &'static str {
-        match self {
-            Self::Rdp => "known_rdp_certs",
-            Self::Vnc => "known_vnc_certs",
-        }
-    }
-}
 
 /// Result of looking a presented leaf up in the store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +66,10 @@ pub enum CertTrust {
         /// The (first) stored pin.
         expected: [u8; 32],
     },
+    /// More than one distinct pin names this `host:port` (review 6b L-35: two devices accepted
+    /// different certificates and the sync merge kept both): hard stop until the user removes
+    /// the pins in the known-certificates manager. The presented certificate is not consulted.
+    Conflict,
 }
 
 /// What the verifier does: the ADR-0011 four-row decision table (the pin wins over the CA).
@@ -103,6 +90,8 @@ pub enum CertVerdict {
     },
     /// No pin, invalid chain: fail the handshake, prompt `certificate_trust`, reconnect on yes.
     Prompt,
+    /// Conflicting pins (L-35): close with `trust_conflict`; never promptable.
+    Conflict,
 }
 
 /// The decision table. Pure, so RDP and VNC share it exactly.
@@ -112,6 +101,7 @@ pub const fn decide(trust: CertTrust, chain_valid: bool) -> CertVerdict {
         (CertTrust::Mismatch { expected }, _) => CertVerdict::Mismatch { expected },
         (CertTrust::Unknown, true) => CertVerdict::AcceptCa,
         (CertTrust::Unknown, false) => CertVerdict::Prompt,
+        (CertTrust::Conflict, _) => CertVerdict::Conflict,
     }
 }
 
@@ -269,9 +259,14 @@ impl KnownCerts {
         self.truncated
     }
 
-    /// Look `sha256` up for `host:port`. Any matching pin → trusted (several pins for one
-    /// host can exist in a hand-edited file); pins that all differ → mismatch with the first.
+    /// Look `sha256` up for `host:port`. One distinct pin: trusted when it matches, else a
+    /// mismatch. More than one distinct pin (review 6b L-35: a sync merge kept two devices'
+    /// different answers): [`CertTrust::Conflict`], whatever is presented, until the user
+    /// removes the pins. Duplicate lines of one pin are not a conflict.
     pub fn check(&self, host: &str, port: u16, sha256: &[u8; 32]) -> CertTrust {
+        if self.distinct_pins(host, port) > 1 {
+            return CertTrust::Conflict;
+        }
         let name = host_key(host, port);
         let mut first = None;
         for e in self.entries().filter(|e| host_matches(&e.host, &name)) {
@@ -281,6 +276,17 @@ impl KnownCerts {
             first.get_or_insert(e.sha256);
         }
         first.map_or(CertTrust::Unknown, |expected| CertTrust::Mismatch { expected })
+    }
+
+    /// Number of **distinct** fingerprints pinned for `host:port` (review 6 L-35: more than
+    /// one after a sync merge means two devices accepted different certificates).
+    pub fn distinct_pins(&self, host: &str, port: u16) -> usize {
+        let name = host_key(host, port);
+        let mut seen: Vec<[u8; 32]> =
+            self.entries().filter(|e| host_matches(&e.host, &name)).map(|e| e.sha256).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        seen.len()
     }
 
     /// Whether any pin names `host:port` (VNC downgrade guard, ADR-0012).
@@ -389,6 +395,13 @@ impl KnownCerts {
         }
         Ok(removed)
     }
+}
+
+/// The process-wide write lock of one trust file (`known_hosts`, `known_*_certs`). Every
+/// writer holds it for its load-modify-save: the TOFU accepts here, the SSH `known_hosts`
+/// writer and the vault-sync apply (ADR-0017, owner decision 10), so no write is lost or torn.
+pub fn write_lock(path: &Path) -> Arc<Mutex<()>> {
+    path_lock(path)
 }
 
 fn path_lock(path: &Path) -> Arc<Mutex<()>> {

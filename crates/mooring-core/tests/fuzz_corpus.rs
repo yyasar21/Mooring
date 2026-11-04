@@ -1,11 +1,17 @@
-//! Stable replay of the `kubeconfig_parse`, `mfr1_decode` and `known_certs_parse` fuzz corpora
-//! and crash regressions through the same entry points the cargo-fuzz targets use
-//! (docs/qa/fuzzing.md).
+//! Stable replay of the `kubeconfig_parse`, `kubeconfig_resolve`, `external_ref_parse`, `jwt_exp_peek`,
+//! `mfr1_decode` and `known_certs_parse` fuzz corpora and crash regressions through the same
+//! entry points the cargo-fuzz targets use (docs/qa/fuzzing.md).
 
+#[path = "../../../fuzz/entries/external_ref_parse.rs"]
+mod external_ref_parse;
+#[path = "../../../fuzz/entries/jwt_exp_peek.rs"]
+mod jwt_exp_peek;
 #[path = "../../../fuzz/entries/known_certs.rs"]
 mod known_certs;
 #[path = "../../../fuzz/entries/kubeconfig.rs"]
 mod kubeconfig;
+#[path = "../../../fuzz/entries/kubeconfig_resolve.rs"]
+mod kubeconfig_resolve;
 #[path = "../../../fuzz/entries/mfr1.rs"]
 mod mfr1;
 #[path = "../../../fuzz/entries/replay.rs"]
@@ -143,4 +149,58 @@ fn known_certs_seed_has_a_pin() {
     let seed =
         std::fs::read(replay::fuzz_dir().join("corpus/known_certs_parse/one-entry")).expect("seed");
     assert_eq!(mooring_core::known_certs::KnownCerts::parse_bytes(&seed).len(), 1);
+}
+
+#[test]
+fn kubeconfig_resolve_corpus() {
+    assert!(replay::replay("kubeconfig_resolve", kubeconfig_resolve::run) >= 6);
+}
+
+/// The accepting seeds must keep resolving (token and CA-data contexts), and each refusal seed
+/// must be refused for its own reason, or the fuzzer only explores one branch.
+#[test]
+fn kubeconfig_resolve_seeds_split_accept_and_refuse() {
+    use mooring_core::credential::kubeconfig::{resolve, CaSource, KubeResolveError};
+    let dir = replay::fuzz_dir().join("corpus/kubeconfig_resolve");
+    let read = |n: &str| std::fs::read(dir.join(n)).expect("seed");
+    let token = resolve(&read("token-context"), None).expect("token seed resolves");
+    assert_eq!((token.auth.kind(), token.namespace.as_deref()), ("token", Some("default")));
+    assert_eq!(token.ca, CaSource::None);
+    let ca = resolve(&read("ca-data-context"), None).expect("CA seed resolves");
+    assert!(matches!(ca.ca, CaSource::Pem(_)));
+    assert_eq!(ca.tls_server_name.as_deref(), Some("k.example.test"));
+    assert!(resolve(&read("insecure-skip"), None).expect("insecure seed resolves").insecure_skip);
+    assert!(matches!(
+        resolve(&read("proxy-url-refused"), None),
+        Err(KubeResolveError::Invalid(r)) if r.contains("proxy-url")
+    ));
+    assert!(matches!(
+        resolve(&read("basic-auth-refused"), None),
+        Err(KubeResolveError::UnsupportedAuth(_))
+    ));
+    assert!(matches!(resolve(&read("exec-refused"), None), Err(KubeResolveError::Rejected(_))));
+}
+
+#[test]
+fn external_ref_parse_corpus() {
+    assert!(replay::replay("external_ref_parse", external_ref_parse::run) >= 1);
+}
+
+#[test]
+fn jwt_exp_peek_corpus() {
+    assert!(replay::replay("jwt_exp_peek", jwt_exp_peek::run) >= 2);
+}
+
+/// The JWT seed must keep yielding its `exp`, or the fuzzer only explores the refusal branch.
+#[test]
+fn jwt_seed_has_an_exp() {
+    let read = |n: &str| {
+        String::from_utf8(
+            std::fs::read(replay::fuzz_dir().join("corpus").join("jwt_exp_peek").join(n))
+                .expect("seed"),
+        )
+        .expect("utf-8")
+    };
+    assert!(parser::peek_exp(read("jwt-exp").trim()).is_some());
+    assert!(parser::peek_exp(read("not-jwt").trim()).is_none());
 }

@@ -149,6 +149,9 @@
 .trust-target { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-s); color: var(--text); }
 .trust-names { font: 600 var(--fs-2xs)/1.4 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
 .trust-fp { margin: 2px 0 0; font-size: var(--fs-2xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.trust-row[data-conflict] { position: relative; background: var(--hot-soft); }
+.trust-row[data-conflict]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--hot); box-shadow: 0 0 6px var(--hot-line); }
+.trust-conflict { font: 600 var(--fs-2xs)/1.4 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--hot); }
 .trust-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border: 1px dashed var(--line-strong); text-align: center; }
 
 /* connection form: protocol options */
@@ -178,3 +181,27 @@
 .toggle[data-on] .toggle-track::after { transform: translateX(14px); background: var(--accent); }
 .toggle:has(input:focus-visible) .toggle-track { box-shadow: var(--focus-ring); }
 .toggle-label { font-weight: 500; }
+
+/* settings: secret sources (ADR-0016) and vault sync (ADR-0017) */
+.source-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+.source-row + .source-row { border-top: 1px solid var(--line); }
+.source-row:hover { background: var(--accent-soft); }
+.source-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.source-actions .btn-danger:last-child { margin-left: auto; }
+.sync-status { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); background: var(--bg); }
+.sync-status[data-state="fork"], .sync-status[data-state="rollback"], .sync-status[data-state="error"] { border-color: var(--hot-line); }
+.sync-state { display: flex; align-items: center; gap: 8px; }
+.sync-state-label { font: 600 var(--fs-2xs)/1 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.sync-status[data-state="fork"] .sync-state-label, .sync-status[data-state="rollback"] .sync-state-label, .sync-status[data-state="error"] .sync-state-label { color: var(--hot); }
+.sync-status[data-state="disabled"] .sync-state-label { color: var(--text-muted); }
+.sync-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: var(--fs-xs); }
+.sync-facts dt { color: var(--text-faint); font: 500 var(--fs-2xs)/1.6 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; }
+.sync-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.sync-alarm { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--hot-line); background: var(--hot-soft); box-shadow: var(--glow-hot); font-size: var(--fs-s); }
+.sync-alarm p { margin: 0; }
+.sync-alarm-title { font: 600 var(--fs-2xs)/1 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--hot); }
+.fieldmap-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; }
+.ref-test { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-xs); }
+.ref-test li { display: inline-flex; align-items: center; gap: 4px; }
+.ref-test [data-tone="present"] { color: var(--accent); }
+.ref-test [data-tone="missing"], .ref-test [data-tone="extra"] { color: var(--hot); }

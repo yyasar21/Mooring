@@ -20,12 +20,16 @@ import {
   type VncSecurity,
   type WebConnOptions,
 } from "./ipc.types.remote";
+import { DEFAULT_KUBE_OPTIONS, type KubeConnOptions } from "./ipc.types.kube";
+import { DEFAULT_VSPHERE_OPTIONS, type VsphereConnOptions } from "./ipc.types.vsphere";
+import { normalizeKube, normalizeVsphere, validateKube, validateVsphere } from "./validate.kube";
 
 /** Field → message. Empty = valid. */
 export type OptionErrors = Partial<Record<string, string>>;
 
 /** Protocols with an options struct; the rest store `{}`. */
-export const hasOptions = (p: Protocol): p is "rdp" | "vnc" | "web" => p === "rdp" || p === "vnc" || p === "web";
+export const hasOptions = (p: Protocol): p is "rdp" | "vnc" | "web" | "kubernetes" | "vsphere-console" =>
+  p === "rdp" || p === "vnc" || p === "web" || p === "kubernetes" || p === "vsphere-console";
 
 export function defaultOptions(p: Protocol): ProtocolOptions {
   switch (p) {
@@ -35,6 +39,10 @@ export function defaultOptions(p: Protocol): ProtocolOptions {
       return { ...DEFAULT_VNC_OPTIONS };
     case "web":
       return { ...DEFAULT_WEB_OPTIONS, allowedOrigins: [] };
+    case "kubernetes":
+      return { ...DEFAULT_KUBE_OPTIONS, allowedNamespaces: [] };
+    case "vsphere-console":
+      return { ...DEFAULT_VSPHERE_OPTIONS };
     default:
       return {};
   }
@@ -164,6 +172,10 @@ export function validateOptions(p: Protocol, o: ProtocolOptions): OptionErrors {
       return validateVnc(o as VncConnOptions);
     case "web":
       return validateWeb(o as WebConnOptions);
+    case "kubernetes":
+      return validateKube(o as KubeConnOptions, checkCaPem);
+    case "vsphere-console":
+      return validateVsphere(o as VsphereConnOptions, checkCaPem);
     default:
       return Object.keys(o).length === 0 ? {} : { options: "This protocol has no options." };
   }
@@ -172,7 +184,11 @@ export function validateOptions(p: Protocol, o: ProtocolOptions): OptionErrors {
 const RDP_KEYS = new Set(Object.keys(DEFAULT_RDP_OPTIONS));
 const VNC_KEYS = new Set(Object.keys(DEFAULT_VNC_OPTIONS));
 const WEB_KEYS = new Set(Object.keys(DEFAULT_WEB_OPTIONS));
-const keysOf = (p: Protocol): Set<string> => (p === "rdp" ? RDP_KEYS : p === "vnc" ? VNC_KEYS : p === "web" ? WEB_KEYS : new Set());
+const KEYS: Partial<Record<Protocol, Set<string>>> = {
+  rdp: RDP_KEYS, vnc: VNC_KEYS, web: WEB_KEYS,
+  kubernetes: new Set(Object.keys(DEFAULT_KUBE_OPTIONS)), "vsphere-console": new Set(Object.keys(DEFAULT_VSPHERE_OPTIONS)),
+};
+const keysOf = (p: Protocol): Set<string> => KEYS[p] ?? new Set();
 
 /** Rust `deny_unknown_fields`: the name of the first unknown field, or null. */
 export function unknownField(p: Protocol, raw: Record<string, unknown>): string | null {
@@ -208,6 +224,7 @@ export function normalizeOptions(p: Protocol, raw: unknown): ProtocolOptions {
         clipboard: clip(w.clipboard),
         caPem: pick<string | null>(w.caPem, isPem, null),
         maxFps: fps(w.maxFps),
+        allowNoAuth: pick(w.allowNoAuth, isBool, false),
       };
     case "web":
       return {
@@ -216,6 +233,10 @@ export function normalizeOptions(p: Protocol, raw: unknown): ProtocolOptions {
         persistent: pick(w.persistent, isBool, false),
         allowHttp: pick(w.allowHttp, isBool, false),
       };
+    case "kubernetes":
+      return normalizeKube(w);
+    case "vsphere-console":
+      return normalizeVsphere(w);
     default:
       return {};
   }

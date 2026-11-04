@@ -1,0 +1,48 @@
+[package]
+name = "mooring-proto-kube"
+description = "Mooring read-only Kubernetes sessions: ReadOnlyGuard, browsing, exec, logs, port-forward (ADR-0014)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.1" }
+# ADR-0014 §2: only kube's client + WebSocket code; no TLS stack, no config loader use, no proxy.
+kube = { version = "5.0", default-features = false, features = ["client", "ws"] }
+# Owner decision 1: the oldest Kubernetes version k8s-openapi 0.29 supports (v1_33).
+k8s-openapi = { version = "0.29", default-features = false, features = ["std", "v1_33"] }
+async-trait = { workspace = true }
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+pem-rfc7468 = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tower = { version = "0.5", default-features = false }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio", "server"] }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+mooring-testsrv = { path = "../mooring-testsrv" } # QA mock API servers (A3 Q1/Q2), dev-only

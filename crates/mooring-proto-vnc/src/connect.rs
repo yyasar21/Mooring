@@ -272,6 +272,10 @@ async fn upgrade(
                 host_key(&t.host, t.port)
             )))
         }
+        (_, Some(TrustOutcome::Conflict { .. })) => Err(VncError::TrustConflict(format!(
+            "CONFLICTING PINS for {}: remove them in the known certificates manager",
+            host_key(&t.host, t.port)
+        ))),
         (_, Some(TrustOutcome::Unknown { fp, info })) => Err(VncError::TrustUnknown { fp, info }),
         (Err(e), _) => Err(VncError::Network(format!("TLS handshake failed: {}", e.kind()))),
         (Ok(_), _) => Err(VncError::protocol("TLS without a certificate decision")),

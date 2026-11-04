@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "oidc",
+  "description": "Vault / OpenBao OIDC sign-in (ADR-0016 section 4). Grants nothing and has no remote block: an oidc-* window loads only the IdP and can call no Mooring command, core command or plugin. Rust intercepts the redirect in on_navigation.",
+  "windows": ["oidc-*"],
+  "permissions": []
+}

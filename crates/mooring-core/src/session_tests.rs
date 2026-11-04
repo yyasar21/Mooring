@@ -110,6 +110,7 @@ fn closed_carries_a_code_and_connected_a_security() {
         (CloseCode::AuthFailed, "auth_failed", false),
         (CloseCode::TrustRejected, "trust_rejected", false),
         (CloseCode::TrustMismatch, "trust_mismatch", false),
+        (CloseCode::TrustConflict, "trust_conflict", false),
         (CloseCode::ServerEnded, "server_ended", true),
         (CloseCode::ProtocolError, "protocol_error", false),
         (CloseCode::VaultLocked, "vault_locked", false),

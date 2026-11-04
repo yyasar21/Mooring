@@ -167,7 +167,7 @@ fn host(field: &str, raw: &str) -> IpcResult<String> {
 }
 
 /// A socket address on this machine: an IP literal or `localhost`.
-fn local_addr(field: &str, e: &WireEndpoint, allow_zero: bool) -> IpcResult<SocketAddr> {
+pub(crate) fn local_addr(field: &str, e: &WireEndpoint, allow_zero: bool) -> IpcResult<SocketAddr> {
     let h = host(field, &e.host)?;
     let ip = if h.eq_ignore_ascii_case("localhost") {
         IpAddr::V4(Ipv4Addr::LOCALHOST)
@@ -234,6 +234,9 @@ pub async fn close(state: &AppState, session_id: &str, forward_id: &str) -> IpcR
     if forward_id.len() > MAX_FORWARD_ID {
         return Err(IpcError::invalid("forwardId", "expected fwd-<number>"));
     }
+    if crate::commands::kube_forward::is_cluster(state, session_id) {
+        return crate::commands::kube_forward::close(state, session_id, forward_id);
+    }
     let id: ForwardId =
         forward_id.parse().map_err(|_| IpcError::invalid("forwardId", "expected fwd-<number>"))?;
     let (control, connection) = control_of(state, session_id)?;
@@ -274,6 +277,60 @@ pub fn close_external(state: &AppState) -> usize {
     closed
 }
 
+// --- ADR-0014 K4: `kind: "pod"` on a Kubernetes cluster session ----------------------------
+
+/// A forward of either session type on the wire.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum AnyForward {
+    /// SSH local / remote / dynamic.
+    Ssh(ForwardDto),
+    /// Kubernetes pod.
+    Pod(crate::commands::kube_forward::PodForwardDto),
+}
+
+/// `forward_open` with an untyped `target`: `{ namespace, pod, port }` for `kind: "pod"`,
+/// `{ host, port }` otherwise (both `deny_unknown_fields`).
+pub async fn open_any(
+    state: &AppState,
+    session_id: &str,
+    kind: String,
+    bind: WireEndpoint,
+    target: Option<serde_json::Value>,
+    exposure: Option<String>,
+) -> IpcResult<AnyForward> {
+    let cluster = crate::commands::kube_forward::is_cluster(state, session_id);
+    if kind == "pod" || cluster {
+        if kind != "pod" {
+            return Err(IpcError::invalid("kind", "a Kubernetes session forwards kind pod only"));
+        }
+        if !cluster {
+            return Err(IpcError::invalid("kind", "pod forwards need a Kubernetes cluster session"));
+        }
+        let target = target.ok_or_else(|| IpcError::invalid("target", "required"))?;
+        let target = serde_json::from_value(target)
+            .map_err(|_| IpcError::invalid("target", "expected { namespace, pod, port }"))?;
+        let bind = local_addr("bind", &bind, true)?;
+        let f = crate::commands::kube_forward::open(state, session_id, bind, target, exposure.as_deref());
+        return f.await.map(AnyForward::Pod);
+    }
+    let target = target
+        .map(serde_json::from_value::<WireEndpoint>)
+        .transpose()
+        .map_err(|_| IpcError::invalid("target", "expected { host, port }"))?;
+    open(state, session_id, ForwardRequest { kind, bind, target, exposure }).await.map(AnyForward::Ssh)
+}
+
+/// `forward_list` of either session type.
+pub fn list_any(state: &AppState, session_id: &str) -> IpcResult<Vec<AnyForward>> {
+    if crate::commands::kube_forward::is_cluster(state, session_id) {
+        let pods = crate::commands::kube_forward::list(state, session_id)?;
+        return Ok(pods.into_iter().map(AnyForward::Pod).collect());
+    }
+    Ok(list(state, session_id)?.into_iter().map(AnyForward::Ssh).collect())
+}
+// --- end ADR-0014 K4 ----------------------------------------------------------------------
+
 // ------------------------------------------------------------------ Tauri wrappers
 
 /// `forward_open({ sessionId, kind, bind, target?, exposure })`.
@@ -283,10 +340,10 @@ pub async fn forward_open(
     session_id: String,
     kind: String,
     bind: WireEndpoint,
-    target: Option<WireEndpoint>,
+    target: Option<serde_json::Value>,
     exposure: Option<String>,
-) -> IpcResult<ForwardDto> {
-    open(&state, &session_id, ForwardRequest { kind, bind, target, exposure }).await
+) -> IpcResult<AnyForward> {
+    open_any(&state, &session_id, kind, bind, target, exposure).await
 }
 
 /// `forward_close({ sessionId, forwardId })`.
@@ -301,8 +358,8 @@ pub async fn forward_close(
 
 /// `forward_list({ sessionId })`.
 #[tauri::command]
-pub fn forward_list(state: State<'_, AppState>, session_id: String) -> IpcResult<Vec<ForwardDto>> {
-    list(&state, &session_id)
+pub fn forward_list(state: State<'_, AppState>, session_id: String) -> IpcResult<Vec<AnyForward>> {
+    list_any(&state, &session_id)
 }
 
 #[cfg(test)]

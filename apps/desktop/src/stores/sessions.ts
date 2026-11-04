@@ -22,6 +22,7 @@ import { useTree } from "./tree";
 import { clearOutput, dropOutput, pushOutput } from "./output";
 import { closeWeb, openWeb, resetWeb } from "./web";
 import { detachedSessions } from "./sessions.detach";
+import { adoptKube, openCluster, useKube, type KubeTab } from "./kube";
 
 export { subscribeOutput } from "./output";
 
@@ -71,6 +72,8 @@ export interface Tab {
   viewOnly: boolean;
   /** Bumped each time this view re-attaches after a detach: the terminal resends its size. */
   attachEpoch: number;
+  /** Kubernetes tabs only (ADR-0014): cluster browser, exec shell or log viewer. */
+  kube?: KubeTab;
 }
 
 /** The three-state rail and dot of the design system: a reconnect reads as connecting. */
@@ -137,6 +140,8 @@ interface SessionState {
   error: string | null;
 
   open: (connectionId: string, opts?: { newTab?: boolean; size?: Size }) => Promise<string>;
+  /** A new exec or logs tab under a cluster tab. */
+  openKube: (connectionId: string, kube: KubeTab) => Promise<string>;
   activate: (tabId: string) => void;
   close: (tabId: string) => Promise<void>;
   move: (tabId: string, toIndex: number) => void;
@@ -158,10 +163,10 @@ interface SessionState {
   reset: () => void;
 }
 
-/** A `session_open` refusal that is a trust decision keeps its close code, so the banner can say why. */
+/** A `session_open` refusal that is a trust decision keeps its close code, so the banner can say why (6b: `trust_conflict` too). */
+const OPEN_FAILURE_CODES: Readonly<Record<string, CloseCode>> = { "session.trust_mismatch": "trust_mismatch", "session.trust_rejected": "trust_rejected", "http.trust_conflict": "trust_conflict" };
 function openFailureCode(e: unknown): CloseCode | null {
-  const code = isIpcError(e) ? e.code : "";
-  return code === "session.trust_mismatch" ? "trust_mismatch" : code === "session.trust_rejected" ? "trust_rejected" : null;
+  return (isIpcError(e) && OPEN_FAILURE_CODES[e.code]) || null;
 }
 
 let tabSeq = 0;
@@ -281,12 +286,14 @@ export const useSessions = create<SessionState>((set, get) => {
     const gen = nextGen(tabId);
     const graphical = isGraphical(tabOf(tabId)?.protocol);
     dropFrames(tabId);
+    const k = tabOf(tabId)?.kube;
     try {
       const { sessionId } = await ipc.sessionOpen({
         connectionId,
         size,
         onEvent: onEvent(tabId, gen),
         ...(graphical ? { onFrame: onFrame(tabId, gen) } : {}),
+        ...(k?.view === "exec" && k.exec ? { kube: k.exec } : {}),
       });
       if (tabOf(tabId)) {
         tabOfSession.set(sessionId, tabId);
@@ -305,6 +312,12 @@ export const useSessions = create<SessionState>((set, get) => {
   };
 
   const initialSize = (p: Protocol | null, size?: Size): Size => size ?? (isGraphical(p) ? DEFAULT_DESKTOP : { width: 80, height: 24 });
+  /** Web windows, cluster handles and sessions open differently (ADR-0013, ADR-0014). */
+  const begin = (tabId: string, connectionId: string, protocol: Protocol | null, size: Size) => {
+    if (protocol === "web") return openWeb(tabId, connectionId);
+    if (tabOf(tabId)?.kube?.view === "cluster") return openCluster(tabId, connectionId);
+    return start(tabId, connectionId, size);
+  };
 
   return {
     tabs: [],
@@ -312,7 +325,7 @@ export const useSessions = create<SessionState>((set, get) => {
     error: null,
 
     open: async (connectionId, opts = {}) => {
-      const existing = opts.newTab ? undefined : get().tabs.find((t) => t.connectionId === connectionId);
+      const existing = opts.newTab ? undefined : get().tabs.find((t) => t.connectionId === connectionId && (t.kube?.view ?? "cluster") === "cluster");
       if (existing) {
         set({ activeTab: existing.id });
         return existing.id;
@@ -320,9 +333,17 @@ export const useSessions = create<SessionState>((set, get) => {
       const id = nextTabId();
       const protocol = protocolOf(connectionId);
       if (isGraphical(protocol)) await useConnOptions.getState().load(connectionId); // initial view-only
-      set({ tabs: [...get().tabs, blankTab(id, connectionId, protocol)], activeTab: id });
-      if (protocol === "web") await openWeb(id, connectionId);
-      else await start(id, connectionId, initialSize(protocol, opts.size));
+      const kube: Partial<Tab> = protocol === "kubernetes" ? { kube: { view: "cluster" } } : {};
+      set({ tabs: [...get().tabs, blankTab(id, connectionId, protocol, kube)], activeTab: id });
+      await begin(id, connectionId, protocol, initialSize(protocol, opts.size));
+      return id;
+    },
+
+    openKube: async (connectionId, kube) => {
+      const id = nextTabId();
+      const p: Partial<Tab> = kube.view === "logs" ? { kube, state: "connected" } : { kube };
+      set({ tabs: [...get().tabs, blankTab(id, connectionId, "kubernetes", p)], activeTab: id });
+      if (kube.view === "exec") await start(id, connectionId, initialSize("kubernetes"));
       return id;
     },
 
@@ -405,8 +426,7 @@ export const useSessions = create<SessionState>((set, get) => {
       const tab = tabOf(tabId);
       if (!tab || tab.state !== "closed") return;
       patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null });
-      if (tab.protocol === "web") await openWeb(tabId, tab.connectionId);
-      else await start(tabId, tab.connectionId, tab.desktop ?? initialSize(tab.protocol));
+      await begin(tabId, tab.connectionId, tab.protocol, tab.desktop ?? initialSize(tab.protocol));
     },
 
     setViewOnly: async (tabId, viewOnly) => {
@@ -444,8 +464,9 @@ export const useSessions = create<SessionState>((set, get) => {
         tabOfSession.set(info.sessionId, id);
         // A session shown in its own window stays there: this view keeps the placeholder.
         const away = detachedSessions.has(info.sessionId);
-        adopted.push(blankTab(id, info.connectionId, info.protocol, { sessionId: info.sessionId, state: away ? "detached" : state }));
-        if (!isGraphical(info.protocol)) {
+        const kube = adoptKube(info);
+        adopted.push(blankTab(id, info.connectionId, info.protocol, { sessionId: info.sessionId, state: away ? "detached" : state, ...kube }));
+        if (!isGraphical(info.protocol) && kube.kube?.view !== "cluster") {
           // Output from before the lock was wiped with it; say so instead of showing a blank screen.
           pushOutput(id, enc.encode(known
             ? "\x1b[2m[vault unlocked: earlier output was cleared when it locked]\x1b[0m\r\n"
@@ -469,6 +490,7 @@ export const useSessions = create<SessionState>((set, get) => {
       }
       dropFrames();
       resetWeb();
+      useKube.getState().reset();
       set({ tabs: [], activeTab: null, error: null });
     },
   };

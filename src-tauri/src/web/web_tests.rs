@@ -14,7 +14,7 @@ pub(crate) fn web_connection(f: &Fixture, options: serde_json::Value) -> String 
     id
 }
 
-const LINUX: StorageOs = StorageOs::WindowsOrLinux;
+const LINUX: StorageOs = StorageOs::Linux;
 
 #[test]
 fn plan_uses_stored_options_only() {
@@ -48,8 +48,11 @@ fn plan_refusals() {
     let fields = tree::ConnectionFields::basic(&root, "empty", "web", "console.example.test");
     let empty = tree::create_connection(&f.state, fields).expect("web").id;
     assert_eq!(plan(&f.state, &empty, LINUX, None).expect_err("no url").code, "input.invalid");
-    let app = web_connection(&f, json!({ "url": "https://tauri.localhost/" }));
-    assert_eq!(plan(&f.state, &app, LINUX, None).expect_err("app").code, "web.origin_refused");
+    // N-31: the app origin never reaches the store (options validation refuses *.localhost).
+    let fields = tree::ConnectionFields::basic(&root, "app", "web", "tauri.localhost");
+    let app = tree::create_connection(&f.state, fields).expect("web").id;
+    let e = conn_options::set(&f.state, &app, json!({ "url": "https://tauri.localhost/" }));
+    assert_eq!(e.expect_err("app origin").code, "input.invalid");
     vault::lock(&f.state, None).expect("lock");
     // Any well-formed id: the vault check comes first.
     let id = mooring_core::ConnectionId::new().to_string();
@@ -113,8 +116,10 @@ fn list_and_forget() {
         origin: "https://a.example.test".into(),
         title: "A".into(),
         persistent: false,
+        ephemeral_dir: None,
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink,
+        refusals: Arc::default(),
     };
     f.state.web.lock().expect("m").insert("a".into(), entry);
     let rows = list(&f.state).expect("list");
@@ -139,4 +144,159 @@ fn web_events_wire_shape() {
     for (e, want) in cases {
         assert_eq!(serde_json::to_value(&e).expect("json"), want);
     }
+}
+
+/// Review 5 L-29: on Windows an ephemeral window gets its own profile directory (own
+/// `WebView2` environment); elsewhere plain incognito.
+#[test]
+fn windows_ephemeral_gets_a_per_connection_directory() {
+    let f = unlocked();
+    let id = web_connection(&f, json!({ "url": "https://console.example.test" }));
+    let p = plan(&f.state, &id, StorageOs::Windows, None).expect("plan");
+    let dir = f.state.cache_dir.join(WEB_EPHEMERAL_DIR).join(&id);
+    assert_eq!(p.storage, Storage::EphemeralDirectory(dir.clone()));
+    assert_eq!(p.ephemeral_dir(), Some(&dir));
+    assert!(!p.persistent(), "an ephemeral profile is not persistence");
+    let other = web_connection(&f, json!({ "url": "https://other.example.test" }));
+    let q = plan(&f.state, &other, StorageOs::Windows, None).expect("plan");
+    assert_ne!(q.storage, p.storage, "one environment per connection");
+    for os in [LINUX, StorageOs::MacOs { major: 14 }, StorageOs::MacOs { major: 12 }] {
+        let p = plan(&f.state, &id, os, None).expect("plan");
+        assert_eq!(p.storage, Storage::Ephemeral, "{os:?}");
+        assert_eq!(p.ephemeral_dir(), None);
+    }
+    // Persistent on Windows is the data directory, as on Linux.
+    let pid = web_connection(&f, json!({ "url": "https://console.example.test", "persistent": true }));
+    let p = plan(&f.state, &pid, StorageOs::Windows, None).expect("plan");
+    assert_eq!(p.storage, Storage::Directory(store_dir(&f.state, &pid)));
+    assert!(p.persistent());
+    assert_eq!(ephemeral_storage(&f.state, &id, StorageOs::Windows), Storage::EphemeralDirectory(dir));
+    assert_eq!(ephemeral_storage(&f.state, &id, LINUX), Storage::Ephemeral);
+}
+
+/// Review 5 L-29 / L-30: the start sweeps.
+#[test]
+fn start_sweeps_remove_orphans_only() {
+    let f = unlocked();
+    let keep = web_connection(&f, json!({ "url": "https://a.example.test", "persistent": true }));
+    let ephemeral = web_connection(&f, json!({ "url": "https://b.example.test" }));
+    let web_root = f.state.data_dir.join(WEB_DATA_DIR);
+    let orphan = web_root.join(mooring_core::ConnectionId::new().to_string());
+    for d in [store_dir(&f.state, &keep), store_dir(&f.state, &ephemeral), orphan.clone(), web_root.join("junk")] {
+        std::fs::create_dir_all(d.join("Cookies")).expect("mk");
+    }
+    std::fs::write(web_root.join("stray.file"), b"x").expect("file");
+    assert_eq!(sweep::orphan_stores(&f.state), 4);
+    assert!(store_dir(&f.state, &keep).exists(), "persistent web connection kept");
+    assert!(!store_dir(&f.state, &ephemeral).exists(), "persistent: false has no store");
+    assert!(!orphan.exists() && !web_root.join("junk").exists() && !web_root.join("stray.file").exists());
+    assert_eq!(sweep::orphan_stores(&f.state), 0, "idempotent");
+    // Locked: nothing is touched.
+    std::fs::create_dir_all(&orphan).expect("mk");
+    vault::lock(&f.state, None).expect("lock");
+    assert_eq!(sweep::orphan_stores(&f.state), 0);
+    assert!(orphan.exists());
+
+    // Ephemeral profiles: everything not held by an open window goes (none at start).
+    let stale = ephemeral_dir(&f.state, &ephemeral);
+    let open = ephemeral_dir(&f.state, &keep);
+    std::fs::create_dir_all(&stale).expect("mk");
+    std::fs::create_dir_all(&open).expect("mk");
+    let entry = WebEntry {
+        label: format!("web-{keep}"),
+        origin: "https://a.example.test".into(),
+        title: String::new(),
+        persistent: false,
+        ephemeral_dir: Some(open.clone()),
+        opened_at: "2026-11-04T10:00:00Z".into(),
+        sink: Arc::new(|_| true),
+        refusals: Arc::default(),
+    };
+    f.state.web.lock().expect("m").insert(keep.clone(), entry);
+    assert_eq!(sweep::ephemeral_profiles(&f.state), 1);
+    assert!(!stale.exists() && open.exists());
+    assert_eq!(sweep::ephemeral_profiles(&f.state), 0);
+    assert_eq!(sweep::ephemeral_profiles(&crate::state::testing::empty().state), 0, "no directory yet");
+}
+
+/// Review 6 L-33: the OIDC window gets an own ephemeral profile on Windows, plain incognito
+/// elsewhere; a profile left behind is swept at start with the web ones.
+#[test]
+fn oidc_window_storage_is_an_own_profile_on_windows() {
+    let f = unlocked();
+    let source = mooring_core::ConnectionId::new().to_string();
+    let plan = crate::oidc_window::storage(&f.state, &source, StorageOs::Windows);
+    let dir = plan.ephemeral_dir().expect("own profile on Windows").clone();
+    assert_eq!(dir, f.state.cache_dir.join(WEB_EPHEMERAL_DIR).join(format!("oidc-{source}")));
+    for os in [StorageOs::Linux, StorageOs::MacOs { major: 14 }, StorageOs::MacOs { major: 13 }] {
+        assert_eq!(crate::oidc_window::storage(&f.state, &source, os), Storage::Ephemeral, "{os:?}");
+    }
+    std::fs::create_dir_all(dir.join("EBWebView")).expect("mk");
+    assert_eq!(sweep::ephemeral_profiles(&f.state), 1, "leftover OIDC profile swept at start");
+    assert!(!dir.exists());
+}
+
+/// Review 6 N-43: a web window audits its first 16 refused navigations one by one, counts the
+/// rest, and its close writes one `web_navigation_blocked_suppressed { count }` row.
+/// 6b N-48: the post-check both `web_open` paths run (build and reopen) hides the window
+/// when the vault locked after `plan` passed, and does nothing while it is unlocked.
+#[test]
+fn web_open_post_check_hides_when_locked() {
+    let f = unlocked();
+    let hidden = std::cell::Cell::new(0);
+    let hide = || {
+        hidden.set(hidden.get() + 1);
+        Ok(())
+    };
+    assert!(!crate::commands::web::post_open(&f.state, hide), "unlocked: visible");
+    assert_eq!(hidden.get(), 0);
+    crate::commands::vault::lock(&f.state, None).expect("lock");
+    assert!(crate::commands::web::post_open(&f.state, hide), "locked: hidden");
+    assert_eq!(hidden.get(), 1);
+    assert!(crate::commands::web::post_open(&f.state, || Err("gone".to_owned())), "a failed hide still reports the lock");
+}
+
+#[test]
+fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
+    let f = unlocked();
+    let entry = WebEntry {
+        label: "web-a".into(),
+        origin: "https://a.example.test".into(),
+        title: String::new(),
+        persistent: false,
+        ephemeral_dir: None,
+        opened_at: "2026-11-04T10:00:00Z".into(),
+        sink: Arc::new(|_| true),
+        refusals: Arc::default(),
+    };
+    f.state.web.lock().expect("m").insert("a".into(), entry);
+    assert!(!refusal_audited(&f.state.web, "nope"), "6b N-43: a window without an entry is not audited");
+    let audited = (0..40).filter(|_| refusal_audited(&f.state.web, "a")).count();
+    assert_eq!(audited, 16);
+    assert!(crate::commands::web::closed(&f.state, "a"));
+    let rows: Vec<serde_json::Value> = std::fs::read_to_string(f.state.data_dir.join(AppState::AUDIT_FILE))
+        .expect("log")
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .filter(|v: &serde_json::Value| v["event"] == "web_navigation_blocked_suppressed")
+        .collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0]["connection"].as_str(), rows[0]["count"].as_u64()), (Some("a"), Some(24)));
+    assert!(!refusal_audited(&f.state.web, "a"), "closed: refusals until Destroyed write nothing");
+    // A window that never exceeded the budget writes no summary.
+    let entry = WebEntry {
+        label: "web-b".into(),
+        origin: "https://b.example.test".into(),
+        title: String::new(),
+        persistent: false,
+        ephemeral_dir: None,
+        opened_at: "2026-11-04T10:00:00Z".into(),
+        sink: Arc::new(|_| true),
+        refusals: Arc::default(),
+    };
+    f.state.web.lock().expect("m").insert("b".into(), entry);
+    assert!(refusal_audited(&f.state.web, "b"));
+    assert!(crate::commands::web::closed(&f.state, "b"));
+    let events = crate::state::testing::audit_events(&f.state);
+    assert_eq!(events.iter().filter(|e| *e == "web_navigation_blocked_suppressed").count(), 1);
 }

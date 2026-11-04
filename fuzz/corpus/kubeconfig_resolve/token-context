@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Config
+current-context: c
+clusters:
+- name: k
+  cluster:
+    server: https://k.example.test:6443
+contexts:
+- name: c
+  context:
+    cluster: k
+    user: u
+    namespace: default
+users:
+- name: u
+  user:
+    token: test-token

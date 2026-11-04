@@ -59,6 +59,17 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "session_frame_ack",
     // ADR-0013: polled by the web-session list (R5).
     "web_list",
+    // ADR-0014 K4: polled by the cluster browser.
+    "kube_access",
+    "kube_namespaces",
+    "kube_pods",
+    // ADR-0017 (A3 S2): the sync badge polls it.
+    "sync_status",
+    // ADR-0015: sync status and VM power badges (cached / last refresh).
+    "vsphere_status",
+    "vsphere_vm_power",
+    // ADR-0016 E2: polled while the OIDC window is open.
+    "secret_source_oidc_status",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

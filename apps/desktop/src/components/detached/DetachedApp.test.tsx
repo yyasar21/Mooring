@@ -6,7 +6,7 @@ import { setIpc, type Ipc } from "../../lib/ipc";
 import { commandName, DETACHED_COMMANDS } from "../../lib/ipc.mock.detach";
 import { MockTransport } from "../../lib/ipc.mock";
 import { resetBootRoute, detachedSessionId } from "../../lib/route";
-import { RUST_DETACHED_COMMANDS, missing } from "../../test/rustContract";
+import { RUST_DETACHED_COMMANDS } from "../../test/rustContract";
 import { fakeTerms } from "../../test/fakeTerm";
 import { settle } from "../../test/harness";
 import { Root } from "../../Root";
@@ -58,12 +58,11 @@ describe("detached window route", () => {
     }
   });
 
-  it.skipIf(RUST_DETACHED_COMMANDS === null)(
-    RUST_DETACHED_COMMANDS === null ? `the mock's detached list is Rust's (${missing("ipc-manifest.json")})` : "the mock's detached list is Rust's (src-tauri/ipc-manifest.json)",
-    () => {
-      expect(new Set(DETACHED_COMMANDS)).toEqual(RUST_DETACHED_COMMANDS);
-    },
-  );
+  it("the mock's detached list is Rust's (src-tauri/ipc-manifest.json)", () => {
+    // N-36: the manifest is committed; a missing file is a broken checkout, not a reason to skip.
+    expect(RUST_DETACHED_COMMANDS, "src-tauri/ipc-manifest.json is committed; it must resolve from this test").not.toBeNull();
+    expect(new Set(DETACHED_COMMANDS)).toEqual(RUST_DETACHED_COMMANDS);
+  });
 
   it("SSH: attaches, streams output, sends input and its size, brings back — only granted commands", async () => {
     const m = new MockTransport();

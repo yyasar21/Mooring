@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { MooringLine, ProtocolPip } from "@mooring/ui";
 import { canDetach, lineState, useSessions, type Tab } from "../stores/sessions";
+import { kubeTabLabel } from "../stores/kube";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";
 
@@ -74,7 +75,8 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
   const c = useTree((s) => s.connections.find((x) => x.id === tab.connectionId));
   const { activate, close, move, detach } = useSessions.getState();
   const detachable = canDetach(tab.protocol) && tab.state === "connected" && tab.sessionId !== null;
-  const name = c?.name ?? "unknown";
+  const sub = kubeTabLabel(tab);
+  const name = `${c?.name ?? "unknown"}${sub ? ` · ${sub}` : ""}`;
   const stateLabel = tab.prompt ? "waiting for you" : tab.state;
 
   return (

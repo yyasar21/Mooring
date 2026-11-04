@@ -186,7 +186,7 @@ impl ServerCertVerifier for TofuVerifier {
             CertVerdict::AcceptPinned { .. } | CertVerdict::AcceptCa => {
                 Ok(ServerCertVerified::assertion())
             }
-            CertVerdict::Mismatch { .. } | CertVerdict::Prompt => Err(
+            CertVerdict::Mismatch { .. } | CertVerdict::Prompt | CertVerdict::Conflict => Err(
                 rustls::Error::InvalidCertificate(CertificateError::ApplicationVerificationFailure),
             ),
         }

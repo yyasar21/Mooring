@@ -292,7 +292,11 @@ impl Store {
 
     /// Delete a credential and its secrets. Folders / connections referencing it as primary
     /// fall back to inheritance (`ON DELETE SET NULL`); secondary roles are removed.
+    /// Refused with `InUse` while a secret source logs in with it.
     pub fn delete_credential(&self, id: CredentialId) -> Result<()> {
+        if !self.sources_using_credential(id)?.is_empty() {
+            return Err(StoreError::InUse { kind: "credential", id: id.to_string() });
+        }
         let n = self.conn.execute("DELETE FROM credential WHERE id = ?1", [id.to_string()])?;
         if n == 0 {
             return Err(not_found("credential", &id));

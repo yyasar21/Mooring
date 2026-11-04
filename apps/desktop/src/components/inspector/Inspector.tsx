@@ -1,10 +1,15 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { HudLabel, ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import { folderPath, useTree } from "../../stores/tree";
 import { lineState, useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
+import { ImportWizard } from "../vsphere/ImportWizard";
+import { SyncPanel } from "../vsphere/SyncPanel";
+import { VmPanel } from "../vsphere/VmPanel";
+import { SyncBadge } from "../vsphere/SyncBadge";
+import { isSyncedVm, isVcenter, READONLY_REASON, sourceName, syncedRootOf } from "../vsphere/vsphere";
 
 /** Right pane: properties of the selected node. Credentials show as a reference, never a value. */
 export function Inspector() {
@@ -16,7 +21,7 @@ export function Inspector() {
     <aside aria-label="Details" className="deck-pane flex h-full flex-col overflow-y-auto">
       <div className="deck-head">
         <span className="m-micro flex-1">Details</span>
-        {selected && <span className="m-micro tnum">{selected.kind === "folder" ? "Folder" : "Host"}</span>}
+        {selected && <span className="m-micro tnum">{selected.kind === "folder" ? "Folder" : connection && isSyncedVm(connection) ? "VM" : "Host"}</span>}
       </div>
       {connection ? (
         <ConnectionDetails c={connection} />
@@ -31,11 +36,16 @@ export function Inspector() {
 
 function ConnectionDetails({ c }: { c: ConnectionSummary }) {
   const folders = useTree((s) => s.folders);
+  const connections = useTree((s) => s.connections);
   const tab = useSessions((s) => s.tabs.find((t) => t.connectionId === c.id));
   const openDialog = useUi((s) => s.openDialog);
+  const [wizard, setWizard] = useState(false);
   const path = folderPath(folders, c.folderId);
   const inherited = c.credentialId === null && c.effectiveCredentialId !== null;
   const source = inherited ? inheritedFrom(folders, c.folderId) : null;
+  const vcenter = isVcenter(c);
+  const synced = vcenter && syncedRootOf(folders, c.id) !== undefined;
+  const vm = isSyncedVm(c);
 
   return (
     <div>
@@ -43,6 +53,7 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
         <div className="flex items-center gap-2">
           <ProtocolPip protocol={c.protocol} live={tab?.state === "connected"} />
           <p className="m-micro min-w-0 flex-1 truncate">{path.join(" / ") || "Top level"}</p>
+          {vm && <SyncBadge source={sourceName(connections, c.syncSource)} missing={c.syncState === "missing"} />}
         </div>
         <h2 className="readout-title mt-2 truncate">{c.name}</h2>
         <p className="readout-host mt-1 truncate select-text">
@@ -50,14 +61,28 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
           {c.port !== null && <span className="text-text-faint">:{c.port}</span>}
         </p>
       </header>
-      <div className="flex gap-2 px-3.5 pt-3">
-        <button type="button" className="btn btn-primary" onClick={() => void useSessions.getState().open(c.id)}>
-          {tab ? "Go to session" : "Connect"}
+      <div className="flex flex-wrap gap-2 px-3.5 pt-3">
+        {!vm && !vcenter && (
+          <button type="button" className="btn btn-primary" onClick={() => void useSessions.getState().open(c.id)}>
+            {tab ? "Go to session" : "Connect"}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn"
+          title={vm ? "Credential, tags, overrides and options are yours; name, host and folder come from vCenter" : undefined}
+          onClick={() => { openDialog({ kind: "connection", id: c.id, folderId: c.folderId }); }}
+        >
+          {vm ? "Edit overlays" : "Edit"}
         </button>
-        <button type="button" className="btn" onClick={() => { openDialog({ kind: "connection", id: c.id, folderId: c.folderId }); }}>
-          Edit
-        </button>
+        {vcenter && !synced && (
+          <button type="button" className="btn" onClick={() => { setWizard(true); }}>Import inventory…</button>
+        )}
       </div>
+      {wizard && <ImportWizard connection={c} onClose={() => { setWizard(false); }} />}
+
+      {vm && <VmPanel vm={c} />}
+      {synced && <SyncPanel vcenter={c} />}
 
       <section className="readout-section">
         <HudLabel>Connection</HudLabel>
@@ -66,6 +91,7 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
           <Prop k="Port" mono>{c.port ?? "default"}</Prop>
           <Prop k="Protocol">{c.protocol.toUpperCase()}</Prop>
           <Prop k="Tags">{c.tags.length ? c.tags.join(", ") : <span className="text-text-faint">none</span>}</Prop>
+          {vm && <Prop k="Synced from">{sourceName(connections, c.syncSource)}</Prop>}
           {tab && (
             <Prop k="Session">
               <span className="inline-flex items-center gap-2" style={{ color: tab.prompt ? "var(--hot)" : undefined }}>
@@ -90,30 +116,59 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
 
 function FolderDetails({ f }: { f: Folder }) {
   const folders = useTree((s) => s.folders);
+  const connections = useTree((s) => s.connections);
   const count = useTree((s) => s.connections.filter((c) => c.folderId === f.id).length);
   const openDialog = useUi((s) => s.openDialog);
   const isRoot = f.parentId === null;
+  const synced = !!f.syncSource;
+  const vcenter = synced ? connections.find((c) => c.id === f.syncSource) : undefined;
+  const missing = synced ? connections.filter((c) => c.syncSource === f.syncSource && c.syncState === "missing").length : 0;
 
   return (
     <div>
       <header className="m-hud mx-3.5 mt-3.5 px-3 pb-3 pt-2.5">
-        <p className="m-micro truncate">{folderPath(folders, f.parentId).join(" / ") || "Top level"}</p>
+        <div className="flex items-center gap-2">
+          <p className="m-micro min-w-0 flex-1 truncate">{folderPath(folders, f.parentId).join(" / ") || "Top level"}</p>
+          {synced && <SyncBadge source={vcenter?.name ?? "vCenter"} />}
+        </div>
         <h2 className="readout-title mt-2 truncate">{f.name}</h2>
       </header>
       <div className="flex flex-wrap gap-2 px-3.5 pt-3">
-        <button type="button" className="btn" onClick={() => { openDialog({ kind: "connection", folderId: f.id }); }}>
+        <button type="button" className="btn" disabled={synced} title={synced ? READONLY_REASON : undefined} onClick={() => { openDialog({ kind: "connection", folderId: f.id }); }}>
           New connection
         </button>
         {!isRoot && (
-          <button type="button" className="btn" onClick={() => { openDialog({ kind: "folder", id: f.id, parentId: f.parentId ?? "" }); }}>
-            Edit
+          <button
+            type="button"
+            className="btn"
+            title={synced ? "Only the default credential can be changed here" : undefined}
+            onClick={() => { openDialog({ kind: "folder", id: f.id, parentId: f.parentId ?? "" }); }}
+          >
+            {synced ? "Default credential…" : "Edit"}
+          </button>
+        )}
+        {vcenter && !f.externalId && (
+          <button type="button" className="btn" onClick={() => { useTree.getState().select({ kind: "connection", id: vcenter.id }); }}>
+            Go to vCenter
           </button>
         )}
       </div>
+      {synced && (
+        <section className="readout-section">
+          <HudLabel>Synced from vCenter</HudLabel>
+          <dl className="prop-grid">
+            <Prop k="Source">{vcenter?.name ?? "vCenter"}</Prop>
+            {f.externalId && <Prop k="vCenter id" mono>{f.externalId}</Prop>}
+            {!f.externalId && <Prop k="Missing VMs"><span className={missing ? "text-danger tnum" : "text-text-faint tnum"}>{missing}</span></Prop>}
+          </dl>
+          <p className="field-hint mt-2">{READONLY_REASON} The default credential below is yours and survives refreshes.</p>
+        </section>
+      )}
+      {vcenter && !f.externalId && <SyncPanel vcenter={vcenter} />}
       <section className="readout-section">
         <HudLabel>Folder</HudLabel>
         <dl className="prop-grid">
-          <Prop k="Hosts"><span className="tnum">{count}</span></Prop>
+          <Prop k={synced ? "VMs" : "Hosts"}><span className="tnum">{count}</span></Prop>
         </dl>
       </section>
       <section className="readout-section">

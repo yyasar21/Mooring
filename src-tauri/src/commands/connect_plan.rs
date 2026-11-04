@@ -134,8 +134,14 @@ fn become_of(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<Become> {
     })
 }
 
-/// Resolve everything for `session_open` (and each graphical reconnect).
-pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<Plan> {
+/// Resolve everything for `session_open` (and each graphical reconnect). An `external_ref`
+/// primary or `become` credential is resolved first, outside every lock (ADR-0016 §3).
+pub(crate) async fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<Plan> {
+    let ext = external::prefetch(ready, connection_id).await?;
+    plan_with(ready, connection_id, size, &ext)
+}
+
+fn plan_with(ready: &Ready, connection_id: &str, size: Size, ext: &external::External) -> IpcResult<Plan> {
     let id = dto::connection_id("connectionId", connection_id)?;
     ready.with_ready(|vault, store| {
         let c = store.get_connection(id)?;
@@ -157,7 +163,9 @@ pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<
             None => (None, ConnectSecret::None),
             Some(r) => {
                 used.push(r.id.to_string());
-                if protocol == Protocol::Ssh {
+                if let CredentialFields::ExternalRef(_) = &r.fields {
+                    external::secret(ext.primary(r.id)?, protocol)?
+                } else if protocol == Protocol::Ssh {
                     ssh_secret(store, vault, &r)?
                 } else {
                     graphical_secret(store, vault, &r, protocol)?
@@ -167,7 +175,11 @@ pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<
         let r#become = match store.resolve_credential(id, Role::Become)? {
             Some(r) if protocol == Protocol::Ssh => {
                 used.push(r.id.to_string());
-                Some(become_of(store, vault, &r)?)
+                if let CredentialFields::ExternalRef(_) = &r.fields {
+                    Some(external::become_of(ext.r#become(r.id)?)?)
+                } else {
+                    Some(become_of(store, vault, &r)?)
+                }
             }
             _ => None,
         };
@@ -175,3 +187,104 @@ pub(crate) fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<
         Ok(Plan { params, used, protocol, options })
     })
 }
+
+// --- ADR-0014 K4: Kubernetes ------------------------------------------------------------
+
+/// What `kube_open` resolves before any network I/O.
+pub(crate) struct KubePlan {
+    /// Canonical connection id.
+    pub(crate) connection_id: String,
+    /// Server, trust anchor and user of the context (token / client key zeroized on drop).
+    pub(crate) resolved: mooring_core::credential::kubeconfig::Resolved,
+    /// The connection's validated options.
+    pub(crate) options: mooring_core::options::KubeConnOptions,
+    /// Credentials used (audit).
+    pub(crate) used: Vec<String>,
+    /// Unverified JWT `exp` of a bearer token (display only).
+    pub(crate) token_expires_at: Option<time::OffsetDateTime>,
+}
+
+impl std::fmt::Debug for KubePlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KubePlan").field("connection_id", &self.connection_id).finish_non_exhaustive()
+    }
+}
+
+fn kube_resolve_error(e: &mooring_core::credential::kubeconfig::KubeResolveError) -> IpcError {
+    let code = if e.code() == "kube.unsupported_auth" {
+        "kube.unsupported_auth"
+    } else {
+        "credential.kubeconfig_rejected"
+    };
+    IpcError::new(code, e.to_string())
+}
+
+/// Resolve a Kubernetes connection: options, primary credential (`kubeconfig` or
+/// `kube_token`), `check_credential(kind)` (ADR-0014 §3), the secret, and the JWT `exp` peek
+/// (an already expired token fails with `kube.auth_failed`).
+pub(crate) fn kube(ready: &Ready, connection_id: &str) -> IpcResult<KubePlan> {
+    use mooring_core::credential::kubeconfig::{self, CaSource, KubeAuth};
+    use secrecy::ExposeSecret as _;
+    let id = dto::connection_id("connectionId", connection_id)?;
+    ready.with_ready(|vault, store| {
+        let c = store.get_connection(id)?;
+        if c.protocol != Protocol::Kubernetes {
+            return Err(IpcError::invalid("connectionId", "not a Kubernetes connection"));
+        }
+        let ProtocolOptions::Kube(options) = store.connection_options(id)? else {
+            return Err(IpcError::invalid("options", "do not match the protocol"));
+        };
+        let Some(r) = store.resolve_credential(id, Role::Primary)? else {
+            return Err(IpcError::new(
+                "kube.unsupported_auth",
+                "a Kubernetes connection needs a kubeconfig or kube_token credential",
+            ));
+        };
+        options.check_credential(r.fields.kind())?;
+        let mut resolved = match &r.fields {
+            CredentialFields::Kubeconfig(f) => {
+                let yaml = open(store, vault, r.id, SecretName::KubeconfigYaml)?;
+                let context = options.context.as_deref().or(f.context.as_deref());
+                kubeconfig::resolve(yaml.expose_secret().as_bytes(), context)
+                    .map_err(|e| kube_resolve_error(&e))?
+            }
+            CredentialFields::KubeToken(_) => {
+                let token = open(store, vault, r.id, SecretName::Token)?;
+                let t = token.expose_secret();
+                if t.is_empty() || t.len() > kubeconfig::MAX_TOKEN || !t.bytes().all(|b| b.is_ascii_graphic()) {
+                    return Err(IpcError::new("kube.unsupported_auth", "the stored token is not a bearer token"));
+                }
+                let server = options.server_url().ok_or_else(|| IpcError::invalid("server", "required"))?;
+                let ca = options.ca_pem.clone().ok_or_else(|| IpcError::invalid("caPem", "required"))?;
+                kubeconfig::Resolved {
+                    context_name: String::new(),
+                    server,
+                    ca: CaSource::Pem(ca.into_bytes()),
+                    tls_server_name: None,
+                    auth: KubeAuth::Token(token),
+                    namespace: None,
+                    insecure_skip: false,
+                }
+            }
+            _ => return Err(unsupported("This credential", Protocol::Kubernetes)),
+        };
+        if let Some(name) = &options.tls_server_name {
+            resolved.tls_server_name = Some(name.clone());
+        }
+        let token_expires_at = match &resolved.auth {
+            KubeAuth::Token(t) => kubeconfig::peek_exp(t.expose_secret()),
+            KubeAuth::ClientCert { .. } => None,
+        };
+        if token_expires_at.is_some_and(|t| t <= time::OffsetDateTime::now_utc()) {
+            return Err(IpcError::new("kube.auth_failed", "the Kubernetes token has expired"));
+        }
+        let used = vec![r.id.to_string()];
+        Ok(KubePlan { connection_id: id.to_string(), resolved, options, used, token_expires_at })
+    })
+}
+// --- end ADR-0014 K4 ----------------------------------------------------------------------
+
+// --- ADR-0016 E2: external_ref resolution ----------------------------------------------------
+#[path = "connect_plan_external.rs"]
+mod external;
+pub(crate) use external::source_error;

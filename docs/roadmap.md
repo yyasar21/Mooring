@@ -46,7 +46,7 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
 - Security focus: parser hardening and fuzzing, WebView isolation, clipboard leakage,
   certificate handling.
 
-## A3 — Infrastructure integrations 🗓
+## A3 — Infrastructure integrations ✅ (exit 2026-11-05; ADR-0014/0015/0016/0017, review 6)
 
 - **vSphere**: import datacenters, clusters, hosts and VMs into a synced folder; VM console;
   power state; scheduled refresh.
@@ -58,8 +58,9 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
   post-A4 "unlock factors" ADR together with the OS-keyring biometric ACL
   ([ADR-0017](adr/0017-vault-sync-and-signin.md)).
 - **Vault sync**: client-side encrypted blob to S3-compatible storage with conflict detection.
-- **Network tools** in the inspector: TCP port check now; ping/traceroute/WireGuard via OS tools in A4 (own ADR).
-- Security focus: token lifetimes, LDAP injection, sync integrity (AEAD with version counters).
+- **Network tools** (TCP port check, ping/traceroute/WireGuard via OS tools) move to A4 (own ADR).
+- Security focus: token lifetimes, read-only Kubernetes guard, native-dialog defaults, sync integrity
+  (AEAD with version counters, fork/rollback hard stops) — review 6 APPROVE WITH NITS.
 
 ## A4 — Release v0.1.0 🗓
 

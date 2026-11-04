@@ -1,8 +1,9 @@
-// Matching `known_*_certs` host fields against the connections the user already has.
-// Rust stores `|2|<salt b64>|<HMAC-SHA256(salt, "host:port") b64>` (mooring_core::known_certs) so
-// the file never names a host. The UI knows the hosts of its own connections anyway; recomputing
-// the HMAC locally (WebCrypto) only labels a pin with the connection it belongs to. Nothing is
-// sent anywhere, and an unmatched pin stays anonymous.
+// The mock's side of the `known_*_certs` host field. Rust stores
+// `|2|<salt b64>|<HMAC-SHA256(salt, "host:port") b64>` (mooring_core::known_certs) so the file
+// never names a host, and `known_certs_list` fills `host`/`port` for the pins that match one of
+// the user's connections (`KnownCerts::list_named`). The UI reads those fields and never
+// recomputes an HMAC (review 5, N-33): `hashHost`/`hostMatches` exist only so `MockTransport`
+// can store and name pins the way Rust does. `hostKey`/`plainHost` are plain string helpers.
 
 /** Rust `host_key`: lowercase, IPv6 in brackets. */
 export function hostKey(host: string, port: number): string {

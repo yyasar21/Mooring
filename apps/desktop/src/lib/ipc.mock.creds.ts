@@ -14,8 +14,11 @@ import { CREDENTIAL_KINDS } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { KIND_SCHEMAS } from "./ipc.kinds";
 import { OTP_SEED_SCHEMA, isAccountError, parseAccount, previewKubeContexts, validateField } from "./credentials";
+import { checkReference } from "./validate.secrets";
 
 const OTP_FIELD = "otp";
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\s\u0000-\u001f\u007f-\u009f]/u;
 const OTP_SEED = "otp_seed";
 
 function invalid(message: string): IpcError {
@@ -62,6 +65,18 @@ function checkFields(schema: KindSchema, fields: CredentialFields, contexts: str
       out[k] = { ...v };
       continue;
     }
+    // ADR-0016 §2 (E1): `external_ref.version` is a number ≥ 1 and `field_map` an object.
+    if (schema.kind === "external_ref" && k === "field_map") {
+      const p = fieldMapProblem(v);
+      if (p) throw invalid(p);
+      out[k] = { ...(v as Record<string, string>) };
+      continue;
+    }
+    if (schema.kind === "external_ref" && k === "version") {
+      if (typeof v !== "number" || !Number.isInteger(v) || v < 1) throw invalid("version must be a whole number from 1");
+      out[k] = v;
+      continue;
+    }
     const f = plain.get(k);
     if (!f) throw invalid(`unknown field ${k} for ${schema.kind}`);
     if (typeof v !== "string") throw invalid(`${k} must be text`);
@@ -75,6 +90,12 @@ function checkFields(schema: KindSchema, fields: CredentialFields, contexts: str
   for (const f of plain.values()) {
     if (f.required && !(f.name in out)) throw invalid(`${f.label} is required`);
   }
+  if (schema.kind === "external_ref") {
+    if (out.provider === "vault" && typeof out.source !== "string") throw invalid("source is required for Vault");
+    const ref = typeof out.reference === "string" ? out.reference : "";
+    const r = checkReference(ref);
+    if (out.provider === "vault" && r) throw invalid(`reference: ${r}`);
+  }
   if (schema.kind === "domain_user") {
     const text = (v: unknown) => (typeof v === "string" ? v : "");
     const [user, domain] = [text(out.user), text(out.domain)];
@@ -82,6 +103,17 @@ function checkFields(schema: KindSchema, fields: CredentialFields, contexts: str
     if (isAccountError(a)) throw invalid(a.error);
   }
   return out;
+}
+
+/** `field_map`: ≤ 32 entries of `name → visible key ≤ 128 B` (names are checked against the target in Rust). */
+function fieldMapProblem(v: unknown): string | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return "field_map must be an object";
+  const entries = Object.entries(v as Record<string, unknown>);
+  if (entries.length > 32) return "field_map has more than 32 entries";
+  for (const [name, key] of entries) {
+    if (typeof key !== "string" || key === "" || new TextEncoder().encode(key).length > 128 || CONTROL.test(key)) return `field_map.${name} must be visible text up to 128 bytes`;
+  }
+  return null;
 }
 
 function contextProblem(v: string, contexts: string[]): string | null {

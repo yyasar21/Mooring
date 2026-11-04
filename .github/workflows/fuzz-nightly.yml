@@ -51,6 +51,30 @@ jobs:
           - rfb_handshake
           - vencrypt_negotiation
           - rdp_reassembly
+          # A3 (ADR-0014..0017, Q2): kubeconfig resolve, kube frames / logs / guard, vCenter
+          # bodies, Vault bodies + OIDC URLs, MSY1 blob + snapshot, mooring-http parsers.
+          - kubeconfig_resolve
+          - kube_exec_frames
+          - kube_log_sanitize
+          - kube_portforward_frames
+          - kube_guard_path
+          - vsphere_inventory_json
+          - vsphere_session_token
+          - vsphere_ticket_url
+          - vault_kv_response
+          - vault_login_response
+          - external_ref_parse
+          - oidc_callback_url
+          - sync_blob_parse
+          - sync_snapshot_json
+          - http_certificate_info
+          - http_response_headers
+          - http_json_body
+          - jwt_exp_peek
+          - kube_pod_list_json
+          # Still a gated no-op stub (docs/qa/fuzzing.md "A3 targets"): the product parses no S3
+          # XML; "Stub notice" flags it.
+          - s3_error_xml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -62,6 +86,13 @@ jobs:
           key: ${{ matrix.target }}
       - name: Install cargo-fuzz ${{ env.CARGO_FUZZ_VERSION }}
         run: cargo install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      - name: Stub notice
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if grep -q 'PENDING' "fuzz/fuzz_targets/$TARGET.rs"; then
+            echo "::warning::$TARGET is a no-op stub until its feature gate is enabled (docs/qa/fuzzing.md)"
+          fi
       - name: Build
         run: cargo +nightly fuzz build "${{ matrix.target }}"
       # Seeds + past crashes are the starting corpus; new corpus entries stay on the runner.
@@ -74,7 +105,11 @@ jobs:
           case "$SECONDS_PER_TARGET" in ''|*[!0-9]*) echo "::error::seconds must be a number"; exit 2;; esac
           # Review 5 L-28: RDP/VNC parsers must never make one 1 GiB allocation (B-5/M-14 class).
           MALLOC=""
-          case "$TARGET" in rdp_*|rfb_*|vnc_*|vencrypt_*) MALLOC="-malloc_limit_mb=1024";; esac
+          # A3: API body / frame / blob parsers carry the same allocation-before-check rule.
+          case "$TARGET" in
+            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*)
+              MALLOC="-malloc_limit_mb=1024";;
+          esac
           cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "fuzz/regressions/$TARGET" -- \
             -max_total_time="$SECONDS_PER_TARGET" -timeout=60 -rss_limit_mb=3072 $MALLOC -print_final_stats=1
       - name: Upload crash reproducers

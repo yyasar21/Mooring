@@ -19,10 +19,12 @@ export const KIND_CODE: Record<CredentialKind, string> = {
   prompt: "ASK",
   external_ref: "REF",
   sudo_become: "SUDO",
+  vault_approle: "ROLE",
+  s3_access_key: "S3",
 };
 
 /** Picker sections, in order. The served `group` maps onto these (Windows + vSphere are accounts). */
-export const SECTIONS = ["Accounts", "SSH", "Certificates & tokens", "Kubernetes", "VNC", "Other"] as const;
+export const SECTIONS = ["Accounts", "SSH", "Certificates & tokens", "Kubernetes", "VNC", "Other", "Secret sources & sync"] as const;
 export type Section = (typeof SECTIONS)[number];
 
 const SECTION_OF: Record<KindGroup, Section> = {
@@ -33,6 +35,8 @@ const SECTION_OF: Record<KindGroup, Section> = {
   Kubernetes: "Kubernetes",
   VNC: "VNC",
   Other: "Other",
+  "Secret sources": "Secret sources & sync",
+  Sync: "Secret sources & sync",
 };
 
 export function sectionOf(k: KindSchema): Section {
@@ -72,14 +76,16 @@ export const KIND_BLURB: Record<CredentialKind, string> = {
   vnc_user_password: "Apple Remote Desktop or VeNCrypt Plain login.",
   prompt: "Nothing is stored. Mooring asks for the account when you connect.",
   external_ref: "Points at a secret in Vault, 1Password or Bitwarden.",
+  vault_approle: "The AppRole a secret source signs in to Vault with. Both halves are sealed.",
+  s3_access_key: "The access key vault sync uses for the S3 bucket. Never usable for a connection.",
 };
 
 export const PROVIDERS: { value: string; label: string; placeholder: string; hint: string }[] = [
   {
     value: "vault",
     label: "HashiCorp Vault",
-    placeholder: "secret/data/prod/db#password",
-    hint: "Path and key in a KV engine. Mooring signs in to Vault with AppRole.",
+    placeholder: "kv/prod/db",
+    hint: "<mount>/<path> of a KV v2 secret. Mooring signs in through the chosen secret source.",
   },
   {
     value: "onepassword",

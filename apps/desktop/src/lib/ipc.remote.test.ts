@@ -82,6 +82,16 @@ describe("MockTransport · RDP/VNC", () => {
     expect(await m.knownCertsRemove({ protocol: "rdp", host: "dc01.example.test", port: 3389 })).toEqual({ removed: 0 });
   });
 
+  it("known_certs_list names a pin only when it matches one of the user's connections (list_named, N-33)", async () => {
+    const m = new MockTransport();
+    const t = (host: string, port: number) => ({ connectionId: "x", protocol: "rdp" as const, name: host, host, port, tags: [], options: undefined });
+    await m.pin(t("DC01.example.test", 3389)); // seed c-dc, matched case-insensitively
+    await m.pin(t("203.0.113.9", 3389)); // no such connection
+    const rows = await m.knownCertsList({ protocol: "rdp" });
+    expect(rows.map((r) => [r.hostHash.startsWith("|2|"), r.host, r.port])).toEqual([[true, "dc01.example.test", 3389], [true, undefined, undefined]]);
+    expect(await m.knownCertsList({ protocol: "vnc" })).toEqual([]);
+  });
+
   it("requires onFrame for rdp/vnc and refuses it for ssh", async () => {
     const m = new MockTransport();
     await expect(m.sessionOpen({ connectionId: "c-kiosk", size: { width: 800, height: 600 }, onEvent: () => undefined })).rejects.toMatchObject({ code: "input.invalid" });

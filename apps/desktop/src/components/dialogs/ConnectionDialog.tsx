@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { HudLabel } from "@mooring/ui";
-import type { Protocol } from "../../lib/ipc";
+import type { KubeConnOptions, Protocol } from "../../lib/ipc";
+import { kubeCredentialFit } from "../../lib/validate.kube";
 import { credentialValidFor, supportsOverride } from "../../lib/credentials";
 import { folderPath, useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
@@ -11,6 +12,7 @@ import { DialogFooter, Modal } from "./Modal";
 import { ProtocolOptionsSection, useOptionsDraft } from "./options/ProtocolOptionsSection";
 import { useConnOptions } from "../../stores/connOptions";
 import { describeError } from "../../stores/errors";
+import { READONLY_REASON } from "../vsphere/vsphere";
 
 const PROTOCOLS: { value: Protocol; label: string; port: number | null }[] = [
   { value: "ssh", label: "SSH", port: 22 },
@@ -54,6 +56,8 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const options = useOptionsDraft(id, existing?.protocol, protocol);
+  // ADR-0015: a synced VM row keeps name, host, port, protocol and folder from vCenter (`tree.synced_readonly`).
+  const synced = !!existing?.syncSource;
 
   const portNum = port.trim() === "" ? null : Number(port);
   const portBad = portNum !== null && (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535);
@@ -93,7 +97,10 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const canUser = effective ? supportsOverride(effective.kind, "username") : true;
   const canDomain = effective ? supportsOverride(effective.kind, "domain") : true;
   const dropped = (cred && !primary) || (gateway && protocol === "rdp" && !gw) || (become && protocol === "ssh" && !bc);
-  const valid = name.trim() !== "" && host.trim() !== "" && !portBad && options.valid && !options.loading;
+  // ADR-0014 §3: server/CA are required with a token and refused with a kubeconfig.
+  const fit = protocol === "kubernetes" ? kubeCredentialFit(options.value as KubeConnOptions, effective?.kind) : {};
+  const fitOk = Object.keys(fit).length === 0;
+  const valid = name.trim() !== "" && host.trim() !== "" && !portBad && options.valid && fitOk && !options.loading;
 
   async function submit() {
     setBusy(true);
@@ -146,7 +153,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   }
 
   return (
-    <Modal title={existing ? "Edit connection" : "New connection"} onClose={onClose} width={600}>
+    <Modal title={synced ? "Edit VM overlays" : existing ? "Edit connection" : "New connection"} onClose={onClose} width={600}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -154,13 +161,18 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
         }}
       >
         <div className="grid grid-cols-[1fr_120px] gap-3 px-4 py-4">
+          {synced && (
+            <p className="col-span-2 field-hint" role="note">
+              {READONLY_REASON} Credential, overrides, tags and options are yours and survive refreshes.
+            </p>
+          )}
           <div className="col-span-2">
             <label className="field-label" htmlFor="conn-name">Name</label>
-            <input id="conn-name" className="field" value={name} maxLength={200} onChange={(e) => { setName(e.target.value); }} />
+            <input id="conn-name" className="field" value={name} maxLength={200} disabled={synced} onChange={(e) => { setName(e.target.value); }} />
           </div>
           <div>
             <label className="field-label" htmlFor="conn-host">Host</label>
-            <input id="conn-host" className="field mono" spellCheck={false} placeholder="server.example.test" value={host} onChange={(e) => { setHost(e.target.value); }} />
+            <input id="conn-host" className="field mono" spellCheck={false} placeholder="server.example.test" value={host} disabled={synced} onChange={(e) => { setHost(e.target.value); }} />
           </div>
           <div>
             <label className="field-label" htmlFor="conn-port">Port</label>
@@ -170,19 +182,20 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
               inputMode="numeric"
               placeholder={defaultPort?.toString() ?? "none"}
               aria-invalid={portBad}
+              disabled={synced}
               value={port}
               onChange={(e) => { setPort(e.target.value); }}
             />
           </div>
           <div>
             <label className="field-label" htmlFor="conn-proto">Protocol</label>
-            <select id="conn-proto" className="field" value={protocol} onChange={(e) => { setProtocol(e.target.value as Protocol); }}>
+            <select id="conn-proto" className="field" value={protocol} disabled={synced} onChange={(e) => { setProtocol(e.target.value as Protocol); }}>
               {PROTOCOLS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </div>
           <div>
             <label className="field-label" htmlFor="conn-folder">Folder</label>
-            <select id="conn-folder" className="field" value={folder} onChange={(e) => { setFolder(e.target.value); }}>
+            <select id="conn-folder" className="field" value={folder} disabled={synced} onChange={(e) => { setFolder(e.target.value); }}>
               {folders.map((f) => (
                 <option key={f.id} value={f.id}>{folderPath(folders, f.id).join(" / ") || f.name}</option>
               ))}
@@ -260,17 +273,18 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
           {dropped && <p className="field-hint">A previous choice does not fit {protocol.toUpperCase()} and was cleared.</p>}
         </div>
 
-        <ProtocolOptionsSection draft={options} />
+        {/* ADR-0015: refresh, power and VMRC opt-ins belong to the vCenter connection, not to a VM row. */}
+        {!synced && <ProtocolOptionsSection draft={options} credential={effective} extraErrors={fit} />}
 
-        <DialogFooter error={portBad ? "Port must be 1 to 65535." : !options.valid ? "Fix the highlighted options." : error}>
-          {existing && (
+        <DialogFooter error={portBad ? "Port must be 1 to 65535." : !options.valid || !fitOk ? "Fix the highlighted options." : error}>
+          {existing && !synced && (
             <button type="button" className="btn btn-ghost btn-danger" disabled={busy} onClick={() => void remove()}>
               Delete
             </button>
           )}
           <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn btn-primary" disabled={busy || !valid}>
-            {existing ? "Save connection" : "Create connection"}
+            {synced ? "Save overlays" : existing ? "Save connection" : "Create connection"}
           </button>
         </DialogFooter>
       </form>

@@ -1,0 +1,37 @@
+[package]
+name = "mooring-sync"
+description = "Mooring vault sync: logical snapshot, MSY1 AEAD blob, S3 conditional-write backend, three-way merge (ADR-0017)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+mooring-vault = { path = "../mooring-vault", version = "0.1.0-rc.1" }
+mooring-store = { path = "../mooring-store", version = "0.1.0-rc.1" }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.1" }
+rusty-s3 = { version = "0.11", default-features = false, features = ["rustcrypto"] } # ADR-0017 §4: sans-IO SigV4 signing (BSD-2); transport stays mooring-http
+sha2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+secrecy = { workspace = true }
+bytes = "1"
+async-trait = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+mooring-testsrv = { path = "../mooring-testsrv" } # QA mock API servers (A3 Q1/Q2), dev-only

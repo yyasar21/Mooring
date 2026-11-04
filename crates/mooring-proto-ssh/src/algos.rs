@@ -110,6 +110,15 @@ mod tests {
         }
     }
 
+    /// Review 5 N-35: compression is `none` only, so russh's zlib path (the `flate2` feature,
+    /// now dropped from the workspace manifest) can never be negotiated.
+    #[test]
+    fn compression_is_none_only() {
+        let p = preferred();
+        assert_eq!(p.compression.as_ref(), &[compression::NONE]);
+        assert_eq!(client_config(None, 3).preferred.compression.as_ref(), &[compression::NONE]);
+    }
+
     #[test]
     fn adr_algorithms_are_all_offered() {
         let all = names();

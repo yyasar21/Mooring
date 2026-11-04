@@ -105,6 +105,43 @@ async fn mismatch_is_a_hard_stop_and_changes_nothing() {
     assert!(!events.iter().any(|e| matches!(e, TrustEvent::AuthSucceeded { .. })));
 }
 
+/// Review 6b L-35: two distinct ed25519 keys for the host (what a sync merge leaves behind)
+/// fail closed with `trust_conflict`, even though one of them is the server's; removing the
+/// stray entry restores the connection.
+#[tokio::test]
+async fn conflicting_host_keys_fail_closed_until_one_is_removed() {
+    let server = start(ServerSpec::new(&[MethodKind::Password])).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let kh = dir.path().join("known_hosts");
+    trust(&kh, server.port, &server.host_public);
+    let stray = ed25519(78).public_key().clone();
+    KnownHosts::add_and_save(&kh, "127.0.0.1", server.port, &stray).expect("second pin");
+    let before = std::fs::read(&kh).expect("read");
+
+    let mut s = connect(server.port, password(), &kh).await;
+    match next(&mut s).await {
+        SessionEvent::Closed { reason, code } => {
+            assert_eq!(code, mooring_core::CloseCode::TrustConflict);
+            assert!(
+                reason.starts_with("CONFLICTING HOST KEYS (ssh-ed25519) for 127.0.0.1"),
+                "{reason}"
+            );
+            assert!(!reason.contains("SHA256:"), "no fingerprint in the reason");
+        }
+        other => panic!("expected hard stop, got {other:?}"),
+    }
+    assert_eq!(std::fs::read(&kh).expect("read"), before, "store unchanged");
+    let events = s.take_audit_events();
+    assert!(!events.iter().any(|e| matches!(e, TrustEvent::AuthSucceeded { .. })));
+
+    // The user keeps the server's key only.
+    std::fs::write(&kh, b"").expect("truncate");
+    trust(&kh, server.port, &server.host_public);
+    let mut s = connect(server.port, password(), &kh).await;
+    expect_connected(&mut s).await;
+    s.close().await.expect("close");
+}
+
 #[tokio::test]
 async fn close_while_tofu_prompt_is_open() {
     let server = start(ServerSpec::new(&[MethodKind::Password])).await;

@@ -54,14 +54,16 @@ pub fn reopen(state: &AppState, connection_id: &str, sink: WebSink) -> IpcResult
 
 /// Register a freshly built window and audit `web_opened`.
 pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()> {
-    let persistent = plan.storage != Storage::Ephemeral;
+    let persistent = plan.persistent();
     let entry = WebEntry {
         label: plan.label.clone(),
         origin: plan.origin(),
         title: String::new(),
         persistent,
+        ephemeral_dir: plan.ephemeral_dir().cloned(),
         opened_at: dto::ts(OffsetDateTime::now_utc()),
         sink,
+        refusals: Arc::default(),
     };
     state.web.lock().map_err(|_| IpcError::poisoned())?.insert(plan.connection_id.clone(), entry);
     state.audit(AuditEvent::WebOpened {
@@ -73,12 +75,33 @@ pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()
 }
 
 /// The window of `connection_id` is gone: forget it, audit `web_closed`, send `closed`.
-/// Idempotent (`web_close` and the `Destroyed` event both call it).
-pub fn closed(state: &AppState, connection_id: &str) -> bool {
-    let Some(entry) = web::forget(state, connection_id) else { return false };
+/// Idempotent (`web_close` and the `Destroyed` event both call it). Returns the entry so the
+/// caller can remove its ephemeral profile once the OS window is destroyed (L-29).
+pub fn closed_entry(state: &AppState, connection_id: &str) -> Option<WebEntry> {
+    let entry = web::forget(state, connection_id)?;
+    let suppressed = entry.refusals.suppressed();
+    if suppressed > 0 {
+        state.audit(AuditEvent::WebNavigationBlockedSuppressed {
+            connection: connection_id.to_owned(),
+            count: u64::from(suppressed),
+        });
+    }
     state.audit(AuditEvent::WebClosed { connection: connection_id.to_owned() });
     (entry.sink)(WebEvent::Closed);
-    true
+    Some(entry)
+}
+
+/// [`closed_entry`] as a flag.
+pub fn closed(state: &AppState, connection_id: &str) -> bool {
+    closed_entry(state, connection_id).is_some()
+}
+
+/// The OS window of `connection_id` was destroyed (`Destroyed` event): forget it and remove
+/// its ephemeral profile, if any.
+pub fn destroyed(state: &AppState, connection_id: &str) {
+    if let Some(dir) = closed_entry(state, connection_id).and_then(|e| e.ephemeral_dir) {
+        web::remove_ephemeral_dir(&dir);
+    }
 }
 
 /// `web_zoom` factor check.
@@ -90,9 +113,9 @@ pub fn check_zoom(factor: f64) -> IpcResult<f64> {
     }
 }
 
-/// `web_clear_data` without a window: the connection must be a web connection (vault
-/// unlocked); its store directory is removed and `web_data_cleared` audited.
-pub fn clear_data(state: &AppState, connection_id: &str) -> IpcResult<bool> {
+/// The `web_clear_data` precondition: vault unlocked and a web connection (review 5 N-37:
+/// checked before any browsing data is touched). Returns the canonical id.
+pub fn check_clear(state: &AppState, connection_id: &str) -> IpcResult<String> {
     let id = dto::connection_id("connectionId", connection_id)?;
     state.with_ready(|_, store| {
         if store.get_connection(id)?.protocol == Protocol::Web {
@@ -101,9 +124,68 @@ pub fn clear_data(state: &AppState, connection_id: &str) -> IpcResult<bool> {
             Err(IpcError::invalid("connectionId", "not a web connection"))
         }
     })?;
-    let removed = web::remove_store_dir(state, connection_id)?;
-    state.audit(AuditEvent::WebDataCleared { connection: id.to_string() });
+    Ok(id.to_string())
+}
+
+/// `web_clear_data` without a window: [`check_clear`], then the store directory is removed
+/// and `web_data_cleared` audited.
+pub fn clear_data(state: &AppState, connection_id: &str) -> IpcResult<bool> {
+    let id = check_clear(state, connection_id)?;
+    let removed = web::remove_store_dir(state, &id)?;
+    state.audit(AuditEvent::WebDataCleared { connection: id });
     Ok(removed)
+}
+
+/// `web_clear_data` with an open window: [`check_clear`] first, then `wipe_open` (the
+/// window's `clear_all_browsing_data`), then the store directory. `WebView2` keeps its open
+/// profile locked: the data is cleared, the folder goes with the next clear or the connection.
+pub fn clear_data_with(
+    state: &AppState,
+    connection_id: &str,
+    wipe_open: Option<impl FnOnce() -> IpcResult<()>>,
+) -> IpcResult<()> {
+    let id = check_clear(state, connection_id)?;
+    let open = wipe_open.is_some();
+    if let Some(wipe) = wipe_open {
+        wipe()?;
+    }
+    match web::remove_store_dir(state, &id) {
+        Err(e) if e.code == "web.clear_failed" && open => {}
+        other => {
+            other?;
+        }
+    }
+    state.audit(AuditEvent::WebDataCleared { connection: id });
+    Ok(())
+}
+
+/// Review 5 N-30: `web_open` / `window_detach` are async, so a lock can land between their
+/// unlocked check and `build()`. Calls `hide` when the vault is locked now; the lock observer
+/// shows the window again after unlock. Returns whether it hid.
+pub fn hide_if_locked(state: &AppState, hide: impl FnOnce()) -> bool {
+    if state.ready().unlocked() {
+        return false;
+    }
+    hide();
+    true
+}
+
+/// Deleted connections (`connection_delete`, `folder_delete`): close each one's window
+/// (`destroy` takes the label; the OS window must go before `WebView2` releases its profile),
+/// then remove its ephemeral profile and its persistent store (review 5 L-30).
+pub fn purge_deleted(state: &AppState, ids: &[String], destroy: &dyn Fn(&str)) {
+    for id in ids {
+        let entry = closed_entry(state, id);
+        if let Some(e) = &entry {
+            destroy(&e.label);
+        }
+        if let Some(dir) = entry.and_then(|e| e.ephemeral_dir) {
+            web::remove_ephemeral_dir(&dir);
+        }
+        if let Err(e) = web::remove_store_dir(state, id) {
+            tracing::warn!(code = e.code, "web store of a deleted connection kept");
+        }
+    }
 }
 
 fn unlocked(state: &AppState) -> IpcResult<()> {
@@ -156,11 +238,14 @@ pub async fn web_open<R: Runtime>(
     if let Some(label) = reopen(&state, &plan.connection_id, Arc::clone(&sink))? {
         if let Some(w) = app.get_webview_window(&label) {
             show(&w);
+            // 6b N-48: the vault may have locked after `plan` passed; the lock observer
+            // shows the window again after the unlock.
+            post_open(&state, || w.hide().map_err(|e| e.to_string()));
             return Ok(WindowOpened { window_label: label });
         }
         web::forget(&state, &plan.connection_id);
     }
-    if let Storage::Directory(dir) = &plan.storage {
+    if let Storage::Directory(dir) | Storage::EphemeralDirectory(dir) = &plan.storage {
         crate::create_private_dir(dir).map_err(|e| {
             tracing::warn!(kind = ?e.kind(), "web store directory");
             IpcError::new("web.store_failed", "the browsing data folder could not be created")
@@ -183,11 +268,25 @@ pub async fn web_open<R: Runtime>(
     window.on_window_event(move |event| {
         if let WindowEvent::Destroyed = event {
             if let Some(state) = handle.try_state::<AppState>() {
-                closed(&state, &connection);
+                destroyed(&state, &connection);
             }
         }
     });
+    post_open(&state, || window.hide().map_err(|e| e.to_string()));
     Ok(WindowOpened { window_label: plan.label })
+}
+
+/// N-30 / N-39 / N-48 post-check of both `web_open` paths (build and reopen): the vault may
+/// have locked after `plan` passed, so hide the window through `hide` when it is locked now.
+/// Returns whether it hid.
+pub fn post_open(state: &AppState, hide: impl FnOnce() -> Result<(), String>) -> bool {
+    hide_if_locked(state, || {
+        if let Err(e) = hide() {
+            tracing::warn!(error = %e, "web window hide after lock failed");
+        } else {
+            tracing::info!("vault locked while the web window was opened; hidden");
+        }
+    })
 }
 
 /// `web_close({ connectionId })`.
@@ -199,11 +298,14 @@ pub async fn web_close<R: Runtime>(
 ) -> IpcResult<()> {
     let window = window_of(&app, &state, &connection_id);
     let id = dto::connection_id("connectionId", &connection_id)?.to_string();
-    if !closed(&state, &id) {
+    let Some(entry) = closed_entry(&state, &id) else {
         return Err(not_open());
-    }
+    };
     if let Ok(w) = window {
         native(w.destroy())?;
+    }
+    if let Some(dir) = entry.ephemeral_dir {
+        web::remove_ephemeral_dir(&dir);
     }
     Ok(())
 }
@@ -253,8 +355,8 @@ pub fn web_zoom<R: Runtime>(
     native(window_of(&app, &state, &connection_id)?.set_zoom(factor))
 }
 
-/// `web_clear_data({ connectionId })`: wipes the open window's browsing data, then the
-/// connection's store directory. Audited `web_data_cleared`.
+/// `web_clear_data({ connectionId })`: the lock and protocol checks, then the open window's
+/// browsing data, then the connection's store directory. Audited `web_data_cleared`.
 #[tauri::command]
 pub fn web_clear_data<R: Runtime>(
     app: AppHandle<R>,
@@ -262,15 +364,7 @@ pub fn web_clear_data<R: Runtime>(
     connection_id: String,
 ) -> IpcResult<()> {
     let open = window_of(&app, &state, &connection_id).ok();
-    if let Some(w) = &open {
-        native(w.clear_all_browsing_data())?;
-    }
-    match clear_data(&state, &connection_id) {
-        // WebView2 keeps its open profile locked: the data is cleared, the folder goes with
-        // the next clear or the connection.
-        Err(e) if e.code == "web.clear_failed" && open.is_some() => Ok(()),
-        other => other.map(|_| ()),
-    }
+    clear_data_with(&state, &connection_id, open.map(|w| move || native(w.clear_all_browsing_data())))
 }
 
 /// `web_list()` (passive).
@@ -279,14 +373,14 @@ pub fn web_list(state: State<'_, AppState>) -> IpcResult<Vec<WebWindowInfo>> {
     web::list(&state)
 }
 
-/// Close the web window of a deleted connection (`connection_delete`).
-pub fn close_for_deleted<R: Runtime>(app: &AppHandle<R>, state: &AppState, connection_id: &str) {
-    let window = window_of(app, state, connection_id).ok();
-    if let Ok(id) = dto::connection_id("id", connection_id) {
-        closed(state, &id.to_string());
-    }
-    if let Some(w) = window {
-        let _ = w.destroy();
+/// [`purge_deleted`] with the real windows (`connection_delete`, `folder_delete`).
+pub fn destroyer<R: Runtime>(app: &AppHandle<R>) -> impl Fn(&str) + '_ {
+    move |label: &str| {
+        if let Some(w) = app.get_webview_window(label) {
+            if let Err(e) = w.destroy() {
+                tracing::warn!(error = %e, "web window of a deleted connection not destroyed");
+            }
+        }
     }
 }
 

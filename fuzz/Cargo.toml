@@ -21,12 +21,24 @@ mooring-vault = { path = "../crates/mooring-vault" }
 mooring-proto-ssh = { path = "../crates/mooring-proto-ssh" }
 mooring-proto-rdp = { path = "../crates/mooring-proto-rdp" } # A2: active stage, cliprdr, certificate, input entries
 mooring-proto-vnc = { path = "../crates/mooring-proto-vnc" } # A2: RFB server messages, ZRLE, Tight entries
+# A3 (ADR-0014..0017): kube frames / logs / guard, vCenter bodies, Vault bodies + OIDC URLs,
+# MSY1 blob + snapshot JSON, mooring-http header / body / certificate parsers.
+mooring-http = { path = "../crates/mooring-http" }
+mooring-proto-kube = { path = "../crates/mooring-proto-kube" }
+mooring-vsphere = { path = "../crates/mooring-vsphere" }
+mooring-secrets = { path = "../crates/mooring-secrets" }
+mooring-sync = { path = "../crates/mooring-sync" }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
 # kubeconfig oracle re-scans accepted input with mooring-core's own YAML event parser (M-11);
 # same version as the root lockfile, no new crate in the tree.
 saphyr-parser = "=0.3.3"
+
+# Remaining A3 gate (docs/qa/fuzzing.md, "A3 targets"): the product parses no S3 XML, so the
+# target stays a compiling no-op flagged by the nightly "Stub notice" step until an ADR drops it.
+[features]
+s1 = [] # s3_error_xml: rusty-s3 presign + raw PUT/GET/HEAD/DELETE only
 
 [[bin]]
 name = "known_hosts_parse"
@@ -150,6 +162,147 @@ bench = false
 [[bin]]
 name = "rdp_reassembly"
 path = "fuzz_targets/rdp_reassembly.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kubeconfig_resolve"
+path = "fuzz_targets/kubeconfig_resolve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jwt_exp_peek"
+path = "fuzz_targets/jwt_exp_peek.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_pod_list_json"
+path = "fuzz_targets/kube_pod_list_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_exec_frames"
+path = "fuzz_targets/kube_exec_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_log_sanitize"
+path = "fuzz_targets/kube_log_sanitize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vsphere_inventory_json"
+path = "fuzz_targets/vsphere_inventory_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vsphere_session_token"
+path = "fuzz_targets/vsphere_session_token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vsphere_ticket_url"
+path = "fuzz_targets/vsphere_ticket_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_kv_response"
+path = "fuzz_targets/vault_kv_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_login_response"
+path = "fuzz_targets/vault_login_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "external_ref_parse"
+path = "fuzz_targets/external_ref_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oidc_callback_url"
+path = "fuzz_targets/oidc_callback_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_blob_parse"
+path = "fuzz_targets/sync_blob_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_snapshot_json"
+path = "fuzz_targets/sync_snapshot_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "s3_error_xml"
+path = "fuzz_targets/s3_error_xml.rs"
+test = false
+doc = false
+bench = false
+
+# A3 Q2: entries the crates already expose but no target named (crate `fuzz` modules).
+[[bin]]
+name = "kube_portforward_frames"
+path = "fuzz_targets/kube_portforward_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_guard_path"
+path = "fuzz_targets/kube_guard_path.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_certificate_info"
+path = "fuzz_targets/http_certificate_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_response_headers"
+path = "fuzz_targets/http_response_headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_json_body"
+path = "fuzz_targets/http_json_body.rs"
 test = false
 doc = false
 bench = false

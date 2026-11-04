@@ -14,6 +14,12 @@ On Windows PowerShell: `$env:MOORING_LOG="debug"; & "<install-dir>\Mooring.exe"`
 Logs never contain secrets, but they do contain hostnames and usernames. Redact them before
 sharing in an issue.
 
+`MOORING_LOG` accepts the usual `tracing` directive list (`debug`, `mooring_app=trace,info`).
+Three targets are protected: `ironrdp_connector::credssp`, `ironrdp_connector::connection` and
+`sspi` always stay at `info`, whatever you ask for, because below that they would log the raw
+RDP CredSSP/NTLM exchange, which contains offline-crackable material for your domain password.
+Directives naming them, and span-scoped directives (anything with `[` in it), are ignored.
+
 ## Vault
 
 **"Wrong password" although I am sure it is right.** Mooring cannot tell a wrong password from

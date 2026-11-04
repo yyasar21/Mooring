@@ -25,6 +25,37 @@ fn decision_table_has_four_rows() {
     }
     assert_eq!(decide(CertTrust::Unknown, true), CertVerdict::AcceptCa);
     assert_eq!(decide(CertTrust::Unknown, false), CertVerdict::Prompt);
+    for chain in [true, false] {
+        assert_eq!(decide(CertTrust::Conflict, chain), CertVerdict::Conflict, "L-35: fail closed");
+    }
+}
+
+/// Review 6b L-35: two distinct pins for one `host:port` fail closed for every presented
+/// certificate, even one that matches; a duplicated line of one pin does not; removing the
+/// host's pins clears it.
+#[test]
+fn conflicting_pins_fail_closed_until_removed() {
+    let mut s = KnownCerts::new();
+    s.add("rdp.example.test", 3389, &fp(1), T0);
+    s.add("rdp.example.test", 3389, &fp(1), T0);
+    assert_eq!(s.distinct_pins("rdp.example.test", 3389), 1);
+    assert_eq!(
+        s.check("rdp.example.test", 3389, &fp(1)),
+        CertTrust::Trusted,
+        "a duplicate is no conflict"
+    );
+    s.add("RDP.example.test", 3389, &fp(2), T0);
+    assert_eq!(s.distinct_pins("rdp.example.test", 3389), 2);
+    for presented in [fp(1), fp(2), fp(3)] {
+        assert_eq!(s.check("rdp.example.test", 3389, &presented), CertTrust::Conflict);
+    }
+    assert_eq!(
+        s.check("rdp.example.test", 3390, &fp(1)),
+        CertTrust::Unknown,
+        "another port is untouched"
+    );
+    assert_eq!(s.remove("rdp.example.test", 3389), 3);
+    assert_eq!(s.check("rdp.example.test", 3389, &fp(1)), CertTrust::Unknown);
 }
 
 #[test]

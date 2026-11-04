@@ -20,6 +20,7 @@ import { MockRemoteFs } from "./ipc.mock.fs";
 import { MockPicks } from "./ipc.mock.picks";
 import { baseName, normalizeRemote } from "./remotePath";
 import { hasErrors, validateForward, validatePolicy, validateSyslog } from "./validate.exit";
+import { validatePodForward } from "./validate.kube";
 
 export interface MockOptions {
   vault?: VaultStatus;
@@ -134,8 +135,14 @@ export abstract class MockExitBase implements ExitIpc {
 
   // ---------- forwarding ----------
 
-  private live(sessionId: string): ForwardInfo[] {
+  /** Which forward kinds `sessionId` takes: SSH sessions take local/remote/dynamic (ADR-0014 adds pod). */
+  protected forwardCheck(sessionId: string, f: Pick<ForwardInfo, "kind" | "target"> | null): void {
     this.requireSsh(sessionId);
+    if (f?.kind === "pod") throw new IpcError("input.invalid", "invalid kind: pod forwards need a Kubernetes session");
+  }
+
+  private live(sessionId: string, f: Pick<ForwardInfo, "kind" | "target"> | null = null): ForwardInfo[] {
+    this.forwardCheck(sessionId, f);
     let list = this.forwards.get(sessionId);
     if (!list) {
       list = [];
@@ -146,8 +153,8 @@ export abstract class MockExitBase implements ExitIpc {
 
   forwardOpen: ExitIpc["forwardOpen"] = async ({ sessionId, ...f }) => {
     await this.unlocked();
-    const list = this.live(sessionId);
-    const errors = validateForward(f);
+    const list = this.live(sessionId, f);
+    const errors = f.kind === "pod" ? validatePodForward(f) : validateForward(f);
     if (hasErrors(errors)) throw new IpcError("input.invalid", Object.values(errors)[0] ?? "invalid forward");
     if (list.length >= FORWARD_LIMITS.perSession) throw new IpcError("forward.limit", "too many forwards on this session");
     let port = f.bind.port;
@@ -166,6 +173,7 @@ export abstract class MockExitBase implements ExitIpc {
     };
     list.push(info);
     this.record("session.forward.open", { session: sessionId, kind: f.kind, exposure: f.exposure });
+
     return structuredClone(info);
   };
 

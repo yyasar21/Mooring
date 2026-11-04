@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vsphere-sync-enable"
+description = "Enables the vsphere_sync_enable command without any pre-configured scope."
+commands.allow = ["vsphere_sync_enable"]
+
+[[permission]]
+identifier = "deny-vsphere-sync-enable"
+description = "Denies the vsphere_sync_enable command without any pre-configured scope."
+commands.deny = ["vsphere_sync_enable"]

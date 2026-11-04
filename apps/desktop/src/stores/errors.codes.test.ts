@@ -21,6 +21,18 @@ function mockCodes(): Set<string> {
 
 const missingCodes = missing("ipc-codes.json");
 
+/**
+ * A3 codes the UI and mock already use while Rust adds them with K4/V2/E2/S1 (ADR-0014..0017).
+ * While `ipc-codes.json` lacks one, its check is skipped with a message instead of failing; once
+ * Rust ships it the normal check applies. `ASSUMED` ones are not named in the ADRs.
+ */
+export const PENDING_A3_CODES: Record<string, string> = {
+  // Every ADR-0014..0017 code shipped with `a3` (kube.* with K4 — the refusal code is
+  // `kube.refused`, ADR-0014 amendment; vsphere.* with V2; source.* / credential.external_* with
+  // E2 + F1; sync.* with S2). The map stays for the next phase's codes.
+};
+const pending = (c: string) => RUST_CODES !== null && !RUST_CODES.has(c) && c in PENDING_A3_CODES;
+
 describe("error codes match Rust (N-14)", () => {
   it("the mock throws a known set of codes", () => {
     const codes = mockCodes();
@@ -40,14 +52,26 @@ describe("error codes match Rust (N-14)", () => {
   it.skipIf(RUST_CODES === null)(
     RUST_CODES === null ? `FRIENDLY keys are Rust codes (${missingCodes})` : "FRIENDLY keys are Rust codes (src-tauri/ipc-codes.json)",
     () => {
-      for (const c of Object.keys(FRIENDLY)) expect({ code: c, inRust: RUST_CODES?.has(c) }).toEqual({ code: c, inRust: true });
+      for (const c of Object.keys(FRIENDLY).filter((x) => !pending(x))) expect({ code: c, inRust: RUST_CODES?.has(c) }).toEqual({ code: c, inRust: true });
     },
   );
 
   it.skipIf(RUST_CODES === null)(
     RUST_CODES === null ? `the mock throws only Rust codes (${missingCodes})` : "the mock throws only Rust codes (src-tauri/ipc-codes.json)",
     () => {
-      for (const c of mockCodes()) expect({ code: c, inRust: RUST_CODES?.has(c) }).toEqual({ code: c, inRust: true });
+      for (const c of [...mockCodes()].filter((x) => !pending(x))) expect({ code: c, inRust: RUST_CODES?.has(c) }).toEqual({ code: c, inRust: true });
     },
   );
+
+  const waiting = Object.keys(PENDING_A3_CODES).filter(pending);
+  it.skipIf(waiting.length > 0)(
+    waiting.length > 0 ? `A3 codes are Rust codes (skipped: src-tauri/ipc-codes.json lacks ${waiting.length} yet: ${waiting.join(", ")})` : "A3 codes are Rust codes",
+    () => {
+      for (const c of Object.keys(PENDING_A3_CODES)) expect({ code: c, inRust: RUST_CODES?.has(c) }).toEqual({ code: c, inRust: true });
+    },
+  );
+
+  it("every A3 code the mock throws is either in Rust or listed as pending", () => {
+    for (const c of mockCodes()) if (RUST_CODES && !RUST_CODES.has(c)) expect({ code: c, pending: c in PENDING_A3_CODES }).toEqual({ code: c, pending: true });
+  });
 });

@@ -26,6 +26,16 @@ test_util_pub!(autolock);
 test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_factory, session_task);
 // ADR-0013 (A2 R5): command ACL, web windows, detach routing, lock hiding.
 test_util_pub!(guard, route, web, window_lock);
+// ADR-0014 K4: Kubernetes cluster / exec sessions.
+test_util_pub!(kube_sessions);
+// ADR-0017 (A3 S2): vault-sync hub and interval runner.
+test_util_pub!(sync_runner);
+// ADR-0015 (A3 V2): vCenter sync hub and refresh scheduler.
+test_util_pub!(scheduler, vsphere_sync);
+// ADR-0016 E2: token cache / renewer runtime and the OIDC window.
+test_util_pub!(oidc_window, secrets_runtime);
+// Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
+test_util_pub!(confirm_gate);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -36,6 +46,9 @@ pub(crate) mod navigation;
 /// Scripted RDP/VNC session and factory for the graphical tests.
 #[cfg(test)]
 mod test_graphical;
+/// Vault mock fixtures for the ADR-0016 E2 tests.
+#[cfg(test)]
+mod test_secrets;
 /// In-process russh server for the session tests (loopback only).
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_ssh_server;
@@ -50,22 +63,36 @@ use crate::commands::{forward, sftp, sftp_pick, sftp_transfers};
 use crate::commands::{conn_options, known_certs, session_graphics};
 // ADR-0013 §IPC
 use crate::commands::{detach, web as web_cmds};
+// ADR-0014 K4
+use crate::commands::{kube, kube_logs};
+// ADR-0017 §5 (A3 S2)
+use crate::commands::{sync as sync_cmds, sync_join};
+// ADR-0015 §5 (A3 V2)
+use crate::commands::{vsphere, vsphere_console};
+// ADR-0016 E2
+use crate::commands::{secret_sources, secret_sources_oidc};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
 ///
 /// # Panics
 /// Panics only if the Tauri runtime itself cannot start (no display, broken `WebView` install).
+// The `generate_handler!` list is one line per command (ADR-0014 K4 pushed it past 100).
+#[allow(clippy::too_many_lines)]
 pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
-        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`); the `main`
-        // capability grants the WebView no dialog permission.
+        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`, ADR-0015 power /
+        // certificate / VMRC confirmations); the `main` capability grants no dialog permission.
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;
-            app.manage(AppState::new(data_dir, Settings::production())?);
+            let cache_dir = app.path().app_cache_dir()?;
+            create_private_dir(&cache_dir)?;
+            app.manage(AppState::new(data_dir, Settings::production())?.with_cache_dir(cache_dir));
+            // Review 5 L-29: no ephemeral web profile outlives the window it belonged to.
+            web::sweep::ephemeral_profiles(&app.state::<AppState>());
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
             // the navigation and new-window guard (security review 2, M-4).
             navigation::create_main_window(app)?;
@@ -76,6 +103,10 @@ pub fn run() {
             autolock::install(app);
             // ADR-0013: web and detached windows hide while the vault is locked.
             window_lock::install(app);
+            // ADR-0017 (A3 S2): sync hub + interval runner (runs only while unlocked).
+            sync_runner::install(app);
+            // ADR-0016 E2: OIDC window backend + Vault token renewer.
+            oidc_window::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
@@ -157,6 +188,44 @@ pub fn run() {
             web_cmds::web_zoom,
             web_cmds::web_list,
             detach::window_attach,
+            // ADR-0014 K4: Kubernetes (pod forwards go through forward_open kind "pod")
+            kube::kube_open,
+            kube::kube_access,
+            kube::kube_contexts,
+            kube::kube_namespaces,
+            kube::kube_pods,
+            kube::kube_pod,
+            kube::kube_exec_open,
+            kube_logs::kube_logs_open,
+            kube_logs::kube_logs_close,
+            // ADR-0017 §5 (A3 S2)
+            sync_cmds::sync_configure,
+            sync_cmds::sync_status,
+            sync_cmds::sync_now,
+            sync_cmds::sync_resolve_fork,
+            sync_cmds::sync_disable,
+            sync_join::vault_join,
+            // ADR-0015 §5 (A3 V2)
+            vsphere::vsphere_test,
+            vsphere::vsphere_sync_enable,
+            vsphere::vsphere_sync_disable,
+            vsphere::vsphere_refresh,
+            vsphere::vsphere_status,
+            vsphere_console::vsphere_vm_power,
+            vsphere_console::vsphere_vm_action,
+            vsphere_console::vsphere_vm_identity,
+            vsphere_console::vsphere_console,
+            // ADR-0016 E2: external secret sources
+            secret_sources::secret_source_list,
+            secret_sources::secret_source_get,
+            secret_sources::secret_source_create,
+            secret_sources::secret_source_update,
+            secret_sources::secret_source_delete,
+            secret_sources::secret_source_test,
+            secret_sources::secret_source_revoke,
+            secret_sources::credential_external_test,
+            secret_sources_oidc::secret_source_oidc_begin,
+            secret_sources_oidc::secret_source_oidc_status,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");
@@ -202,14 +271,17 @@ const CREDSSP_TARGETS: [&str; 3] =
 
 /// `MOORING_LOG` directives (default `info`) with every directive for [`CREDSSP_TARGETS`]
 /// dropped and `<target>=info` appended, so neither a broad `debug` nor a targeted `trace`
-/// can lower them.
+/// can lower them. Span-scoped directives (`[span]=trace`, `target[{field}]=debug`) are
+/// dropped too (review 5 N-38): they enable events of every target inside matching spans,
+/// which the `=info` tail does not override.
 fn log_filter(user: Option<&str>) -> tracing_subscriber::EnvFilter {
     use tracing_subscriber::EnvFilter;
     let protected = |d: &str| CREDSSP_TARGETS.iter().any(|t| d.trim_start().starts_with(t));
+    let span_scoped = |d: &str| d.contains('[');
     let mut spec: Vec<&str> = user
         .unwrap_or("info")
         .split(',')
-        .filter(|d| !d.trim().is_empty() && !protected(d))
+        .filter(|d| !d.trim().is_empty() && !protected(d) && !span_scoped(d))
         .collect();
     if spec.is_empty() {
         spec.push("info");
@@ -255,6 +327,10 @@ mod tests {
             Some("debug"),
             Some("trace,sspi::ntlm=trace,ironrdp_connector::credssp=trace"),
             Some("bogus=["),
+            // N-38: span-scoped directives would enable every target inside the span.
+            Some("[connect]=trace"),
+            Some("info,ironrdp_connector[{step}]=trace,[{step}]=debug"),
+            Some("info,[connect{step=1}]=trace"),
         ] {
             let buf: &'static Mutex<Vec<u8>> = Box::leak(Box::new(Mutex::new(Vec::new())));
             let sub = tracing_subscriber::fmt()
@@ -262,6 +338,9 @@ mod tests {
                 .with_writer(move || Sink(buf))
                 .finish();
             tracing::subscriber::with_default(sub, || {
+                // The IronRDP connector emits the CredSSP lines inside its `connect` span.
+                let span = tracing::info_span!(target: "ironrdp_connector::connection", "connect", step = 1);
+                let _in = span.enter();
                 tracing::debug!(target: "ironrdp_connector::credssp", "secret-ts-request");
                 tracing::trace!(target: "sspi::ntlm", "secret-ntlm");
                 tracing::debug!(target: "ironrdp_connector::connection", "secret-connection");

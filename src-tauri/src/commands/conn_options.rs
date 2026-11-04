@@ -33,10 +33,22 @@ pub fn set(
         let protocol = store.get_connection(id)?.protocol;
         let parsed = ProtocolOptions::from_value(protocol, options)?;
         let before = store.connection_options(id).ok();
-        Ok((protocol, before, store.set_connection_options(id, &parsed)?))
+        let after = store.set_connection_options(id, &parsed)?;
+        // ADR-0014 K4: the options must fit the connection's Kubernetes credential.
+        if let Err(e) = crate::commands::kube::save_check(store, id) {
+            if let Some(b) = &before {
+                store.set_connection_options(id, b)?;
+            }
+            return Err(e);
+        }
+        Ok((protocol, before, after))
     })?;
     if let Some(event) = changes(connection_id, protocol.name(), before.as_ref(), &after) {
         state.audit(event);
+    }
+    if protocol == mooring_core::Protocol::VsphereConsole {
+        // ADR-0015: a new refresh interval takes effect now.
+        crate::scheduler::ensure(&crate::vsphere_sync::VsCtx::of(state), id);
     }
     Ok(after)
 }
@@ -66,7 +78,7 @@ fn changes(
     let is = |key: &str, want: &serde_json::Value| changed.iter().any(|k| k == key) && new.get(key) == Some(want);
     let ca = new.get("caPem").and_then(serde_json::Value::as_str).filter(|_| changed.iter().any(|k| k == "caPem"));
     let weakened = ca.is_some()
-        || ["allowTlsWithoutNla", "allowHttp", "persistent", "allowNoAuth"]
+        || ["allowTlsWithoutNla", "allowHttp", "persistent", "allowNoAuth", "allowPowerActions", "allowVmrc"]
             .iter()
             .any(|k| is(k, &serde_json::Value::Bool(true)))
         || is("security", &serde_json::Value::from("allow_plaintext"));
@@ -80,7 +92,7 @@ fn changes(
 }
 
 /// `SHA256:<hex>` of each certificate block (validated as certificates-only on write).
-fn ca_fingerprints(pem: &str) -> Vec<String> {
+pub(crate) fn ca_fingerprints(pem: &str) -> Vec<String> {
     const END: &str = "-----END CERTIFICATE-----";
     pem.split_inclusive(END)
         .filter(|b| b.contains("-----BEGIN CERTIFICATE-----"))

@@ -10,6 +10,41 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ### Added
 
+- **Kubernetes sessions**: a read-only cluster browser from a kubeconfig or token credential
+  (contexts, namespaces, pods with live watch, RBAC self-review), `exec` shells from an
+  allow-list, log streaming with caps, pod port-forward — a closed route list guarantees
+  Mooring never mutates the cluster ([ADR-0014](docs/adr/0014-kubernetes-sessions.md)).
+- **vSphere inventory sync**: import datacenters, clusters, hosts and VMs into a read-only
+  synced folder with scheduled refresh, VM power state and opt-in power actions behind a native
+  confirmation, vSphere Client window and opt-in VMRC hand-off
+  ([ADR-0015](docs/adr/0015-vsphere-sync.md)).
+- **External secret sources**: HashiCorp Vault / OpenBao KV v2 with token, AppRole or OIDC
+  sign-in (isolated sign-in window), `external_ref` credentials resolved at connect time,
+  short-lived tokens renewed in memory and revoked on lock, root tokens refused
+  ([ADR-0016](docs/adr/0016-external-secrets.md)).
+- **Vault sync**: client-side encrypted MSY1 blobs to S3-compatible storage with conditional
+  writes, three-way merge, fork and rollback hard stops, a join flow for new devices, and a
+  global sync alarm banner ([ADR-0017](docs/adr/0017-vault-sync-and-signin.md)).
+- New credential kinds `vault_approle` and `s3_access_key`; mock kube/vCenter/Vault/S3 test
+  servers with a request recorder; 17 more fuzz targets; 11 more E2E flows.
+
+### Security
+
+- Security review 6 ([docs/security/a3-review-6.md](docs/security/a3-review-6.md)):
+  APPROVE WITH NITS after two fix rounds. Native confirmations are now `Cancel / <action> /
+  Not now`: Return, Escape and the close box all refuse on every OS (M-16, and B-6 — the
+  dialog plugin rewrites a cancelled dialog into the label of its cancel slot), answers are
+  mapped by label only, one dialog at a time with a cool-down after a cancel; synced trust
+  stores that disagree on a host fail closed until one pin is removed (L-35); a lock epoch drops tokens from
+  sign-ins that straddled a lock (L-34); the join header is staged and renamed (L-37); web and
+  OIDC windows get per-connection profiles on Windows (L-29, L-33); refused navigations are
+  rate-limited in the audit log (N-43); `wry` is pinned by a test (N-46). Review-5 items
+  L-29, L-30 and N-30..N-38 closed.
+
+## [0.1.0-rc.2-a2] - 2026-11-04 (A2, unreleased tag)
+
+### Added
+
 - **RDP sessions** on IronRDP: NLA/CredSSP with domain or plain credentials, TLS through
   Mooring's own rustls verifier with certificate trust-on-first-use (hard stop on a changed
   certificate), dynamic resolution, text clipboard both ways under a per-connection policy,

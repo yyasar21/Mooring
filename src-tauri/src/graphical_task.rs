@@ -78,7 +78,7 @@ impl Launcher {
     /// Plan (credential from the vault), audit `credential_used` and connect.
     pub async fn connect(&self, trusted_once: Option<[u8; 32]>) -> IpcResult<Launched> {
         let size = *self.size.lock().map_err(|_| IpcError::poisoned())?;
-        let plan = connect_plan::plan(&self.ready, &self.connection_id, size)?;
+        let plan = connect_plan::plan(&self.ready, &self.connection_id, size).await?;
         for cred in plan.used {
             record_audit(&self.audit, AuditEvent::CredentialUsed {
                 credential: cred,
@@ -128,6 +128,7 @@ pub fn close_code_of(e: &IpcError) -> CloseCode {
     match e.code {
         "vault.locked" | "vault.missing" => CloseCode::VaultLocked,
         "session.trust_mismatch" => CloseCode::TrustMismatch,
+        "http.trust_conflict" => CloseCode::TrustConflict,
         "session.trust_rejected" => CloseCode::TrustRejected,
         "session.unsupported_security" | "protocol.unavailable" | "input.invalid" => {
             CloseCode::ProtocolError

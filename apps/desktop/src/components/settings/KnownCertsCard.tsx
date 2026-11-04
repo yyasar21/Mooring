@@ -43,7 +43,13 @@ export function KnownCertsCard() {
       <div className="settings-body">
         <p className="field-hint">
           Certificates you trusted for RDP and VNC hosts. If a server is reinstalled and its certificate changes, Mooring stops the
-          connection; remove the old entry here after the server owner confirms the new fingerprint.
+          connection; remove the old entry here after the server owner confirms the new fingerprint. When vault sync brings in a different
+          certificate for the same host from another device, both are kept and marked as a conflict: Mooring refuses to connect until you
+          remove one.
+        </p>
+        <p className="field-hint">
+          The sync storage certificate is pinned through two system dialogs with three buttons each: “Trust once (this sync only)”, then
+          “Trust and remember”. Return and Escape refuse; only a click confirms.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <Seg legend="Protocol" name="trust-proto" value={protocol} options={PROTOCOLS} onChange={(p) => { setProtocol(p); setStatus(null); }} />
@@ -71,9 +77,10 @@ export function KnownCertsCard() {
         ) : (
           <ul className="trust-list" aria-label={`${protocol.toUpperCase()} certificates`}>
             {shown.map((r) => (
-              <li key={`${r.hostHash}-${r.fingerprint}`} className="trust-row">
+              <li key={`${r.hostHash}-${r.fingerprint}`} className="trust-row" data-conflict={r.conflict || undefined}>
                 <div className="min-w-0">
                   <p className="trust-target">
+                    {r.conflict && <span className="trust-conflict">Conflict</span>}
                     {r.target ? (
                       <span className="mono select-text">{r.target.host}:{r.target.port}</span>
                     ) : (
@@ -142,6 +149,7 @@ function RemoveDialog({ protocol, row, onClose, onRemoved }: { protocol: CertPro
             <p>
               Remove the stored {protocol.toUpperCase()} certificate for <span className="mono">{target}</span>
               {row.connections.length > 0 ? ` (${row.connections.join(", ")})` : ""}?
+              {row.conflict && " This host has conflicting stored certificates (synced from another device); removing clears all of them."}
             </p>
           ) : (
             <>

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vsphere-status"
+description = "Enables the vsphere_status command without any pre-configured scope."
+commands.allow = ["vsphere_status"]
+
+[[permission]]
+identifier = "deny-vsphere-status"
+description = "Denies the vsphere_status command without any pre-configured scope."
+commands.deny = ["vsphere_status"]

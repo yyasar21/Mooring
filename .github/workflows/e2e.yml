@@ -37,6 +37,15 @@ jobs:
         run: pnpm exec tsc -p e2e/tsconfig.json
       - name: UI flows
         run: node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/flows.e2e.mjs
+      # A3 (ADR-0014): the Kubernetes cluster browser, exec, logs and pod forwards.
+      - name: Kubernetes flows
+        run: node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/kube.e2e.mjs
+      # A3 (ADR-0015): the vSphere import wizard, synced tree, VM power menu and consoles.
+      - name: vSphere flows
+        run: node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/vsphere.e2e.mjs
+      # A3 (ADR-0016 / ADR-0017): secret sources, external_ref, vault sync, join and the sync banner.
+      - name: Secret source and vault sync flows
+        run: node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/secrets-sync.e2e.mjs
       - name: Upload failure screenshots
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

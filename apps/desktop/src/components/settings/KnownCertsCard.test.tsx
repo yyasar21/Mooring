@@ -1,9 +1,17 @@
+/// <reference types="vite/client" />
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { MockTransport } from "../../lib/ipc.mock";
+
+/** Everything that ships (no tests, no mocks, not the helper file itself). */
+const UI_SOURCES = import.meta.glob<string>(["../../**/*.{ts,tsx}", "!../../**/*.test.{ts,tsx}", "!../../test/**", "!../../lib/ipc.mock*.ts", "!../../lib/hostHash.ts"], {
+  eager: true,
+  query: "?raw",
+  import: "default",
+});
 import { useTree } from "../../stores/tree";
 import { freshBackend, settle } from "../../test/harness";
 import { KnownCertsCard } from "./KnownCertsCard";
-import { filterPins } from "./useKnownCerts";
+import { filterPins, groupPins } from "./useKnownCerts";
 
 const target = (protocol: "rdp" | "vnc", host: string, port: number) => ({ connectionId: "x", protocol, name: host, host, port, tags: [], options: undefined });
 
@@ -86,8 +94,59 @@ describe("Settings → Trust: known certificates", () => {
     expect(c).not.toHaveTextContent("No stored certificates");
   });
 
+  it("labels from the wire's host/port, never by hashing in the UI (N-33)", async () => {
+    // A pin the mock would not name (no connection) but the wire says belongs to kiosk: the label follows the wire.
+    const list = mock.knownCertsList;
+    mock.knownCertsList = async (a) => (await list(a)).map((r) => ({ ...r, host: "kiosk.example.test", port: 5900 }));
+    await mock.pin(target("vnc", "198.51.100.4", 5901));
+    const c = await card();
+    fireEvent.click(within(c).getByRole("radio", { name: "VNC" }));
+    await vi.waitFor(() => { expect(within(c).getAllByRole("listitem")).toHaveLength(1); });
+    const row = within(c).getAllByRole("listitem")[0];
+    expect(row).toHaveTextContent("kiosk.example.test:5900");
+    expect(row).toHaveTextContent("kiosk"); // the seed connection with that host:port
+  });
+
+  it("no UI module reaches the mock's HMAC helpers (one crypto path, in Rust)", () => {
+    const offenders = Object.entries(UI_SOURCES).filter(([, src]) => /\b(hashHost|hostMatches)\b/.test(src)).map(([p]) => p);
+    expect(offenders).toEqual([]);
+  });
+
+  it("groups conflicting pins of one host:port, flags them, and Remove on either clears all (6b L-35)", async () => {
+    await mock.pin(target("rdp", "203.0.113.9", 3389), "2026-10-01T08:00:00Z");
+    await mock.pin(target("rdp", "dc01.example.test", 3389), "2026-11-01T08:00:00Z");
+    await mock.pin(target("rdp", "dc01.example.test", 3389), "2026-11-03T08:00:00Z", "#laptop");
+    const c = await card();
+    expect(c).toHaveTextContent("marked as a conflict");
+    expect(c).toHaveTextContent("“Trust once (this sync only)”, then “Trust and remember”");
+    const rows = within(within(c).getByRole("list", { name: "RDP certificates" })).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    // the conflicting pair comes first, adjacent, each flagged with its own Remove; the lone pin is not flagged
+    expect(rows[0]).toHaveAttribute("data-conflict");
+    expect(rows[1]).toHaveAttribute("data-conflict");
+    expect(rows[2]).not.toHaveAttribute("data-conflict");
+    expect(rows[0]).toHaveTextContent("Conflict");
+    expect(rows[0]).toHaveTextContent("dc01.example.test:3389");
+    expect(rows[1]).toHaveTextContent("dc01.example.test:3389");
+    expect(rows[2]).toHaveTextContent("Host not in your connections");
+    expect(within(rows[0] as HTMLElement).getByRole("button", { name: "Remove…" })).toBeInTheDocument();
+    fireEvent.click(within(rows[1] as HTMLElement).getByRole("button", { name: "Remove…" }));
+    const dlg = screen.getByRole("dialog", { name: "Remove stored certificate" });
+    expect(dlg).toHaveTextContent("conflicting stored certificates (synced from another device); removing clears all of them");
+    fireEvent.click(within(dlg).getByRole("button", { name: "Remove certificate" }));
+    await settle();
+    await vi.waitFor(() => { expect(within(c).getAllByRole("listitem")).toHaveLength(1); });
+    expect(within(c).getAllByRole("listitem")[0]).not.toHaveAttribute("data-conflict");
+  });
+
+  it("groupPins flags only known hosts with two fingerprints and keeps the wire order otherwise", () => {
+    const row = (fp: string, host: string | null) => ({ hostHash: `|2|s|${fp}`, fingerprint: fp, addedAt: "2026-01-01", target: host ? { host, port: 3389 } : null, connections: [] });
+    const out = groupPins([row("a", "x.example.test"), row("b", null), row("c", "y.example.test"), row("c", "y.example.test"), row("d", "x.example.test")]);
+    expect(out.map((r) => [r.fingerprint, r.conflict])).toEqual([["a", true], ["d", true], ["c", false], ["c", false], ["b", false]]);
+  });
+
   it("filterPins matches names, host:port and the fingerprint with or without colons", () => {
-    const rows = [{ hostHash: "h", fingerprint: "SHA256:abcd", addedAt: "2026-01-01", target: { host: "a.example.test", port: 3389 }, connections: ["alpha"] }];
+    const rows = [{ hostHash: "h", fingerprint: "SHA256:abcd", addedAt: "2026-01-01", target: { host: "a.example.test", port: 3389 }, connections: ["alpha"], conflict: false }];
     expect(filterPins(rows, "ALPHA")).toHaveLength(1);
     expect(filterPins(rows, "a.example.test:3389")).toHaveLength(1);
     expect(filterPins(rows, "ab:cd")).toHaveLength(1);
