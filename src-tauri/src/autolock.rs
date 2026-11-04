@@ -224,8 +224,10 @@ pub fn on_window_event<R: Runtime>(window: &tauri::Window<R>, event: &tauri::Win
             al.focus_changed(*focused, Instant::now());
         }
         if !*focused {
-            // Evaluate at once instead of waiting up to one tick.
-            run_tick(window.app_handle());
+            // Evaluate at once instead of waiting up to one tick, off the event-loop thread:
+            // the vault mutex may be held by an unlock running Argon2id.
+            let app = window.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || run_tick(&app));
         }
     }
 }
