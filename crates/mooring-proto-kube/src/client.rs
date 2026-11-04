@@ -91,14 +91,18 @@ impl std::fmt::Debug for KubeClient {
     }
 }
 
+/// `buffered`: lists, gets and reviews get the request deadline on the whole body (a dripped
+/// response fails with `kube.unreachable` / `http.timeout` instead of completing after
+/// minutes); streams (watch, logs, upgrades) are long-lived and keep only their byte caps.
 fn build(
     http: &HttpClient,
     cap: usize,
+    buffered: bool,
     guard: &ReadOnlyGuardLayer,
     auth: &BearerLayer,
 ) -> Result<kube::Client, KubeError> {
-    let svc =
-        ServiceBuilder::new().layer(guard.clone()).layer(auth.clone()).service(http.service(cap)?);
+    let service = if buffered { http.buffered_service(cap)? } else { http.service(cap)? };
+    let svc = ServiceBuilder::new().layer(guard.clone()).layer(auth.clone()).service(service);
     Ok(kube::Client::new(svc, "default"))
 }
 
@@ -147,8 +151,8 @@ impl KubeClient {
             .saturating_add(MAX_WS_MESSAGE)
             .clamp(MAX_JSON_BODY, 256 * 1024 * 1024);
         Ok(Self {
-            api: build(http, MAX_JSON_BODY, &guard, &auth)?,
-            stream: build(http, stream_cap, &guard, &auth)?,
+            api: build(http, MAX_JSON_BODY, true, &guard, &auth)?,
+            stream: build(http, stream_cap, false, &guard, &auth)?,
             audit,
             limits: Arc::new(limits),
             namespace,

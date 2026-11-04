@@ -1,6 +1,7 @@
 //! Capped response bodies. The cap is checked against `Content-Length` before the first byte
 //! and against every frame before it is copied (review 5: no allocation before the check).
 
+use std::future::Future as _;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -94,17 +95,27 @@ impl BodyStream {
     }
 }
 
-/// A body for the tower service: errors (instead of growing) once `cap` bytes have passed.
+/// A body for the tower service: errors (instead of growing) once `cap` bytes have passed,
+/// and, when built with a deadline, errors with [`HttpError::Timeout`] once the whole body
+/// has taken longer than that budget (a dripped response cannot stay open for hours).
 #[derive(Debug)]
 pub struct CappedBody {
     inner: Incoming,
     remaining: usize,
     cap: usize,
+    deadline: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl CappedBody {
     pub(crate) fn new(inner: Incoming, cap: usize) -> Self {
-        Self { inner, remaining: cap, cap }
+        Self { inner, remaining: cap, cap, deadline: None }
+    }
+
+    /// The same body with a total deadline for reading it (must be called in a Tokio
+    /// runtime context).
+    pub(crate) fn with_deadline(mut self, budget: std::time::Duration) -> Self {
+        self.deadline = Some(Box::pin(tokio::time::sleep(budget)));
+        self
     }
 }
 
@@ -117,6 +128,12 @@ impl Body for CappedBody {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, HttpError>>> {
         let this = self.get_mut();
+        if let Some(d) = this.deadline.as_mut() {
+            if d.as_mut().poll(cx).is_ready() {
+                this.remaining = 0;
+                return Poll::Ready(Some(Err(HttpError::Timeout)));
+            }
+        }
         match Pin::new(&mut this.inner).poll_frame(cx) {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(data) = frame.data_ref() {
