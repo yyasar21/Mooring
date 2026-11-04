@@ -58,15 +58,17 @@ fn find(state: &AppState, session_id: &str) -> IpcResult<Found> {
 
 /// `session_attach` from `view` (`main` or `detached-<sessionId>`, checked by the guard):
 /// this view's channels take the session over, the previous view gets `detached`, frame
-/// credits reset and the next frame is full. RDP/VNC need `frames`, SSH refuses them; an SSH
-/// session reports size 0×0 (the view sends its own `resize`).
-pub fn attach_view(state: &AppState, session_id: &str, view: &str, sinks: Sinks) -> IpcResult<Attached> {
+/// credits reset and the next frame is full. RDP/VNC need `frames`; for SSH a `frames`
+/// channel is ignored (U3: the detached route does not know the protocol); an SSH session
+/// reports size 0×0 (the view sends its own `resize`).
+pub fn attach_view(state: &AppState, session_id: &str, view: &str, mut sinks: Sinks) -> IpcResult<Attached> {
     let found = find(state, session_id)?;
     let graphical = matches!(found.protocol, Protocol::Rdp | Protocol::Vnc);
-    match (graphical, sinks.frames.is_some()) {
-        (true, false) => return Err(IpcError::invalid("onFrame", "required for rdp and vnc")),
-        (false, true) => return Err(IpcError::invalid("onFrame", "only rdp and vnc sessions send frames")),
-        _ => {}
+    if graphical && sinks.frames.is_none() {
+        return Err(IpcError::invalid("onFrame", "required for rdp and vnc"));
+    }
+    if !graphical {
+        sinks.frames = None;
     }
     found.route.attach(view, sinks);
     Ok(found.attached)

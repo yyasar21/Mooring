@@ -282,3 +282,25 @@ fn sink_type_is_shareable() {
     assert!(sink(WireEvent::Closed { reason: "x".into(), code: mooring_core::CloseCode::User }));
     assert_eq!(*seen.lock().expect("lock"), 1);
 }
+
+/// U3: `session_attach` on an SSH session ignores an `onFrame` channel instead of refusing.
+#[tokio::test]
+async fn ssh_attach_ignores_a_frame_channel() {
+    let srv = server::start(209).await;
+    let (f, conn) = ssh_fixture(srv.port, "ssh");
+    let mut kh = mooring_proto_ssh::KnownHosts::new();
+    kh.add_hashed("127.0.0.1", srv.port, &srv.host_public).expect("add");
+    kh.save(&f.state.known_hosts_path()).expect("save");
+    let (first, mut rx) = sink();
+    let opened = open(&f.state, &conn, SIZE, first).await.expect("open");
+    assert_eq!(next(&mut rx).await["kind"], "connected");
+    let (events, mut rx2) = sink();
+    let frames: crate::frame_pump::FrameOut = Arc::new(|_| panic!("no frames for ssh"));
+    let sinks = crate::route::Sinks { events, frames: Some(frames) };
+    let att = crate::commands::detach::attach_view(&f.state, &opened.session_id, "main", sinks)
+        .expect("frames ignored for ssh");
+    assert_eq!((att.protocol, att.size.width), ("ssh", 0));
+    send(&f.state, &opened.session_id, WireInput::Bytes { data: b64("again") }).await.expect("send");
+    read_until(&mut rx2, "again").await;
+    close(&f.state, &opened.session_id).await.expect("close");
+}

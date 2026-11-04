@@ -101,6 +101,22 @@ fn main_reattach_replaces_its_channels_without_detached() {
     assert_eq!(new.kinds(), ["bytes"]);
 }
 
+/// U3: a detached view attaching again (React StrictMode double mount) tells only its
+/// previous channel; the fresh one never sees `detached`.
+#[test]
+fn detached_reattach_tells_only_the_previous_channel() {
+    let (main, first, second) = (View::new(), View::new(), View::new());
+    let route = Route::new(main.sinks(false));
+    route.attach(D, first.sinks(false));
+    route.attach(D, second.sinks(false));
+    assert_eq!(main.kinds(), ["detached"], "main is told once");
+    assert_eq!(first.kinds(), ["detached"], "the previous channel is told");
+    assert!(second.kinds().is_empty(), "the fresh channel is not");
+    assert!(route.event_sink()(bytes()));
+    assert_eq!(second.kinds(), ["bytes"]);
+    assert_eq!(route.view(), D);
+}
+
 #[test]
 fn main_can_take_the_session_back_from_a_detached_view() {
     let (main, det, main2) = (View::new(), View::new(), View::new());

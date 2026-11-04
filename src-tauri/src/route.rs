@@ -113,7 +113,10 @@ impl Route {
                 g.main = sinks;
                 g.on_detached = false;
             }
-            let lost = (before.0 != label).then_some(before.1);
+            // U3: a detached view that attaches again (StrictMode double mount) tells its
+            // previous channel, never the fresh one; `main` re-attaching tells nobody.
+            let again = before.0 == label && label.starts_with(DETACHED_PREFIX);
+            let lost = (before.0 != label || again).then_some(before.1);
             (lost, g.on_switch.clone())
         };
         if let Some(old) = lost {
