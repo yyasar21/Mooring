@@ -3995,10 +3995,37 @@ dependencies = [
  "proptest",
  "rusqlite",
  "secrecy",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "time",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-sync"
+version = "0.1.0-rc.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "hex",
+ "mooring-core",
+ "mooring-http",
+ "mooring-store",
+ "mooring-vault",
+ "proptest",
+ "rusty-s3",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
  "tracing",
  "uuid",
  "zeroize",
@@ -4039,11 +4066,13 @@ dependencies = [
  "argon2 0.5.3",
  "chacha20poly1305 0.10.1",
  "hex",
+ "hkdf",
  "proptest",
  "rand_core 0.6.4",
  "secrecy",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sysinfo",
  "thiserror 2.0.21",
  "tracing",
@@ -5848,6 +5877,20 @@ dependencies = [
  "quick-error 1.2.3",
  "tempfile",
  "wait-timeout",
+]
+
+[[package]]
+name = "rusty-s3"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1af5b74b316ee483ae486bd3cb206c8caa5dbb3cf0eab7269a868ae43aeece03"
+dependencies = [
+ "hmac 0.13.0",
+ "jiff",
+ "percent-encoding",
+ "sha2 0.11.1",
+ "url",
+ "zeroize",
 ]
 
 [[package]]

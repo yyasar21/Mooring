@@ -1,0 +1,16 @@
+{
+  "magic": "MOORINGVAULT",
+  "version": 2,
+  "vault_id": "6e657875-732d-4000-8000-746573747631",
+  "kdf": "argon2id",
+  "kdf_params": {
+    "m_kib": 8192,
+    "t": 1,
+    "p": 1
+  },
+  "salt": "6d6f6f722d766563746f722d73616c74",
+  "wrapped_dek": {
+    "nonce": "6d6f6f722d6e6f6e63652d2d000000000000000000000000",
+    "ciphertext": "fd5f50ebdf4942a7121cad98096866eb21695bd2cbe2715acae6dda68092455ceaa2aa9d9b06b8784d179ffc5a1c8608"
+  }
+}
