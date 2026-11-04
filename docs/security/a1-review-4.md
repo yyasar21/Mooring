@@ -332,3 +332,127 @@ apps/desktop: grep confirm(/alert(/innerHTML               none outside tests
 ```
 Not run: cargo-deny, cargo-audit, gitleaks, semgrep, pnpm audit, the vitest and E2E suites
 (the UI handoff reports them green), and the macOS and Windows builds.
+
+## Re-review (fix round 4)
+
+Reviewer: security-reviewer · 2026-11-04 · Range `git diff 0077e40..7821f45` (27 commits, 96
+files): rust-core, ui-engineer and qa fix round 4, plus the orchestrator merges. Inputs: the
+"Fix round 4" sections of `docs/handoff/a1-exit-*.md` and the amended ADR-0010.
+
+### Verdict: `APPROVE WITH NITS`
+
+**B-4 is closed as prescribed.** No local path string crosses the IPC boundary any more:
+- `sftp_pick_local` opens the native dialog from Rust with a callback and a `oneshot`.
+- `sftp_download` and `sftp_upload` take only an opaque `pick`.
+- The `main` capability is `["core:default"]`, and a test asserts it.
+- `@tauri-apps/plugin-dialog` is gone from `apps/desktop`.
+
+A grep of `src-tauri/src` and `apps/desktop/src` finds no `localDir`, `localPath` or
+`PathBuf::from` / `Path::new` of IPC input outside tests. The remaining `std::fs` calls in
+`src-tauri/src` all work on `data_dir`.
+
+M-8, M-9, M-10 and M-11 are fixed. So are L-15..L-18 and N-10..N-16. The L-18 deviation is
+approved (ruling below).
+
+New findings:
+- **M-12** (kubeconfig, Unicode case folding) joins M-11 as a gate on any Kubernetes consumer.
+  It does not block the A1 merge, because no consumer exists yet.
+- **L-19** (an upload replace resets the remote file mode) must be fixed before the first
+  public release.
+- Nits **N-17..N-22**.
+
+### Closure table
+
+| ID | Status | Evidence (file:line) |
+| --- | --- | --- |
+| **B-4** | **fixed** | `src-tauri/src/commands/sftp_pick.rs:112-137` (dialog in Rust, `oneshot`, epoch taken before the dialog opens, choice validated by `dialog_dir` / `LocalPath`); `src-tauri/src/picks.rs:100-175` (128-bit `OsRng` id, single-use, bound to session and mode, 10 min TTL, 64-entry cap, `clear` on lock + epoch refusal for a dialog open across a lock, one uniform `input.invalid "pick"`); `src-tauri/src/commands/sftp_transfers.rs:227-288` (download/upload consume the pick, `dialog_dir` + `LocalPath` kept as defence in depth); `src-tauri/src/commands/vault.rs:132`; `src-tauri/capabilities/main.json:6` = `["core:default"]`, asserted by `sftp_pick_tests.rs:131` (no `dialog:`, no `fs:`); no `plugin-dialog` in `apps/desktop/package.json` or `pnpm-lock.yaml`. Tests: forged, reused, foreign-session and expired picks, lock clears picks (`sftp_pick_tests.rs:27`, `:84`, `picks.rs:207-250`) |
+| B-4 · `sftp.exists` keeps the pick | **approved** | `picks.rs:141-167`, `sftp_transfers.rs:248-259`. The kept pick stays session-bound, mode-bound and inside its TTL, and the check runs under the store mutex. Keeping it gives a T5 nothing: it can already pass `overwrite: true` on the first call. The only new capability is an existence oracle for single-component names **inside the folder the user picked**, repeatable within 10 min. See N-18 |
+| B-4 · `dialog_open` vs the 5 s tick | **fixed, no race** | `autolock.rs:115-139`, `:203-211`. A counter (not a flag) is guarded by `DialogGuard`, whose `Drop` also runs when the IPC future is cancelled. While a dialog is open, every tick moves `blurred_at` forward, and the lock is skipped while `dialogs > 0`. On close, `blurred_at = max(b, now)` restarts the 60 s grace, and the close counts as activity. All three updates happen under the one `AutoLock` mutex, so a tick between the dialog's close and the window's `Focused(true)` sees a fresh grace. Idle and sleep locks still fire while a dialog is open, and the epoch check then discards the pick. See N-20 |
+| M-8 | **fixed** | `autolock.rs:44-53` (`forward_list`, `sftp_transfers` are passive); `src-tauri/ipc-passive.json`, kept in sync by `autolock_tests.rs:250` (`golden.rs:10`); `apps/desktop/src/lib/ipc.ts:137` `POLLED_COMMANDS`; `lib/polled.test.ts` traces every `setInterval` callback to its `ipc.*` methods and checks them against the Rust list. It ran here with 7/7 passing and nothing skipped |
+| M-9 | **fixed** | `autolock.rs:38` `BLUR_GRACE = 60 s`, `onWindowHidden` default unchanged, dialog exempt (above). Tests: `autolock_tests.rs:91`, `:115`, `:138`, `sftp_pick_tests.rs:113`. ADR-0010 §Auto-lock is amended (`docs/adr/0010-a1-exit-ipc.md:57`) |
+| M-10 | **fixed** | Rust: `commands/forward.rs:255-272` and `crates/mooring-proto-ssh/src/forward.rs:447-478`. External forwards are removed and shut down on every lock, which covers user, idle, sleep and window locks, since all go through `vault::lock` (`vault.rs:134`, `autolock.rs:236`). Each close is audited as `forward_closed` through `take_audit_events`. A remote forward's `cancel-tcpip-forward` is sent in the background, and the listener stops on the server side once the session ends. Test: `forward_tests.rs:113`. UI: `stores/app.ts:28-46` (`session_list` → adopt; transfers re-keyed through `sftp_transfers`); `sftp_transfers.rs:304-324`; E2E `557c4b4` |
+| M-11 | **fixed** | `fuzz/entries/kubeconfig.rs:24-45`. An independent `saphyr-parser` oracle asserts that an accepted file has no merge key and no forbidden key under `users[]` / `clusters[]` (ASCII case-insensitive). All the seeds named in the review are present in `fuzz/corpus/kubeconfig_parse/`, plus probes. The Kubernetes gate moves to **M-12** |
+| QA-F2 | **fixed (ASCII)**, see M-12 | `crates/mooring-core/src/credential/kubeconfig.rs:41`, `:145`, `:221-229`. A top-level `Users`/`CLUSTERS`/`Contexts` is rejected, and duplicate keys are detected ASCII case-insensitively at every level. The test is at `:331-355`. Mapping keys are compared as resolved scalars, so a quoted, escaped or tagged spelling resolves first (tags are refused anyway). **Not confirmed:** "non-ASCII lookalikes are irrelevant". See M-12 |
+| L-15 | **fixed** | `crates/mooring-proto-ssh/src/local_path.rs:61-66` (trailing `.`/space refused), `:121-132` (`check_target`); `sftp_transfer.rs:168-191`, `:224-245` (`persist_noclobber` when `overwrite == false`, so a target created mid-transfer is not replaced either); `sftp_transfers.rs:236-259`. Overwrite is still asserted by the WebView (N-17) |
+| L-16 | **fixed** | `crates/mooring-proto-ssh/src/sftp_upload.rs:78-146`. The part file is created with `CREATE\|EXCLUDE` under a random 32-bit suffix and moved with `posix-rename@openssh.com` or `remove` + `rename`. `PartGuard` closes the handle and removes the part file on failure and on drop. The existing remote file is never opened for writing. New issue: L-19 (mode) |
+| L-17 | **fixed** | `src-tauri/src/commands/syslog.rs:231-238`. On a redirect, the change is recorded while the old mirror is installed, then again on the new one. Test: `syslog_tests.rs:99` (two collectors) |
+| L-18 | **fixed, deviation approved** | `syslog.rs:140-166` (`audit_syslog_started` on every start that has a stored config), `:168-202` (hourly `audit_heartbeat`), `SECURITY.md:113-117` (alert on missing heartbeats) |
+| N-10 | **fixed** | moot: no `dialog:` permission at all |
+| N-11 | **fixed** | `apps/desktop/eslint.config.js:20-26`: `no-alert` and `no-restricted-globals` for `confirm`/`alert`/`prompt`. The plugin's `init-iife` is still injected, because the plugin stays registered for its Rust API. With the lint in place that is harmless |
+| N-12 | **fixed** | `crates/mooring-audit/src/syslog/format.rs` `SD_ID = "mooring@32473"`, stated in `SECURITY.md:116`. The IANA PEN request is still with the owner |
+| N-13 | **fixed** | `format.rs` (`trunc="1"`, `redacted="1"`, module doc), with tests |
+| N-14 | **fixed** | `src-tauri/ipc-codes.json` from `golden.rs:29-88`; `apps/desktop/src/stores/errors.codes.test.ts` (FRIENDLY ⊆ Rust codes, the mock throws only Rust codes) |
+| N-15 | **fixed** | `sftp_transfer.rs:62-77` `RemoveOnDrop` deletes the temp path when the transfer is dropped, and the test now waits for the final event. 1/1 full run green here; no flake seen |
+| N-16 | **fixed** | `commands/forward.rs:162-167` uses `mooring_core::validate_host`, and `crates/mooring-core/src/model.rs:171-197` now covers the whole Unicode 15.1 `Cf` category (checked against the UCD list: `00AD`, `0600-0605`, `061C`, `06DD`, `070F`, `0890-0891`, `08E2`, `180E`, `200B-200F`, `202A-202E`, `2060-2064`, `2066-206F`, `FEFF`, `FFF9-FFFB`, `110BD`, `110CD`, `13430-1343F`, `1BCA0-1BCA3`, `1D173-1D17A`, `E0001`, `E0020-E007F`). False positives: see the ruling and N-21 |
+
+### Rulings
+
+1. **L-18 deviation: approved.** The fix records `audit_syslog_started { enabled, host, port,
+   transport }` on every start that has a stored config, not "disabled at startup" only when
+   the config was previously enabled.
+   - "Previously enabled" would have to come from more plaintext state that a T2 can also edit,
+     so the narrower rule adds nothing.
+   - The extra entry per launch is cheap, and it carries inventory-class data only.
+   - When the mirror is running, the entry is written *after* `set_mirror`, so the collector
+     receives it.
+   - With `enabled: false`, or with the setting row deleted (`Ok(None)`, no entry), the entry
+     reaches only the local chain, which the same T2 can rewrite. **The control that actually
+     works against T2 is the collector alerting on a missing heartbeat.** R-SYSLOG is updated
+     to say so.
+2. **N-16 and hostnames: no false positive that matters.**
+   - `validate_host` accepts any non-`Cf`, non-control, non-whitespace character. It does no
+     IDNA mapping, and the system resolver is given the string as typed.
+   - IDN hosts are entered and resolved as A-labels (`xn--…`, ASCII) in practice.
+   - The only `Cf` characters that IDNA2008 allows inside U-labels are ZWJ and ZWNJ (CONTEXTJ,
+     for Persian and Indic labels). Both were already refused before this round. The user
+     enters such a host as its A-label, which works.
+   - Forward targets are IP literals or `localhost` on the bind side, so they are unaffected.
+3. **`sftp.exists` keeps the pick: safe** (closure table). A pick is consumed only once a
+   transfer actually starts.
+4. **A T5 can still trigger the native picker** (`sftp_pick_local` is IPC). This is accepted:
+   the user must choose in an OS dialog, and that choice is the trust anchor ADR-0010 wants.
+   What remains is R-SFTP-LOCAL. See N-17 and N-19.
+
+### New findings
+
+| ID | Sev | Where | Finding | Exact fix |
+| --- | --- | --- | --- | --- |
+| **M-12** | Medium | `crates/mooring-core/src/credential/kubeconfig.rs:145`, `:175-186` (`find_forbidden`), `:225`; `fuzz/entries/kubeconfig.rs:16-22` (oracle) | QA-F2 and M-5 assume that lenient consumers fold case **ASCII-only**. They do not. Go's `encoding/json` matches field names with `bytes.EqualFold`, which applies Unicode simple folding: `U+212A KELVIN SIGN` folds to `k` and `U+017F LATIN SMALL LETTER LONG S` folds to `s`. This is the very decoder class (via `sigs.k8s.io/yaml`) that the module doc names as the reason for case-insensitive checks. Neither character is `Cf` or control, so the whole-text filter lets them through. As a result, `to\u{212A}enFile`, `client-\u{212A}ey` and the section keys `u\u{017F}ers`, `cluster\u{017F}`, `context\u{017F}` are all accepted, and a duplicate check does not see `users` + `u\u{017F}ers` as duplicates. A file that a Go-`encoding/json`-style consumer reads as `tokenFile` / `client-key` (file read), or as a second `users:` section carrying `exec`, therefore passes. The oracle has the same ASCII-only blind spot, so the fuzzer cannot find this. (Current `client-go` decodes case-sensitively through `sigs.k8s.io/json`, so this is conditional on the consumer, which is the premise M-5 was built on.) | **rust-core + qa.** Simplest and complete: **refuse any non-ASCII mapping key anywhere in a kubeconfig** (`rejected("kubeconfig keys must be ASCII")`). Real kubeconfig keys are all ASCII; names and values are unaffected. Keep the ASCII-insensitive checks. QA: the oracle also refuses non-ASCII keys, and adds the seeds `users-kelvin-tokenFile` (`to\u{212A}enFile`), `users-kelvin-client-key` and `section-long-s-users` (`u\u{017F}ers:` beside `users:`). **Gate: no Kubernetes consumer before M-12** (it replaces M-11 as the open gate item) |
+| L-19 | Low | `crates/mooring-proto-ssh/src/sftp_upload.rs:94-95`, `sftp_transfer.rs:100` (`FileAttributes::empty()`) | Before L-16, an upload over an existing remote file truncated it in place and **kept its mode**. Now the part file is created with server defaults (OpenSSH: `0666 & ~umask`, typically `0644`) and renamed over the target. Replacing a `0600` file (a config with secrets, a key) therefore leaves it world-readable on the server. During the transfer, the hidden part file is also readable by other server users. | Create the part file with `permissions = 0o600` in the `open` attributes. Before the replace, `stat` the existing target (`NoSuchFile` → keep `0600`) and `fsetstat`/`setstat` the part file to the target's permission bits, never more permissive than they were. Test with the in-tree SFTP server: replace a `0600` file → the result is `0600`; a new file → `0600`. Before the first public release, together with L-15/L-16 |
+| N-17 | Nit | `sftp_transfers.rs:236-259` | `overwrite: true` is asserted by the WebView. The "Replace *name*?" prompt is UI-only, so a T5 skips it and can replace any single-component name (for example `.bashrc`) **inside the folder the user picked**. This is the same class as the advisory `external` confirmation, and it is accepted for A1 under R-SFTP-LOCAL. | A2: when `overwrite` is set and the target exists, confirm in Rust with a native message dialog (`app.dialog().message(..)` with the file name) before `persist`. |
+| N-18 | Nit | `picks.rs:141-167` | An `sftp.exists` refusal is repeatable without consuming the pick, which gives an unbounded existence oracle for names in the picked folder for 10 min. | Count refusals per pick and consume the pick after 3. |
+| N-19 | Nit | `sftp_pick.rs:112-137` | `sftp_pick_local` works while the vault is locked. A locked UI never asks for a pick, so a dialog over the lock screen can only come from a T5. | Refuse it with `vault.locked` while the vault is locked (transfers that are already running stay as they are, per ADR-0006). |
+| N-20 | Nit | `autolock.rs:203-211` | The dialog exemption has no upper bound. A picker left open (or one a T5 opens) suspends the `window_hidden` lock, and with it the only screen-lock trigger, until the idle lock fires or forever when idle is off. | Exempt focus loss for at most `PICK_TTL` (10 min) after the guard was taken. |
+| N-21 | Nit | `crates/mooring-core/src/model.rs:194-195` | The full-`Cf` set also refuses tag characters (`E0020-E007F`) in names and tags, which breaks the subdivision flag emoji (England, Scotland, Wales), and the Arabic number signs `0600-0605`. Both are rare in connection names. Validation runs only on write (`mooring-store` `connections.rs:75-77`), so existing rows still load. | Accepted. If users ask, allow `E0020-E007F` only inside a `U+1F3F4 … U+E007F` sequence. |
+| N-22 | Nit | `apps/desktop/src/test/rustContract.ts:26-31`, `lib/polled.test.ts`, `stores/errors.codes.test.ts` | The M-8 and N-14 guards **skip** when `ipc-passive.json` or `ipc-codes.json` is missing. Both files are now checked in, so a deleted or renamed file would silently turn off the gate. | Make a missing file a test failure (`ui-engineer`). |
+
+### Carried forward (after fix round 4)
+- **The B-4 condition for merge is met.** The A1-exit conditions that remain: `security.yml`
+  green (cargo-deny, cargo-audit, gitleaks, semgrep) and `mooring-app` built on macOS,
+  Windows and Linux. Neither was run here.
+- **Kubernetes gate:** M-5 ✓, L-10 ✓, M-11 ✓. **M-12 open.** R-YAML-DEQ's cargo-fuzz run
+  under ASan is still owed before any consumer.
+- **Before the first public release:** L-19 (with L-15 ✓ and L-16 ✓); switch `SD_ID` to the
+  registered IANA PEN (N-12).
+- **Fuzz targets still owed (CLAUDE.md rule):** `fingerprint::{ssh_public_key,
+  ssh_certificate, ssh_private_key, x509_pem}`, `otp::decode_seed`, `parse_account`,
+  `export_json` (QA decision 4), and the SOCKS handshake behind `fuzz-api`.
+- **The nightly fuzz job does not replay `fuzz/regressions/`** (QA handoff). This is
+  acceptable while the stable `fuzz_corpus` test replays them.
+- **Keyring HOLD (M1, R-T2-KR):** unchanged.
+- **Review 2 and review 3 items:** open as scheduled. This range does not touch them.
+- **N-17..N-22:** as scheduled above.
+
+### Test evidence (re-review)
+```
+Linux x86_64, 2026-11-04, CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target (shared, prebuilt)
+cargo test -p mooring-core      lib 70 passed; fuzz_corpus 5 passed; 0 failed
+cargo test -p mooring-app       lib 116 passed; e2e_flow 13 passed; 0 failed (1 full run, N-15 not seen)
+vitest run lib/polled.test.ts stores/errors.codes.test.ts   7 passed, 0 skipped
+grep localDir|localPath|local_dir|local_path  src-tauri/src apps/desktop/src   tests only
+grep PathBuf::from|Path::new  src-tauri/src (non-test)      golden.rs (CARGO_MANIFEST_DIR) only
+grep plugin-dialog  apps/desktop/package.json pnpm-lock.yaml   none
+capabilities/main.json permissions                          ["core:default"]
+```
+Not run: cargo-deny, cargo-audit, gitleaks, semgrep, pnpm audit, the full vitest and Playwright
+suites, cargo-fuzz, and the macOS and Windows builds.
