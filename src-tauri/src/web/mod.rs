@@ -5,6 +5,7 @@
 //! Tauri window with the guards; `commands::web` holds the IPC commands.
 
 pub mod policy;
+pub mod refusals;
 pub mod sweep;
 pub mod window;
 
@@ -77,6 +78,8 @@ pub struct WebEntry {
     pub opened_at: String,
     /// The main window's channel.
     pub sink: WebSink,
+    /// Audited-refusal budget (N-43).
+    pub refusals: Arc<refusals::RefusalBudget>,
 }
 
 impl std::fmt::Debug for WebEntry {
@@ -203,6 +206,12 @@ impl Storage {
             _ => None,
         }
     }
+}
+
+/// Count one refused navigation of `connection_id`'s window; `true` while it still gets a
+/// row of its own (N-43). An unregistered window (none yet) is always audited.
+pub fn refusal_audited(registry: &WebRegistry, connection_id: &str) -> bool {
+    registry.lock().ok().and_then(|m| m.get(connection_id).map(|e| e.refusals.refused())).unwrap_or(true)
 }
 
 /// Directory of the persistent store of `connection_id` (a canonical UUID string).

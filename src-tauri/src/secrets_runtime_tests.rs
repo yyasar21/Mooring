@@ -274,3 +274,34 @@ async fn a_lock_during_a_login_or_an_oidc_begin_leaves_nothing_behind() {
     assert_eq!(st.secrets.oidc.pending(), 0);
     assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "locked"));
 }
+
+/// Review 6 N-43: an OIDC window audits its first 16 refused navigations, counts the rest,
+/// is closed at 64 (`failed: navigation_flood`) and writes one summary row.
+#[tokio::test]
+async fn an_oidc_navigation_flood_closes_the_window_after_sixteen_audited_refusals() {
+    let v = fx::start_default().await;
+    let f = unlocked();
+    let st = &f.state;
+    let w = fx::windows(st);
+    let o = fx::oidc_source(st, &v);
+    let rt = &st.secrets;
+    let b = oidc_cmd::begin(st, &o.id).await.expect("begin");
+    let refused_rows = || audit_rows(st, "secret_refused").iter().filter(|r| r["action"] == "oidc_navigation").count();
+    for i in 0..63 {
+        assert!(!navigate(rt, &b.session_id, &format!("https://evil{i}.example.test/")));
+    }
+    assert_eq!(refused_rows(), 16, "one row per refusal up to 16, then counted");
+    assert_eq!(oidc_cmd::status(st, &b.session_id).expect("s").state, "pending");
+    assert!(w.closed.lock().expect("m").is_empty());
+    assert!(!navigate(rt, &b.session_id, "https://evil63.example.test/"));
+    let s = oidc_cmd::status(st, &b.session_id).expect("s");
+    assert_eq!((s.state, s.error.as_deref()), ("failed", Some("navigation_flood")));
+    assert_eq!(w.closed.lock().expect("m").as_slice(), std::slice::from_ref(&b.window_label));
+    assert_eq!(refused_rows(), 16);
+    let summary = audit_rows(st, "secret_refused_suppressed");
+    assert_eq!(summary.len(), 1);
+    assert_eq!((summary[0]["count"].as_u64(), summary[0]["action"].as_str()), (Some(48), Some("oidc_navigation")));
+    assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "navigation_flood"));
+    assert!(!navigate(rt, &b.session_id, "https://idp.example.test/"), "a failed flow loads nothing");
+    assert_eq!(v.srv.live_issued_tokens(), 0);
+}

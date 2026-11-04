@@ -119,6 +119,7 @@ fn list_and_forget() {
         ephemeral_dir: None,
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink,
+        refusals: Arc::default(),
     };
     f.state.web.lock().expect("m").insert("a".into(), entry);
     let rows = list(&f.state).expect("list");
@@ -209,6 +210,7 @@ fn start_sweeps_remove_orphans_only() {
         ephemeral_dir: Some(open.clone()),
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink: Arc::new(|_| true),
+        refusals: Arc::default(),
     };
     f.state.web.lock().expect("m").insert(keep.clone(), entry);
     assert_eq!(sweep::ephemeral_profiles(&f.state), 1);
@@ -232,4 +234,50 @@ fn oidc_window_storage_is_an_own_profile_on_windows() {
     std::fs::create_dir_all(dir.join("EBWebView")).expect("mk");
     assert_eq!(sweep::ephemeral_profiles(&f.state), 1, "leftover OIDC profile swept at start");
     assert!(!dir.exists());
+}
+
+/// Review 6 N-43: a web window audits its first 16 refused navigations one by one, counts the
+/// rest, and its close writes one `web_navigation_blocked_suppressed { count }` row.
+#[test]
+fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
+    let f = unlocked();
+    let entry = WebEntry {
+        label: "web-a".into(),
+        origin: "https://a.example.test".into(),
+        title: String::new(),
+        persistent: false,
+        ephemeral_dir: None,
+        opened_at: "2026-11-04T10:00:00Z".into(),
+        sink: Arc::new(|_| true),
+        refusals: Arc::default(),
+    };
+    f.state.web.lock().expect("m").insert("a".into(), entry);
+    assert!(refusal_audited(&f.state.web, "nope"), "an unknown window is always audited");
+    let audited = (0..40).filter(|_| refusal_audited(&f.state.web, "a")).count();
+    assert_eq!(audited, 16);
+    assert!(crate::commands::web::closed(&f.state, "a"));
+    let rows: Vec<serde_json::Value> = std::fs::read_to_string(f.state.data_dir.join(AppState::AUDIT_FILE))
+        .expect("log")
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .filter(|v: &serde_json::Value| v["event"] == "web_navigation_blocked_suppressed")
+        .collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0]["connection"].as_str(), rows[0]["count"].as_u64()), (Some("a"), Some(24)));
+    // A window that never exceeded the budget writes no summary.
+    let entry = WebEntry {
+        label: "web-b".into(),
+        origin: "https://b.example.test".into(),
+        title: String::new(),
+        persistent: false,
+        ephemeral_dir: None,
+        opened_at: "2026-11-04T10:00:00Z".into(),
+        sink: Arc::new(|_| true),
+        refusals: Arc::default(),
+    };
+    f.state.web.lock().expect("m").insert("b".into(), entry);
+    assert!(refusal_audited(&f.state.web, "b"));
+    assert!(crate::commands::web::closed(&f.state, "b"));
+    let events = crate::state::testing::audit_events(&f.state);
+    assert_eq!(events.iter().filter(|e| *e == "web_navigation_blocked_suppressed").count(), 1);
 }

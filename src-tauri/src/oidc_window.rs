@@ -27,6 +27,7 @@ use zeroize::Zeroizing;
 use crate::error::{IpcError, IpcResult};
 use crate::secrets_runtime::{ipc_error, SecretsRuntime};
 use crate::state::AppState;
+use crate::web::refusals::RefusalBudget;
 use crate::web::{self, Storage, StorageOs};
 
 /// Label prefix of an OIDC window.
@@ -67,6 +68,31 @@ struct Session {
     flow: Option<OidcFlow>,
     phase: Phase,
     started: Duration,
+    /// N-43: the first 16 refused navigations are audited, the rest counted.
+    refusals: RefusalBudget,
+}
+
+impl Session {
+    /// Leave `Pending` for `phase` (the window closes): the flow is dropped and the counted
+    /// refusals are written once (`secret_refused_suppressed`).
+    fn end(&mut self, rt: &SecretsRuntime, phase: Phase) {
+        self.phase = phase;
+        self.flow = None;
+        let suppressed = self.refusals.suppressed();
+        if suppressed > 0 {
+            rt.audit(mooring_audit::AuditEvent::SecretRefusedSuppressed {
+                source: self.source.id.to_string(),
+                action: "oidc_navigation".to_owned(),
+                count: u64::from(suppressed),
+            });
+        }
+    }
+
+    /// [`end`](Self::end) with `Failed(reason)`, audited `secret_refused { oidc, reason }`.
+    fn fail(&mut self, rt: &SecretsRuntime, reason: &str) {
+        self.end(rt, Phase::Failed(reason.to_owned()));
+        rt.refused(Some(self.source.id.to_string()), "oidc", reason);
+    }
 }
 
 /// `secret_source_oidc_status` result.
@@ -122,10 +148,8 @@ impl OidcSessions {
         let mut labels = Vec::new();
         for s in lock(&self.map).values_mut() {
             if matches!(s.phase, Phase::Pending | Phase::Exchanging) {
-                s.phase = Phase::Failed(reason.to_owned());
-                s.flow = None;
+                s.fail(rt, reason);
                 labels.push(s.label.clone());
-                rt.refused(Some(s.source.id.to_string()), "oidc", reason);
             }
         }
         self.close(labels);
@@ -140,9 +164,7 @@ impl OidcSessions {
     fn expire(rt: &SecretsRuntime, s: &mut Session) -> Option<String> {
         let now = rt.engine().cache().clock().now();
         if s.phase == Phase::Pending && now.saturating_sub(s.started) > OIDC_TIMEOUT {
-            s.phase = Phase::Failed("timeout".into());
-            s.flow = None;
-            rt.refused(Some(s.source.id.to_string()), "oidc", "timeout");
+            s.fail(rt, "timeout");
             return Some(s.label.clone());
         }
         None
@@ -186,7 +208,14 @@ pub async fn begin(rt: &Arc<SecretsRuntime>, source: SecretSource) -> IpcResult<
         if map.len() >= MAX_FINISHED {
             map.retain(|_, s| matches!(s.phase, Phase::Pending | Phase::Exchanging));
         }
-        let s = Session { source: source.clone(), label: label.clone(), flow: Some(flow), phase: Phase::Pending, started };
+        let s = Session {
+            source: source.clone(),
+            label: label.clone(),
+            flow: Some(flow),
+            phase: Phase::Pending,
+            started,
+            refusals: RefusalBudget::default(),
+        };
         map.insert(session.clone(), s);
     }
     if let Err(e) = windows.open(&label, &url, &session) {
@@ -199,9 +228,7 @@ pub async fn begin(rt: &Arc<SecretsRuntime>, source: SecretSource) -> IpcResult<
     if cache.epoch() != epoch {
         if let Some(s) = lock(&rt.oidc.map).get_mut(&session) {
             if s.phase == Phase::Pending {
-                s.phase = Phase::Failed("locked".into());
-                s.flow = None;
-                rt.refused(Some(source.id.to_string()), "oidc", "locked");
+                s.fail(rt, "locked");
             }
         }
         windows.close(&label);
@@ -256,17 +283,28 @@ pub fn navigate(rt: &Arc<SecretsRuntime>, session: &str, url: &str) -> bool {
         match (s.phase.clone(), s.flow.as_ref().map(|f| f.navigation(url))) {
             (Phase::Pending, Some(Navigation::Allow)) => true,
             (Phase::Pending, Some(Navigation::Callback { .. })) => {
-                s.phase = Phase::Exchanging;
-                exchange = s.flow.take().map(|f| (s.source.clone(), f));
+                let flow = s.flow.take();
+                s.end(rt, Phase::Exchanging);
+                exchange = flow.map(|f| (s.source.clone(), f));
                 close = Some(s.label.clone());
                 false
             }
             (Phase::Pending, Some(Navigation::Deny)) if parse_callback(url).is_some() => {
                 // The redirect with a foreign state or an IdP error: the flow is over.
-                s.phase = Phase::Failed("state_mismatch".into());
-                s.flow = None;
+                s.end(rt, Phase::Failed("state_mismatch".into()));
                 close = Some(s.label.clone());
                 rt.refused(Some(source), "oidc_navigation", "state_mismatch");
+                false
+            }
+            (Phase::Pending, _) => {
+                // N-43: the first 16 refusals get a row each; a flood closes the window.
+                if s.refusals.refused() {
+                    rt.refused(Some(source), "oidc_navigation", &origin_of(url));
+                }
+                if s.refusals.flooded() {
+                    s.fail(rt, "navigation_flood");
+                    close = Some(s.label.clone());
+                }
                 false
             }
             _ => {
@@ -300,9 +338,7 @@ pub fn navigate(rt: &Arc<SecretsRuntime>, session: &str, url: &str) -> bool {
 pub fn window_destroyed(rt: &SecretsRuntime, session: &str) {
     if let Some(s) = lock(&rt.oidc.map).get_mut(session) {
         if s.phase == Phase::Pending {
-            s.phase = Phase::Failed("closed".into());
-            s.flow = None;
-            rt.refused(Some(s.source.id.to_string()), "oidc", "closed");
+            s.fail(rt, "closed");
         }
     }
 }

@@ -271,6 +271,26 @@ fn confirm_refused_has_a_stable_wire_name() {
 }
 
 #[test]
+fn suppressed_refusal_summaries_have_stable_wire_names() {
+    let web = AuditEvent::WebNavigationBlockedSuppressed { connection: "c".to_owned(), count: 40 };
+    let v = serde_json::to_value(&web).expect("json");
+    assert_eq!(
+        (v["event"].clone(), v["count"].clone()),
+        ("web_navigation_blocked_suppressed".into(), 40.into())
+    );
+    let oidc = AuditEvent::SecretRefusedSuppressed {
+        source: "s".to_owned(),
+        action: "oidc_navigation".to_owned(),
+        count: 48,
+    };
+    let v = serde_json::to_value(&oidc).expect("json");
+    assert_eq!(
+        (v["event"].clone(), v["count"].clone()),
+        ("secret_refused_suppressed".into(), 48.into())
+    );
+}
+
+#[test]
 fn secret_events_have_stable_wire_names() {
     let s = |v: &str| v.to_owned();
     let cases = [

@@ -140,6 +140,16 @@ pub enum AuditEvent {
         /// Error code, or the refused origin of a navigation.
         detail: String,
     },
+    /// Refusals of one OIDC window beyond the first 16, counted and written once when the
+    /// window closes (`secret.refused_suppressed`, review 6 N-43).
+    SecretRefusedSuppressed {
+        /// Source id.
+        source: String,
+        /// `oidc_navigation`.
+        action: String,
+        /// Refusals that got no row of their own.
+        count: u64,
+    },
     /// Vault exported (`format`: `age`, `json`, ...).
     VaultExported {
         /// Export format.
@@ -439,6 +449,14 @@ pub enum AuditEvent {
         connection: String,
         /// Refused origin only: paths may carry tokens.
         origin: String,
+    },
+    /// Refused navigations of a web window beyond the first 16, counted and written once
+    /// when the window closes (`web.navigation_blocked_suppressed`, review 6 N-43).
+    WebNavigationBlockedSuppressed {
+        /// Connection id.
+        connection: String,
+        /// Refusals that got no row of their own.
+        count: u64,
     },
     /// A download from a web window was refused (`web.download_blocked`).
     WebDownloadBlocked {
