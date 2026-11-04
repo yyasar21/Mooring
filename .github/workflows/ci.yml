@@ -39,6 +39,8 @@ jobs:
           set -o pipefail
           cargo clippy --workspace --all-targets --message-format=short -- -D warnings 2>&1 | tee clippy.log || {
             grep -aE ": (error|warning)(\[E[0-9]+\])?: " clippy.log | head -60 | sed 's/^/::error::/'
+            echo "::group::clippy tail"; tail -n 40 clippy.log; echo "::endgroup::"
+            tail -n 12 clippy.log | sed 's/^/::error::tail: /'
             exit 1
           }
       - name: cargo test

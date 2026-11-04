@@ -8,6 +8,7 @@
 //! Every server binds `127.0.0.1` only. Run them by hand with the `rfb-testsrv` and
 //! `rdp-testsrv` binaries (docs/qa/test-servers.md).
 
+#![forbid(unsafe_code)]
 // Pedantic allow-list for this dev-only crate, each with a reason:
 // protocol message names (VeNCrypt, ServerInit, CopyRect, ...) are spec terms, not code items;
 // geometry code uses x / y / w / h / r like the specs do.

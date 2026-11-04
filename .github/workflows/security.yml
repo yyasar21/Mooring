@@ -45,7 +45,18 @@ jobs:
     container: { image: semgrep/semgrep }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: semgrep scan --config p/rust --config p/typescript --config p/secrets --error --sarif --output semgrep.sarif
+      - run: |
+          semgrep scan --config p/rust --config p/typescript --config p/secrets --error --sarif --output semgrep.sarif || {
+            python3 - <<'PY'
+          import json
+          d = json.load(open("semgrep.sarif"))
+          for run in d.get("runs", []):
+              for r in run.get("results", []):
+                  loc = r["locations"][0]["physicalLocation"]
+                  print("::error file=%s,line=%s::%s: %s" % (loc["artifactLocation"]["uri"], loc["region"]["startLine"], r["ruleId"].split(".")[-1], r["message"]["text"][:200].replace("\n", " ")))
+          PY
+            exit 1
+          }
       - uses: github/codeql-action/upload-sarif@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2
         if: always()
         with: { sarif_file: semgrep.sarif }
