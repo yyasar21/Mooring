@@ -8,6 +8,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |
 | 2026-11-04 | A3 | rust-core | [a3-rust-core-k1.md](a3-rust-core-k1.md) · [k2](a3-rust-core-k2.md) · [k3](a3-rust-core-k3.md) · [k4](a3-rust-core-k4.md) · [v1](a3-rust-core-v1.md) · [v2](a3-rust-core-v2.md) · [e1](a3-rust-core-e1.md) · [e2](a3-rust-core-e2.md) · [s1](a3-rust-core-s1.md) · [s2 + integration](a3-rust-core-s2.md) |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u1.md](a3-ui-u1.md) — typed IPC, Kubernetes cluster browser, exec, logs, pod forwards |
+| 2026-11-04 | A3 | ui-engineer | [a3-ui-u3.md](a3-ui-u3.md) — secret sources, external_ref form, vault sync settings, join flow |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u2.md](a3-ui-u2.md) — vSphere import wizard, synced-tree badges, VM power/consoles, sync panel |
 | 2026-11-04 | A2 | rust-core | [a2-rust-core-review5-nits.md](a2-rust-core-review5-nits.md) — review 5 L-29, L-30, N-30..N-32, N-35, N-37, N-38 closed; ADR-0014 amendment (`kube.refused`); Cargo.lock: russh `flate2` feature dropped |
 | 2026-11-04 | A3 | qa-engineer | [a3-qa.md](a3-qa.md) — kube/vcenter/vault/s3 mock servers, fuzz scaffolding (Cargo.lock: +httpdate 1.0.3) |
