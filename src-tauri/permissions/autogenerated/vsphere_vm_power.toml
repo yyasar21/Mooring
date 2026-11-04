@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vsphere-vm-power"
+description = "Enables the vsphere_vm_power command without any pre-configured scope."
+commands.allow = ["vsphere_vm_power"]
+
+[[permission]]
+identifier = "deny-vsphere-vm-power"
+description = "Denies the vsphere_vm_power command without any pre-configured scope."
+commands.deny = ["vsphere_vm_power"]

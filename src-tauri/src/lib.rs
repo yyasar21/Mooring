@@ -30,6 +30,8 @@ test_util_pub!(guard, route, web, window_lock);
 test_util_pub!(kube_sessions);
 // ADR-0017 (A3 S2): vault-sync hub and interval runner.
 test_util_pub!(sync_runner);
+// ADR-0015 (A3 V2): vCenter sync hub and refresh scheduler.
+test_util_pub!(scheduler, vsphere_sync);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -58,6 +60,8 @@ use crate::commands::{detach, web as web_cmds};
 use crate::commands::{kube, kube_logs};
 // ADR-0017 §5 (A3 S2)
 use crate::commands::{sync as sync_cmds, sync_join};
+// ADR-0015 §5 (A3 V2)
+use crate::commands::{vsphere, vsphere_console};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -69,8 +73,8 @@ use crate::state::{AppState, Settings};
 pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
-        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`); the `main`
-        // capability grants the WebView no dialog permission.
+        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`, ADR-0015 power /
+        // certificate / VMRC confirmations); the `main` capability grants no dialog permission.
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
@@ -186,6 +190,16 @@ pub fn run() {
             sync_cmds::sync_resolve_fork,
             sync_cmds::sync_disable,
             sync_join::vault_join,
+            // ADR-0015 §5 (A3 V2)
+            vsphere::vsphere_test,
+            vsphere::vsphere_sync_enable,
+            vsphere::vsphere_sync_disable,
+            vsphere::vsphere_refresh,
+            vsphere::vsphere_status,
+            vsphere_console::vsphere_vm_power,
+            vsphere_console::vsphere_vm_action,
+            vsphere_console::vsphere_vm_identity,
+            vsphere_console::vsphere_console,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

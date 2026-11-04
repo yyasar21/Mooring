@@ -70,6 +70,12 @@ pub enum StoreError {
     #[error("{0}")]
     Credential(CredentialError),
 
+    /// An ordinary edit inside a vSphere-synced subtree (ADR-0015 §2): create, rename, move
+    /// or delete. Only the overlays (credential, tags, overrides, options, a folder's default
+    /// credential) may change there. IPC code `tree.synced_readonly`.
+    #[error("this item is synced from vCenter and is read-only")]
+    SyncedReadOnly,
+
     /// A stored value could not be decoded (bad UUID, timestamp, enum or sealed JSON).
     #[error("corrupt {what} in database")]
     Corrupt {

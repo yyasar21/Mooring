@@ -33,7 +33,7 @@ async fn wrong_password_is_vsphere_auth() {
     let m = serve().await;
     let bad = SecretString::from("nope".to_owned());
     let e = VsphereClient::login(m.base(), UPN, &bad, m.config()).await.expect_err("refused");
-    assert_eq!(e.code(), "vsphere.auth");
+    assert_eq!(e.code(), "vsphere.auth_failed");
     assert!(!e.to_string().contains("nope"));
 }
 
@@ -75,11 +75,11 @@ async fn locked_vault_or_no_source_ends_with_auth() {
     let m = serve().await;
     let s = m.login().await;
     m.vc.expire();
-    assert_eq!(s.datacenters().await.expect_err("no source").code(), "vsphere.auth");
+    assert_eq!(s.datacenters().await.expect_err("no source").code(), "vsphere.auth_failed");
 
     let s = m.login().await.with_reauth(Arc::new(|| None));
     m.vc.expire();
-    assert_eq!(s.datacenters().await.expect_err("locked").code(), "vsphere.auth");
+    assert_eq!(s.datacenters().await.expect_err("locked").code(), "vsphere.auth_failed");
 }
 
 #[tokio::test]
@@ -90,7 +90,7 @@ async fn persistent_401_does_not_loop() {
         .login()
         .await
         .with_reauth(Arc::new(|| Some(Credential { upn: UPN.into(), password: password() })));
-    assert_eq!(s.datacenters().await.expect_err("401").code(), "vsphere.auth");
+    assert_eq!(s.datacenters().await.expect_err("401").code(), "vsphere.auth_failed");
     assert_eq!(m.vc.count("POST", "/api/session"), 2, "exactly one re-login");
     assert_eq!(m.vc.count("GET", "/api/vcenter/datacenter"), 2);
 }

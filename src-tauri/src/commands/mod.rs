@@ -45,3 +45,9 @@ pub mod sync_config;
 pub mod sync_gate;
 pub mod sync_join;
 pub mod sync_local;
+// ADR-0015 §5 (A3 V2): vSphere sync, VM power, consoles.
+pub mod vsphere;
+pub mod vsphere_confirm;
+pub mod vsphere_console;
+pub mod vsphere_login;
+pub mod vsphere_vm;

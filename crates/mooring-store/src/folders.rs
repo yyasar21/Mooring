@@ -1,11 +1,13 @@
 //! Folder CRUD and the tree invariants of `mooring_core::tree` enforced in SQL:
 //! exactly one root, parents must exist, the root cannot be moved, and a move may not create
-//! a cycle. Deleting a folder cascades to sub-folders, connections and their tags.
+//! a cycle. Deleting a folder cascades to sub-folders, connections and their tags. Inside a
+//! vSphere-synced subtree create / rename / move / delete fail with `SyncedReadOnly`.
 
 use mooring_core::{CredentialId, Folder, FolderId};
 use rusqlite::{params, OptionalExtension, Row};
 
 use crate::error::{not_found, Result, StoreError};
+use crate::sync::ensure_folder_editable;
 use crate::util::{check_name, fmt_ts, now, parse_id, parse_opt_id};
 use crate::Store;
 
@@ -36,6 +38,7 @@ impl Store {
             if !folder_exists(&tx, p)? {
                 return Err(not_found("folder", &p));
             }
+            ensure_folder_editable(&tx, p)?;
         } else {
             let roots: i64 =
                 tx.query_row("SELECT count(*) FROM folder WHERE parent_id IS NULL", [], |r| {
@@ -92,6 +95,7 @@ impl Store {
     /// Rename a folder.
     pub fn rename_folder(&self, id: FolderId, name: &str) -> Result<()> {
         let name = check_name("name", name)?;
+        ensure_folder_editable(&self.conn, id)?;
         let n = self.conn.execute(
             "UPDATE folder SET name = ?2, updated_at = ?3 WHERE id = ?1",
             params![id.to_string(), name, fmt_ts(now())?],
@@ -143,6 +147,8 @@ impl Store {
         if !folder_exists(&tx, new_parent)? {
             return Err(not_found("folder", &new_parent));
         }
+        ensure_folder_editable(&tx, id)?;
+        ensure_folder_editable(&tx, new_parent)?;
         if id == new_parent || is_ancestor_or_cyclic(&tx, id, new_parent)? {
             return Err(StoreError::Tree("move would create a cycle".into()));
         }
@@ -174,6 +180,7 @@ impl Store {
             Some(None) => return Err(StoreError::Tree("the root folder cannot be deleted".into())),
             Some(Some(_)) => {}
         }
+        ensure_folder_editable(&tx, id)?;
         tx.execute("DELETE FROM folder WHERE id = ?1", [id.to_string()])?;
         tx.commit()?;
         Ok(())

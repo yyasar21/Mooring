@@ -64,7 +64,7 @@ fn unknown_fields_wrong_protocol_and_closed_lists_are_refused() {
     }
     assert!(ProtocolOptions::default_for(Protocol::Vnc).fits(Protocol::Vnc));
     assert!(!ProtocolOptions::default_for(Protocol::Vnc).fits(Protocol::Rdp));
-    assert!(ProtocolOptions::default_for(Protocol::VsphereConsole).fits(Protocol::Ssh));
+    assert!(!ProtocolOptions::default_for(Protocol::VsphereConsole).fits(Protocol::Ssh));
     assert!(!ProtocolOptions::default_for(Protocol::Kubernetes).fits(Protocol::Ssh));
 }
 

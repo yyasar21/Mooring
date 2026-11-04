@@ -3982,6 +3982,7 @@ dependencies = [
  "mooring-sync",
  "mooring-testsrv",
  "mooring-vault",
+ "mooring-vsphere",
  "rand_core 0.6.4",
  "russh",
  "russh-sftp",

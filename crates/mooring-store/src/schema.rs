@@ -15,14 +15,14 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use crate::error::{Result, StoreError};
 
-/// `(version, sql)`, strictly increasing. Never edit a shipped script; add a new one.
+/// `(version, sql)`, contiguous from 1. Never edit a shipped script; add a new one.
 const MIGRATIONS: &[(u32, &str)] = &[
     (1, include_str!("../migrations/0001_init.sql")),
     (2, include_str!("../migrations/0002_fts_secure_delete.sql")),
     (3, include_str!("../migrations/0003_typed_credentials.sql")),
     (4, include_str!("../migrations/0004_migrated_username.sql")),
     (5, include_str!("../migrations/0005_connection_options.sql")),
-    // TODO(merge): (6, 0006_vsphere_sync.sql) lands with A3 V2.
+    (6, include_str!("../migrations/0006_vsphere_sync.sql")),
     (7, include_str!("../migrations/0007_secret_sources.sql")),
 ];
 
@@ -183,10 +183,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrations_are_strictly_increasing_and_end_at_latest() {
+    fn migrations_are_contiguous_and_end_at_latest() {
         let mut prev = 0;
         for (v, _) in MIGRATIONS {
-            assert!(*v > prev, "migration versions must increase");
+            // A gap would be skipped forever by a database already past it.
+            assert_eq!(*v, prev + 1, "migration versions must be contiguous");
             prev = *v;
         }
         assert_eq!(prev, LATEST);

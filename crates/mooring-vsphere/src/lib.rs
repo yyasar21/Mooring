@@ -26,7 +26,8 @@ mod power;
 mod session;
 
 pub use console::{
-    parse_vmrc_ticket, vsphere_client_url, VmrcUrl, MAX_TICKET_URL, VMRC_TICKET_TTL,
+    parse_vmrc_ticket, parse_vmrc_ticket_for, vsphere_client_url, VmrcUrl, MAX_TICKET_URL,
+    VMRC_TICKET_TTL,
 };
 pub use diff::{
     diff, Change, ExternalId, Inventory, InventoryDiff, InventoryItem, ItemKind,
@@ -39,9 +40,9 @@ pub use inventory::{
     MAX_VMS_CEILING,
 };
 pub use model::{
-    ClusterSummary, DatacenterSummary, GuestIdentity, HostConnectionState, HostPowerState,
-    HostSummary, Localizable, PowerState, VmCpu, VmIdentity, VmInfo, VmMemory, VmSummary,
-    MAX_CLUSTERS, MAX_DATACENTERS, MAX_HOSTS, MAX_LIST,
+    ApplianceVersion, ClusterSummary, DatacenterSummary, GuestIdentity, HostConnectionState,
+    HostPowerState, HostSummary, Localizable, PowerState, VmCpu, VmIdentity, VmInfo, VmMemory,
+    VmSummary, MAX_CLUSTERS, MAX_DATACENTERS, MAX_HOSTS, MAX_LIST,
 };
 pub use power::{PowerAction, PowerApproval, PowerAudit, PowerOutcome};
 pub use session::{

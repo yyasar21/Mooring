@@ -65,6 +65,9 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "kube_pods",
     // ADR-0017 (A3 S2): the sync badge polls it.
     "sync_status",
+    // ADR-0015: sync status and VM power badges (cached / last refresh).
+    "vsphere_status",
+    "vsphere_vm_power",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

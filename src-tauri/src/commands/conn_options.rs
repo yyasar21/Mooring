@@ -46,6 +46,10 @@ pub fn set(
     if let Some(event) = changes(connection_id, protocol.name(), before.as_ref(), &after) {
         state.audit(event);
     }
+    if protocol == mooring_core::Protocol::VsphereConsole {
+        // ADR-0015: a new refresh interval takes effect now.
+        crate::scheduler::ensure(&crate::vsphere_sync::VsCtx::of(state), id);
+    }
     Ok(after)
 }
 
@@ -74,7 +78,7 @@ fn changes(
     let is = |key: &str, want: &serde_json::Value| changed.iter().any(|k| k == key) && new.get(key) == Some(want);
     let ca = new.get("caPem").and_then(serde_json::Value::as_str).filter(|_| changed.iter().any(|k| k == "caPem"));
     let weakened = ca.is_some()
-        || ["allowTlsWithoutNla", "allowHttp", "persistent", "allowNoAuth"]
+        || ["allowTlsWithoutNla", "allowHttp", "persistent", "allowNoAuth", "allowPowerActions", "allowVmrc"]
             .iter()
             .any(|k| is(k, &serde_json::Value::Bool(true)))
         || is("security", &serde_json::Value::from("allow_plaintext"));

@@ -95,12 +95,25 @@ pub fn parse_vmrc_ticket(
     vcenter_host: &str,
     vm: &MoId,
 ) -> Result<Zeroizing<String>, VsphereError> {
+    parse_vmrc_ticket_for(raw, &[vcenter_host], vm)
+}
+
+/// [`parse_vmrc_ticket`] with several acceptable hosts: the connected host plus the DNS
+/// names of the vCenter certificate the connection trusted (V2 decision: a vCenter reached by
+/// IP or alias issues tickets for its FQDN; the certificate that passed the pin / TOFU / CA
+/// check vouches for that name).
+pub fn parse_vmrc_ticket_for(
+    raw: &str,
+    hosts: &[&str],
+    vm: &MoId,
+) -> Result<Zeroizing<String>, VsphereError> {
     let bad = VsphereError::BadResponse("VMRC ticket");
     if raw.is_empty() || raw.len() > MAX_TICKET_URL || !raw.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(bad);
     }
     let url = Url::parse(raw).map_err(|_| VsphereError::BadResponse("VMRC ticket"))?;
-    let host_ok = url.host_str().is_some_and(|h| h.eq_ignore_ascii_case(vcenter_host));
+    let host_ok =
+        url.host_str().is_some_and(|h| hosts.iter().any(|want| h.eq_ignore_ascii_case(want)));
     let mut moids = url.query_pairs().filter(|(k, _)| k == "moid");
     let moid_ok = moids.next().is_some_and(|(_, v)| v == vm.as_str()) && moids.next().is_none();
     if url.scheme() != "vmrc" || url.fragment().is_some() || !host_ok || !moid_ok {
@@ -131,7 +144,10 @@ impl Session {
         let t: TicketResponse = decode_json(&r.body)?;
         let raw = Zeroizing::new(t.ticket);
         let host = self.base.host_str().ok_or(VsphereError::Invalid("vCenter URL has no host"))?;
-        let url = parse_vmrc_ticket(&raw, host, vm)?;
+        let extra = self.ticket_hosts();
+        let mut hosts: Vec<&str> = vec![host];
+        hosts.extend(extra.iter().map(String::as_str));
+        let url = parse_vmrc_ticket_for(&raw, &hosts, vm)?;
         Ok(VmrcUrl { url, vm: vm.clone(), issued_at: OffsetDateTime::now_utc() })
     }
 }
@@ -186,6 +202,9 @@ mod tests {
         let long =
             format!("vmrc://clone:{}@vc.example.test/?moid=vm-42", "a".repeat(MAX_TICKET_URL));
         assert!(parse_vmrc_ticket(&long, "vc.example.test", &vm).is_err());
+        let alias = "vmrc://clone:x@vc.example.test/?moid=vm-42";
+        assert!(parse_vmrc_ticket(alias, "192.0.2.5", &vm).is_err());
+        assert!(parse_vmrc_ticket_for(alias, &["192.0.2.5", "vc.example.test"], &vm).is_ok());
     }
 
     #[test]

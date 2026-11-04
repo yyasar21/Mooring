@@ -101,4 +101,14 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("sync_resolve_fork", Scope::Main),
     ("sync_disable", Scope::Main),
     ("vault_join", Scope::Main),
+    // ADR-0015 §5 (A3 V2)
+    ("vsphere_test", Scope::Main),
+    ("vsphere_sync_enable", Scope::Main),
+    ("vsphere_sync_disable", Scope::Main),
+    ("vsphere_refresh", Scope::Main),
+    ("vsphere_status", Scope::Main),
+    ("vsphere_vm_power", Scope::Main),
+    ("vsphere_vm_action", Scope::Main),
+    ("vsphere_vm_identity", Scope::Main),
+    ("vsphere_console", Scope::Main),
 ];

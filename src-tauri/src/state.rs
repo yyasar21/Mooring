@@ -175,6 +175,8 @@ pub struct AppState {
     pub web: crate::web::WebRegistry,
     /// Hides / shows the web and detached windows on lock / unlock (ADR-0013).
     pub lock_observer: crate::window_lock::LockObserver,
+    /// vCenter sessions, refresh status and schedulers (ADR-0015).
+    pub vsphere: crate::vsphere_sync::VsphereHub,
 }
 
 /// Errors while loading state at startup.
@@ -237,6 +239,7 @@ impl AppState {
             copied_credential: Arc::new(Mutex::new(None)),
             web: crate::web::WebRegistry::default(),
             lock_observer: crate::window_lock::LockObserver::default(),
+            vsphere: crate::vsphere_sync::VsphereHub::default(),
         })
     }
 

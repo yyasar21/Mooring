@@ -12,5 +12,7 @@
   "sync_status",
   "syslog_get",
   "vault_status",
+  "vsphere_status",
+  "vsphere_vm_power",
   "web_list"
 ]

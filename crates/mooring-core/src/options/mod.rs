@@ -5,12 +5,13 @@
 //! struct applies is decided by the connection's protocol, never by the JSON itself, so there
 //! is no tag: parse with [`ProtocolOptions::from_value`] / [`ProtocolOptions::from_json`] and the
 //! protocol at hand. Every field has a default, so `{}` (the migration default) is a valid RDP,
-//! VNC or Kubernetes (ADR-0014) options object; protocols without options (SSH, vSphere
-//! console) accept only `{}`. Existing Kubernetes rows (`{}`) therefore need no migration.
+//! VNC, Kubernetes (ADR-0014) or vSphere (ADR-0015) options object; SSH has no options and
+//! accepts only `{}`. Existing Kubernetes rows (`{}`) therefore need no migration.
 //! Values are validated on write *and* re-validated on read (the database is not trusted
 //! more than the UI). The text is capped at [`MAX_OPTIONS_JSON`].
 
 mod conn;
+mod vsphere;
 
 use std::time::Duration;
 
@@ -20,6 +21,9 @@ pub use conn::{
     ExecCommand, KubeConnOptions, RdpConnOptions, VncConnOptions, VncSecurity, WebConnOptions,
     DEFAULT_KEYBOARD_LAYOUT, KEYBOARD_LAYOUTS, LOG_TAIL_LINES, MAX_ALLOWED_NAMESPACES,
     MAX_ALLOWED_ORIGINS, MAX_LOG_BYTES, MAX_URL,
+};
+pub use vsphere::{
+    VsphereConnOptions, DEFAULT_REFRESH_MINUTES, MAX_REFRESH_MINUTES, MIN_REFRESH_MINUTES,
 };
 
 use crate::error::{MooringError, Result};
@@ -117,7 +121,9 @@ pub enum ProtocolOptions {
     Web(WebConnOptions),
     /// Kubernetes (ADR-0014).
     Kube(KubeConnOptions),
-    /// SSH, vSphere console: `{}`.
+    /// vCenter / synced VM rows (ADR-0015).
+    Vsphere(VsphereConnOptions),
+    /// SSH: `{}`.
     None(NoOptions),
 }
 
@@ -130,7 +136,8 @@ impl ProtocolOptions {
             Protocol::Vnc => Self::Vnc(VncConnOptions::default()),
             Protocol::Web => Self::Web(WebConnOptions::default()),
             Protocol::Kubernetes => Self::Kube(KubeConnOptions::default()),
-            Protocol::Ssh | Protocol::VsphereConsole => Self::None(NoOptions {}),
+            Protocol::VsphereConsole => Self::Vsphere(VsphereConnOptions::default()),
+            Protocol::Ssh => Self::None(NoOptions {}),
         }
     }
 
@@ -144,9 +151,8 @@ impl ProtocolOptions {
             Protocol::Vnc => serde_json::from_value(value).map(Self::Vnc),
             Protocol::Web => serde_json::from_value(value).map(Self::Web),
             Protocol::Kubernetes => serde_json::from_value(value).map(Self::Kube),
-            Protocol::Ssh | Protocol::VsphereConsole => {
-                serde_json::from_value(value).map(Self::None)
-            }
+            Protocol::VsphereConsole => serde_json::from_value(value).map(Self::Vsphere),
+            Protocol::Ssh => serde_json::from_value(value).map(Self::None),
         }
         .map_err(|e| invalid(serde_reason(&e)))?;
         parsed.validate()?;
@@ -184,6 +190,7 @@ impl ProtocolOptions {
             Self::Vnc(o) => o.validate(),
             Self::Web(o) => o.validate(),
             Self::Kube(o) => o.validate(),
+            Self::Vsphere(o) => o.validate(),
             Self::None(_) => Ok(()),
         }
     }
