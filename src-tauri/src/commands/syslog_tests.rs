@@ -127,8 +127,48 @@ fn stored_config_restarts_with_a_new_process() {
         .expect("reload");
     start_stored(&again);
     assert!(again.audit.lock().expect("log").mirror().is_some(), "mirror running before unlock");
+    let started = recv(&server);
+    assert!(started.contains(" audit_syslog_started "), "the collector sees the start: {started}");
+    assert!(started.contains(r#""enabled":true"#) && started.contains(r#""transport":"udp""#));
     again.audit(AuditEvent::VaultUnlocked);
     assert!(recv(&server).contains(" vault_unlocked "));
+}
+
+#[test]
+fn a_config_disabled_at_startup_is_recorded() {
+    let f = unlocked();
+    let (server, port) = udp_collector();
+    set(&f.state, udp(port, true), TlsRoots::System).expect("set");
+    recv(&server);
+    // A same-user attacker edits the plaintext setting to switch the mirror off.
+    set(&f.state, udp(port, false), TlsRoots::System).expect("off");
+    let again = AppState::new(f.dir.path().to_path_buf(), settings(f.clipboard.clone()))
+        .expect("reload");
+    start_stored(&again);
+    assert!(again.audit.lock().expect("log").mirror().is_none());
+    let audit = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("audit");
+    let last = audit.lines().last().expect("entry");
+    assert!(last.contains(r#""event":"audit_syslog_started""#), "{last}");
+    assert!(last.contains(r#""enabled":false"#) && last.contains("127.0.0.1"), "{last}");
+}
+
+#[tokio::test]
+async fn heartbeats_are_written_only_while_the_mirror_runs() {
+    let f = unlocked();
+    assert!(!heartbeat(&f.state, 1), "no mirror, no heartbeat");
+    let (server, port) = udp_collector();
+    set(&f.state, udp(port, true), TlsRoots::System).expect("set");
+    recv(&server);
+    let looped = tokio::time::timeout(HEARTBEAT * 3 + HEARTBEAT / 2, heartbeat_loop(|seq| {
+        heartbeat(&f.state, seq)
+    }));
+    assert!(looped.await.is_err(), "the loop runs until stopped");
+    let first = recv(&server);
+    assert!(first.contains(" audit_heartbeat ") && first.contains(r#""seq":1"#), "{first}");
+    assert!(recv(&server).contains(r#""seq":2"#));
+    let audit = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("audit");
+    let beats = audit.matches(r#""event":"audit_heartbeat""#).count();
+    assert!((2..=3).contains(&beats), "one per period: {beats}");
 }
 
 #[test]

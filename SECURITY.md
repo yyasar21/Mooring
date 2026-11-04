@@ -102,3 +102,14 @@ Out of scope:
 
 A plain-language overview is in
 [Vault and security model](docs/user-guide/vault-and-security.md).
+
+## Syslog mirror
+
+The optional syslog mirror is the only copy of the audit log that a local attacker running as
+the same user cannot rewrite, and its configuration is stored in plain text, so silence from a
+Mooring client must be treated as an alert. Every app start with a stored configuration writes
+`audit_syslog_started` (sent to the collector when the mirror is on, recorded locally with
+`"enabled":false` when it is off), a redirect writes `audit_syslog_changed` to the old collector
+and then to the new one, and a running mirror sends `audit_heartbeat { seq }` every hour.
+Collectors should alert when a host that has sent `audit_syslog_started` misses two
+consecutive heartbeats.

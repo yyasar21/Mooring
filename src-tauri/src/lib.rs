@@ -60,6 +60,8 @@ pub fn run() {
             navigation::create_main_window(app)?;
             // ADR-0010: syslog mirror from the stored config, then the auto-lock clock + tick.
             commands::syslog::start_stored(&app.state::<AppState>());
+            // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
+            commands::syslog::install_heartbeat(app);
             autolock::install(app);
             tracing::info!("mooring started");
             Ok(())
