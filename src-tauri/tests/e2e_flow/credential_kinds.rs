@@ -185,7 +185,8 @@ async fn incompatible_inherited_and_unsupported_kinds_fail_before_connecting() {
     let ext = cred(
         st,
         "external_ref",
-        json!({"provider": "vault", "reference": "kv/app", "target_kind": "user_password"}),
+        // ADR-0016 E2: Vault references resolve now; 1Password stays unsupported at connect.
+        json!({"provider": "onepassword", "reference": "op://vault/app", "target_kind": "user_password"}),
         &[],
     );
     let c2 = ssh_conn(

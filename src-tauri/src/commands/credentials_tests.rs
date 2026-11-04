@@ -51,9 +51,11 @@ fn every_kind_can_be_created_from_its_schema() {
         ("vnc_password", json!({}), vec![("password", "12345678")]),
         ("vnc_user_password", json!({"username": "u"}), vec![("password", "p")]),
         ("prompt", json!({}), vec![]),
-        ("external_ref", json!({"provider": "vault", "reference": "kv/app", "target_kind": "api_token"}), vec![]),
+        // ADR-0016: a `vault` reference needs a source (E2 tests cover it); 1Password keeps storing.
+        ("external_ref", json!({"provider": "onepassword", "reference": "op://vault/app", "target_kind": "api_token"}), vec![]),
         ("sudo_become", json!({"method": "sudo"}), vec![]),
-        ("s3_access_key", json!({"access_key_id": "AKIDEXAMPLE"}), vec![("secret_access_key", "s")]),
+        ("vault_approle", json!({}), vec![("role_id", "r"), ("secret_id", "s")]),
+        ("s3_access_key", json!({"access_key_id": "AKIAEXAMPLETEST"}), vec![("secret_access_key", "k")]),
     ];
     assert_eq!(cases.len(), kinds().len());
     for (kind, fields, secrets) in cases {
