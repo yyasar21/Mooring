@@ -234,7 +234,7 @@ impl SecretsRuntime {
     /// returning** (L-34: a login that completes later is refused by `TokenCache::put`), then
     /// revoke ours in the background. Nothing that needs the vault is touched, so this may run
     /// after the key is gone. The drain comes first (6b L-34 b): once the epoch is bumped no
-    /// `begin` can pass its post-open re-check and leave an IdP window over the lock screen.
+    /// `begin` can pass its post-open re-check and leave an `IdP` window over the lock screen.
     pub fn on_lock(&self) {
         let drained = self.engine.cache().drain_for_lock();
         self.oidc.fail_all(self, "locked");

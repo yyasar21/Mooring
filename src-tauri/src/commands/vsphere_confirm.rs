@@ -134,10 +134,12 @@ pub fn plugin_remap(
     match (r, buttons) {
         (R::Ok, B::OkCustom(s)) => R::Custom(s.clone()),
         (R::Ok, B::OkCancelCustom(ok, _)) => R::Custom(ok.clone()),
-        (R::Cancel, B::OkCancelCustom(_, cancel)) => R::Custom(cancel.clone()),
         (R::Yes, B::YesNoCancelCustom(yes, _, _)) => R::Custom(yes.clone()),
         (R::No, B::YesNoCancelCustom(_, no, _)) => R::Custom(no.clone()),
-        (R::Cancel, B::YesNoCancelCustom(_, _, cancel)) => R::Custom(cancel.clone()),
+        // Escape / close box / Alt+F4 / Cmd+W: the cancel slot's label, whatever the shape.
+        (R::Cancel, B::OkCancelCustom(_, cancel) | B::YesNoCancelCustom(_, _, cancel)) => {
+            R::Custom(cancel.clone())
+        }
         (r, _) => r,
     }
 }

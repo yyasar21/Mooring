@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(rows.len(), 16, "{rows:?}");
         assert!(rows.iter().all(|r| r.contains("\"event\":\"confirm_refused\"")));
         // Still the same hour: counted only.
-        assert_eq!(g.acquire_at(POWER, t0 + AUDIT_WINDOW - Duration::from_secs(1)).expect_err("busy").code, "confirm.busy");
+        assert_eq!(g.acquire_at(POWER, t0 + Duration::from_secs(3599)).expect_err("busy").code, "confirm.busy");
         assert_eq!(events(&dir).len(), 16);
         // The next hour: one summary for the 85 counted refusals, then a fresh budget.
         assert_eq!(g.acquire_at(POWER, t0 + AUDIT_WINDOW).expect_err("busy").code, "confirm.busy");
