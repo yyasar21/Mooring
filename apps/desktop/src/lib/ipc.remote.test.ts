@@ -5,6 +5,16 @@ import type { SessionEvent } from "./ipc.types";
 import { decodeMfr1 } from "./frame/mfr1";
 
 describe("A2 session event decoding", () => {
+  it("decodes `attached` as its own event and stays strict about every other kind (R5)", () => {
+    expect(decodeSessionEvent({ kind: "attached" })).toEqual({ kind: "attached" });
+    expect(decodeSessionEvent({ kind: "attached", sessionId: "x", reason: "r" })).toEqual({ kind: "attached" });
+    expect(decodeSessionEvent({ kind: "detached", extra: 1 })).toEqual({ kind: "detached" });
+    const unknown = { kind: "closed", reason: "unrecognised session event", code: "unknown" };
+    for (const raw of [{ kind: "Attached" }, { kind: "attach" }, { kind: " attached" }, { kind: ["attached"] }, { kind: null }, {}, "attached", null, 7]) {
+      expect(decodeSessionEvent(raw)).toEqual(unknown);
+    }
+  });
+
   it("decodes certificate prompts, resize, detach and close codes", () => {
     const cert = { subject: "CN=dc01.example.test", issuer: "CN=dc01.example.test", not_before: "a", not_after: "b", sha256: "ab", san: ["dc01.example.test", 7, "192.0.2.10"], problems: ["self_signed", "bogus", "expired"] };
     expect(decodeSessionEvent({ kind: "prompt", id: 1, message: "m", secret: false, purpose: "certificate_trust", certificate: cert })).toEqual({
@@ -116,12 +126,13 @@ describe("MockTransport · RDP/VNC", () => {
     const { sessionId } = await open();
     await tick();
     const next: ArrayBuffer[] = [];
-    const attached = await m.sessionAttach({ sessionId, onEvent: () => undefined, onFrame: (f) => next.push(f) });
+    const attached = await m.viewOf(sessionId).sessionAttach({ sessionId, onEvent: () => undefined, onFrame: (f) => next.push(f) });
     expect(attached).toEqual({ protocol: "vnc", state: "connected", size: { width: 800, height: 600 } });
     await tick();
     expect(events.at(-1)).toEqual({ kind: "detached" });
     m.pumpOnce(sessionId);
     expect(decodeMfr1(next[0] ?? new ArrayBuffer(0)).full).toBe(true);
+    m.phantomDetach = false;
     expect(await m.windowDetach({ sessionId })).toEqual({ windowLabel: `detached-${sessionId}` });
     await m.sessionClose({ sessionId });
   });
@@ -130,13 +141,16 @@ describe("MockTransport · RDP/VNC", () => {
 describe("MockTransport · web windows (ADR-0013 stubs)", () => {
   it("opens one window per connection, lists, zooms and closes it", async () => {
     const m = new MockTransport();
+    const first: string[] = [];
     const seen: string[] = [];
-    const a = await m.webOpen({ connectionId: "c-lb", onEvent: (e) => seen.push(e.kind) });
-    const b = await m.webOpen({ connectionId: "c-lb", onEvent: () => undefined });
+    const a = await m.webOpen({ connectionId: "c-lb", onEvent: (e) => first.push(e.kind) });
+    // Opening again focuses the window and moves the events to the new channel (R5).
+    const b = await m.webOpen({ connectionId: "c-lb", onEvent: (e) => seen.push(e.kind) });
     expect(a).toEqual({ windowLabel: "web-c-lb" });
     expect(b).toEqual(a);
     await tick();
     expect(seen).toEqual(["navigated", "title"]);
+    expect(first).toEqual([]);
     expect(await m.webList()).toEqual([expect.objectContaining({ origin: "https://lb.example.test", title: "edge-lb console" })]);
     await expect(m.webZoom({ connectionId: "c-lb", factor: 9 })).rejects.toMatchObject({ code: "input.invalid" });
     await m.webZoom({ connectionId: "c-lb", factor: 1.5 });

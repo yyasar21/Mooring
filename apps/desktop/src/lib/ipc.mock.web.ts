@@ -1,9 +1,9 @@
-// Mock web-session windows and session attach (ADR-0013), plus the audit commands. In the browser
-// there is no second window: web_open only records the window and replays the events a real
-// WebviewWindow would send, so U3 can be built against it.
+// Mock web-session windows (ADR-0013), plus the audit commands. In the browser there is no second
+// window: web_open only records the window and replays the events a real WebviewWindow sends
+// (navigated, title, and with `webDemo` a refused navigation and a refused download).
 // Methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
-import type { AttachedSession, Ipc, RemoteIpc, SessionEventHandler, WebConnOptions, WebEventHandler, WebWindowInfo } from "./ipc.types";
+import type { Ipc, RemoteIpc, WebConnOptions, WebEvent, WebEventHandler, WebWindowInfo } from "./ipc.types";
 import { WEB_ZOOM } from "./ipc.types.remote";
 import { IpcError } from "./ipc.error";
 import { MockRemoteBase, type RemoteTarget } from "./ipc.mock.remote";
@@ -16,11 +16,27 @@ interface MockWebWindow {
 
 export abstract class MockWebBase extends MockRemoteBase {
   web = new Map<string, MockWebWindow>();
+  /** Browser demo: after opening, the page tries an SSO origin outside the allow-list and a download. */
+  webDemo = false;
 
   /** The connection behind an id (throws `tree.not_found`). */
   protected abstract target(connectionId: string): RemoteTarget;
-  /** `session_attach` for a non-remote (SSH) session; null when there is no such session. */
-  protected abstract attachOther(sessionId: string, onEvent: SessionEventHandler): AttachedSession | null;
+
+  /** Tests: what the native callbacks of an open window would report (`blocked`, `title`, ...). */
+  webSimulate(connectionId: string, event: WebEvent): void {
+    const w = this.web.get(connectionId);
+    if (!w) return;
+    if (event.kind === "navigated") w.info.origin = event.origin;
+    if (event.kind === "title") w.info.title = event.title;
+    if (event.kind === "blocked") this.record("web_navigation_blocked", { connection: connectionId, origin: event.origin });
+    if (event.kind === "download_blocked") this.record("web_download_blocked", { connection: connectionId, origin: event.origin });
+    if (event.kind === "closed") {
+      // the user closed the window natively
+      this.web.delete(connectionId);
+      this.record("web_closed", { connection: connectionId });
+    }
+    w.emit(event);
+  }
 
   private window(connectionId: string): MockWebWindow {
     const w = this.web.get(connectionId);
@@ -33,7 +49,10 @@ export abstract class MockWebBase extends MockRemoteBase {
     const t = this.target(connectionId);
     if (t.protocol !== "web") throw new IpcError("input.invalid", "invalid connectionId: not a web connection");
     const open = this.web.get(connectionId);
-    if (open) return { windowLabel: open.info.windowLabel };
+    if (open) {
+      open.emit = onEvent; // opening again focuses the window; events move to the new channel
+      return { windowLabel: open.info.windowLabel };
+    }
     const opts = t.options as Partial<WebConnOptions> | undefined;
     const url = opts?.url ?? (t.host.includes("://") ? t.host : `https://${t.host}`);
     let origin: string;
@@ -53,10 +72,13 @@ export abstract class MockWebBase extends MockRemoteBase {
     this.web.set(connectionId, { info, emit: onEvent, zoom: 1 });
     this.record("web_opened", { connection: connectionId, origin, persistent: String(info.persistent) });
     this.later(() => {
-      onEvent({ kind: "navigated", origin });
-      info.title = `${t.name} console`;
-      onEvent({ kind: "title", title: info.title });
+      this.webSimulate(connectionId, { kind: "navigated", origin });
+      this.webSimulate(connectionId, { kind: "title", title: `${t.name} console` });
     });
+    if (this.webDemo) {
+      setTimeout(() => { this.webSimulate(connectionId, { kind: "blocked", origin: "https://sso.example.test" }); }, 1500);
+      setTimeout(() => { this.webSimulate(connectionId, { kind: "download_blocked", origin }); }, 2500);
+    }
     return { windowLabel: info.windowLabel };
   };
 
@@ -68,6 +90,7 @@ export abstract class MockWebBase extends MockRemoteBase {
   };
 
   webFocus: RemoteIpc["webFocus"] = async ({ connectionId }) => {
+    await this.unlocked(); // the window stays hidden while locked
     this.window(connectionId);
   };
 
@@ -77,6 +100,7 @@ export abstract class MockWebBase extends MockRemoteBase {
   };
 
   webPrint: RemoteIpc["webPrint"] = async ({ connectionId }) => {
+    await this.unlocked();
     this.window(connectionId);
   };
 
@@ -93,29 +117,6 @@ export abstract class MockWebBase extends MockRemoteBase {
   };
 
   webList: RemoteIpc["webList"] = async () => [...this.web.values()].map((w) => ({ ...w.info }));
-
-  windowAttach: RemoteIpc["windowAttach"] = async ({ sessionId }) => {
-    if (!this.remote.has(sessionId) && !this.attachOther(sessionId, () => undefined)) throw new IpcError("session.not_found", "session not found");
-    this.record("session_attached", { session: sessionId });
-  };
-
-  /** The attaching view takes over both sinks; the old view gets `detached`; one full frame is resent. */
-  sessionAttach: RemoteIpc["sessionAttach"] = async ({ sessionId, onEvent, onFrame }) => {
-    const s = this.remote.get(sessionId);
-    if (!s) {
-      const other = this.attachOther(sessionId, onEvent);
-      if (!other) throw new IpcError("session.not_found", "session not found");
-      return other;
-    }
-    if (!onFrame) throw new IpcError("input.invalid", "invalid onFrame: required for rdp and vnc sessions");
-    const old = s.emit;
-    s.emit = onEvent;
-    s.onFrame = onFrame;
-    s.inFlight = 0;
-    s.desktop.resize(s.desktop.width, s.desktop.height);
-    this.later(() => { old({ kind: "detached" }); });
-    return { protocol: s.info.protocol, state: s.info.state, size: { width: s.desktop.width, height: s.desktop.height } };
-  };
 
   // ---------- audit ----------
 
