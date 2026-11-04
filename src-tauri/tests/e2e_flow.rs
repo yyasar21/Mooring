@@ -12,7 +12,7 @@
 
 #![allow(clippy::doc_markdown)]
 
-use mooring_app_lib::{commands, error, sessions, state, test_ssh_server};
+use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_server};
 
 #[path = "e2e_flow/credential_kinds.rs"]
 mod credential_kinds;
@@ -26,6 +26,9 @@ mod hostile_edges;
 mod kube;
 #[path = "e2e_flow/support.rs"]
 mod support;
+// ADR-0017 S2: vault sync between two devices.
+#[path = "e2e_flow/sync.rs"]
+mod sync;
 
 use std::time::Duration;
 

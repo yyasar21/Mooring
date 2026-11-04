@@ -63,6 +63,8 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "kube_access",
     "kube_namespaces",
     "kube_pods",
+    // ADR-0017 (A3 S2): the sync badge polls it.
+    "sync_status",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

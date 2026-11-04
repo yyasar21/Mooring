@@ -39,3 +39,9 @@ mod test_session;
 // ADR-0010 (A1 exit): auto-lock policy and syslog mirror settings.
 pub mod autolock;
 pub mod syslog;
+// ADR-0017 (A3 S2): vault sync.
+pub mod sync;
+pub mod sync_config;
+pub mod sync_gate;
+pub mod sync_join;
+pub mod sync_local;

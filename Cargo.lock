@@ -3979,6 +3979,7 @@ dependencies = [
  "mooring-proto-ssh",
  "mooring-proto-vnc",
  "mooring-store",
+ "mooring-sync",
  "mooring-testsrv",
  "mooring-vault",
  "rand_core 0.6.4",

@@ -84,4 +84,10 @@ permissions = [
   "allow-kube-exec-open",
   "allow-kube-logs-open",
   "allow-kube-logs-close",
+  "allow-sync-configure",
+  "allow-sync-status",
+  "allow-sync-now",
+  "allow-sync-resolve-fork",
+  "allow-sync-disable",
+  "allow-vault-join",
 ]

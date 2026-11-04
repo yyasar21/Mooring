@@ -9,6 +9,7 @@
   "session_frame_ack",
   "session_list",
   "sftp_transfers",
+  "sync_status",
   "syslog_get",
   "vault_status",
   "web_list"

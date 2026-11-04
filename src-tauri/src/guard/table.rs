@@ -94,4 +94,11 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("kube_exec_open", Scope::Main),
     ("kube_logs_open", Scope::Main),
     ("kube_logs_close", Scope::Main),
+    // ADR-0017 §5 (A3 S2): vault sync, main only.
+    ("sync_configure", Scope::Main),
+    ("sync_status", Scope::Main),
+    ("sync_now", Scope::Main),
+    ("sync_resolve_fork", Scope::Main),
+    ("sync_disable", Scope::Main),
+    ("vault_join", Scope::Main),
 ];

@@ -181,6 +181,21 @@
   "sftp_upload": [
     "main"
   ],
+  "sync_configure": [
+    "main"
+  ],
+  "sync_disable": [
+    "main"
+  ],
+  "sync_now": [
+    "main"
+  ],
+  "sync_resolve_fork": [
+    "main"
+  ],
+  "sync_status": [
+    "main"
+  ],
   "syslog_get": [
     "main"
   ],
@@ -197,6 +212,9 @@
     "main"
   ],
   "vault_create": [
+    "main"
+  ],
+  "vault_join": [
     "main"
   ],
   "vault_lock": [

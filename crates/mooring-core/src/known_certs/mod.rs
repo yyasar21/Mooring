@@ -374,6 +374,13 @@ impl KnownCerts {
     }
 }
 
+/// The process-wide write lock of one trust file (`known_hosts`, `known_*_certs`). Every
+/// writer holds it for its load-modify-save: the TOFU accepts here, the SSH `known_hosts`
+/// writer and the vault-sync apply (ADR-0017, owner decision 10), so no write is lost or torn.
+pub fn write_lock(path: &Path) -> Arc<Mutex<()>> {
+    path_lock(path)
+}
+
 fn path_lock(path: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
     let mut map = LOCKS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);

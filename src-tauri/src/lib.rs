@@ -28,6 +28,8 @@ test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_fac
 test_util_pub!(guard, route, web, window_lock);
 // ADR-0014 K4: Kubernetes cluster / exec sessions.
 test_util_pub!(kube_sessions);
+// ADR-0017 (A3 S2): vault-sync hub and interval runner.
+test_util_pub!(sync_runner);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -54,6 +56,8 @@ use crate::commands::{conn_options, known_certs, session_graphics};
 use crate::commands::{detach, web as web_cmds};
 // ADR-0014 K4
 use crate::commands::{kube, kube_logs};
+// ADR-0017 §5 (A3 S2)
+use crate::commands::{sync as sync_cmds, sync_join};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -82,6 +86,8 @@ pub fn run() {
             autolock::install(app);
             // ADR-0013: web and detached windows hide while the vault is locked.
             window_lock::install(app);
+            // ADR-0017 (A3 S2): sync hub + interval runner (runs only while unlocked).
+            sync_runner::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
@@ -173,6 +179,13 @@ pub fn run() {
             kube::kube_exec_open,
             kube_logs::kube_logs_open,
             kube_logs::kube_logs_close,
+            // ADR-0017 §5 (A3 S2)
+            sync_cmds::sync_configure,
+            sync_cmds::sync_status,
+            sync_cmds::sync_now,
+            sync_cmds::sync_resolve_fork,
+            sync_cmds::sync_disable,
+            sync_join::vault_join,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");
