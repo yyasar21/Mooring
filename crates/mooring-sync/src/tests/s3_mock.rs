@@ -131,7 +131,14 @@ fn presign_ok(r: &Req) -> bool {
         .keys()
         .filter(|k| k.starts_with("if-") || k.starts_with("x-amz-"))
         .all(|k| signed.contains(&k.as_str()));
-    q.get("X-Amz-Algorithm") == Some(&"AWS4-HMAC-SHA256") && sig_ok && cred_ok && must_sign
+    // Review 6 N-44: a presign that outlives one minute is refused like a bad signature.
+    let short_lived =
+        q.get("X-Amz-Expires").and_then(|e| e.parse::<u64>().ok()).is_some_and(|e| e <= 60);
+    q.get("X-Amz-Algorithm") == Some(&"AWS4-HMAC-SHA256")
+        && sig_ok
+        && cred_ok
+        && must_sign
+        && short_lived
 }
 
 fn handle(r: &Req, st: &State) -> (u16, Vec<(String, String)>, Vec<u8>) {

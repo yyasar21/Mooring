@@ -182,6 +182,8 @@ pub struct AppState {
     pub vsphere: crate::vsphere_sync::VsphereHub,
     /// ADR-0016 E2: token cache, renewer, OIDC flows (memory only).
     pub secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
+    /// Review 6 M-16: single flight and cool-down of the Rust-native confirmations.
+    pub confirm: Arc<crate::confirm_gate::ConfirmGate>,
 }
 
 /// Errors while loading state at startup.
@@ -230,11 +232,14 @@ impl AppState {
         if store.root_folder()?.is_none() {
             store.create_folder(None, ROOT_FOLDER_NAME)?;
         }
+        // L-37: a join that crashed between the apply and the header rename.
+        let vault = crate::commands::sync_join::recover_staged_header(&data_dir, &store, vault);
         let audit = Arc::new(Mutex::new(audit));
         let secrets =
             Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
         Ok(Self {
             secrets,
+            confirm: Arc::new(crate::confirm_gate::ConfirmGate::new(Arc::clone(&audit))),
             cache_dir: data_dir.join("cache"),
             data_dir,
             vault: Arc::new(Mutex::new(vault)),
@@ -395,7 +400,7 @@ pub fn record_audit(log: &Mutex<AuditLog>, event: AuditEvent) {
     }
 }
 
-fn create_private(path: &Path) -> std::io::Result<File> {
+pub(crate) fn create_private(path: &Path) -> std::io::Result<File> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -407,7 +412,7 @@ fn create_private(path: &Path) -> std::io::Result<File> {
 }
 
 /// Make the rename durable (unix). Best effort: some filesystems refuse a directory fsync.
-fn sync_dir(dir: &Path) {
+pub(crate) fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     if let Err(e) = File::open(dir).and_then(|d| d.sync_all()) {
         tracing::debug!(kind = ?e.kind(), "directory sync skipped");

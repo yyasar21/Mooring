@@ -285,3 +285,19 @@ fn cluster_events_have_the_documented_shape() {
     let a = serde_json::to_value(AccessDto { exec: true, ..AccessDto::default() }).expect("json");
     assert_eq!(a, json!({ "listPods": false, "getLogs": false, "exec": true, "portForward": false, "listNamespaces": false }));
 }
+
+/// Review 6 N-40: `set_client` after a teardown stores nothing (the token is dropped at
+/// once), and a teardown takes a stored client; both under the client mutex.
+#[tokio::test]
+async fn a_client_set_after_the_teardown_is_dropped() {
+    let k = fixture(Auth::TokenCa).await;
+    let st = &k.f.state;
+    let (cid, _rx, _e) = connected(&k).await;
+    let (ctrl, client) = client_of(st, &cid).expect("connected");
+    assert!(!ctrl.ended() && ctrl.client().is_some());
+    ctrl.teardown("test");
+    assert!(ctrl.ended() && ctrl.client().is_none(), "teardown drops the client");
+    ctrl.set_client(client);
+    assert!(ctrl.client().is_none(), "a torn-down control keeps no client");
+    assert_eq!(client_of(st, &cid).expect_err("gone").code, "session.not_connected");
+}

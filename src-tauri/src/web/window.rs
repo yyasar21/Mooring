@@ -56,7 +56,13 @@ struct Ctx {
 }
 
 impl Ctx {
+    /// A refused navigation: audited and sent to the UI for the window's first 16 refusals,
+    /// counted afterwards (N-43; the close writes the summary row).
     fn blocked(&self, origin: String) {
+        if !super::refusal_audited(&self.registry, &self.connection) {
+            tracing::debug!(origin = %origin, "web navigation blocked (counted)");
+            return;
+        }
         tracing::info!(origin = %origin, "web navigation blocked");
         record_audit(&self.audit, AuditEvent::WebNavigationBlocked {
             connection: self.connection.clone(),

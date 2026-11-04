@@ -116,13 +116,19 @@ pub enum AuditEvent {
         /// Source id.
         source: String,
     },
-    /// A source was created, changed or deleted (`secret.source_changed`).
+    /// A source was created, changed or deleted (`secret.source_changed`). Field **names**
+    /// only (the fields actually set or changed, review 6 N-42); no values except the
+    /// SHA-256 fingerprints of a new `caPem`.
     SecretSourceChanged {
         /// Source id.
         source: String,
         /// Changed field names, or `created` / `deleted`.
         changed: Vec<String>,
-        /// `caPem` or `allowHttp` changed (a trust change).
+        /// `SHA256:<hex>` of every certificate in a new or changed `caPem`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ca_pem: Vec<String>,
+        /// `caPem` or `allowHttp` changed, or an `allowedOrigins` entry was added (a trust
+        /// change).
         warning: bool,
     },
     /// A secret-source action was refused (`secret.refused`: OIDC navigation, delete in use).
@@ -133,6 +139,16 @@ pub enum AuditEvent {
         action: String,
         /// Error code, or the refused origin of a navigation.
         detail: String,
+    },
+    /// Refusals of one OIDC window beyond the first 16, counted and written once when the
+    /// window closes (`secret.refused_suppressed`, review 6 N-43).
+    SecretRefusedSuppressed {
+        /// Source id.
+        source: String,
+        /// `oidc_navigation`.
+        action: String,
+        /// Refusals that got no row of their own.
+        count: u64,
     },
     /// Vault exported (`format`: `age`, `json`, ...).
     VaultExported {
@@ -434,6 +450,14 @@ pub enum AuditEvent {
         /// Refused origin only: paths may carry tokens.
         origin: String,
     },
+    /// Refused navigations of a web window beyond the first 16, counted and written once
+    /// when the window closes (`web.navigation_blocked_suppressed`, review 6 N-43).
+    WebNavigationBlockedSuppressed {
+        /// Connection id.
+        connection: String,
+        /// Refusals that got no row of their own.
+        count: u64,
+    },
     /// A download from a web window was refused (`web.download_blocked`).
     WebDownloadBlocked {
         /// Connection id.
@@ -618,5 +642,25 @@ pub enum AuditEvent {
         vm: String,
         /// Console path.
         kind: String,
+    },
+    /// A trust file holds more than one fingerprint for one `host:port` after a sync apply
+    /// (review 6 L-35, `trust_conflict`): two devices accepted different certificates. Names
+    /// only; nothing is resolved automatically.
+    TrustConflict {
+        /// Trust file name (`known_rdp_certs`, …).
+        file: String,
+        /// `host:port` of the user's connection.
+        host: String,
+    },
+    /// A Rust-native confirmation was refused without a dialog (review 6 M-16,
+    /// `confirm_refused`): `busy` (one open at a time) or `cooldown` (the same destructive
+    /// action was cancelled less than 10 s ago).
+    ConfirmRefused {
+        /// Dialog kind (`vsphere_power`, `vsphere_trust`, `vmrc`, `sync_trust`, `sync_fork`).
+        kind: String,
+        /// Target names only (connection id, `vm-42`, `host:port`), never a secret.
+        target: String,
+        /// `busy` | `cooldown`.
+        reason: String,
     },
 }

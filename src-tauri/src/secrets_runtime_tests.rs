@@ -234,3 +234,74 @@ fn every_secrets_error_code_is_in_the_golden_list() {
         ]
     );
 }
+
+/// Review 6 L-34: the vault locks while the mock Vault is still answering a login — the fresh
+/// token is never cached and `revoke-self` is sent; a lock while `oidc_begin` waits for the
+/// auth URL opens no window.
+#[tokio::test]
+async fn a_lock_during_a_login_or_an_oidc_begin_leaves_nothing_behind() {
+    use mooring_testsrv::http::HttpKnobs;
+    let v = fx::start_default().await;
+    let f = unlocked();
+    let st = &f.state;
+    let w = fx::windows(st);
+    let a = fx::approle_source(st, &v);
+    let o = fx::oidc_source(st, &v);
+    let cache = Arc::clone(st.secrets.engine().cache());
+    v.srv.set_http_knobs(HttpKnobs { response_delay: Some(Duration::from_millis(400)), ..HttpKnobs::default() });
+
+    let lock_soon = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        vault::lock(st, Some("user")).expect("lock");
+        assert!(cache.is_empty(), "on_lock drains synchronously");
+    };
+    let (r, ()) = tokio::join!(cmd::test(st, &a.id), lock_soon);
+    let r = r.expect("test reports, never errors");
+    assert_eq!(r.category, Some("locked"), "{r:?}");
+    st.secrets.flush().await;
+    assert!(cache.is_empty(), "the post-lock token is not cached");
+    assert_eq!(v.srv.live_issued_tokens(), 0, "revoke-self was sent for it");
+    assert!(v.srv.token_events().iter().any(|e| e.kind == "revoke"));
+
+    vault::unlock(st, secrecy::SecretString::from(crate::state::testing::MASTER.to_owned())).expect("unlock");
+    let lock_soon = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        vault::lock(st, Some("user")).expect("lock");
+    };
+    let (r, ()) = tokio::join!(oidc_cmd::begin(st, &o.id), lock_soon);
+    assert_eq!(r.expect_err("no window over the lock screen").code, "vault.locked");
+    assert!(w.opened.lock().expect("m").is_empty(), "no OIDC window was opened");
+    assert_eq!(st.secrets.oidc.pending(), 0);
+    assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "locked"));
+}
+
+/// Review 6 N-43: an OIDC window audits its first 16 refused navigations, counts the rest,
+/// is closed at 64 (`failed: navigation_flood`) and writes one summary row.
+#[tokio::test]
+async fn an_oidc_navigation_flood_closes_the_window_after_sixteen_audited_refusals() {
+    let v = fx::start_default().await;
+    let f = unlocked();
+    let st = &f.state;
+    let w = fx::windows(st);
+    let o = fx::oidc_source(st, &v);
+    let rt = &st.secrets;
+    let b = oidc_cmd::begin(st, &o.id).await.expect("begin");
+    let refused_rows = || audit_rows(st, "secret_refused").iter().filter(|r| r["action"] == "oidc_navigation").count();
+    for i in 0..63 {
+        assert!(!navigate(rt, &b.session_id, &format!("https://evil{i}.example.test/")));
+    }
+    assert_eq!(refused_rows(), 16, "one row per refusal up to 16, then counted");
+    assert_eq!(oidc_cmd::status(st, &b.session_id).expect("s").state, "pending");
+    assert!(w.closed.lock().expect("m").is_empty());
+    assert!(!navigate(rt, &b.session_id, "https://evil63.example.test/"));
+    let s = oidc_cmd::status(st, &b.session_id).expect("s");
+    assert_eq!((s.state, s.error.as_deref()), ("failed", Some("navigation_flood")));
+    assert_eq!(w.closed.lock().expect("m").as_slice(), std::slice::from_ref(&b.window_label));
+    assert_eq!(refused_rows(), 16);
+    let summary = audit_rows(st, "secret_refused_suppressed");
+    assert_eq!(summary.len(), 1);
+    assert_eq!((summary[0]["count"].as_u64(), summary[0]["action"].as_str()), (Some(48), Some("oidc_navigation")));
+    assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "navigation_flood"));
+    assert!(!navigate(rt, &b.session_id, "https://idp.example.test/"), "a failed flow loads nothing");
+    assert_eq!(v.srv.live_issued_tokens(), 0);
+}

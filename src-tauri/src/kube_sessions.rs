@@ -129,11 +129,15 @@ impl KubeControl {
         lock(&self.0.client).clone()
     }
 
-    /// Store the connected client (the end already happened: dropped at once).
+    /// Store the connected client (the end already happened: dropped at once). `ended` is
+    /// tested **under** the client mutex, which [`Self::teardown`] also holds while it sets
+    /// the flag and takes the client, so a lock cannot slip between the check and the store
+    /// (review 6 N-40).
     pub(crate) fn set_client(&self, client: KubeClient) {
         *lock(&self.0.sink) = Some(client.audit().clone());
+        let mut slot = lock(&self.0.client);
         if !self.ended() {
-            *lock(&self.0.client) = Some(client);
+            *slot = Some(client);
         }
     }
 
@@ -207,7 +211,12 @@ impl KubeControl {
     /// End everything this cluster owns: abort log streams (audited `kube.logs.closed`), close
     /// pod forwards, close exec shells, drop the client (and its token). Idempotent.
     pub fn teardown(&self, reason: &str) {
-        self.0.ended.store(true, Ordering::SeqCst);
+        // N-40: flag and client under the same mutex as `set_client`.
+        {
+            let mut slot = lock(&self.0.client);
+            self.0.ended.store(true, Ordering::SeqCst);
+            slot.take();
+        }
         let logs: Vec<(String, LogEntry)> = self.logs().drain().collect();
         for (id, entry) in logs {
             entry.abort.abort();

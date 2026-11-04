@@ -51,6 +51,20 @@ pub fn client_plan(t: &VmTarget, dev_url: Option<tauri::Url>, storage: Storage) 
     })
 }
 
+/// Review 6 N-39 (the N-30 post-check for this build path): `vsphere_console` is async, so
+/// a lock can land between `vm_target` and the window's build or show. Hides the window
+/// through `hide` when the vault is locked now (the lock observer shows it again after the
+/// unlock). Returns whether it hid.
+pub fn post_open(state: &AppState, label: &str, hide: impl FnOnce() -> Result<(), String>) -> bool {
+    web_cmds::hide_if_locked(state, || {
+        if let Err(e) = hide() {
+            tracing::warn!(error = %e, label, "vSphere Client window hide after lock failed");
+        } else {
+            tracing::info!(label, "vault locked while the vSphere Client window was opened; hidden");
+        }
+    })
+}
+
 fn open_client<R: Runtime>(app: &AppHandle<R>, state: &AppState, plan: &WebPlan) -> IpcResult<String> {
     let sink: WebSink = Arc::new(|_| true);
     if let Some(label) = web_cmds::reopen(state, &plan.connection_id, Arc::clone(&sink))? {
@@ -58,6 +72,7 @@ fn open_client<R: Runtime>(app: &AppHandle<R>, state: &AppState, plan: &WebPlan)
             if let Err(e) = w.navigate(plan.url.clone()).and_then(|()| w.show()).and_then(|()| w.set_focus()) {
                 tracing::warn!(error = %e, "vSphere Client window navigation failed");
             }
+            post_open(state, &label, || w.hide().map_err(|e| e.to_string()));
             return Ok(label);
         }
         web::forget(state, &plan.connection_id);
@@ -65,6 +80,7 @@ fn open_client<R: Runtime>(app: &AppHandle<R>, state: &AppState, plan: &WebPlan)
     let window = web::window::build(app, plan, Arc::clone(&state.audit), Arc::clone(&state.web), Arc::clone(&sink))
         .map_err(|e| web_cmds::window_failed(&e))?;
     web_cmds::register(state, plan, sink)?;
+    post_open(state, &plan.label, || window.hide().map_err(|e| e.to_string()));
     let handle = app.clone();
     let connection = plan.connection_id.clone();
     window.on_window_event(move |event| {

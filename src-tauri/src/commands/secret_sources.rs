@@ -171,6 +171,23 @@ fn trust_warning(changed: &[&str]) -> bool {
     changed.iter().any(|c| matches!(*c, "caPem" | "allowHttp"))
 }
 
+/// The `secret_source_changed` row of `s` after `changed` (review 6 N-42): the names
+/// actually set or changed, the fingerprints of a new `caPem`, and `warning` when trust
+/// widened (`caPem`, `allowHttp`, or an `allowedOrigins` entry added, `added_origin`).
+fn changed_event(s: &SecretSource, changed: Vec<&str>, added_origin: bool) -> AuditEvent {
+    let ca_pem = if changed.contains(&"caPem") {
+        s.options.ca_pem.as_deref().map(crate::commands::conn_options::ca_fingerprints).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    AuditEvent::SecretSourceChanged {
+        source: s.id.to_string(),
+        warning: trust_warning(&changed) || added_origin,
+        changed: changed.into_iter().map(str::to_owned).collect(),
+        ca_pem,
+    }
+}
+
 /// `secret_source_list()`.
 pub fn list(state: &AppState) -> IpcResult<Vec<SecretSourceDto>> {
     state.with_ready(|_, store| Ok(store.list_secret_sources()?.iter().map(SecretSourceDto::from).collect()))
@@ -185,12 +202,18 @@ pub fn get(state: &AppState, id: &str) -> IpcResult<SecretSourceDto> {
 pub fn create(state: &AppState, input: &serde_json::Value) -> IpcResult<SecretSourceDto> {
     let input = parse_input(input)?;
     let s = state.with_ready(|_, store| Ok(store.create_secret_source(&input)?))?;
-    let mut changed = vec!["created".to_owned()];
-    let warning = s.options.ca_pem.is_some() || s.options.allow_http;
-    if warning {
-        changed.extend(["caPem", "allowHttp"].iter().map(|s| (*s).to_owned()));
+    let mut changed = vec!["created"];
+    if s.options.ca_pem.is_some() {
+        changed.push("caPem");
     }
-    state.audit(AuditEvent::SecretSourceChanged { source: s.id.to_string(), changed, warning });
+    if s.options.allow_http {
+        changed.push("allowHttp");
+    }
+    let origins = !s.options.allowed_origins.is_empty();
+    if origins {
+        changed.push("allowedOrigins");
+    }
+    state.audit(changed_event(&s, changed, origins));
     Ok(SecretSourceDto::from(&s))
 }
 
@@ -199,11 +222,14 @@ pub fn create(state: &AppState, input: &serde_json::Value) -> IpcResult<SecretSo
 pub async fn update(state: &AppState, id: &str, input: &serde_json::Value) -> IpcResult<SecretSourceDto> {
     let id = source_id(id)?;
     let input = parse_input(input)?;
-    let (s, changed) = state.with_ready(|_, store| store.update_secret_source(id, &input).map_err(source_error))?;
+    let (before, s, changed) = state.with_ready(|_, store| {
+        let before = store.get_secret_source(id).map_err(source_error)?.options.allowed_origins;
+        let (s, changed) = store.update_secret_source(id, &input).map_err(source_error)?;
+        Ok((before, s, changed))
+    })?;
     state.secrets.engine().logout(id).await;
-    let warning = trust_warning(&changed);
-    let changed = changed.into_iter().map(str::to_owned).collect();
-    state.audit(AuditEvent::SecretSourceChanged { source: id.to_string(), changed, warning });
+    let added_origin = s.options.allowed_origins.iter().any(|o| !before.contains(o));
+    state.audit(changed_event(&s, changed, added_origin));
     Ok(SecretSourceDto::from(&s))
 }
 
@@ -218,6 +244,7 @@ pub async fn delete(state: &AppState, id: &str) -> IpcResult<()> {
     state.audit(AuditEvent::SecretSourceChanged {
         source: id.to_string(),
         changed: vec!["deleted".to_owned()],
+        ca_pem: Vec::new(),
         warning: false,
     });
     Ok(())

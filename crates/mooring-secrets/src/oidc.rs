@@ -47,6 +47,8 @@ pub struct OidcFlow {
     pub(crate) state: Zeroizing<String>,
     pub(crate) nonce: Zeroizing<String>,
     pub(crate) started: Duration,
+    /// Lock epoch the flow began in (L-34): a lock in between voids it.
+    pub epoch: u64,
 }
 
 impl std::fmt::Debug for OidcFlow {
@@ -219,6 +221,7 @@ mod tests {
             state: Zeroizing::new("st-1".into()),
             nonce: new_nonce(),
             started: Duration::ZERO,
+            epoch: 0,
         }
     }
 

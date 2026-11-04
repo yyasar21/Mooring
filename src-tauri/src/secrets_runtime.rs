@@ -230,16 +230,19 @@ impl SecretsRuntime {
         }
     }
 
-    /// Vault lock: close every OIDC window, then revoke ours and forget every token. Nothing
-    /// that needs the vault is touched, so this may run after the key is gone.
+    /// Vault lock: close every OIDC window, bump the lock epoch and empty the cache **before
+    /// returning** (L-34: a login that completes later is refused by `TokenCache::put`), then
+    /// revoke ours in the background. Nothing that needs the vault is touched, so this may run
+    /// after the key is gone.
     pub fn on_lock(&self) {
         self.oidc.fail_all(self, "locked");
-        if self.engine.cache().is_empty() {
+        let drained = self.engine.cache().drain_for_lock();
+        if drained.is_empty() {
             return;
         }
-        let engine = Arc::clone(&self.engine);
+        let n = drained.len();
         self.spawn(async move {
-            let n = engine.cache().revoke_all().await;
+            drained.retire().await;
             tracing::info!(tokens = n, "secret source tokens dropped on lock");
         });
     }

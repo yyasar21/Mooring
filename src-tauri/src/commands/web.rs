@@ -63,6 +63,7 @@ pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()
         ephemeral_dir: plan.ephemeral_dir().cloned(),
         opened_at: dto::ts(OffsetDateTime::now_utc()),
         sink,
+        refusals: Arc::default(),
     };
     state.web.lock().map_err(|_| IpcError::poisoned())?.insert(plan.connection_id.clone(), entry);
     state.audit(AuditEvent::WebOpened {
@@ -78,6 +79,13 @@ pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()
 /// caller can remove its ephemeral profile once the OS window is destroyed (L-29).
 pub fn closed_entry(state: &AppState, connection_id: &str) -> Option<WebEntry> {
     let entry = web::forget(state, connection_id)?;
+    let suppressed = entry.refusals.suppressed();
+    if suppressed > 0 {
+        state.audit(AuditEvent::WebNavigationBlockedSuppressed {
+            connection: connection_id.to_owned(),
+            count: u64::from(suppressed),
+        });
+    }
     state.audit(AuditEvent::WebClosed { connection: connection_id.to_owned() });
     (entry.sink)(WebEvent::Closed);
     Some(entry)

@@ -17,6 +17,7 @@ use tauri::Url;
 use time::OffsetDateTime;
 
 use crate::commands::vsphere_confirm::{Ask, Prompt};
+use crate::confirm_gate::Scope;
 use crate::error::{IpcError, IpcResult};
 use crate::session_audit::cert;
 use crate::state::Ready;
@@ -153,7 +154,8 @@ async fn trust_prompt(ctx: &VsCtx, t: &Target, d: &TrustDecision, prompt: Prompt
         t.name, d.info.subject, d.info.issuer
     );
     let ask = Ask { title: "Mooring \u{b7} vCenter certificate".to_owned(), text, ok: "Trust".to_owned(), warning: true };
-    let yes = prompt.ask(ask).await;
+    let scope = Scope { kind: "vsphere_trust", target: &host, destructive: true };
+    let yes = prompt.ask(&ctx.confirm, scope, ask).await?;
     let audit = |decision: &str| ctx.audit(cert("vsphere".to_owned(), host.clone(), fp.clone(), decision, None));
     if !yes {
         audit("rejected");

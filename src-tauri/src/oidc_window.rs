@@ -9,6 +9,11 @@
 //! and audited. The window never sees a Mooring command or the Vault token.
 //!
 //! The UI polls `secret_source_oidc_status({ sessionId })`: `pending` → `done` | `failed`.
+//!
+//! Review 6 L-33: storage is [`storage`] — `incognito(true)` everywhere and, on Windows, an
+//! own `WebView2` profile `<cache>/web-ephemeral/oidc-<sourceId>` (removed on `Destroyed`,
+//! swept at start like the web windows' profiles), so `IdP` cookies never outlive one sign-in
+//! or reach another source; the init script runs in every frame.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -21,9 +26,19 @@ use zeroize::Zeroizing;
 
 use crate::error::{IpcError, IpcResult};
 use crate::secrets_runtime::{ipc_error, SecretsRuntime};
+use crate::state::AppState;
+use crate::web::refusals::RefusalBudget;
+use crate::web::{self, Storage, StorageOs};
 
 /// Label prefix of an OIDC window.
 pub const OIDC_PREFIX: &str = "oidc-";
+
+/// Storage of the OIDC window of `source_id` on `os` (L-33): ephemeral, with an own profile
+/// directory `<cache>/web-ephemeral/oidc-<sourceId>` on Windows. The `oidc-` name cannot
+/// collide with a web connection's UUID directory and is swept at start with them.
+pub fn storage(state: &AppState, source_id: &str, os: StorageOs) -> Storage {
+    web::ephemeral_storage(state, &format!("{OIDC_PREFIX}{source_id}"), os)
+}
 /// Finished flows kept for `secret_source_oidc_status`.
 const MAX_FINISHED: usize = 32;
 
@@ -53,6 +68,31 @@ struct Session {
     flow: Option<OidcFlow>,
     phase: Phase,
     started: Duration,
+    /// N-43: the first 16 refused navigations are audited, the rest counted.
+    refusals: RefusalBudget,
+}
+
+impl Session {
+    /// Leave `Pending` for `phase` (the window closes): the flow is dropped and the counted
+    /// refusals are written once (`secret_refused_suppressed`).
+    fn end(&mut self, rt: &SecretsRuntime, phase: Phase) {
+        self.phase = phase;
+        self.flow = None;
+        let suppressed = self.refusals.suppressed();
+        if suppressed > 0 {
+            rt.audit(mooring_audit::AuditEvent::SecretRefusedSuppressed {
+                source: self.source.id.to_string(),
+                action: "oidc_navigation".to_owned(),
+                count: u64::from(suppressed),
+            });
+        }
+    }
+
+    /// [`end`](Self::end) with `Failed(reason)`, audited `secret_refused { oidc, reason }`.
+    fn fail(&mut self, rt: &SecretsRuntime, reason: &str) {
+        self.end(rt, Phase::Failed(reason.to_owned()));
+        rt.refused(Some(self.source.id.to_string()), "oidc", reason);
+    }
 }
 
 /// `secret_source_oidc_status` result.
@@ -108,10 +148,8 @@ impl OidcSessions {
         let mut labels = Vec::new();
         for s in lock(&self.map).values_mut() {
             if matches!(s.phase, Phase::Pending | Phase::Exchanging) {
-                s.phase = Phase::Failed(reason.to_owned());
-                s.flow = None;
+                s.fail(rt, reason);
                 labels.push(s.label.clone());
-                rt.refused(Some(s.source.id.to_string()), "oidc", reason);
             }
         }
         self.close(labels);
@@ -126,9 +164,7 @@ impl OidcSessions {
     fn expire(rt: &SecretsRuntime, s: &mut Session) -> Option<String> {
         let now = rt.engine().cache().clock().now();
         if s.phase == Phase::Pending && now.saturating_sub(s.started) > OIDC_TIMEOUT {
-            s.phase = Phase::Failed("timeout".into());
-            s.flow = None;
-            rt.refused(Some(s.source.id.to_string()), "oidc", "timeout");
+            s.fail(rt, "timeout");
             return Some(s.label.clone());
         }
         None
@@ -155,16 +191,31 @@ pub async fn begin(rt: &Arc<SecretsRuntime>, source: SecretSource) -> IpcResult<
         }
     }
     rt.oidc.close(stale);
+    let cache = Arc::clone(rt.engine().cache());
+    let epoch = cache.epoch();
     let flow = rt.engine().begin_oidc(&source).await.map_err(|e| ipc_error(&e))?;
+    // L-34: the vault locked while Vault was asked for the auth URL: no window over the lock
+    // screen.
+    if cache.epoch() != epoch {
+        rt.refused(Some(source.id.to_string()), "oidc", "locked");
+        return Err(IpcError::locked());
+    }
     let url = Zeroizing::new(flow.auth_url.clone());
     let session = uuid::Uuid::new_v4().to_string();
-    let started = rt.engine().cache().clock().now();
+    let started = cache.clock().now();
     {
         let mut map = lock(&rt.oidc.map);
         if map.len() >= MAX_FINISHED {
             map.retain(|_, s| matches!(s.phase, Phase::Pending | Phase::Exchanging));
         }
-        let s = Session { source: source.clone(), label: label.clone(), flow: Some(flow), phase: Phase::Pending, started };
+        let s = Session {
+            source: source.clone(),
+            label: label.clone(),
+            flow: Some(flow),
+            phase: Phase::Pending,
+            started,
+            refusals: RefusalBudget::default(),
+        };
         map.insert(session.clone(), s);
     }
     if let Err(e) = windows.open(&label, &url, &session) {
@@ -172,6 +223,16 @@ pub async fn begin(rt: &Arc<SecretsRuntime>, source: SecretSource) -> IpcResult<
         lock(&rt.oidc.map).remove(&session);
         rt.refused(Some(source.id.to_string()), "oidc", "window.failed");
         return Err(IpcError::new("window.failed", "the sign-in window could not be opened"));
+    }
+    // L-34: a lock that raced the open: `fail_all` may have run before the session existed.
+    if cache.epoch() != epoch {
+        if let Some(s) = lock(&rt.oidc.map).get_mut(&session) {
+            if s.phase == Phase::Pending {
+                s.fail(rt, "locked");
+            }
+        }
+        windows.close(&label);
+        return Err(IpcError::locked());
     }
     let weak = Arc::downgrade(rt);
     let id = session.clone();
@@ -222,17 +283,28 @@ pub fn navigate(rt: &Arc<SecretsRuntime>, session: &str, url: &str) -> bool {
         match (s.phase.clone(), s.flow.as_ref().map(|f| f.navigation(url))) {
             (Phase::Pending, Some(Navigation::Allow)) => true,
             (Phase::Pending, Some(Navigation::Callback { .. })) => {
-                s.phase = Phase::Exchanging;
-                exchange = s.flow.take().map(|f| (s.source.clone(), f));
+                let flow = s.flow.take();
+                s.end(rt, Phase::Exchanging);
+                exchange = flow.map(|f| (s.source.clone(), f));
                 close = Some(s.label.clone());
                 false
             }
             (Phase::Pending, Some(Navigation::Deny)) if parse_callback(url).is_some() => {
                 // The redirect with a foreign state or an IdP error: the flow is over.
-                s.phase = Phase::Failed("state_mismatch".into());
-                s.flow = None;
+                s.end(rt, Phase::Failed("state_mismatch".into()));
                 close = Some(s.label.clone());
                 rt.refused(Some(source), "oidc_navigation", "state_mismatch");
+                false
+            }
+            (Phase::Pending, _) => {
+                // N-43: the first 16 refusals get a row each; a flood closes the window.
+                if s.refusals.refused() {
+                    rt.refused(Some(source), "oidc_navigation", &origin_of(url));
+                }
+                if s.refusals.flooded() {
+                    s.fail(rt, "navigation_flood");
+                    close = Some(s.label.clone());
+                }
                 false
             }
             _ => {
@@ -266,9 +338,7 @@ pub fn navigate(rt: &Arc<SecretsRuntime>, session: &str, url: &str) -> bool {
 pub fn window_destroyed(rt: &SecretsRuntime, session: &str) {
     if let Some(s) = lock(&rt.oidc.map).get_mut(session) {
         if s.phase == Phase::Pending {
-            s.phase = Phase::Failed("closed".into());
-            s.flow = None;
-            rt.refused(Some(s.source.id.to_string()), "oidc", "closed");
+            s.fail(rt, "closed");
         }
     }
 }
@@ -291,16 +361,27 @@ impl<R: tauri::Runtime> OidcWindows for TauriOidcWindows<R> {
     fn open(&self, label: &str, url: &str, session: &str) -> Result<(), String> {
         use tauri::webview::{NewWindowResponse, PermissionResponse};
         use tauri::{WebviewUrl, WebviewWindowBuilder, WindowEvent};
+        use tauri::Manager;
         let url = tauri::Url::parse(url).map_err(|_| "auth_url is not a URL".to_owned())?;
         let (nav_rt, nav_s) = (self.rt.clone(), session.to_owned());
-        let window = WebviewWindowBuilder::new(&self.app, label, WebviewUrl::External(url))
+        let source_id = label.strip_prefix(OIDC_PREFIX).unwrap_or(label);
+        let storage = self
+            .app
+            .try_state::<AppState>()
+            .map_or(Storage::Ephemeral, |st| storage(&st, source_id, StorageOs::current()));
+        let mut builder = WebviewWindowBuilder::new(&self.app, label, WebviewUrl::External(url))
             .title("Mooring · Vault sign-in")
             .inner_size(560.0, 760.0)
             .devtools(false)
             .zoom_hotkeys_enabled(false)
             .general_autofill_enabled(false)
             .incognito(true)
-            .initialization_script(crate::web::window::INIT_SCRIPT)
+            .initialization_script_for_all_frames(crate::web::window::INIT_SCRIPT);
+        // L-33: an own WebView2 environment on Windows (as `web::window::build` does).
+        if let Some(dir) = storage.ephemeral_dir() {
+            builder = builder.data_directory(dir.clone());
+        }
+        let window = builder
             .on_navigation(move |u| nav_rt.upgrade().is_some_and(|rt| navigate(&rt, &nav_s, u.as_str())))
             .on_new_window(|_, _| NewWindowResponse::Deny)
             .on_download(|_, _| false)
@@ -308,10 +389,14 @@ impl<R: tauri::Runtime> OidcWindows for TauriOidcWindows<R> {
             .build()
             .map_err(|e| e.to_string())?;
         let (rt, s) = (self.rt.clone(), session.to_owned());
+        let profile = storage.ephemeral_dir().cloned();
         window.on_window_event(move |e| {
             if matches!(e, WindowEvent::Destroyed) {
                 if let Some(rt) = rt.upgrade() {
                     window_destroyed(&rt, &s);
+                }
+                if let Some(dir) = &profile {
+                    web::remove_ephemeral_dir(dir);
                 }
             }
         });

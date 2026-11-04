@@ -8,6 +8,11 @@
 //! `http.trust_prompt` in `sync_status` instead of opening a dialog unasked. While a dialog is
 //! open the auto-lock ignores focus loss (`AutoLock::dialog_guard`, bounded as for the SFTP
 //! pick).
+//!
+//! Review 6 M-16: "Cancel" is the first (default) button of both dialogs, results are mapped
+//! by label only, and every prompt holds a `ConfirmGate` slot (`confirm.busy`; a cancelled
+//! trust-and-remember or fork resolution cools the same target down). N-45: "Trust once" says
+//! it covers this sync only.
 
 use std::future::Future;
 
@@ -19,6 +24,9 @@ use time::OffsetDateTime;
 use tokio::sync::oneshot;
 
 use crate::autolock::AutoLock;
+use crate::commands::vsphere_confirm::{confirmed, CANCEL};
+pub use crate::confirm_gate::Scope;
+use crate::confirm_gate::ConfirmGate;
 use crate::error::IpcError;
 use crate::session_audit::cert;
 use crate::state::AppState;
@@ -55,8 +63,25 @@ impl<R: Runtime> std::fmt::Debug for DialogPrompter<R> {
     }
 }
 
-const PIN: &str = "Trust and remember";
-const ONCE: &str = "Trust once";
+/// Pin button label.
+pub const PIN: &str = "Trust and remember";
+/// Trust-once button label (N-45: names its scope).
+pub const ONCE: &str = "Trust once (this sync only)";
+
+/// The trust dialog's buttons in dialog order: the refusing one first (M-16).
+pub fn trust_buttons() -> tauri_plugin_dialog::MessageDialogButtons {
+    tauri_plugin_dialog::MessageDialogButtons::YesNoCancelCustom(CANCEL.into(), ONCE.into(), PIN.into())
+}
+
+/// Map a trust dialog result by label only (never by position).
+pub fn trust_answer(r: &tauri_plugin_dialog::MessageDialogResult) -> TrustAnswer {
+    use tauri_plugin_dialog::MessageDialogResult as Res;
+    match r {
+        Res::Custom(s) if s == PIN => TrustAnswer::Pin,
+        Res::Custom(s) if s == ONCE => TrustAnswer::Once,
+        _ => TrustAnswer::Reject,
+    }
+}
 
 impl<R: Runtime> DialogPrompter<R> {
     fn builder(&self, title: &str, message: String) -> tauri_plugin_dialog::MessageDialogBuilder<R> {
@@ -71,7 +96,6 @@ impl<R: Runtime> DialogPrompter<R> {
 
 impl<R: Runtime> SyncPrompter for DialogPrompter<R> {
     fn trust(&self, host: &str, info: &CertificateInfo, reply: Box<dyn FnOnce(TrustAnswer) + Send>) {
-        use tauri_plugin_dialog::{MessageDialogButtons as B, MessageDialogResult as Res};
         let text = format!(
             "The sync storage {host} presented a certificate Mooring does not trust yet.\n\n\
              Subject: {}\nIssuer: {}\nFingerprint: {}\n\nOnly trust it if you can verify the \
@@ -81,26 +105,16 @@ impl<R: Runtime> SyncPrompter for DialogPrompter<R> {
             info.display_fingerprint()
         );
         self.builder("Untrusted sync storage certificate", text)
-            .buttons(B::YesNoCancelCustom(PIN.into(), ONCE.into(), "Cancel".into()))
-            .show_with_result(move |r| {
-                reply(match r {
-                    Res::Yes => TrustAnswer::Pin,
-                    Res::No => TrustAnswer::Once,
-                    Res::Custom(s) if s == PIN => TrustAnswer::Pin,
-                    Res::Custom(s) if s == ONCE => TrustAnswer::Once,
-                    _ => TrustAnswer::Reject,
-                });
-            });
+            .buttons(trust_buttons())
+            .show_with_result(move |r| reply(trust_answer(&r)));
     }
 
     fn confirm(&self, title: &str, message: &str, ok: &str, reply: Box<dyn FnOnce(bool) + Send>) {
-        use tauri_plugin_dialog::{MessageDialogButtons as B, MessageDialogResult as Res};
+        use tauri_plugin_dialog::MessageDialogButtons as B;
         let ok = ok.to_owned();
         self.builder(title, message.to_owned())
-            .buttons(B::OkCancelCustom(ok.clone(), "Cancel".into()))
-            .show_with_result(move |r| {
-                reply(matches!(r, Res::Ok | Res::Yes) || matches!(&r, Res::Custom(s) if *s == ok));
-            });
+            .buttons(B::OkCancelCustom(CANCEL.into(), ok.clone()))
+            .show_with_result(move |r| reply(confirmed(&r, &ok)));
     }
 }
 
@@ -145,34 +159,44 @@ impl SyncPrompter for ScriptedPrompter {
     }
 }
 
-/// Ask for confirmation with the auto-lock dialog exemption held.
+/// Ask for a destructive confirmation (`scope`) with the gate slot and the auto-lock dialog
+/// exemption held. `confirm.busy` / `confirm.cooldown` refuse without a dialog.
 pub async fn confirm(
+    gate: &ConfirmGate,
+    scope: Scope<'_>,
     prompter: &dyn SyncPrompter,
     autolock: Option<&AutoLock>,
     title: &str,
     message: &str,
     ok: &str,
-) -> bool {
+) -> Result<bool, IpcError> {
+    let slot = gate.acquire(scope)?;
     let _open = autolock.map(AutoLock::dialog_guard);
     let (tx, rx) = oneshot::channel();
     prompter.confirm(title, message, ok, Box::new(move |yes| {
         let _ = tx.send(yes);
     }));
-    rx.await.unwrap_or(false)
+    let yes = rx.await.unwrap_or(false);
+    slot.done(yes);
+    Ok(yes)
 }
 
 async fn ask_trust(
+    gate: &ConfirmGate,
     prompter: &dyn SyncPrompter,
     autolock: Option<&AutoLock>,
     host: &str,
     info: &CertificateInfo,
-) -> TrustAnswer {
+) -> Result<TrustAnswer, IpcError> {
+    let slot = gate.acquire(Scope { kind: "sync_trust", target: host, destructive: true })?;
     let _open = autolock.map(AutoLock::dialog_guard);
     let (tx, rx) = oneshot::channel();
     prompter.trust(host, info, Box::new(move |a| {
         let _ = tx.send(a);
     }));
-    rx.await.unwrap_or(TrustAnswer::Reject)
+    let answer = rx.await.unwrap_or(TrustAnswer::Reject);
+    slot.done(answer != TrustAnswer::Reject);
+    Ok(answer)
 }
 
 /// Why a gated step failed: an app error (config, credential) or an engine error.
@@ -228,7 +252,7 @@ where
     let host = host_key(&d.host, d.port);
     let fp = d.info.display_fingerprint();
     let audit = |decision: &str| state.audit(cert("sync".into(), host.clone(), fp.clone(), decision, None));
-    let once = match ask_trust(p, autolock, &host, &d.info).await {
+    let once = match ask_trust(&state.confirm, p, autolock, &host, &d.info).await? {
         TrustAnswer::Reject => {
             audit("rejected");
             return first;

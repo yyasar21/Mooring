@@ -4,9 +4,15 @@
 //! On lock / exit [`TokenCache::revoke_all`] revokes the tokens Mooring minted (`AppRole`,
 //! OIDC) with `revoke-self` (best effort, 3 s) and drops every token; a stored `token`-method
 //! token is the user's and is only forgotten.
+//!
+//! Review 6 L-34 — the **lock epoch**: [`TokenCache::drain_for_lock`] bumps it and empties the
+//! cache synchronously (the revokes run afterwards); [`TokenCache::put`] takes the epoch the
+//! login started in and refuses a token from an older one, so a login that was in flight when
+//! the vault locked never lands in the cache (the caller revokes it, [`Rejected::retire`]).
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -93,6 +99,56 @@ pub struct TokenCache {
     clock: Arc<dyn Clock>,
     audit: Arc<dyn SecretsAudit>,
     entries: Mutex<HashMap<SecretSourceId, Entry>>,
+    /// Bumped by every lock (L-34).
+    epoch: AtomicU64,
+}
+
+/// A token refused by [`TokenCache::put`] because the vault locked while its login ran.
+/// [`Rejected::retire`] revokes it when Mooring minted it; dropping it only wipes it.
+pub struct Rejected(Entry);
+
+impl fmt::Debug for Rejected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Rejected").field("ours", &self.0.ours).finish_non_exhaustive()
+    }
+}
+
+impl Rejected {
+    /// Revoke (when ours, 3 s) and wipe.
+    pub async fn retire(self) {
+        TokenCache::retire(self.0).await;
+    }
+}
+
+/// The tokens a lock took out of the cache: [`Drained::retire`] revokes ours.
+#[derive(Debug)]
+pub struct Drained(Vec<Entry>);
+
+impl fmt::Debug for Entry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Entry").field("ours", &self.ours).finish_non_exhaustive()
+    }
+}
+
+impl Drained {
+    /// How many tokens were taken.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Nothing was cached.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Revoke ours (in parallel, 3 s each) and wipe all.
+    pub async fn retire(self) {
+        let mut set = tokio::task::JoinSet::new();
+        for e in self.0 {
+            set.spawn(TokenCache::retire(e));
+        }
+        while set.join_next().await.is_some() {}
+    }
 }
 
 impl fmt::Debug for TokenCache {
@@ -112,7 +168,12 @@ fn lifetime_of(t: &VaultToken) -> Duration {
 impl TokenCache {
     /// An empty cache.
     pub fn new(clock: Arc<dyn Clock>, audit: Arc<dyn SecretsAudit>) -> Self {
-        Self { clock, audit, entries: Mutex::new(HashMap::new()) }
+        Self { clock, audit, entries: Mutex::new(HashMap::new()), epoch: AtomicU64::new(0) }
+    }
+
+    /// The current lock epoch: capture it before a login starts and pass it to [`Self::put`].
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::SeqCst)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SecretSourceId, Entry>> {
@@ -149,7 +210,16 @@ impl TokenCache {
     }
 
     /// Cache a fresh token (replacing any previous one, which is dropped, not revoked).
-    pub fn put(&self, source: SecretSourceId, client: VaultClient, t: VaultToken, ours: bool) {
+    /// `epoch` is [`Self::epoch`] as read before the login started: a token whose login
+    /// straddled a lock is refused (L-34) and handed back for revocation.
+    pub fn put(
+        &self,
+        source: SecretSourceId,
+        client: VaultClient,
+        t: VaultToken,
+        ours: bool,
+        epoch: u64,
+    ) -> Result<(), Rejected> {
         let lifetime = lifetime_of(&t);
         let entry = Entry {
             expires: self.clock.now() + lifetime,
@@ -159,7 +229,15 @@ impl TokenCache {
             client,
             token: t.token,
         };
-        self.lock().insert(source, entry);
+        // Checked under the entries lock so a concurrent `drain_for_lock` cannot slip between.
+        let mut map = self.lock();
+        if epoch != self.epoch() {
+            drop(map);
+            self.audit.record(SecretEvent::Revoked { source });
+            return Err(Rejected(entry));
+        }
+        map.insert(source, entry);
+        Ok(())
     }
 
     /// Seconds left for `source`, if cached.
@@ -222,17 +300,28 @@ impl TokenCache {
         // `entry.token` is Zeroizing: wiped here.
     }
 
-    /// Lock / exit: revoke ours (in parallel, 3 s each), forget all. Returns how many tokens
-    /// were dropped.
-    pub async fn revoke_all(&self) -> usize {
-        let drained: Vec<(SecretSourceId, Entry)> = self.lock().drain().collect();
-        let n = drained.len();
-        let mut set = tokio::task::JoinSet::new();
+    /// Lock / exit, synchronous part: bump the epoch and take every token out of the cache
+    /// (audited `revoked`). The revocations happen in [`Drained::retire`], which the caller
+    /// may run in the background; from here on nothing can resolve with a pre-lock token.
+    pub fn drain_for_lock(&self) -> Drained {
+        let mut map = self.lock();
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        let drained: Vec<(SecretSourceId, Entry)> = map.drain().collect();
+        drop(map);
+        let mut entries = Vec::with_capacity(drained.len());
         for (id, e) in drained {
             self.audit.record(SecretEvent::Revoked { source: id });
-            set.spawn(Self::retire(e));
+            entries.push(e);
         }
-        while set.join_next().await.is_some() {}
+        Drained(entries)
+    }
+
+    /// Lock / exit: [`Self::drain_for_lock`] and wait for the revocations. Returns how many
+    /// tokens were dropped.
+    pub async fn revoke_all(&self) -> usize {
+        let drained = self.drain_for_lock();
+        let n = drained.len();
+        drained.retire().await;
         n
     }
 

@@ -5,7 +5,9 @@
 //! A power action needs the vCenter's `allowPowerActions` opt-in **and** a "yes" in the
 //! Rust-native dialog naming the VM, the action and the vCenter (power off / reset add the
 //! data-loss warning); only then is a [`PowerApproval`] built. Audited `vsphere_power` before
-//! (`requested`) and after (`done` | `already` | `cancelled` | error code).
+//! (`requested`) and after (`done` | `already` | `cancelled` | error code). M-16: the dialog
+//! goes through `AppState::confirm` (`confirm.busy`; `confirm.cooldown` for 10 s after a
+//! cancelled power off / reset of the same VM).
 
 use std::sync::{Arc, Mutex};
 
@@ -17,6 +19,7 @@ use time::OffsetDateTime;
 
 use crate::commands::vsphere_confirm::{Ask, Prompt, UrlOpener};
 use crate::commands::vsphere_login::{self, map_error, Target};
+use crate::confirm_gate::Scope;
 use crate::dto;
 use crate::error::{IpcError, IpcResult};
 use crate::state::{record_audit, AppState};
@@ -171,7 +174,9 @@ pub async fn action(state: &AppState, prompt: Prompt<'_>, connection_id: &str, a
         hook.record(t.vm.as_str(), a, "power_disabled");
         return Err(map_error(&mooring_vsphere::VsphereError::PowerDisabled));
     }
-    let yes = prompt.ask(power_question(&t, a)).await;
+    let target = format!("{}/{}", t.source, t.vm);
+    let scope = Scope { kind: "vsphere_power", target: &target, destructive: a.is_destructive() };
+    let yes = prompt.ask(&ctx.confirm, scope, power_question(&t, a)).await?;
     if !yes {
         hook.record(t.vm.as_str(), a, "cancelled");
         return Ok(ActionDto { outcome: "cancelled" });
@@ -233,10 +238,11 @@ pub async fn vmrc(state: &AppState, prompt: Prompt<'_>, opener: &dyn UrlOpener, 
         ok: "Open".to_owned(),
         warning: false,
     };
-    if !prompt.ask(ask).await {
+    let ctx = VsCtx::of(state);
+    let target = format!("{}/{}", t.source, t.vm);
+    if !prompt.ask(&ctx.confirm, Scope { kind: "vmrc", target: &target, destructive: false }, ask).await? {
         return Ok(false);
     }
-    let ctx = VsCtx::of(state);
     let session = vsphere_sync::session(&ctx, t.source, Some(prompt)).await?;
     let ticket = session.vmrc_ticket(&t.vm).await.map_err(|e| map_error(&e))?;
     let url = ticket.expose_for_open(OffsetDateTime::now_utc()).map_err(|e| map_error(&e))?;

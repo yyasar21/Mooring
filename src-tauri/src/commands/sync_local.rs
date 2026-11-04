@@ -41,12 +41,27 @@ pub struct AppLocal {
     ready: Ready,
     trust_dir: PathBuf,
     device_name: String,
+    audit: Arc<Mutex<AuditLog>>,
 }
 
 impl AppLocal {
     /// The device side of `state`.
     pub fn new(state: &AppState, device_name: &str) -> Self {
-        Self { ready: state.ready(), trust_dir: state.data_dir.clone(), device_name: device_name.to_owned() }
+        Self {
+            ready: state.ready(),
+            trust_dir: state.data_dir.clone(),
+            device_name: device_name.to_owned(),
+            audit: Arc::clone(&state.audit),
+        }
+    }
+
+    /// L-35: after an apply, audit every `host:port` whose trust file now holds more than
+    /// one fingerprint (names only; nothing is resolved).
+    fn audit_trust_conflicts(&self, store: &Store) {
+        for c in super::sync_trust::conflicts(store, &self.trust_dir) {
+            tracing::warn!(file = c.file, "conflicting certificate pins after sync");
+            record_audit(&self.audit, c.event());
+        }
     }
 
     fn with<T>(&self, f: impl FnOnce(&Vault, &Store) -> Result<T>) -> Result<T> {
@@ -88,7 +103,13 @@ impl LocalSide for AppLocal {
         self.with(|v, s| snapshot::from_store(s, &self.trust_dir, v.vault_id(), &self.device_name))
     }
     fn apply(&self, snap: &Snapshot) -> Result<()> {
-        with_trust_locks(&self.trust_dir, || self.with(|_, s| snapshot::apply(s, &self.trust_dir, snap)))
+        with_trust_locks(&self.trust_dir, || {
+            self.with(|_, s| {
+                snapshot::apply(s, &self.trust_dir, snap)?;
+                self.audit_trust_conflicts(s);
+                Ok(())
+            })
+        })
     }
     fn load_state(&self) -> Result<Option<LocalState>> {
         self.with(|_, s| mooring_sync::load_state(s))
