@@ -1,6 +1,6 @@
 [package]
 name = "mooring-testsrv"
-description = "Dev-only loopback RFB 3.8 and RDP test servers for Mooring integration tests (A2 Q2)"
+description = "Dev-only loopback RFB 3.8, RDP and mock API (Kubernetes, vCenter, Vault, S3) test servers for Mooring integration tests"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -39,7 +39,25 @@ ironrdp-dvc = "0.10"
 ironrdp-displaycontrol = "0.10"
 # RDP 6.0 planar encoder for compressed bitmap updates (same version ironrdp-session decodes with).
 ironrdp-graphics = "0.11"
+# A3 Q1 mock API servers (ADR-0014..0017). All already in Cargo.lock (Tauri / kube tree):
+# hyper 1 server side (MIT), hyper-util TokioIo glue (MIT), http / http-body / http-body-util
+# (MIT OR Apache-2.0 / MIT), bytes (MIT).
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+bytes = "1"
+# Fixture JSON for the kube / vCenter / Vault mocks (MIT OR Apache-2.0, workspace version).
+serde_json = { workspace = true }
+# WebSocket accept key (RFC 6455 §4.2.2: SHA-1 + base64) and S3 SigV4 HMAC-SHA256 chain;
+# RustCrypto / base64 at the workspace versions (MIT OR Apache-2.0).
+sha1 = { workspace = true }
+hmac = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 # Verification client for the RDP self-test only (decodes the bitmap updates we send).
 ironrdp-session = "0.13"
+# Raw HTTP/1 client for the mock API self-tests (mooring-http does not exist yet).
+hyper = { version = "1", features = ["client", "http1"] }

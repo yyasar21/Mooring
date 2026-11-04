@@ -1,15 +1,16 @@
 import { useId, useState } from "react";
-import type { Exposure, ForwardKind, ForwardOpen } from "../../lib/ipc";
+import type { AnyForwardKind, Exposure, ForwardKind, ForwardOpen } from "../../lib/ipc";
 import { hasErrors, isLoopbackHost, validateForward } from "../../lib/validate.exit";
 import { Modal } from "../dialogs/Modal";
 import { formatHostPort } from "./useForwards";
 
 type Draft = Omit<ForwardOpen, "sessionId">;
 
-export const KIND_META: Record<ForwardKind, { label: string; short: string; help: string }> = {
+export const KIND_META: Record<AnyForwardKind, { label: string; short: string; help: string }> = {
   local: { label: "Local", short: "L", help: "Listen on this computer; the server connects on to the target." },
   remote: { label: "Remote", short: "R", help: "Listen on the server; this computer connects on to the target." },
   dynamic: { label: "Dynamic", short: "D", help: "A SOCKS5 proxy on this computer that routes through the server." },
+  pod: { label: "Pod", short: "P", help: "Listen on this computer; the cluster connects on to a port of the pod." },
 };
 
 const KINDS: ForwardKind[] = ["local", "remote", "dynamic"];

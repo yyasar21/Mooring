@@ -33,7 +33,15 @@ pub fn set(
         let protocol = store.get_connection(id)?.protocol;
         let parsed = ProtocolOptions::from_value(protocol, options)?;
         let before = store.connection_options(id).ok();
-        Ok((protocol, before, store.set_connection_options(id, &parsed)?))
+        let after = store.set_connection_options(id, &parsed)?;
+        // ADR-0014 K4: the options must fit the connection's Kubernetes credential.
+        if let Err(e) = crate::commands::kube::save_check(store, id) {
+            if let Some(b) = &before {
+                store.set_connection_options(id, b)?;
+            }
+            return Err(e);
+        }
+        Ok((protocol, before, after))
     })?;
     if let Some(event) = changes(connection_id, protocol.name(), before.as_ref(), &after) {
         state.audit(event);

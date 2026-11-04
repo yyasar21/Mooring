@@ -94,6 +94,79 @@ impl TestCert {
             .with_single_cert(vec![self.cert_der.clone()], key)?;
         Ok(Arc::new(config))
     }
+
+    /// As [`server_config`](Self::server_config), but also asks for a client certificate and
+    /// verifies one against `client_ca` when sent (clients without one are still accepted, so
+    /// bearer-token auth keeps working). Used by the kube mock's client-cert auth.
+    pub fn server_config_with_client_ca(
+        &self,
+        client_ca: &CertificateDer<'static>,
+    ) -> Result<Arc<ServerConfig>, rustls::Error> {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(client_ca.clone())?;
+        let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
+            Arc::new(roots),
+            Arc::clone(&provider),
+        )
+        .allow_unauthenticated()
+        .build()
+        .map_err(|e| rustls::Error::General(e.to_string()))?;
+        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key_der.clone()));
+        let config = ServerConfig::builder_with_provider(provider)
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])?
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(vec![self.cert_der.clone()], key)?;
+        Ok(Arc::new(config))
+    }
+}
+
+/// A test client certificate (ECDSA P-256, `clientAuth`) issued by a fresh test CA, for mTLS
+/// against the kube mock. Test material only; never written to disk by this crate.
+#[derive(Clone)]
+pub struct ClientIdentity {
+    cert: CertificateDer<'static>,
+    key: Vec<u8>,
+    ca: CertificateDer<'static>,
+}
+
+impl fmt::Debug for ClientIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientIdentity").finish_non_exhaustive()
+    }
+}
+
+impl ClientIdentity {
+    /// A client certificate with common name `cn`, signed by a new CA.
+    pub fn generate(cn: &str) -> Result<Self, rcgen::Error> {
+        use rcgen::{
+            BasicConstraints, CertificateParams, CertifiedIssuer, DnType, ExtendedKeyUsagePurpose,
+            IsCa, KeyPair,
+        };
+        let mut ca_params = CertificateParams::new(Vec::<String>::new())?;
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca_params.distinguished_name.push(DnType::CommonName, "Mooring Test Client CA");
+        let ca = CertifiedIssuer::self_signed(ca_params, KeyPair::generate()?)?;
+        let key = KeyPair::generate()?;
+        let mut params = CertificateParams::new(Vec::<String>::new())?;
+        params.distinguished_name.push(DnType::CommonName, cn);
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+        let leaf = params.signed_by(&key, &ca)?;
+        Ok(Self { cert: leaf.der().clone(), key: key.serialize_der(), ca: ca.der().clone() })
+    }
+
+    pub fn cert_der(&self) -> &CertificateDer<'static> {
+        &self.cert
+    }
+
+    /// PKCS#8 DER of the client key.
+    pub fn key_der(&self) -> &[u8] {
+        &self.key
+    }
+
+    pub fn ca_der(&self) -> &CertificateDer<'static> {
+        &self.ca
+    }
 }
 
 #[cfg(test)]

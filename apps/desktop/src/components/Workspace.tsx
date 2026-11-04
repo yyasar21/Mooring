@@ -11,6 +11,8 @@ import { PromptModal } from "./terminal/PromptModal";
 import { SessionToolbar, type SessionTool } from "./SessionToolbar";
 import { ForwardsPanel } from "./forwards/ForwardsPanel";
 import { SftpPanel } from "./sftp/SftpPanel";
+import { ClusterBrowser } from "./kube/ClusterBrowser";
+import { LogsViewer } from "./kube/LogsViewer";
 
 // xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
 const TerminalView = lazy(() => import("./terminal/TerminalView").then((m) => ({ default: m.TerminalView })));
@@ -36,7 +38,9 @@ export function Workspace() {
 function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
   const c = useTree((s) => s.connections.find((x) => x.id === tab.connectionId));
   const reconnect = useSessions((s) => s.reconnect);
-  const terminal = c?.protocol === "ssh" || c?.protocol === "kubernetes";
+  // Kubernetes (ADR-0014): the cluster tab is a browser, logs a viewer, exec a terminal.
+  const kube = tab.kube;
+  const terminal = c?.protocol === "ssh" || kube?.view === "exec";
   const ssh = c?.protocol === "ssh";
   const graphical = isGraphical(c?.protocol ?? tab.protocol);
   const web = (c?.protocol ?? tab.protocol) === "web";
@@ -87,6 +91,10 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
             )}
           </div>
         </>
+      ) : kube?.view === "cluster" ? (
+        <ClusterBrowser tab={tab} connection={c} />
+      ) : kube?.view === "logs" ? (
+        <LogsViewer tab={tab} target={kube.logs} connection={c} active={active} />
       ) : terminal ? (
         bezel
       ) : graphical ? (
@@ -106,7 +114,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </div>
         </div>
       )}
-      {tab.state === "closed" && !graphical && (
+      {tab.state === "closed" && !graphical && kube?.view !== "cluster" && kube?.view !== "logs" && (
         <div className="dropped m-hud" data-tone="hot">
           <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>
           <span className="text-text-muted">Disconnected: {tab.reason ?? "session ended"}</span>

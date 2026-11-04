@@ -5,12 +5,13 @@
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AuditEntry, FrameHandler, Ipc, ProgressHandler, SessionEventHandler } from "./ipc.types";
+import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, PodEventHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockTransport } from "./ipc.mock";
 import { detachedDemoTransport } from "./ipc.mock.demo";
 import { bootRoute } from "./route";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
+import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 
 export * from "./ipc.types";
@@ -60,7 +61,11 @@ export function decodeAuditEntry(raw: unknown): AuditEntry {
  * `session_frame_ack` is sent per drawn frame (30–60/s, from requestAnimationFrame), so it must
  * never count as activity either (ADR-0011).
  */
-export const POLLED_COMMANDS: readonly string[] = ["audit_verify", "forward_list", "session_frame_ack"];
+export const POLLED_COMMANDS: readonly string[] = [
+  "audit_verify", "forward_list", "session_frame_ack",
+  // ADR-0014 §6, ADR-0015 §5, ADR-0017 §5: passive by contract.
+  "kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status",
+];
 
 // ---------- Tauri transport ----------
 
@@ -105,8 +110,8 @@ export class TauriTransport implements Ipc {
   credentialCopyOtp: Ipc["credentialCopyOtp"] = (a) => call("credential_copy_otp", { ...a });
   credentialParseAccount: Ipc["credentialParseAccount"] = (a) => call("credential_parse_account", { ...a });
 
-  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame }) =>
-    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}) });
+  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame, kube }) =>
+    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}), ...(kube ? { kube } : {}) });
   sessionSend: Ipc["sessionSend"] = ({ sessionId, input }) =>
     call("session_send", { sessionId, input: encodeSessionInput(input) });
   sessionClose: Ipc["sessionClose"] = (a) => call("session_close", { ...a });
@@ -174,6 +179,51 @@ export class TauriTransport implements Ipc {
   syslogSet: Ipc["syslogSet"] = (config) => call("syslog_set", { ...config });
   syslogTest: Ipc["syslogTest"] = () => call("syslog_test");
 
+  // ---------- ADR-0014 (Kubernetes) ----------
+
+  kubeOpen: Ipc["kubeOpen"] = (a) => call("kube_open", { ...a });
+  kubeAccess: Ipc["kubeAccess"] = async (a) => decodeAccess(await call<unknown>("kube_access", { ...a }));
+  kubeNamespaces: Ipc["kubeNamespaces"] = async (a) => decodeNamespaces(await call<unknown>("kube_namespaces", { ...a }));
+  kubePods: Ipc["kubePods"] = async (a) => decodePodList(await call<unknown>("kube_pods", { ...a }));
+  kubeWatch: Ipc["kubeWatch"] = ({ onEvent, ...a }) => call("kube_watch", { ...a, onEvent: podChannel(onEvent) });
+  kubeUnwatch: Ipc["kubeUnwatch"] = (a) => call("kube_unwatch", { ...a });
+  kubeLogs: Ipc["kubeLogs"] = ({ onChunk, ...a }) => call("kube_logs", { ...a, onChunk: logChannel(onChunk) });
+  kubeLogsStop: Ipc["kubeLogsStop"] = (a) => call("kube_logs_stop", { ...a });
+
+  // ---------- ADR-0015 (vSphere) ----------
+
+  vsphereTest: Ipc["vsphereTest"] = (a) => call("vsphere_test", { ...a });
+  vsphereSyncEnable: Ipc["vsphereSyncEnable"] = (a) => call("vsphere_sync_enable", { ...a });
+  vsphereSyncDisable: Ipc["vsphereSyncDisable"] = (a) => call("vsphere_sync_disable", { ...a });
+  vsphereRefresh: Ipc["vsphereRefresh"] = (a) => call("vsphere_refresh", { ...a });
+  vsphereStatus: Ipc["vsphereStatus"] = (a) => call("vsphere_status", { ...a });
+  vsphereVmPower: Ipc["vsphereVmPower"] = (a) => call("vsphere_vm_power", { ...a });
+  vsphereVmAction: Ipc["vsphereVmAction"] = (a) => call("vsphere_vm_action", { ...a });
+  vsphereVmIdentity: Ipc["vsphereVmIdentity"] = (a) => call("vsphere_vm_identity", { ...a });
+  vsphereConsole: Ipc["vsphereConsole"] = (a) => call("vsphere_console", { ...a });
+
+  // ---------- ADR-0016 (external secrets) ----------
+
+  secretSourceList: Ipc["secretSourceList"] = () => call("secret_source_list");
+  secretSourceCreate: Ipc["secretSourceCreate"] = (a) => call("secret_source_create", { ...a });
+  secretSourceUpdate: Ipc["secretSourceUpdate"] = (a) => call("secret_source_update", { ...a });
+  secretSourceDelete: Ipc["secretSourceDelete"] = (a) => call("secret_source_delete", { ...a });
+  secretSourceTest: Ipc["secretSourceTest"] = (a) => call("secret_source_test", { ...a });
+  secretSourceLogout: Ipc["secretSourceLogout"] = (a) => call("secret_source_logout", { ...a });
+  externalRefTest: Ipc["externalRefTest"] = (a) => call("external_ref_test", { ...a });
+  secretSourceOidcStart: Ipc["secretSourceOidcStart"] = (a) => call("secret_source_oidc_start", { ...a });
+  secretSourceOidcStatus: Ipc["secretSourceOidcStatus"] = (a) => call("secret_source_oidc_status", { ...a });
+
+  // ---------- ADR-0017 (vault sync) ----------
+
+  syncGet: Ipc["syncGet"] = () => call("sync_get");
+  syncStatus: Ipc["syncStatus"] = () => call("sync_status");
+  syncSet: Ipc["syncSet"] = (a) => call("sync_set", { ...a });
+  syncProbe: Ipc["syncProbe"] = () => call("sync_probe");
+  syncNow: Ipc["syncNow"] = () => call("sync_now");
+  syncDisable: Ipc["syncDisable"] = (a) => call("sync_disable", { ...a });
+  vaultJoin: Ipc["vaultJoin"] = (a) => call("vault_join", { ...a });
+
   onVaultLocked: Ipc["onVaultLocked"] = (handler) => {
     let off: (() => void) | null = null;
     let dead = false;
@@ -207,6 +257,18 @@ function frameChannel(onFrame: FrameHandler): Channel {
 function progressChannel(onProgress: ProgressHandler): Channel {
   const channel = new Channel<unknown>();
   channel.onmessage = (msg) => { onProgress(decodeProgress(msg)); };
+  return channel;
+}
+
+function podChannel(onEvent: PodEventHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => { onEvent(decodePodEvent(msg)); };
+  return channel;
+}
+
+function logChannel(onChunk: LogChunkHandler): Channel {
+  const channel = new Channel<unknown>();
+  channel.onmessage = (msg) => { onChunk(decodeLogChunk(msg)); };
   return channel;
 }
 

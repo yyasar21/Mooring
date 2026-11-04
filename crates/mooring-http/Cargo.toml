@@ -1,0 +1,43 @@
+[package]
+name = "mooring-http"
+description = "Mooring HTTPS client for Kubernetes, vSphere, Vault and S3 sync: our TOFU verifier, body caps, rate limit (ADR-0014 §1)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["client-legacy", "http1", "tokio"] }
+rand_core = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tower-service = "0.3"
+tracing = { workspace = true }
+x509-parser = { version = "0.18", default-features = false }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+hyper = { version = "1", features = ["client", "server", "http1"] }
+proptest = { workspace = true }
+rcgen = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,34 @@
+[package]
+name = "mooring-vsphere"
+description = "Mooring vCenter REST client: session, inventory, power actions, console links (ADR-0015)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.1" }
+base64 = { workspace = true }
+bytes = "1"
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = "2"
+zeroize = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

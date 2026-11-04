@@ -1,6 +1,7 @@
-//! Certificate TOFU trust store shared by RDP and VNC (ADR-0011 §Trust, ADR-0012 §Trust).
+//! Certificate TOFU trust store shared by RDP, VNC and the HTTPS clients (ADR-0011 §Trust,
+//! ADR-0012 §Trust, ADR-0014 §1).
 //!
-//! One file per protocol (`$APP_DATA/known_rdp_certs`, `$APP_DATA/known_vnc_certs`, see
+//! One file per protocol (`$APP_DATA/known_rdp_certs`, `$APP_DATA/known_kube_certs`, …, see
 //! [`CertProtocol::file_name`]), one entry per line:
 //!
 //! ```text
@@ -22,6 +23,7 @@
 mod info;
 mod marker;
 mod named;
+mod protocol;
 
 use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
@@ -39,6 +41,7 @@ pub use info::{
     MAX_SAN, MAX_SAN_LEN,
 };
 pub use marker::TLS_MARKER;
+pub use protocol::CertProtocol;
 
 type HmacSha256 = hmac::Hmac<sha2_next::Sha256>;
 
@@ -50,26 +53,6 @@ pub const MAX_LINES: usize = 10_000;
 pub const KEY_TYPE: &str = "x509-sha256";
 const HASH_MAGIC: &str = "|2|";
 const SALT_LEN: usize = 32;
-
-/// Which store a certificate pin belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CertProtocol {
-    /// `known_rdp_certs`.
-    Rdp,
-    /// `known_vnc_certs`.
-    Vnc,
-}
-
-impl CertProtocol {
-    /// File name under the app data directory.
-    pub const fn file_name(self) -> &'static str {
-        match self {
-            Self::Rdp => "known_rdp_certs",
-            Self::Vnc => "known_vnc_certs",
-        }
-    }
-}
 
 /// Result of looking a presented leaf up in the store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

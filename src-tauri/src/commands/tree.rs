@@ -169,6 +169,11 @@ pub fn create_connection(state: &AppState, fields: ConnectionFields) -> IpcResul
     let c = fields.into_connection(None)?;
     state.with_ready(|_, store| {
         let stored = store.create_connection(&c)?;
+        // ADR-0014 K4: a Kubernetes credential must fit the connection's options.
+        if let Err(e) = crate::commands::kube::save_check(store, stored.id) {
+            store.delete_connection(stored.id)?;
+            return Err(e);
+        }
         dto::connection(store, &stored)
     })
 }
@@ -182,8 +187,14 @@ pub fn update_connection(
     let id = dto::connection_id("id", id)?;
     let mut c = fields.into_connection(Some(id))?;
     state.with_ready(|_, store| {
-        c.created_at = store.get_connection(id)?.created_at;
+        let before = store.get_connection(id)?;
+        c.created_at = before.created_at;
         let stored = store.update_connection(&c)?;
+        // ADR-0014 K4: a Kubernetes credential must fit the connection's options.
+        if let Err(e) = crate::commands::kube::save_check(store, id) {
+            store.update_connection(&before)?;
+            return Err(e);
+        }
         dto::connection(store, &stored)
     })
 }

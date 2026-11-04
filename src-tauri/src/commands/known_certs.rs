@@ -26,12 +26,10 @@ fn store_error(e: &mooring_core::known_certs::KnownCertsError) -> IpcError {
 /// The file keeps hosts hashed; `host` / `port` are filled in Rust (U2) for pins that match
 /// one of the user's own connections of that protocol, so the UI needs no HMAC.
 pub fn list(state: &AppState, protocol: CertProtocol) -> IpcResult<Vec<KnownCert>> {
-    let want = match protocol {
-        CertProtocol::Rdp => mooring_core::Protocol::Rdp,
-        CertProtocol::Vnc => mooring_core::Protocol::Vnc,
-    };
+    let want = protocol.connection_protocol();
     let candidates = state.with_ready(|_, store| {
         let mut out = Vec::new();
+        let Some(want) = want else { return Ok(out) };
         for folder in store.list_folders()? {
             for c in store.list_connections(folder.id)? {
                 if c.protocol == want {
@@ -57,10 +55,7 @@ pub fn remove(state: &AppState, protocol: CertProtocol, host: &str, port: u32) -
         .ok_or_else(|| IpcError::invalid("port", "must be 1..=65535"))?;
     let removed = KnownCerts::remove_and_save(&known_certs_path(state, protocol), &host, port)
         .map_err(|e| store_error(&e))?;
-    let name = match protocol {
-        CertProtocol::Rdp => "rdp",
-        CertProtocol::Vnc => "vnc",
-    };
+    let name = protocol.name();
     state.audit(AuditEvent::CertRemoved {
         protocol: name.to_owned(),
         host: host_key(&host, port),

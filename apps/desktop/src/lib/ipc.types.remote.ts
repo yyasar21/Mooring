@@ -3,6 +3,8 @@
 // (decoded in ipc.decode.session.ts), `IpcError` on failure, no secret or pixel ever outward
 // except MFR1 frames on the dedicated `onFrame` channel.
 import type { Protocol, SessionEventHandler, Size } from "./ipc.types";
+import type { KubeConnOptions } from "./ipc.types.kube";
+import type { VsphereConnOptions } from "./ipc.types.vsphere";
 
 // ---------- per-protocol connection options (connection.options, migration 0005) ----------
 
@@ -44,7 +46,7 @@ export interface WebConnOptions {
 }
 
 /** The serde type for the connection's protocol; `{}` for protocols without options. */
-export type ProtocolOptions = RdpConnOptions | VncConnOptions | WebConnOptions | Record<string, never>;
+export type ProtocolOptions = RdpConnOptions | VncConnOptions | WebConnOptions | KubeConnOptions | VsphereConnOptions | Record<string, never>;
 
 export const DEFAULT_RDP_OPTIONS: RdpConnOptions = {
   keyboardLayout: 0x0409,
