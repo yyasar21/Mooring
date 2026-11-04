@@ -31,8 +31,11 @@ minor version may contain breaking changes; they are called out under **Changed*
 ### Security
 
 - Security review 6 ([docs/security/a3-review-6.md](docs/security/a3-review-6.md)):
-  APPROVE WITH NITS. Native confirmations now put Cancel first and map answers by label, one
-  dialog at a time with a cool-down after a cancel (M-16); a lock epoch drops tokens from
+  APPROVE WITH NITS after two fix rounds. Native confirmations are now `Cancel / <action> /
+  Not now`: Return, Escape and the close box all refuse on every OS (M-16, and B-6 — the
+  dialog plugin rewrites a cancelled dialog into the label of its cancel slot), answers are
+  mapped by label only, one dialog at a time with a cool-down after a cancel; synced trust
+  stores that disagree on a host fail closed until one pin is removed (L-35); a lock epoch drops tokens from
   sign-ins that straddled a lock (L-34); the join header is staged and renamed (L-37); web and
   OIDC windows get per-connection profiles on Windows (L-29, L-33); refused navigations are
   rate-limited in the audit log (N-43); `wry` is pinned by a test (N-46). Review-5 items

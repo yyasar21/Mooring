@@ -8,6 +8,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |
 | 2026-11-04 | A3 | rust-core | [a3-rust-core-k1.md](a3-rust-core-k1.md) · [k2](a3-rust-core-k2.md) · [k3](a3-rust-core-k3.md) · [k4](a3-rust-core-k4.md) · [v1](a3-rust-core-v1.md) · [v2](a3-rust-core-v2.md) · [e1](a3-rust-core-e1.md) · [e2](a3-rust-core-e2.md) · [s1](a3-rust-core-s1.md) · [s2 + integration](a3-rust-core-s2.md) |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u1.md](a3-ui-u1.md) — typed IPC, Kubernetes cluster browser, exec, logs, pod forwards |
+| 2026-11-05 | A3 | orchestrator | [a3-orchestrator.md](a3-orchestrator.md) — Kubernetes, vSphere, external secrets, vault sync; review 6 → B-6 → fix 8 → re-review 6c APPROVE WITH NITS |
 | 2026-11-05 | A3 | security-reviewer | re-review 6b (BLOCKER B-6: Escape confirmed native dialogs via the plugin's cancel-slot remap) → fix round 8 → re-review 6c APPROVE WITH NITS (N-50); see [a3-review-6.md](../security/a3-review-6.md) |
 | 2026-11-05 | A3 | rust-core | [a3-rust-core-fix-7.md](a3-rust-core-fix-7.md) · [fix-8](a3-rust-core-fix-8.md) — M-16 confirm gate, L-33/L-34/L-35 (fail closed, `http.trust_conflict`)/L-37, N-39..N-49, B-6 three-slot dialogs |
 | 2026-11-05 | A3 | ui-engineer | [a3-ui-u5.md](a3-ui-u5.md) — trust-conflict DTOs, `trust_conflict` close code, known-certs grouping, three-button dialog copy |
