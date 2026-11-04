@@ -62,6 +62,11 @@ where
         }
     }
     framed.write_all(&out).await.map_err(s)?;
+    if shared.config.knobs.svc_flood {
+        // The client is expected to close; a write error ends the flood.
+        let _ = st.svc_flood(&mut framed).await;
+        return Ok(());
+    }
     for frame in result.input_events {
         let action =
             Action::from_fp_output_header(frame[0]).map_err(|_| "bad backlog frame".to_owned())?;
@@ -114,6 +119,36 @@ struct Reply {
 }
 
 impl Active<'_> {
+    /// `svc_flood` knob (cliprdr, else the first joined channel): FLAG_FIRST declaring `u32::MAX`, then 32 MiB in 1600-byte chunks.
+    async fn svc_flood<W: FramedWrite>(&self, w: &mut W) -> Result<(), String> {
+        use ironrdp_pdu::mcs::SendDataIndication;
+        // cliprdr when joined, otherwise any joined channel (drdynvc is always joined).
+        let id = self
+            .channels
+            .get_channel_id_by_type::<CliprdrServer>()
+            .or_else(|| {
+                self.channels.iter().find_map(|(t, _)| self.channels.get_channel_id_by_type_id(t))
+            })
+            .ok_or("no joined static channel")?;
+        let chunk = |flags: u32| {
+            let mut user = u32::MAX.to_le_bytes().to_vec();
+            user.extend_from_slice(&flags.to_le_bytes());
+            user.resize(8 + 1600, 0);
+            let pdu = SendDataIndication {
+                initiator_id: self.user_channel_id,
+                channel_id: id,
+                user_data: std::borrow::Cow::Owned(user),
+            };
+            ironrdp_core::encode_vec(&X224(McsMessage::SendDataIndication(pdu))).map_err(s)
+        };
+        w.write_all(&chunk(0x1)?).await.map_err(s)?;
+        let next = chunk(0)?;
+        for _ in 0..(32 * 1024 * 1024 / 1600) {
+            w.write_all(&next).await.map_err(s)?;
+        }
+        Ok(())
+    }
+
     async fn send_bitmap<W: FramedWrite>(&self, w: &mut W, r: Rect) -> Result<(), String> {
         let cfg = &self.shared.config;
         let (pdus, planar) = {

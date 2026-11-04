@@ -30,6 +30,7 @@ pub mod fuzz;
 pub mod input;
 pub mod keymap;
 mod options;
+mod reassembly;
 mod session;
 mod shared;
 mod tls;

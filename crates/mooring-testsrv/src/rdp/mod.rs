@@ -53,6 +53,9 @@ pub struct RdpKnobs {
     /// Advertise this desktop size in the Demand Active (Bitmap capability) instead of the
     /// framebuffer's, e.g. 65535 × 65535 (B-5). The server's own framebuffer is unchanged.
     pub advertised_desktop: Option<(u16, u16)>,
+    /// Right after activation, stream a static-channel message (cliprdr, else drdynvc) whose `CHANNEL_FLAG_FIRST` chunk
+    /// declares 4 GiB, then 32 MiB of continuation chunks (review 5 M-14).
+    pub svc_flood: bool,
 }
 
 #[derive(Debug, Clone)]

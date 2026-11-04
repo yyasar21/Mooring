@@ -32,6 +32,7 @@ fn config(a: &Args) -> Result<RdpConfig, String> {
             out_of_bounds_bitmap: a.get("out-of-bounds")?,
             drop_after_accept: a.has("drop-after-accept"),
             advertised_desktop: a.str("desktop").map(parse_size).transpose()?,
+            svc_flood: a.has("svc-flood"),
         },
         ..RdpConfig::default()
     })
@@ -47,7 +48,7 @@ fn parse_size(v: &str) -> Result<(u16, u16), String> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), String> {
     let a = Args::parse(
-        &["animate", "no-clipboard", "no-display-control", "drop-after-accept"],
+        &["animate", "no-clipboard", "no-display-control", "drop-after-accept", "svc-flood"],
         &[
             "port",
             "width",

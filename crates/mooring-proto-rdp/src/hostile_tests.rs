@@ -92,6 +92,18 @@ async fn huge_server_desktop_is_a_protocol_error_without_allocation() {
 }
 
 #[tokio::test]
+async fn svc_flood_is_a_protocol_error_with_bounded_memory() {
+    let srv = server(RdpKnobs { svc_flood: true, ..RdpKnobs::default() });
+    let (mut s, _sink, _dir) = connect(&srv).await;
+    let (code, connected) = close_code(&mut s).await;
+    assert!(connected);
+    assert_eq!(code, CloseCode::ProtocolError);
+    if let Some(kib) = peak_rss_kib() {
+        assert!(kib < 512 * 1024, "peak RSS {kib} KiB");
+    }
+}
+
+#[tokio::test]
 async fn zero_server_desktop_is_a_protocol_error() {
     let srv = server(RdpKnobs { advertised_desktop: Some((0, 240)), ..RdpKnobs::default() });
     let (mut s, _sink, _dir) = connect(&srv).await;
