@@ -43,3 +43,56 @@ Worktree from `a3` @ `49d7b98`. Docs only: `docs/security/a3-review-6.md`,
 - `cargo tree -i` for each new package (see the review's dependency table).
 - Not run: builds, tests, geiger, gitleaks, semgrep, pnpm audit, cargo-fuzz (orchestrator gate
   runs builds and tests concurrently; no compile was done in this worktree).
+
+---
+
+# Re-review 6b (fix round 7 + Q3) — 2026-11-05, `a3` @ `7527a7d`
+
+Docs only: the "Re-review 6b" section of `docs/security/a3-review-6.md`,
+`docs/security/threat-model.md` (native-confirmation boundary, A3 open items), this note.
+
+## Done
+- Closure of every review-6 row with file:line. **Verdict `BLOCKER` for the A3 tag.**
+- **M-16 is reopened as B-6.** `tauri-plugin-dialog` 2.8.4 (`src/desktop.rs:226-253`) remaps
+  rfd's positional `Cancel` to `Custom(<cancel-slot label>)` on every desktop OS. Escape, Alt+F4
+  and the close box all give that `Cancel` (GTK DELETE_EVENT, Windows IDCANCEL). Since the
+  confirming label now sits in the cancel slot, they **confirm** power actions, VMRC, vSphere
+  trust and fork resolution, and answer "Trust and remember" on the sync trust dialog.
+- Fixed: L-33, L-38 (every `NOT_GATED` reason checked), N-39..N-42, N-44, N-45, N-46. M-16's
+  single flight, cool-down, Cancel-first order, label mapping and the two new codes are all
+  correct.
+- Partial: the guest shutdown/reboot cool-down, L-34 (a), L-35 (a)(b), L-37 (a)(b),
+  N-43 (a)(b).
+- New: N-47 (`confirm_refused` audit flood), N-48 (`web_open` reopen path has no lock
+  post-check), N-49 (pin `tauri-plugin-dialog` 2.8.4 and `rfd` 0.17.2 in the lockfile golden).
+- Approved: `rfd =0.17.2` as a direct dependency of `mooring-app` if rust-core takes B-6
+  option 1. It is already in the tree, so no new crate.
+
+## Left open
+- Per-OS checks I cannot run: the native-dialog checklist (after B-6), OIDC interception
+  (ADR-0016 §4), L-31, the Windows L-29 E2E.
+
+## Decision needed
+- **rust-core:**
+  - B-6 (option 1: map rfd's result ourselves; option 2: three slots with a refusing label
+    last, and a two-step sync trust dialog);
+  - guest-power cool-down (`destructive: a != On`);
+  - L-34 (a): move `secrets.on_lock()` after `lock_with_reason`;
+  - L-37 (a)(b);
+  - L-35 (a)(b): together with ui-engineer for `sync_status.conflicts`, or fail closed instead;
+  - N-43 (a)(b), N-47, N-48.
+- **qa-engineer:** add "close box / Alt+F4 / Cmd+W refuses" to `docs/qa/native-dialogs.md`; run
+  it per OS after B-6.
+- **orchestrator:**
+  - `rfd` direct dependency (if option 1);
+  - N-49;
+  - file the upstream tauri-apps/plugins-workspace issue for the unconditional remap.
+- **owner:** L-35. Is surfacing conflicts in `sync_status` and the UI enough, or should a
+  conflicting host fail closed until one pin is removed? The reviewer prefers fail closed.
+
+## Test evidence
+- Registry sources read: `tauri-plugin-dialog` 2.8.4 (`desktop.rs`, `Cargo.toml`), `rfd` 0.17.2
+  (`gtk3`, `win_cid`, `macos` message dialogs).
+- Greps: dialog builders (two, covering all five dialogs), no timeout around an ask, the
+  `NOT_GATED` reasons against the command sources.
+- Not run: builds, tests, the per-OS checklist, cargo-fuzz.
