@@ -5,6 +5,12 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 
 | Date | Phase | Role | Note |
 | --- | --- | --- | --- |
+| 2026-11-04 | A2 | orchestrator | [a2-orchestrator.md](a2-orchestrator.md) — RDP, VNC, frame path, web windows, detach; review 5 BLOCKER B-5 → fixed; re-review APPROVE WITH NITS |
+| 2026-11-04 | A2 | architect | ADR-0011/0012/0013 (accepted with owner decisions) |
+| 2026-11-04 | A2 | rust-core | [a2-rust-core-r1.md](a2-rust-core-r1.md) · [r2](a2-rust-core-r2.md) · [r3](a2-rust-core-r3.md) · [r4](a2-rust-core-r4.md) · [r5](a2-rust-core-r5.md) · [integration + fix round 6](a2-integration.md) |
+| 2026-11-04 | A2 | ui-engineer | [a2-ui-u1.md](a2-ui-u1.md) · [u2](a2-ui-u2.md) · [u3](a2-ui-u3.md) |
+| 2026-11-04 | A2 | qa-engineer | [a2-qa.md](a2-qa.md) — RFB/RDP test servers, fuzz scaffolding |
+| 2026-11-04 | A2 | security-reviewer | [../security/a2-review-5.md](../security/a2-review-5.md) |
 | 2026-11-04 | A1 exit | orchestrator | [a1-orchestrator.md](a1-orchestrator.md) — round 4: ADR-0010 forwarding/SFTP/auto-lock/syslog over IPC, fuzz + E2E, review 4 |
 | 2026-11-04 | A1 exit | security-reviewer | [../security/a1-review-4.md](../security/a1-review-4.md) — review 4: BLOCKER B-4 → fixed; re-review APPROVE WITH NITS (M-12, L-19 open) |
 | 2026-11-04 | A1 exit | rust-core | [a1-exit-rust-core-forward-sftp.md](a1-exit-rust-core-forward-sftp.md) — forward_*/sftp_* commands, Rust-side pick dialog (B-4) |
