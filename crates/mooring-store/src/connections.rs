@@ -339,7 +339,7 @@ mod tests {
         let mut want = vec![web_a, web_b];
         want.sort();
         assert_eq!(s.connection_ids_under(a.id, Protocol::Web).expect("under a"), want);
-        assert!(s.connection_ids_under(b.id, Protocol::Ssh).expect("ssh").len() == 1);
+        assert_eq!(s.connection_ids_under(b.id, Protocol::Ssh).expect("ssh").len(), 1);
         assert_eq!(s.connection_ids_under(root.id, Protocol::Web).expect("root").len(), 3);
         assert_eq!(s.connection_ids_under(other.id, Protocol::Web).expect("other"), [web_other]);
         assert!(s
