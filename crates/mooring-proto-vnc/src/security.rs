@@ -175,7 +175,7 @@ pub fn vnc_auth_response(password: &[u8], challenge: &[u8; 16]) -> Zeroizing<[u8
     let key = vnc_des_key(password);
     let cipher = Des::new(&(*key).into());
     let mut out = Zeroizing::new(*challenge);
-    for chunk in out.chunks_exact_mut(8) {
+    for chunk in out.as_chunks_mut::<8>().0.iter_mut() {
         let mut block = des::cipher::Block::<Des>::default();
         block.copy_from_slice(chunk);
         cipher.encrypt_block(&mut block);

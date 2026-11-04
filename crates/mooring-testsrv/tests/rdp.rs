@@ -10,7 +10,12 @@ use ironrdp_pdu::input::MousePdu;
 use mooring_testsrv::rdp::{self, BitmapMode, InputRecord, RdpConfig, RdpKnobs, RdpSecurity, Rect};
 
 fn rgb_eq(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.chunks_exact(4).zip(b.chunks_exact(4)).all(|(x, y)| x[..3] == y[..3])
+    a.len() == b.len()
+        && a.as_chunks::<4>()
+            .0
+            .iter()
+            .zip(b.as_chunks::<4>().0.iter())
+            .all(|(x, y)| x[..3] == y[..3])
 }
 
 async fn connect(srv: &rdp::RdpHandle, o: ClientOptions) -> Result<RdpClient, String> {

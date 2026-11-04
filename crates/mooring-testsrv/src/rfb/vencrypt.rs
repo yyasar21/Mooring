@@ -18,7 +18,7 @@ pub fn vnc_auth_response(password: &[u8], challenge: &[u8; 16]) -> [u8; 16] {
     }
     let cipher = Des::new(&Array::from(key));
     let mut out = [0u8; 16];
-    for (i, chunk) in challenge.chunks_exact(8).enumerate() {
+    for (i, chunk) in challenge.as_chunks::<8>().0.iter().enumerate() {
         let mut block = Array::from([
             chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
         ]);

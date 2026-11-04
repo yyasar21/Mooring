@@ -132,7 +132,7 @@ impl Encoders {
             _ => {
                 out.push(0x00);
                 let mut d = Vec::with_capacity(px.len());
-                for p in px.chunks_exact(4) {
+                for p in px.as_chunks::<4>().0 {
                     pf.push_tpixel(p, &mut d);
                 }
                 (0, d)
@@ -153,7 +153,7 @@ impl Encoders {
 pub(crate) fn raw(fb: &Framebuffer, r: Rect, pf: &PixelFormat) -> Vec<u8> {
     let px = fb.region(r);
     let mut out = Vec::with_capacity(px.len() / 4 * pf.bytes_per_pixel());
-    for p in px.chunks_exact(4) {
+    for p in px.as_chunks::<4>().0 {
         pf.push_pixel(p, &mut out);
     }
     out
@@ -219,7 +219,7 @@ pub(crate) fn tiles(r: Rect, tw: u16, th: u16) -> Vec<Rect> {
 /// Distinct colours in first-seen order, or `None` when there are more than `max`.
 fn palette(px: &[u8], max: usize) -> Option<Vec<[u8; 4]>> {
     let mut p: Vec<[u8; 4]> = Vec::new();
-    for c in px.chunks_exact(4) {
+    for c in px.as_chunks::<4>().0 {
         let c = [c[0], c[1], c[2], 255];
         if !p.contains(&c) {
             if p.len() == max {
@@ -241,7 +241,7 @@ fn pack_rows(px: &[u8], w: u16, p: &[[u8; 4]], bits: u8) -> Vec<u8> {
     let mut out = Vec::new();
     for row in px.chunks_exact(usize::from(w) * 4) {
         let (mut byte, mut used) = (0u8, 0u8);
-        for c in row.chunks_exact(4) {
+        for c in row.as_chunks::<4>().0 {
             byte |= index_of(p, c) << (8 - bits - used);
             used += bits;
             if used == 8 {
@@ -260,7 +260,7 @@ fn palette_indices(px: &[u8], w: u16, p: &[[u8; 4]]) -> Vec<u8> {
     if p.len() == 2 {
         pack_rows(px, w, p, 1)
     } else {
-        px.chunks_exact(4).map(|c| index_of(p, c)).collect()
+        px.as_chunks::<4>().0.iter().map(|c| index_of(p, c)).collect()
     }
 }
 
@@ -290,7 +290,7 @@ fn zrle_tile(px: &[u8], w: u16, pf: &PixelFormat, mode: ZrleMode, out: &mut Vec<
     match (mode, colours.as_deref()) {
         (ZrleMode::Raw, _) => {
             out.push(0);
-            px.chunks_exact(4).for_each(|c| pf.push_cpixel(c, out));
+            px.as_chunks::<4>().0.iter().for_each(|c| pf.push_cpixel(c, out));
         }
         (ZrleMode::PlainRle, _) => {
             out.push(128);
@@ -332,7 +332,7 @@ fn zrle_tile(px: &[u8], w: u16, pf: &PixelFormat, mode: ZrleMode, out: &mut Vec<
         }
         (ZrleMode::Auto, None) => {
             out.push(0);
-            px.chunks_exact(4).for_each(|c| pf.push_cpixel(c, out));
+            px.as_chunks::<4>().0.iter().for_each(|c| pf.push_cpixel(c, out));
         }
     }
 }
@@ -340,7 +340,7 @@ fn zrle_tile(px: &[u8], w: u16, pf: &PixelFormat, mode: ZrleMode, out: &mut Vec<
 /// Runs of equal colour over the whole tile (runs cross row boundaries in ZRLE).
 fn runs(px: &[u8]) -> Vec<(&[u8], usize)> {
     let mut v: Vec<(&[u8], usize)> = Vec::new();
-    for c in px.chunks_exact(4) {
+    for c in px.as_chunks::<4>().0 {
         match v.last_mut() {
             Some((p, n)) if p[..3] == c[..3] => *n += 1,
             _ => v.push((c, 1)),
