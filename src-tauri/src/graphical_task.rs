@@ -137,6 +137,24 @@ pub fn close_code_of(e: &IpcError) -> CloseCode {
     }
 }
 
+/// The answer to a `certificate_trust` prompt (U2): `yes`, `once` or anything else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrustAnswer {
+    Pin,
+    Once,
+    Reject,
+}
+
+impl TrustAnswer {
+    fn parse(text: &str) -> Self {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "yes" => Self::Pin,
+            "once" => Self::Once,
+            _ => Self::Reject,
+        }
+    }
+}
+
 /// Certificate prompt, view-only filter and size tracking for [`drive`].
 struct Gate {
     pending: Option<(u32, CertificateInfo)>,
@@ -161,13 +179,15 @@ impl Gate {
         }
     }
 
-    fn answer(&self, yes: bool, info: &CertificateInfo) -> End {
+    /// `yes` pins, `once` trusts for this connect only (no pin, `trusted_once`), anything
+    /// else rejects.
+    fn answer(&self, answer: TrustAnswer, info: &CertificateInfo) -> End {
         let host = mooring_core::known_certs::host_key(&self.host, self.port);
         let fp = info.display_fingerprint();
         let audit = |decision| {
             record_audit(&self.audit, cert(self.protocol.name().to_owned(), host.clone(), fp.clone(), decision, None));
         };
-        if !yes {
+        if answer == TrustAnswer::Reject {
             audit("rejected");
             let reason = format!("certificate for {host} was not trusted");
             return End::Closed { reason, code: CloseCode::TrustRejected };
@@ -177,6 +197,10 @@ impl Gate {
             let reason = "the server certificate could not be read".to_owned();
             return End::Closed { reason, code: CloseCode::ProtocolError };
         };
+        if answer == TrustAnswer::Once {
+            audit("trusted_once");
+            return End::TrustAccepted { trusted_once: Some(sha) };
+        }
         match KnownCerts::add_and_save(&self.path, &self.host, self.port, &sha, OffsetDateTime::now_utc()) {
             Ok(()) => {
                 audit("accepted");
@@ -213,8 +237,7 @@ impl Interceptor for Gate {
         match input {
             SessionInput::Answer { id, text } if self.pending.as_ref().is_some_and(|p| p.0 == *id) => {
                 let Some((_, info)) = self.pending.take() else { return Intercept::Pass };
-                let yes = text.expose_secret().trim().eq_ignore_ascii_case("yes");
-                Intercept::End(self.answer(yes, &info))
+                Intercept::End(self.answer(TrustAnswer::parse(text.expose_secret()), &info))
             }
             SessionInput::Resize { size } => {
                 if let Ok(mut s) = self.size.lock() {

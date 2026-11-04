@@ -220,6 +220,22 @@ async fn certificate_yes_with_an_unwritable_store_trusts_once() {
     assert!(audit(&b).contains(r#""decision":"accepted_session_only""#));
 }
 
+/// U2: `once` trusts for this connect only: `trusted_once`, no pin, audited `trusted_once`.
+#[tokio::test]
+async fn certificate_once_trusts_this_connect_without_a_pin() {
+    let mut b = bench("rdp");
+    let (mut ui, conn) = open(&mut b).await;
+    prompt(&conn, 5);
+    expect_kind(&mut ui, "prompt").await;
+    answer(&b, &ui, 5, " Once ").await;
+    let second = next_conn(&mut b).await;
+    assert_eq!(second.trusted_once, Some(mooring_core::known_certs::fingerprint(DER)));
+    assert!(!pin_path(&b).exists(), "no pin written");
+    let log = audit(&b);
+    assert_eq!(log.matches(r#""decision":"trusted_once""#).count(), 1, "{log}");
+    assert!(!log.contains(r#""decision":"accepted""#), "{log}");
+}
+
 #[tokio::test]
 async fn certificate_mismatch_is_a_hard_stop() {
     let mut b = bench("rdp");
