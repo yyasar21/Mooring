@@ -164,9 +164,13 @@ interface SessionState {
 }
 
 /** A `session_open` refusal that is a trust decision keeps its close code, so the banner can say why. */
+const OPEN_FAILURE_CODES: Readonly<Record<string, CloseCode>> = {
+  "session.trust_mismatch": "trust_mismatch",
+  "session.trust_rejected": "trust_rejected",
+  "http.trust_conflict": "trust_conflict",
+};
 function openFailureCode(e: unknown): CloseCode | null {
-  const code = isIpcError(e) ? e.code : "";
-  return code === "session.trust_mismatch" ? "trust_mismatch" : code === "session.trust_rejected" ? "trust_rejected" : null;
+  return (isIpcError(e) && OPEN_FAILURE_CODES[e.code]) || null;
 }
 
 let tabSeq = 0;

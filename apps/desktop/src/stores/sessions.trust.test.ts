@@ -26,6 +26,38 @@ describe("A2 error texts", () => {
     expect(tab()).toMatchObject({ state: "closed", closeCode: "trust_mismatch" });
     expect(tab()?.reason).toMatch(/Settings → Trust/);
   });
+
+  it("http.trust_conflict (6b L-35) fails closed: friendly text, trust_conflict close code, no host or fingerprint", () => {
+    expect(FRIENDLY["http.trust_conflict"]).toBe(
+      "This host has two different trusted certificates (synced from another device). Remove one in Settings → Trust before connecting.",
+    );
+    expect(describeError(new IpcError("http.trust_conflict", "conflicting pins"))).not.toMatch(/SHA256|example\.test/);
+  });
+
+  it("a session_open refused with http.trust_conflict keeps the close code", async () => {
+    const mock = freshBackend();
+    await useTree.getState().load();
+    vi.spyOn(mock, "sessionOpen").mockRejectedValueOnce(new IpcError("http.trust_conflict", "conflicting pins"));
+    await act(async () => { await useSessions.getState().open("c-kiosk"); });
+    expect(tab()).toMatchObject({ state: "closed", closeCode: "trust_conflict", reconnect: null });
+    expect(tab()?.reason).toMatch(/Remove one in Settings → Trust/);
+  });
+
+  it("conflicting pins close the session with trust_conflict and never schedule a reconnect", async () => {
+    const mock = freshBackend();
+    await useTree.getState().load();
+    const t = { connectionId: "c-kiosk", protocol: "vnc" as const, name: "lobby-kiosk", host: "kiosk.example.test", port: 5900, tags: [], options: undefined };
+    await mock.pin(t);
+    await mock.pin(t, undefined, "#laptop");
+    await act(async () => { await useSessions.getState().open("c-kiosk"); });
+    await settle();
+    expect(tab()).toMatchObject({ state: "closed", closeCode: "trust_conflict", reconnect: null, sessionId: null });
+    expect(tab()?.reason).toMatch(/conflicting certificates for kiosk\.example\.test:5900/);
+    expect(tab()?.reason).not.toMatch(/SHA256/);
+    // no prompt was raised and the mock session is gone (no backoff timers)
+    expect(tab()?.prompt).toBeNull();
+    expect(mock.remote.size).toBe(0);
+  });
 });
 
 describe("options-driven session state", () => {

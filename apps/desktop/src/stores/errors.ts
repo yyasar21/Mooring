@@ -84,6 +84,9 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "http.trust_rejected": "You rejected the server's certificate, so Mooring did not connect. Nothing was stored.",
   "http.trust_mismatch":
     "The server's certificate changed since you trusted it, so Mooring stopped. Confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and try again.",
+  // Review 6b, L-35: conflicting pins after a sync merge fail closed (no prompt, no retry).
+  "http.trust_conflict":
+    "This host has two different trusted certificates (synced from another device). Remove one in Settings → Trust before connecting.",
   "http.trust_store": "Mooring could not read or write its certificate trust store.",
   "http.tls": "The TLS handshake with the server failed.",
 };

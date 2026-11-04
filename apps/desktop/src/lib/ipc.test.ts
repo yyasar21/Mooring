@@ -22,6 +22,14 @@ describe("ipc wire codec", () => {
     expect(decodeSessionEvent({ kind: "nonsense" }).kind).toBe("closed");
   });
 
+  it("decodes every ADR-0011 close code, 6b's trust_conflict included; an unknown one is `unknown`", () => {
+    for (const code of ["trust_mismatch", "trust_conflict", "vault_locked"]) {
+      expect(decodeSessionEvent({ kind: "closed", reason: "r", code })).toEqual({ kind: "closed", reason: "r", code });
+    }
+    expect(decodeSessionEvent({ kind: "closed", reason: "r", code: "TrustConflict" })).toMatchObject({ code: "unknown" });
+    expect(decodeSessionEvent({ kind: "closed", reason: "r" })).toMatchObject({ code: "unknown" });
+  });
+
   it("decodes the prompt purpose and falls back to other, never to trust (L-2)", () => {
     const base = { kind: "prompt", id: 1, message: "Trust this host?", secret: false };
     expect(decodeSessionEvent({ ...base, purpose: "host_key_trust" })).toMatchObject({ purpose: "host_key_trust" });

@@ -14,6 +14,11 @@ export const CLOSE_TEXT: Record<CloseCode | "unknown", { title: string; hint: st
     hint: "The stored certificate no longer matches. If the server was reinstalled, confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust.",
     hot: true,
   },
+  trust_conflict: {
+    title: "Conflicting certificates",
+    hint: "This host has two different trusted certificates (synced from another device). Mooring does not reconnect on its own: remove one in Settings → Trust, then connect again.",
+    hot: true,
+  },
   server_ended: { title: "Remote ended the session", hint: null, hot: false },
   protocol_error: { title: "Protocol error", hint: "The server sent data Mooring refuses to parse. The session was stopped.", hot: true },
   vault_locked: { title: "Vault locked", hint: "Unlock the vault to reconnect.", hot: false },

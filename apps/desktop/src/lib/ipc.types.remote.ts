@@ -77,17 +77,23 @@ export const DEFAULT_VNC_OPTIONS: VncConnOptions = {
 
 // ---------- session events (ADR-0011 SessionEvent changes) ----------
 
+/**
+ * `trust_conflict` (review 6b L-35): the trust store holds two different pins for the host after a
+ * sync merge. A hard stop like `trust_mismatch`: Rust never retries it, and the UI offers no
+ * automatic reconnect, only the known-certificates manager.
+ */
 export type CloseCode =
   | "user"
   | "network"
   | "auth_failed"
   | "trust_rejected"
   | "trust_mismatch"
+  | "trust_conflict"
   | "server_ended"
   | "protocol_error"
   | "vault_locked";
 export const CLOSE_CODES: readonly CloseCode[] = [
-  "user", "network", "auth_failed", "trust_rejected", "trust_mismatch", "server_ended", "protocol_error", "vault_locked",
+  "user", "network", "auth_failed", "trust_rejected", "trust_mismatch", "trust_conflict", "server_ended", "protocol_error", "vault_locked",
 ];
 
 export type CertificateProblem = "self_signed" | "unknown_issuer" | "name_mismatch" | "expired" | "not_yet_valid";
