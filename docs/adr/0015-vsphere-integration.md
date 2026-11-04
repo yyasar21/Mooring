@@ -1,6 +1,6 @@
 # ADR-0015: vSphere inventory sync, power actions and VM consoles
 
-Status: Proposed · 2026-11-04 (Phase A3; extends ADR-0005, ADR-0009, ADR-0013, ADR-0014)
+Status: Accepted · 2026-11-04 (Phase A3; extends ADR-0005, ADR-0009, ADR-0013, ADR-0014)
 
 ## Context
 A3 imports a vCenter's datacenters, clusters, hosts and VMs into a synced folder, shows power
@@ -144,6 +144,13 @@ status read-only via `wg show <iface> dump` only if `wg` exists and runs unprivi
 2. Is VMRC hand-off wanted at all (it relies on a proprietary client)?
 3. Delete a VM entry after two missed refreshes (proposed), or keep it until pruned by hand?
 4. Do you need VM folders / resource pools (needs SOAP or the newer `/api/vcenter/folder` tree)?
+
+## Owner decisions (2026-11-04)
+6. Power actions: all five (power on, shutdown guest, reboot guest, power off, reset) are
+   allowed in A3, each behind the per-connection opt-in and the Rust-native confirmation dialog;
+   power off / reset additionally show a "may lose data" warning. Every action is audited.
+7. VMRC hand-off is an opt-in per connection; the "Open in vSphere Client" web window is the
+   default console path.
 
 ## Sources
 Broadcom vSphere Automation API 8.0.3 reference: `Vm Console Tickets` (`POST

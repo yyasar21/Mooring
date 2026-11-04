@@ -54,10 +54,11 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
   port-forward, logs — read-only, never mutates the cluster.
 - **External secrets**: credentials resolved at connect time from HashiCorp Vault / OpenBao
   (KV v2) with short-lived tokens; nothing cached on disk.
-- **Optional sign-in** with Active Directory (LDAPS) and FIDO2 `hmac-secret` as a vault second
-  factor.
+- **Directory lookup** (LDAPS) moves to A4 as an importer; FIDO2 `hmac-secret` moves to a
+  post-A4 "unlock factors" ADR together with the OS-keyring biometric ACL
+  ([ADR-0017](adr/0017-vault-sync-and-signin.md)).
 - **Vault sync**: client-side encrypted blob to S3-compatible storage with conflict detection.
-- **Network tools** in the inspector: ping, TCP port check, traceroute, WireGuard status.
+- **Network tools** in the inspector: TCP port check now; ping/traceroute/WireGuard via OS tools in A4 (own ADR).
 - Security focus: token lifetimes, LDAP injection, sync integrity (AEAD with version counters).
 
 ## A4 — Release v0.1.0 🗓

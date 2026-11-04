@@ -1,6 +1,6 @@
 # ADR-0016: External secrets from HashiCorp Vault / OpenBao (KV v2)
 
-Status: Proposed · 2026-11-04 (Phase A3; amends ADR-0009 `external_ref`, extends ADR-0013, ADR-0014)
+Status: Accepted · 2026-11-04 (Phase A3; amends ADR-0009 `external_ref`, extends ADR-0013, ADR-0014)
 
 ## Context
 ADR-0009 stores `external_ref { provider, reference, target_kind }` and refuses it at connect
@@ -139,6 +139,10 @@ inventory-class, R-INV-CRED), `secret.failed { connection, source, category }`,
 3. May `token`-method sources use a long-lived token at all, or only AppRole/OIDC?
 4. Should a resolved secret be copyable (copy-password button) or connect-only (proposed:
    connect-only in A3)?
+
+## Owner decisions (2026-11-04)
+8. KV v2 only in A3; dynamic secrets (database, PKI, SSH-CA) are an A4 candidate.
+9. 1Password and Bitwarden are deferred (kinds stay reserved in `external_ref.provider`).
 
 ## Sources
 HashiCorp Vault API docs: KV v2 (`/data/:path`, `version`, metadata), AppRole login, token

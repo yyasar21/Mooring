@@ -1,6 +1,6 @@
 # ADR-0017: Vault sync to S3-compatible storage, and the A3 sign-in items
 
-Status: Proposed · 2026-11-04 (Phase A3; extends ADR-0002, ADR-0005, ADR-0006, ADR-0014)
+Status: Accepted · 2026-11-04 (Phase A3; extends ADR-0002, ADR-0005, ADR-0006, ADR-0014)
 
 ## Context
 The roadmap lists for A3 "vault sync: client-side encrypted blob to S3-compatible storage with
@@ -140,6 +140,14 @@ inward only). Audit: `sync.push { counter, bytes }`, `sync.pull`, `sync.merge { 
 3. Sync trust stores (`known_hosts`, `known_*_certs`) between devices (proposed: yes)?
 4. Is DEK rotation (needed to remove a device or a leaked header) in scope for A3?
 5. Keep 10 blobs of history in the bucket (proposed), or none?
+
+## Owner decisions (2026-11-04)
+10. Synced vaults share their trust stores: `known_hosts` and every `known_*_certs` file are part
+    of the snapshot; a trust decision made on one device is a trust decision on all.
+11. DEK rotation is out of scope for A3 (A4 with the password-change rework).
+12. LDAPS as vault auth and FIDO2 `hmac-secret` move out of A3 as recommended: LDAPS becomes a
+    directory-lookup importer in A4; FIDO2 goes to the post-A4 "unlock factors" ADR with the
+    keyring ACL. The roadmap is updated accordingly.
 
 ## Sources
 crates.io API (2026-11-04): `rusty-s3` 0.11.0, `object_store` 0.14.2 (and its `Cargo.toml`:

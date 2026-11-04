@@ -1,6 +1,6 @@
 # ADR-0014: Read-only Kubernetes sessions and the shared `mooring-http` client
 
-Status: Proposed · 2026-11-04 (Phase A3; extends ADR-0004, ADR-0009, ADR-0010, ADR-0011)
+Status: Accepted · 2026-11-04 (Phase A3; extends ADR-0004, ADR-0009, ADR-0010, ADR-0011)
 
 ## Context
 A3 adds Kubernetes: contexts from a kubeconfig, namespaces, pods and containers, `exec` shells,
@@ -186,6 +186,14 @@ unlocked (ADR-0010 M-8).
 3. May `exec` offer a custom argv at all, or only `sh`/`bash`?
 4. Should Secrets/ConfigMaps stay unreachable in A3 (proposed), even read-only?
 5. Is `kubectl`-style `exec` plugin support wanted later (it needs its own ADR and allow-list)?
+
+## Owner decisions (2026-11-04)
+1. `k8s-openapi` floor: the oldest version `k8s-openapi` 0.29 supports; bump only with a review.
+2. `server` / `caPem` for `kube_token` connections live in connection options.
+3. `exec` offers a fixed command allow-list only (`/bin/sh`, `/bin/bash`, `/bin/ash`, `sh`, `bash`);
+   no custom argv in A3.
+4. Secrets and ConfigMaps stay unreachable in A3, even read-only.
+5. `exec` credential plugins stay out; a later ADR may add an allow-listed plugin model.
 
 ## Sources
 crates.io API (2026-11-04): `kube` 5.0.0, `k8s-openapi` 0.29.0; kube-rs `kube/Cargo.toml`,
