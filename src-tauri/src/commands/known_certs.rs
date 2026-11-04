@@ -22,12 +22,29 @@ fn store_error(e: &mooring_core::known_certs::KnownCertsError) -> IpcError {
     IpcError::new("state.io", "the certificate store could not be read or written")
 }
 
-/// `known_certs_list({ protocol })`: `[{ hostHash, fingerprint, addedAt }]` (host names stay
-/// hashed).
+/// `known_certs_list({ protocol })`: `[{ hostHash, fingerprint, addedAt, host?, port? }]`.
+/// The file keeps hosts hashed; `host` / `port` are filled in Rust (U2) for pins that match
+/// one of the user's own connections of that protocol, so the UI needs no HMAC.
 pub fn list(state: &AppState, protocol: CertProtocol) -> IpcResult<Vec<KnownCert>> {
-    state.with_ready(|_, _| Ok(()))?;
+    let want = match protocol {
+        CertProtocol::Rdp => mooring_core::Protocol::Rdp,
+        CertProtocol::Vnc => mooring_core::Protocol::Vnc,
+    };
+    let candidates = state.with_ready(|_, store| {
+        let mut out = Vec::new();
+        for folder in store.list_folders()? {
+            for c in store.list_connections(folder.id)? {
+                if c.protocol == want {
+                    if let Some(port) = c.port.or_else(|| want.default_port()) {
+                        out.push((c.host, port));
+                    }
+                }
+            }
+        }
+        Ok(out)
+    })?;
     let certs = KnownCerts::load(&known_certs_path(state, protocol)).map_err(|e| store_error(&e))?;
-    Ok(certs.list())
+    Ok(certs.list_named(&candidates))
 }
 
 /// `known_certs_remove({ protocol, host, port })`.

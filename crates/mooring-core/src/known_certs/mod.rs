@@ -21,6 +21,7 @@
 
 mod info;
 mod marker;
+mod named;
 
 use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
@@ -125,6 +126,12 @@ pub struct KnownCert {
     pub fingerprint: String,
     /// RFC 3339.
     pub added_at: String,
+    /// `host` of a known connection whose `host:port` matches the hash ([`KnownCerts::list_named`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Its port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 /// Errors of the trust store. They carry no file content.
@@ -320,6 +327,8 @@ impl KnownCerts {
                 host_hash: e.raw_host.clone(),
                 fingerprint: display_fingerprint(&e.sha256),
                 added_at: e.added.clone(),
+                host: None,
+                port: None,
             })
             .collect()
     }

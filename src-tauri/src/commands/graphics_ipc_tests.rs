@@ -29,6 +29,12 @@ fn list_and_remove_pins_with_audit() {
     assert!(v["fingerprint"].as_str().expect("fp").starts_with("SHA256:"), "{v}");
     assert!(v["hostHash"].as_str().expect("h").starts_with("|2|"), "host names stay hashed: {v}");
     assert!(v.get("addedAt").is_some(), "{v}");
+    assert!(v.get("host").is_none(), "no connection names this host yet: {v}");
+    // U2: a pin for one of the user's own connections is named in Rust.
+    connection(&f, "rdp");
+    connection(&f, "vnc");
+    let v = serde_json::to_value(&list(&f.state, CertProtocol::Rdp).expect("list")[0]).expect("j");
+    assert_eq!((v["host"].clone(), v["port"].clone()), (json!("desk.example.test"), json!(3389)), "{v}");
     assert!(list(&f.state, CertProtocol::Vnc).expect("vnc").is_empty(), "separate stores");
 
     assert_eq!(remove(&f.state, CertProtocol::Rdp, "other.example.test", 3389).expect("r").removed, 0);
