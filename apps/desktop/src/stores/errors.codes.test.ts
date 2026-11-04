@@ -27,10 +27,9 @@ const missingCodes = missing("ipc-codes.json");
  * Rust ships it the normal check applies. `ASSUMED` ones are not named in the ADRs.
  */
 export const PENDING_A3_CODES: Record<string, string> = {
-  "kube.forbidden_request": "ADR-0014 §6, K4", "kube.rbac_denied": "ADR-0014 §6, K4", "kube.not_found": "ADR-0014 §6, K4",
-  "kube.unsupported_auth": "ADR-0014 §6, K4", "kube.stream_limit": "ASSUMED for the 8-streams cap (ADR-0014 §5), K4",
-  // ADR-0015 (V2), ADR-0016 source.* and credential.external_* (F1), and ADR-0017 sync.* codes
-  // shipped with `a3` and are no longer pending.
+  // Every ADR-0014..0017 code shipped with `a3` (kube.* with K4 — the refusal code is
+  // `kube.refused`, ADR-0014 amendment; vsphere.* with V2; source.* / credential.external_* with
+  // E2 + F1; sync.* with S2). The map stays for the next phase's codes.
 };
 const pending = (c: string) => RUST_CODES !== null && !RUST_CODES.has(c) && c in PENDING_A3_CODES;
 

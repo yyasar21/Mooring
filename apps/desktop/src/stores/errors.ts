@@ -33,7 +33,7 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "clipboard.unavailable": "The system clipboard is not available right now.",
   // ADR-0014..0017 (A3): Rust adds these codes with K4/V2/E2/S1.
   "kube.rbac_denied": "The cluster's RBAC does not let this token do that here.",
-  "kube.forbidden_request": "Mooring refused to send that request: it would change the cluster, and Mooring is read-only.",
+  "kube.refused": "Mooring refused to send that request: it would change the cluster, and Mooring is read-only.",
   "kube.unsupported_auth": "This kubeconfig signs in with a method Mooring does not run (exec plugins, auth providers or files).",
   // ADR-0015 (rust-core V2): vSphere sync, power, consoles and the shared HTTP trust codes.
   "tree.synced_readonly": "This folder is synced from vCenter and is read-only. Change it in vCenter, then refresh.",
