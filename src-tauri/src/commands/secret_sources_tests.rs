@@ -44,6 +44,7 @@ async fn token_source_crud_and_test_never_return_the_token() {
     assert_eq!(get(st, &s.id).expect_err("gone").code, "source.not_found");
     let raw = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("log");
     assert!(!raw.contains("hvs.test-token"), "no token in the audit log");
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -71,6 +72,7 @@ async fn approle_and_root_refusal() {
     let ok = fx::token_source(st, &v, "hvs.test-token");
     assert_eq!(test(st, &ok.id).await.expect("t").error, Some("credential.external_root_token"));
     assert!(audit_rows(st, "secret_failed").len() >= 3);
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -89,6 +91,7 @@ async fn sealed_vault_is_unavailable_without_fallback() {
     v.srv.set_knobs(VaultKnobs { standby: true, ..VaultKnobs::default() });
     let e = external_test(st, &r).await.expect("ref test");
     assert!(!e.ok && e.error == Some("credential.external_unavailable"), "a 307 is not followed: {e:?}");
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -140,6 +143,7 @@ async fn external_test_reports_names_and_delete_is_refused_while_in_use() {
     assert_eq!((refused[0]["action"].clone(), refused[0]["detail"].clone()), (json!("delete"), json!("source.in_use")));
     let plain = credentials::create(st, credentials::NewCredential::password_for_tests("p")).expect("c");
     assert_eq!(external_test(st, &plain.id).await.expect_err("kind").code, "input.invalid");
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -183,4 +187,5 @@ async fn hostile_inputs_are_refused_before_any_request() {
     crate::commands::vault::lock(st, None).expect("lock");
     assert_eq!(list(st).expect_err("locked").code, "vault.locked");
     assert_eq!(create(st, &base).expect_err("locked").code, "vault.locked");
+    v.srv.recorder().assert_no_violations();
 }

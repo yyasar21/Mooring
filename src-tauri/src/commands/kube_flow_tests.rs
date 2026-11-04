@@ -181,6 +181,7 @@ async fn logs_stop_at_the_byte_cap_and_streams_are_limited() {
     sess::close(st, &cid).await.expect("close cluster");
     wait_gone(st).await;
     assert_eq!(audited(st, "kube_logs_closed"), 9);
+    k.srv.recorder().assert_no_violations();
 }
 
 async fn prompted(k: &Kube) -> (String, Events, Value) {
@@ -300,4 +301,5 @@ async fn hostile_inputs_are_refused_before_any_request() {
     sess::close(st, &cid).await.expect("close");
     assert_eq!(until(&mut term, "closed").await["kind"], "closed");
     wait_gone(st).await;
+    k.srv.recorder().assert_no_violations();
 }

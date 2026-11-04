@@ -63,6 +63,12 @@ fn count(vc: &Vc, event: &str) -> usize {
     audit_events(&vc.f.state).iter().filter(|e| *e == event).count()
 }
 
+/// Q2: the mock saw nothing the ADR forbids (no `/rest`, no write, no SOAP) and no power call.
+fn read_only(vc: &Vc) {
+    vc.srv.recorder().assert_no_violations();
+    assert!(vc.srv.power_actions().is_empty(), "{:?}", vc.srv.power_actions());
+}
+
 #[tokio::test]
 async fn import_builds_tree_and_refresh_applies_diff_and_two_miss_rule() {
     let vc = vcenter(InventorySpec::default(), true).await;
@@ -95,6 +101,7 @@ async fn import_builds_tree_and_refresh_applies_diff_and_two_miss_rule() {
     let st = vs::status(&vc.f.state, &vc.id).expect("status");
     assert!(st.last_refresh.is_some() && st.last_error.is_none() && !st.running);
     assert_eq!(count(&vc, "vsphere_sync_finished"), 3);
+    read_only(&vc);
 }
 
 #[tokio::test]
@@ -117,6 +124,7 @@ async fn overlays_survive_and_ordinary_edits_are_refused() {
     vs::sync_disable(&vc.f.state, &vc.id, true).expect("detach");
     assert!(vm_row(&vc, "vm-1").is_none(), "no longer synced");
     tree::rename_folder(&vc.f.state, &vm.folder_id, "editable").expect("editable after detach");
+    read_only(&vc);
 }
 
 #[tokio::test]
@@ -135,6 +143,7 @@ async fn unknown_certificate_prompts_in_rust_and_the_scheduler_never_does() {
     assert!(audit_events(&vc.f.state).contains(&"cert_decision".to_owned()));
     vs::test(&vc.f.state, Prompt::new(&no), &vc.id).await.expect("pinned now: no second prompt");
     assert_eq!(vc.srv.session_count(), 0, "vsphere_test logs out");
+    read_only(&vc);
 }
 
 #[tokio::test]
@@ -163,6 +172,8 @@ async fn power_needs_opt_in_and_the_native_dialog() {
     assert!(count(&vc, "vsphere_power") >= 4, "disabled, cancelled, requested, done");
     assert!(vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm, "suspend").await.is_err());
     assert!(vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vc.id, "start").await.is_err(), "not a VM row");
+    vc.srv.recorder().assert_no_violations();
+    assert_eq!(vc.srv.power_actions().len(), 1, "only the approved stop was ever sent");
 }
 
 #[tokio::test]
@@ -181,6 +192,7 @@ async fn rate_limit_fails_cleanly_and_recovers() {
     vc.srv.set_knobs(VcenterKnobs::default());
     vs::refresh(&vc.f.state, Prompt::new(&yes), &vc.id).await.expect("recovered");
     assert!(vs::status(&vc.f.state, &vc.id).expect("s").last_error.is_none());
+    read_only(&vc);
 }
 
 #[tokio::test]
@@ -195,6 +207,7 @@ async fn refresh_is_single_flight() {
     );
     assert_eq!(a.expect("a"), b.expect("b"), "the second joined the first");
     assert_eq!(count(&vc, "vsphere_sync_started"), before + 1);
+    read_only(&vc);
 }
 
 #[tokio::test]
@@ -228,6 +241,7 @@ async fn scheduler_runs_while_unlocked_and_lock_stops_it() {
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(count(&vc, "vsphere_sync_started"), after, "no refresh while locked");
     assert_eq!(vs::refresh(&vc.f.state, Prompt::new(&yes), &vc.id).await.expect_err("locked").code, "vault.locked");
+    read_only(&vc);
 }
 
 #[tokio::test]
@@ -255,4 +269,5 @@ async fn consoles_client_plan_and_vmrc_opt_in() {
     assert!(urls[0].starts_with("vmrc://") && urls[0].contains("@vcenter.example.test"), "SAN host accepted");
     let log = std::fs::read_to_string(vc.f.state.data_dir.join(crate::state::AppState::AUDIT_FILE)).expect("audit");
     assert!(log.contains("vsphere_console") && !log.contains("cst-"), "ticket never audited");
+    read_only(&vc);
 }

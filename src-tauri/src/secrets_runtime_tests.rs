@@ -48,6 +48,7 @@ async fn renew_at_ten_percent_then_lock_revokes() {
     assert!(cache.is_empty(), "lock forgets every token");
     assert_eq!(v.srv.live_issued_tokens(), 0, "lock revokes the AppRole token");
     assert_eq!(audit_rows(st, "secret_revoked").len(), 1);
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -66,6 +67,7 @@ async fn user_token_is_forgotten_not_revoked_and_shutdown_drops_all() {
     assert_eq!(revokes, 1, "only the AppRole token is ours to revoke");
     // The stored user token still works server-side.
     assert!(cmd::test(st, &s.id).await.expect("t").ok);
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -116,6 +118,7 @@ async fn oidc_flow_intercepts_the_redirect_and_lock_revokes() {
     let s2 = oidc_cmd::status(st, &second.session_id).expect("status");
     assert_eq!((s2.state, s2.error.as_deref()), ("failed", Some("locked")), "open windows close on lock");
     assert_eq!(oidc_cmd::begin(st, &o.id).await.expect_err("locked").code, "vault.locked");
+    v.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -152,6 +155,7 @@ async fn oidc_state_mismatch_close_and_timeout_fail_the_flow() {
     let tok = fx::token_source(st, &v, "hvs.test-token");
     assert_eq!(oidc_cmd::begin(st, &tok.id).await.expect_err("not oidc").code, "input.invalid");
     assert_eq!(rt.oidc.pending(), 0);
+    v.srv.recorder().assert_no_violations();
 }
 
 #[test]
