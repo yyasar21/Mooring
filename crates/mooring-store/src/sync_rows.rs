@@ -147,7 +147,7 @@ impl Store {
         let mut rows = SyncRows::default();
         let mut st = tx.prepare(
             "SELECT id, parent_id, name, default_credential_id, sort, created_at, updated_at
-             FROM folder",
+             FROM folder WHERE sync_source IS NULL",
         )?;
         for f in st.query_map([], |r| {
             Ok(FolderRow {
@@ -165,7 +165,8 @@ impl Store {
         }
         let mut st = tx.prepare(
             "SELECT id, folder_id, name, protocol, host, port, credential_id, created_at,
-                    updated_at, username_override, domain_override, options_json FROM connection",
+                    updated_at, username_override, domain_override, options_json FROM connection
+             WHERE sync_source IS NULL",
         )?;
         for c in st.query_map([], |r| {
             Ok(ConnectionRow {
@@ -259,30 +260,44 @@ impl Store {
     /// (foreign keys deferred to the commit). Ids, names, protocols, ports and timestamps are
     /// validated; the schema's `CHECK`s cover kinds, roles and the JSON columns.
     ///
-    /// Credentials are upserted, not deleted and re-inserted: `secret_source.credential_id` is
-    /// `ON DELETE RESTRICT`, which `SQLite` enforces at once even with deferred keys. Secret
-    /// sources are device-local (not synced), so the login credential of one is kept even when
-    /// `rows` lacks it.
+    /// Rows are upserted and stale rows deleted, never all deleted and re-inserted:
+    /// * `secret_source.credential_id` is `ON DELETE RESTRICT`, which `SQLite` enforces at once
+    ///   even with deferred keys. Secret sources are device-local (not synced), so the login
+    ///   credential of one is kept even when `rows` lacks it.
+    /// * vSphere-synced subtrees (`sync_source IS NOT NULL`, migration 0006) are device-local
+    ///   inventory that each device refreshes from vCenter; they are neither exported nor
+    ///   touched here, and their vCenter connection is updated in place, so the `ON DELETE
+    ///   CASCADE` from it does not drop them on every apply.
     pub fn replace_sync_rows(&self, rows: &SyncRows) -> Result<()> {
         validate(rows)?;
         let tx = self.conn.unchecked_transaction()?;
         tx.execute_batch(
             "PRAGMA defer_foreign_keys = ON;
-             DELETE FROM connection_tag; DELETE FROM connection_credential;
-             DELETE FROM credential_secret; DELETE FROM connection; DELETE FROM folder;",
+             DELETE FROM credential_secret;
+             DELETE FROM connection_tag WHERE connection_id IN
+                 (SELECT id FROM connection WHERE sync_source IS NULL);
+             DELETE FROM connection_credential WHERE connection_id IN
+                 (SELECT id FROM connection WHERE sync_source IS NULL);",
         )?;
-        let stale: Vec<String> = {
-            let mut st = tx.prepare(
-                "SELECT id FROM credential WHERE id NOT IN
-                     (SELECT credential_id FROM secret_source WHERE credential_id IS NOT NULL)",
-            )?;
-            let ids = st.query_map([], |r| r.get::<_, String>(0))?;
-            ids.filter(|id| id.as_ref().map_or(true, |id| !rows.credentials.contains_key(id)))
-                .collect::<rusqlite::Result<_>>()?
-        };
-        for id in &stale {
-            tx.execute("DELETE FROM credential WHERE id = ?1", params![id])?;
-        }
+        delete_stale(
+            &tx,
+            "SELECT id FROM connection WHERE sync_source IS NULL",
+            "DELETE FROM connection WHERE id = ?1",
+            |id| rows.connections.contains_key(id),
+        )?;
+        delete_stale(
+            &tx,
+            "SELECT id FROM folder WHERE sync_source IS NULL",
+            "DELETE FROM folder WHERE id = ?1",
+            |id| rows.folders.contains_key(id),
+        )?;
+        delete_stale(
+            &tx,
+            "SELECT id FROM credential WHERE id NOT IN
+                 (SELECT credential_id FROM secret_source WHERE credential_id IS NOT NULL)",
+            "DELETE FROM credential WHERE id = ?1",
+            |id| rows.credentials.contains_key(id),
+        )?;
         for c in rows.credentials.values() {
             tx.execute(
                 "INSERT INTO credential (id, name, kind, fields_json, created_at, updated_at)
@@ -302,7 +317,12 @@ impl Store {
         for f in rows.folders.values() {
             tx.execute(
                 "INSERT INTO folder (id, parent_id, name, default_credential_id, sort, created_at,
-                                     updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                                     updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (id) DO UPDATE SET parent_id = excluded.parent_id,
+                     name = excluded.name, default_credential_id = excluded.default_credential_id,
+                     sort = excluded.sort, created_at = excluded.created_at,
+                     updated_at = excluded.updated_at
+                 WHERE folder.sync_source IS NULL",
                 params![
                     f.id,
                     f.parent_id,
@@ -315,42 +335,76 @@ impl Store {
             )?;
         }
         for c in rows.connections.values() {
-            tx.execute(
-                "INSERT INTO connection (id, folder_id, name, protocol, host, port, credential_id,
-                     created_at, updated_at, username_override, domain_override, options_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![
-                    c.id,
-                    c.folder_id,
-                    c.name,
-                    c.protocol,
-                    c.host,
-                    c.port,
-                    c.credential_id,
-                    c.created_at,
-                    c.updated_at,
-                    c.username_override,
-                    c.domain_override,
-                    c.options_json
-                ],
-            )?;
-            for tag in &c.tags {
-                tx.execute(
-                    "INSERT INTO connection_tag (connection_id, tag) VALUES (?1, ?2)",
-                    params![c.id, tag],
-                )?;
-            }
-            for (role, cred) in &c.roles {
-                tx.execute(
-                    "INSERT INTO connection_credential (connection_id, role, credential_id)
-                     VALUES (?1, ?2, ?3)",
-                    params![c.id, role, cred],
-                )?;
-            }
+            upsert_connection(&tx, c)?;
         }
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Upsert one connection (a vSphere-synced row with the same id is left alone) and insert
+/// its tags and role credentials.
+fn upsert_connection(tx: &rusqlite::Transaction<'_>, c: &ConnectionRow) -> Result<()> {
+    tx.execute(
+        "INSERT INTO connection (id, folder_id, name, protocol, host, port, credential_id,
+                 created_at, updated_at, username_override, domain_override, options_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT (id) DO UPDATE SET folder_id = excluded.folder_id,
+                 name = excluded.name, protocol = excluded.protocol, host = excluded.host,
+                 port = excluded.port, credential_id = excluded.credential_id,
+                 created_at = excluded.created_at, updated_at = excluded.updated_at,
+                 username_override = excluded.username_override,
+                 domain_override = excluded.domain_override,
+                 options_json = excluded.options_json
+             WHERE connection.sync_source IS NULL",
+        params![
+            c.id,
+            c.folder_id,
+            c.name,
+            c.protocol,
+            c.host,
+            c.port,
+            c.credential_id,
+            c.created_at,
+            c.updated_at,
+            c.username_override,
+            c.domain_override,
+            c.options_json
+        ],
+    )?;
+    for tag in &c.tags {
+        tx.execute(
+            "INSERT INTO connection_tag (connection_id, tag) VALUES (?1, ?2)",
+            params![c.id, tag],
+        )?;
+    }
+    for (role, cred) in &c.roles {
+        tx.execute(
+            "INSERT INTO connection_credential (connection_id, role, credential_id)
+                 VALUES (?1, ?2, ?3)",
+            params![c.id, role, cred],
+        )?;
+    }
+    Ok(())
+}
+
+/// Delete every id `select` lists that `keep` rejects.
+fn delete_stale(
+    tx: &rusqlite::Transaction<'_>,
+    select: &str,
+    delete: &str,
+    keep: impl Fn(&str) -> bool,
+) -> Result<()> {
+    let stale: Vec<String> = {
+        let mut st = tx.prepare(select)?;
+        let ids = st.query_map([], |r| r.get::<_, String>(0))?;
+        ids.filter(|id| id.as_ref().map_or(true, |id| !keep(id)))
+            .collect::<rusqlite::Result<_>>()?
+    };
+    for id in &stale {
+        tx.execute(delete, params![id])?;
+    }
+    Ok(())
 }
 
 fn validate(rows: &SyncRows) -> Result<()> {

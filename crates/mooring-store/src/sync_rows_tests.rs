@@ -121,3 +121,49 @@ fn replace_keeps_credentials_of_local_secret_sources() {
     assert!(a.get_credential(token).is_ok(), "the source's login credential is kept");
     assert_eq!(a.list_secret_sources().expect("sources").len(), 1);
 }
+
+/// V2 × S2: a vSphere-synced subtree is device-local inventory. Vault sync neither exports it
+/// nor drops it on apply (its vCenter connection is updated in place, not re-inserted, so the
+/// `ON DELETE CASCADE` from `sync_source` never fires).
+#[test]
+fn vsphere_synced_subtrees_stay_local_across_export_and_apply() {
+    let s = Store::open_in_memory().expect("open");
+    let root = s.create_folder(None, "All").expect("root");
+    let vc = s
+        .create_connection(
+            &Connection::new(root.id, "vc", Protocol::VsphereConsole, "vc.example.test")
+                .expect("c"),
+        )
+        .expect("vc");
+    s.sync_enable(vc.id, root.id, "vc").expect("enable");
+    let node = |ext: &str, kind: &str, parent: Option<&str>, name: &str| crate::SyncNode {
+        external_id: ext.to_owned(),
+        kind: kind.to_owned(),
+        parent: parent.map(str::to_owned),
+        name: name.to_owned(),
+        data: serde_json::json!({ "name": name }).to_string(),
+    };
+    let plan = crate::SyncPlan {
+        upsert: vec![
+            node("datacenter-1", "datacenter", None, "dc-1"),
+            node("host-1", "host", Some("datacenter-1"), "esx-1.example.test"),
+            node("vm-1", "vm", Some("host-1"), "web-01"),
+        ],
+        ..crate::SyncPlan::default()
+    };
+    s.apply_inventory_diff(vc.id, &plan).expect("inventory");
+    let before = s.synced_rows(vc.id).expect("rows").len();
+    assert_eq!(before, 3);
+
+    let rows = s.export_sync_rows().expect("export");
+    assert_eq!((rows.folders.len(), rows.connections.len()), (1, 1), "only All and vc");
+    let mut edited = rows.clone();
+    edited.connections.values_mut().for_each(|c| c.name = "vcenter".to_owned());
+    s.replace_sync_rows(&edited).expect("apply");
+    assert_eq!(s.get_connection(vc.id).expect("vc").name, "vcenter");
+    assert_eq!(s.synced_rows(vc.id).expect("rows").len(), before, "subtree kept");
+    assert!(s.sync_root(vc.id).expect("root").is_some());
+
+    s.replace_sync_rows(&crate::SyncRows::default()).expect("remote deleted everything");
+    assert!(s.sync_sources().expect("sources").is_empty(), "the subtree goes with its vCenter");
+}
