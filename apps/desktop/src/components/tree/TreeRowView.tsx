@@ -3,6 +3,7 @@ import { ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import type { TreeRow } from "../../stores/tree";
 import { lineState, type TabState } from "../../stores/sessions";
+import { SyncBadge } from "../vsphere/SyncBadge";
 
 interface Props {
   row: TreeRow;
@@ -14,6 +15,8 @@ interface Props {
   renaming: boolean;
   dropTarget: boolean;
   sessionState: TabState | null;
+  /** The vCenter name when the row is inside a synced subtree (ADR-0015): read-only, badged. */
+  syncSource: string | null;
   setSize: number;
   posInSet: number;
   onClick: () => void;
@@ -31,6 +34,9 @@ export function TreeRowView(p: Props) {
   const isFolder = p.row.ref.kind === "folder";
   const name = (isFolder ? p.folder?.name : p.connection?.name) ?? "";
   const pad = 8 + p.row.depth * 14;
+  const synced = p.syncSource !== null;
+  const missing = !isFolder && p.connection?.syncState === "missing";
+  const syncedRoot = isFolder && synced && !p.folder?.externalId;
 
   useEffect(() => {
     if (p.focused && !p.renaming && document.activeElement !== ref.current) {
@@ -49,12 +55,15 @@ export function TreeRowView(p: Props) {
       aria-posinset={p.posInSet}
       aria-selected={p.selected}
       aria-expanded={isFolder ? p.expanded : undefined}
-      aria-label={isFolder ? name : `${name}, ${p.connection?.host ?? ""}`}
+      aria-label={`${isFolder ? name : `${name}, ${p.connection?.host ?? ""}`}${synced ? `, synced from ${p.syncSource ?? ""}` : ""}${missing ? ", missing in vCenter" : ""}`}
+      aria-readonly={synced || undefined}
       tabIndex={p.focused ? 0 : -1}
       data-drop={p.dropTarget || undefined}
+      data-sync={missing ? "missing" : synced ? "synced" : undefined}
       className={`tree-row ${isFolder ? "tree-folder" : ""}`}
       style={{ paddingLeft: pad }}
-      draggable={!p.renaming && p.row.parentId !== null}
+      // Synced rows are moved in vCenter, not here; a drop into a synced folder is refused the same way.
+      draggable={!p.renaming && p.row.parentId !== null && !synced}
       onClick={p.onClick}
       onDoubleClick={p.onDoubleClick}
       onDragStart={(e) => {
@@ -62,7 +71,7 @@ export function TreeRowView(p: Props) {
         p.onDragStart();
       }}
       onDragOver={(e) => {
-        if (!isFolder) return;
+        if (!isFolder || synced) return;
         e.preventDefault();
         p.onDragOver();
       }}
@@ -97,7 +106,9 @@ export function TreeRowView(p: Props) {
       ) : (
         <span className="tree-name">{name}</span>
       )}
+      {missing && <span className="tree-missing" aria-hidden>missing</span>}
       {!p.renaming && <span aria-hidden className="tree-link" data-state={p.sessionState ?? undefined} />}
+      {isFolder && synced && <SyncBadge source={p.syncSource ?? ""} compact={!syncedRoot} />}
       {p.sessionState && <StateDot state={lineState(p.sessionState)} label={`session ${p.sessionState}`} />}
       {isFolder && p.folder?.defaultCredentialId && (
         <span title="Folder supplies a default credential" aria-label="has default credential" className="flex-none text-text-faint">

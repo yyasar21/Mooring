@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
+import { ipc } from "../../lib/ipc";
+import { describeError } from "../../stores/errors";
 import { useTree, visibleRows, type NodeRef, type TreeRow } from "../../stores/tree";
 import { useSessions, type TabState } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { TreeRowView } from "./TreeRowView";
+import { READONLY_REASON, sourceName } from "../vsphere/vsphere";
 
 /**
  * Left pane: the connection tree (WAI-ARIA tree pattern, roving tabindex).
@@ -40,11 +43,22 @@ export function Sidebar() {
 
   const { select, toggle, renameFolder, renameConnection, moveFolder, moveConnection } = useTree.getState();
   const setRenaming = useUi.getState().setRenaming;
+  /** ADR-0015: the vCenter id of a row inside a synced subtree, else null. */
+  const syncSourceOf = (r: TreeRow): string | null =>
+    (r.ref.kind === "folder" ? folders.find((f) => f.id === r.ref.id)?.syncSource : connections.find((c) => c.id === r.ref.id)?.syncSource) ?? null;
+  const refuseReadonly = () => { useTree.setState({ error: READONLY_REASON }); };
   const openConnection = (id: string, newTab = false) => void useSessions.getState().open(id, { newTab });
 
   const activate = (r: TreeRow, newTab = false) => {
     if (r.ref.kind === "folder") toggle(r.ref.id);
+    else if (syncSourceOf(r) !== null) openVmConsole(r.ref.id);
     else openConnection(r.ref.id, newTab);
+  };
+  /** A synced VM row has no session of its own: Enter opens its vSphere Client window (ADR-0015 §4). */
+  const openVmConsole = (id: string) => {
+    select({ kind: "connection", id });
+    if (connections.find((c) => c.id === id)?.syncState === "missing") { useTree.setState({ error: "vCenter no longer reports this VM." }); return; }
+    ipc.vsphereConsole({ connectionId: id, kind: "client" }).catch((e: unknown) => { useTree.setState({ error: describeError(e) }); });
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -72,7 +86,11 @@ export function Sidebar() {
         else if (cur.parentId) select({ kind: "folder", id: cur.parentId });
         break;
       case "Enter": activate(cur, e.metaKey || e.ctrlKey); break;
-      case "F2": if (cur.parentId !== null) setRenaming(cur.ref.id); break;
+      case "F2":
+        if (cur.parentId === null) break;
+        if (syncSourceOf(cur) !== null) refuseReadonly();
+        else setRenaming(cur.ref.id);
+        break;
       default: handled = false;
     }
     if (handled) e.preventDefault();
@@ -83,6 +101,7 @@ export function Sidebar() {
     setDragging(null);
     setDropOn(null);
     if (!src || target.ref.kind !== "folder" || src.id === target.ref.id) return;
+    if (syncSourceOf(target) !== null) { refuseReadonly(); return; }
     if (src.kind === "folder") void moveFolder(src.id, target.ref.id);
     else void moveConnection(src.id, target.ref.id);
   };
@@ -122,6 +141,7 @@ export function Sidebar() {
               renaming={renaming === r.ref.id}
               dropTarget={dropOn === r.ref.id}
               sessionState={r.ref.kind === "connection" ? sessionState(r.ref.id) : null}
+              syncSource={syncSourceOf(r) === null ? null : sourceName(connections, syncSourceOf(r))}
               setSize={sibs.length}
               posInSet={sibs.indexOf(r) + 1}
               onClick={() => { select(r.ref); }}
@@ -153,6 +173,8 @@ function SidebarToolbar() {
     selected?.kind === "folder"
       ? selected.id
       : (connections.find((c) => c.id === selected?.id)?.folderId ?? folders.find((f) => f.parentId === null)?.id ?? "");
+  // ADR-0015: nothing is created inside a synced subtree.
+  const readonly = folders.find((f) => f.id === targetFolder)?.syncSource ? READONLY_REASON : null;
 
   return (
     <div className="deck-head">
@@ -160,9 +182,9 @@ function SidebarToolbar() {
       <button
         type="button"
         className="icon-btn"
-        title="New connection in the selected folder"
+        title={readonly ?? "New connection in the selected folder"}
         aria-label="New connection"
-        disabled={!targetFolder}
+        disabled={!targetFolder || readonly !== null}
         onClick={() => { openDialog({ kind: "connection", folderId: targetFolder }); }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
@@ -173,9 +195,9 @@ function SidebarToolbar() {
       <button
         type="button"
         className="icon-btn"
-        title="New folder in the selected folder"
+        title={readonly ?? "New folder in the selected folder"}
         aria-label="New folder"
-        disabled={!targetFolder}
+        disabled={!targetFolder || readonly !== null}
         onClick={() => { openDialog({ kind: "folder", parentId: targetFolder }); }}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
