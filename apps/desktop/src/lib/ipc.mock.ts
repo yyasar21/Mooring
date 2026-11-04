@@ -20,7 +20,7 @@ import { credentialValidFor, supportsOverride } from "./credentials";
 
 import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
 import type { MockOptions } from "./ipc.mock.exit";
-import { MockOptionsBase } from "./ipc.mock.options";
+import { MockSecretsBase } from "./ipc.mock.secrets";
 import type { RemoteTarget } from "./ipc.mock.remote";
 
 export type { MockOptions } from "./ipc.mock.exit";
@@ -38,7 +38,7 @@ interface MockSession {
   line: string;
 }
 
-export class MockTransport extends MockOptionsBase implements Ipc {
+export class MockTransport extends MockSecretsBase implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
   creds = new MockCredentials(seedCredentials());
@@ -49,6 +49,7 @@ export class MockTransport extends MockOptionsBase implements Ipc {
   constructor(opts: MockOptions = {}) {
     super(opts);
     this.webDemo = opts.webDemo ?? false;
+    this.guardSyncedTree(); // ADR-0015: synced subtrees are read-only in the store
     this.record("vault_unlocked", {});
     this.record("session_opened", { connection: "c-web01", protocol: "ssh", peer_identity: "SHA256:mock-web01" });
     this.record("session_closed", { connection: "c-web01", reason: "closed by user" });
@@ -109,6 +110,8 @@ export class MockTransport extends MockOptionsBase implements Ipc {
   }
 
   protected storeOptions(id: string, options: NonNullable<ConnectionSummary["options"]>): void { this.connection(id).options = options; }
+
+  protected credentialRows() { return this.creds.items; }
 
   protected sshSession(sessionId: string): MockSession | null {
     return this.sessions.get(sessionId) ?? null;
@@ -347,12 +350,13 @@ export class MockTransport extends MockOptionsBase implements Ipc {
 
   // ---------- sessions ----------
 
-  sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, size, onEvent, onFrame }) => {
+  sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, size, onEvent, onFrame, kube }) => {
     await this.unlocked();
     const c = this.resolve(this.connection(connectionId));
     const cred = c.effectiveCredentialId ? this.creds.get(c.effectiveCredentialId) : null;
     if (cred) this.compatible(cred.id, c.protocol, "primary");
     if (c.protocol === "rdp" || c.protocol === "vnc") return this.openRemote(this.target(connectionId), size, onEvent, onFrame);
+    if (c.protocol === "kubernetes") return this.openKubeExec(connectionId, onEvent, kube);
     if (onFrame && c.protocol === "ssh") throw new IpcError("input.invalid", "invalid onFrame: not accepted for ssh sessions");
     const str = (v: unknown) => (typeof v === "string" ? v : null);
     const askCredential =
@@ -431,6 +435,10 @@ export class MockTransport extends MockOptionsBase implements Ipc {
   }
 
   sessionSend: Ipc["sessionSend"] = async ({ sessionId, input }) => {
+    if (this.kubeHandles(sessionId)) {
+      this.kubeSend(sessionId, input);
+      return;
+    }
     const r = this.remote.get(sessionId);
     if (r) {
       this.sendRemote(r, input);
@@ -471,6 +479,10 @@ export class MockTransport extends MockOptionsBase implements Ipc {
   };
 
   sessionClose: Ipc["sessionClose"] = async ({ sessionId }) => {
+    if (this.kubeHandles(sessionId)) {
+      this.kubeClose(sessionId);
+      return;
+    }
     const r = this.remote.get(sessionId);
     if (r) {
       this.endRemote(r, "closed by user", "user");
@@ -481,5 +493,5 @@ export class MockTransport extends MockOptionsBase implements Ipc {
     this.end(s, "closed by user", "user");
   };
 
-  sessionList: Ipc["sessionList"] = async () => [...[...this.sessions.values()].map((s) => ({ ...s.info })), ...this.remoteInfos()];
+  sessionList: Ipc["sessionList"] = async () => [...[...this.sessions.values()].map((s) => ({ ...s.info })), ...this.remoteInfos(), ...this.kubeInfos()];
 }

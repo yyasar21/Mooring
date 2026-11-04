@@ -3,9 +3,15 @@
 import type { ProtocolName } from "@mooring/ui";
 import type { ExitIpc } from "./ipc.types.exit";
 import type { CertificateInfo, CloseCode, FrameHandler, ProtocolOptions, RemoteIpc } from "./ipc.types.remote";
+import type { KubeExecTarget, KubeIpc } from "./ipc.types.kube";
+import type { SyncedRowFlags, SyncState, VsphereIpc } from "./ipc.types.vsphere";
+import type { SecretsIpc, SyncIpc } from "./ipc.types.secrets";
 
 export * from "./ipc.types.exit";
 export * from "./ipc.types.remote";
+export * from "./ipc.types.kube";
+export * from "./ipc.types.vsphere";
+export * from "./ipc.types.secrets";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -24,7 +30,7 @@ export interface AppInfo {
   debug: boolean;
 }
 
-export interface Folder {
+export interface Folder extends SyncedRowFlags {
   id: string;
   parentId: string | null;
   name: string;
@@ -32,7 +38,7 @@ export interface Folder {
   sort: number;
 }
 
-export interface ConnectionSummary {
+export interface ConnectionSummary extends SyncedRowFlags {
   id: string;
   folderId: string;
   name: string;
@@ -50,6 +56,8 @@ export interface ConnectionSummary {
   tags: string[];
   /** ADR-0011 per-protocol options; absent from a backend without migration 0005. */
   options?: ProtocolOptions;
+  /** ADR-0015: a synced VM no longer reported by vCenter (ASSUMED wire name). */
+  syncState?: SyncState | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -260,6 +268,8 @@ export interface SessionInfo {
   protocol: Protocol;
   state: string;
   openedAt: string;
+  /** ASSUMED (ADR-0014): kubernetes sessions say whether they are a cluster handle or an exec shell. */
+  kube?: { parentSessionId: string | null };
 }
 
 export interface AuditEntry {
@@ -277,8 +287,8 @@ export interface AuditVerify {
   brokenAt: number | null;
 }
 
-/** Every command of ADR-0008 … ADR-0013 (plus the A0 vault/app commands). */
-export interface Ipc extends ExitIpc, RemoteIpc {
+/** Every command of ADR-0008 … ADR-0017 (plus the A0 vault/app commands). */
+export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;
@@ -316,8 +326,8 @@ export interface Ipc extends ExitIpc, RemoteIpc {
   credentialCopyOtp(args: { id: string }): Promise<{ clearsInMs: number; validForMs: number }>;
   credentialParseAccount(args: { input: string }): Promise<ParsedAccount>;
 
-  /** `onFrame` is required for rdp/vnc and refused for ssh (`input.invalid "onFrame"`). */
-  sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler; onFrame?: FrameHandler }): Promise<{ sessionId: string }>;
+  /** `onFrame` is required for rdp/vnc and refused for ssh (`input.invalid "onFrame"`). `kube` opens an exec shell (ADR-0014). */
+  sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler; onFrame?: FrameHandler; kube?: KubeExecTarget }): Promise<{ sessionId: string }>;
   sessionSend(args: { sessionId: string; input: SessionInput }): Promise<void>;
   sessionClose(args: { sessionId: string }): Promise<void>;
   sessionList(): Promise<SessionInfo[]>;

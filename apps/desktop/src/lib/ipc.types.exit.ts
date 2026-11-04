@@ -2,6 +2,7 @@
 // Same conventions as ADR-0008: camelCase on the wire, `IpcError` on failure, no secrets outward.
 
 // ---------- port forwarding ----------
+import type { PodForwardOpen, PodTarget } from "./ipc.types.kube";
 
 export type ForwardKind = "local" | "remote" | "dynamic";
 export type Exposure = "loopback" | "external";
@@ -20,12 +21,15 @@ export interface ForwardOpen {
   exposure: Exposure;
 }
 
+/** `pod` (ADR-0014) runs on a Kubernetes cluster session, the others on SSH sessions. */
+export type AnyForwardKind = ForwardKind | "pod";
+
 export interface ForwardInfo {
   id: string;
-  kind: ForwardKind;
+  kind: AnyForwardKind;
   /** The address actually bound: port 0 in the request comes back resolved. */
   bind: HostPort;
-  target: HostPort | null;
+  target: HostPort | PodTarget | null;
   exposure: Exposure;
   openedAt: string;
   /** Live connections through this forward right now. */
@@ -123,7 +127,7 @@ export const SYSLOG_DEFAULT_PORT: Record<SyslogTransport, number> = { udp: 514, 
 // ---------- commands ----------
 
 export interface ExitIpc {
-  forwardOpen(args: ForwardOpen): Promise<ForwardInfo>;
+  forwardOpen(args: ForwardOpen | PodForwardOpen): Promise<ForwardInfo>;
   forwardClose(args: { sessionId: string; forwardId: string }): Promise<void>;
   forwardList(args: { sessionId: string }): Promise<ForwardInfo[]>;
 

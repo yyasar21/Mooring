@@ -60,6 +60,7 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-kiosk", "f-desk", "lobby-kiosk", "vnc", "kiosk.example.test", 5900, "cr-vnc", ["flaky"]),
     c("c-k8s", "f-staging", "stage-cluster", "kubernetes", "https://k8s.stage.example.test:6443", null, "cr-kube", []),
     c("c-jump", "f-staging", "ask-me", "ssh", "jump.stage.example.test", 22, "cr-prompt", ["prompt"]),
+    c("c-vc", "f-staging", "stage-vcenter", "vsphere-console", "vcenter.example.test", null, "cr-vc", []),
   ].map((x) => {
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
     if (x.id === "c-dc") return { ...x, usernameOverride: "dc-admin", gatewayCredentialId: "cr-ad", options: { ...DEFAULT_RDP_OPTIONS } };
@@ -87,5 +88,6 @@ export function seedCredentials(): CredentialMeta[] {
     m("cr-sudo", "sudo as root", "sudo_become", { method: "sudo", become_user: "root" }, ["password"]),
     m("cr-prompt", "ask at connect", "prompt", { username: "ops" }, []),
     m("cr-legacy", "legacy admin", "user_password", { username: "EXAMPLE\\legacy" }, ["password"]),
+    m("cr-vc", "vcenter sso", "vsphere_user", { upn: "administrator@vsphere.local" }, ["password"]),
   ];
 }
