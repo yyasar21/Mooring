@@ -313,6 +313,13 @@ impl AppState {
         drop(f);
         std::fs::rename(&tmp, &path)?;
         sync_dir(&self.data_dir);
+        // 6b L-37 (b): a staged joined header of this same vault is older than what was just
+        // written (password change, KDF upgrade); it must never be installed over it.
+        if crate::commands::sync_join::staged_vault_id(&self.data_dir).as_deref()
+            == Some(header.vault_id.to_string().as_str())
+        {
+            crate::commands::sync_join::discard_staged(self);
+        }
         Ok(())
     }
 

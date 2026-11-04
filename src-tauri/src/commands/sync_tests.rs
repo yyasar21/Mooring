@@ -446,9 +446,67 @@ async fn vault_join_header_write_failures_never_strand_the_device() {
     s3.recorder().assert_no_violations();
 }
 
-/// Review 6 L-35: two devices pin different certificates for the same RDP host; after the
-/// merge both lines are kept and the device audits `trust_conflict { file, host }` (names
-/// only, nothing resolved).
+/// Review 6b L-37: (a) when the start-up rename of a staged joined header fails, the staged
+/// file is kept (it is the only copy) and the device still starts on the joined vault its
+/// store is bound to; (b) a staged header is never installed over a newer header of the same
+/// vault: after a failed commit, a password change rewrites the header and removes the staged
+/// copy, and a restart unlocks with the new password.
+#[tokio::test]
+async fn a_staged_header_is_neither_lost_nor_installed_over_a_newer_one() {
+    let s3 = server().await;
+    let a = dev("device-a");
+    a.add("shared", "192.0.2.70");
+    a.configure(&s3).await.expect("configure");
+    a.now().await.expect("push");
+    let vault_id = a.status().vault_id;
+    let tmp = |st: &AppState| st.data_dir.join(sync_join::JOIN_TMP);
+
+    // (a) Unit: the store is bound to the staged vault, the rename fails (the header path is a
+    // directory): the staged file stays and the staged vault is returned.
+    let dir = tempfile::tempdir().expect("dir");
+    let joined_bytes = std::fs::read(a.f.state.data_dir.join(AppState::HEADER_FILE)).expect("header");
+    std::fs::write(dir.path().join(sync_join::JOIN_TMP), &joined_bytes).expect("stage");
+    std::fs::create_dir(dir.path().join(AppState::HEADER_FILE)).expect("block the rename");
+    let store = mooring_store::Store::open(dir.path().join(AppState::DB_FILE)).expect("store");
+    store.set_vault_id(&vault_id).expect("bind");
+    let recovered = sync_join::recover_staged_header(dir.path(), &store, None).expect("the staged vault");
+    assert_eq!(recovered.vault_id().to_string(), vault_id);
+    assert!(dir.path().join(sync_join::JOIN_TMP).exists(), "the only copy is kept");
+
+    // (b) A failed commit, then a password change: the staged copy is removed by the header
+    // write; after a restart the new password unlocks and the header is the joined vault's.
+    let g = dev("device-g");
+    let input = JoinInput {
+        backend: backend(&s3),
+        credential_id: add_key(&g.f.state, &s3),
+        vault_id: vault_id.clone(),
+        password: MASTER.into(),
+        interval_minutes: None,
+    };
+    let writer = FailingWriter { stage: false, commit: true };
+    sync_join::join_with(&g.f.state, &g.hub, Some(&g.p), None, input, &writer).await.expect("join");
+    assert!(tmp(&g.f.state).exists());
+    let new_pw = "another-long-master-password-42";
+    vault::change_password(&g.f.state, secrecy::SecretString::from(MASTER.to_owned()), secrecy::SecretString::from(new_pw.to_owned()))
+        .expect("change password");
+    assert!(!tmp(&g.f.state).exists(), "save_header removed the stale staged copy");
+    assert_eq!(header_on_disk(&g.f.state), vault_id);
+    let Dev { f: Fixture { dir, state, clipboard }, .. } = g;
+    drop(state);
+    let st = AppState::new(dir.path().to_path_buf(), testing::settings(clipboard)).expect("restart");
+    assert_eq!(header_on_disk(&st), vault_id);
+    assert!(vault::unlock(&st, secrecy::SecretString::from(MASTER.to_owned())).is_err(), "the old password is gone");
+    vault::unlock(&st, secrecy::SecretString::from(new_pw.to_owned())).expect("the new password unlocks");
+    // Belt and braces: a staged copy of the same vault that appears later is not installed
+    // either (the current header is newer).
+    std::fs::write(st.data_dir.join(sync_join::JOIN_TMP), &joined_bytes).expect("stale copy");
+    drop(st);
+    let st = AppState::new(dir.path().to_path_buf(), testing::settings(std::sync::Arc::new(crate::clipboard::MemoryClipboard::default()))).expect("restart");
+    assert!(!tmp(&st).exists(), "removed, not installed");
+    vault::unlock(&st, secrecy::SecretString::from(new_pw.to_owned())).expect("still the new password");
+    s3.recorder().assert_no_violations();
+}
+
 /// Review 6 L-35 / 6b: two devices pin different certificates for one host; after the merge
 /// both lines are kept, the conflict is audited and listed in `sync_status.conflicts`, every
 /// connection to the host fails closed (`http.trust_conflict`) until the pins are removed in

@@ -101,23 +101,44 @@ pub fn discard_staged(state: &AppState) {
 }
 
 /// Start-up (L-37): complete the rename of a staged joined header when `store` is already
-/// bound to its vault (the apply succeeded, the rename did not); otherwise remove the
-/// leftover. Returns the vault to start with.
+/// bound to its vault (the apply succeeded, the rename did not) **and** the header on disk is
+/// still the bootstrap one. Returns the vault to start with.
+///
+/// Review 6b: (a) when the rename fails again the staged file is kept (it is the only copy of
+/// the joined header) and the staged vault is returned, so the device binds to the vault its
+/// store belongs to; (b) when the current header already carries the joined vault's id, it is
+/// newer than the staged copy (a password change or KDF upgrade rewrote it after the failed
+/// commit), so the staged file is removed instead of being installed over it.
 pub fn recover_staged_header(data_dir: &std::path::Path, store: &Store, current: Option<Vault>) -> Option<Vault> {
     let tmp = data_dir.join(JOIN_TMP);
     let Ok(bytes) = std::fs::read(&tmp) else { return current };
     let staged = Vault::from_header_bytes(&bytes).ok();
+    let staged_id = staged.as_ref().map(|v| v.vault_id().to_string());
     let bound = store.vault_id().ok().flatten();
-    let completes = staged.as_ref().is_some_and(|v| bound.as_deref() == Some(v.vault_id().to_string().as_str()));
-    if completes && std::fs::rename(&tmp, data_dir.join(AppState::HEADER_FILE)).is_ok() {
-        crate::state::sync_dir(data_dir);
-        tracing::warn!("join: staged vault header installed at start");
+    let completes = staged_id.is_some() && staged_id == bound;
+    let current_is_joined = current.as_ref().map(|v| v.vault_id().to_string()) == staged_id;
+    if completes && !current_is_joined {
+        match std::fs::rename(&tmp, data_dir.join(AppState::HEADER_FILE)) {
+            Ok(()) => {
+                crate::state::sync_dir(data_dir);
+                tracing::warn!("join: staged vault header installed at start");
+            }
+            Err(e) => {
+                tracing::error!(kind = ?e.kind(), "join: staged vault header kept; it could not be installed");
+            }
+        }
         return staged;
     }
     if let Err(e) = std::fs::remove_file(&tmp) {
         tracing::warn!(kind = ?e.kind(), "join: stale staged header not removed");
     }
     current
+}
+
+/// The vault id a staged header (if any) carries.
+pub fn staged_vault_id(data_dir: &std::path::Path) -> Option<String> {
+    let bytes = std::fs::read(data_dir.join(JOIN_TMP)).ok()?;
+    Some(Vault::from_header_bytes(&bytes).ok()?.vault_id().to_string())
 }
 
 /// `vault_join` input (no `Debug`: it carries the master password).
