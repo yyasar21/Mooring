@@ -104,7 +104,12 @@ fn policy(t: &Target, known: &KnownCerts, skip_vencrypt: bool) -> SecPolicy {
     // M-13: a pin or a "TLS seen" marker (written by the Tauri layer after a CA-valid
     // VeNCrypt connect) makes TLS mandatory for this host.
     let pinned = known.tls_expected(&t.host, t.port);
-    SecPolicy { security: t.conn.security, pinned, skip_vencrypt }
+    SecPolicy {
+        security: t.conn.security,
+        pinned,
+        allow_no_auth: t.conn.allow_no_auth,
+        skip_vencrypt,
+    }
 }
 
 fn stripped(t: &Target, known: &KnownCerts, shared: &Shared) -> VncError {
@@ -148,6 +153,10 @@ async fn attempt(
     };
     send(&mut conn.io, &[choice.byte()]).await?;
 
+    if choice == SecChoice::None && cred.kind() == security::CredKind::Password {
+        // Only reachable with `allowNoAuth`: the configured password is not used.
+        shared.audit.push(SessionAudit::VncNoAuthAllowed);
+    }
     let (security, method, tls_fp) = match choice {
         SecChoice::None => ("none", AuthMethod::None, None),
         SecChoice::VncAuth => {

@@ -80,6 +80,12 @@ pub fn audit_session(
                 protocol: proto(),
                 security: security.to_owned(),
             },
+            // L-27: `allowNoAuth` let a password connection take a None-only offer.
+            SessionAudit::VncNoAuthAllowed => AuditEvent::SessionWeakSecurity {
+                connection: conn(),
+                protocol: proto(),
+                security: "none_with_password".to_owned(),
+            },
             SessionAudit::Clipboard { direction, bytes } => AuditEvent::SessionClipboard {
                 connection: conn(),
                 direction: direction.as_str().to_owned(),
@@ -171,10 +177,13 @@ mod tests {
                 SessionAudit::Clipboard { direction: ClipboardDirection::FromRemote, bytes: 12 },
             ],
         );
-        audit_session(&log, "conn-3", Protocol::Vnc, vec![SessionAudit::VncPlaintext { security: "none" }]);
+        audit_session(&log, "conn-3", Protocol::Vnc, vec![
+            SessionAudit::VncPlaintext { security: "none" },
+            SessionAudit::VncNoAuthAllowed,
+        ]);
         let text = std::fs::read_to_string(&path).expect("read");
         let lines: Vec<_> = text.lines().collect();
-        assert_eq!(lines.len(), 7, "auth outcomes are traced, not audited: {text}");
+        assert_eq!(lines.len(), 8, "auth outcomes are traced, not audited: {text}");
         assert!(lines[0].contains(r#""decision":"accepted_session_only""#), "{text}");
         assert!(lines[0].contains(r#""host":"rdp.example.test:3389""#), "{text}");
         assert!(lines[0].contains(r#""protocol":"rdp""#), "{text}");
@@ -186,6 +195,7 @@ mod tests {
         assert!(lines[4].contains(r#""security":"tls""#), "{text}");
         assert!(lines[5].contains(r#""direction":"from_remote""#) && lines[5].contains(r#""bytes":12"#));
         assert!(lines[6].contains(r#""protocol":"vnc""#) && lines[6].contains(r#""security":"none""#));
+        assert!(lines[7].contains(r#""security":"none_with_password""#), "{text}");
         assert!(AuditLog::verify(&path).expect("verify").ok());
     }
 }

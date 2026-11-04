@@ -99,6 +99,8 @@ pub struct SecPolicy {
     /// `known_vnc_certs` holds a pin or a "TLS seen" marker for this `host:port` (behaves as
     /// `require_tls`, and a missing `VeNCrypt` is a `trust_mismatch`).
     pub pinned: bool,
+    /// `options.allowNoAuth`: a password credential may still take a None-only offer.
+    pub allow_no_auth: bool,
     /// A previous attempt found no usable `VeNCrypt` subtype (anonymous TLS only); offered
     /// `VeNCrypt` is skipped on the fallback attempt. Never set when TLS is required.
     pub skip_vencrypt: bool,
@@ -140,7 +142,12 @@ pub fn select_security(
                 .into(),
         )),
         CredKind::Password if has(SEC_VNC_AUTH) => Ok(SecChoice::VncAuth),
-        _ if has(SEC_NONE) => Ok(SecChoice::None),
+        CredKind::None if has(SEC_NONE) => Ok(SecChoice::None),
+        // L-27: a MITM offering only None would get a silent session to its own desktop.
+        CredKind::Password if has(SEC_NONE) && policy.allow_no_auth => Ok(SecChoice::None),
+        CredKind::Password if has(SEC_NONE) => Err(VncError::Unsupported(
+            "the server offers no authentication although a password is configured".into(),
+        )),
         CredKind::None if has(SEC_VNC_AUTH) => {
             Err(VncError::AuthFailed("the server requires a VNC password".into()))
         }

@@ -105,6 +105,22 @@ async fn tls_seen_marker_turns_a_stripped_vencrypt_into_a_hard_stop() {
 }
 
 #[tokio::test]
+async fn none_only_offer_with_a_password_needs_allow_no_auth() {
+    let srv = server(vec![Sec::None], None).await;
+    let port = srv.addr().port();
+    let dir = tempfile::tempdir().expect("tmp");
+    let known = dir.path().join("known_vnc_certs");
+    let mut s = session(port, pw("pw"), VncConnOptions::default(), &known).await;
+    assert_eq!(outcome(&mut s).await, Err(CloseCode::ProtocolError));
+    assert!(srv.stats().chosen_security.is_empty(), "None was never chosen");
+
+    let conn = VncConnOptions { allow_no_auth: true, ..VncConnOptions::default() };
+    let mut s = session(port, pw("pw"), conn, &known).await;
+    assert_eq!(outcome(&mut s).await, Ok(Some("none".to_owned())));
+    assert!(s.take_audit_events().contains(&SessionAudit::VncNoAuthAllowed));
+}
+
+#[tokio::test]
 async fn unreadable_trust_store_fails_closed() {
     let srv = server(vec![Sec::VncAuth], None).await;
     let dir = tempfile::tempdir().expect("tmp");

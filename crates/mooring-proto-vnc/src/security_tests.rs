@@ -1,7 +1,7 @@
 use super::*;
 
 fn pol(security: VncSecurity, pinned: bool) -> SecPolicy {
-    SecPolicy { security, pinned, skip_vencrypt: false }
+    SecPolicy { security, pinned, allow_no_auth: false, skip_vencrypt: false }
 }
 
 #[test]
@@ -23,7 +23,13 @@ fn selection_matrix() {
     for s in [A, P] {
         assert_eq!(ok(&[1, 2], C::Password, pol(s, false)), SecChoice::VncAuth);
         assert_eq!(ok(&[2, 1], C::None, pol(s, false)), SecChoice::None);
-        assert_eq!(ok(&[1], C::Password, pol(s, false)), SecChoice::None);
+        // L-27: a password with only None offered is refused unless allowNoAuth.
+        let e = err(&[1], C::Password, pol(s, false));
+        assert!(matches!(e, VncError::Unsupported(_)), "{e:?}");
+        let allow = SecPolicy { allow_no_auth: true, ..pol(s, false) };
+        assert_eq!(ok(&[1], C::Password, allow), SecChoice::None);
+        assert_eq!(ok(&[1, 2], C::Password, allow), SecChoice::VncAuth, "auth still preferred");
+        assert!(matches!(err(&[1], C::UserPassword, allow), VncError::Unsupported(_)));
         assert!(matches!(err(&[2], C::None, pol(s, false)), VncError::AuthFailed(_)));
         assert!(matches!(err(&[1, 2], C::UserPassword, pol(s, false)), VncError::Unsupported(_)));
         assert!(matches!(err(&[16, 30], C::Password, pol(s, false)), VncError::Unsupported(_)));
@@ -37,9 +43,9 @@ fn selection_matrix() {
         assert_eq!(e.code(), mooring_core::CloseCode::TrustMismatch);
     }
     // Fallback attempt after an anonymous-TLS-only VeNCrypt: skip it, unless TLS is required.
-    let skip = SecPolicy { security: P, pinned: false, skip_vencrypt: true };
+    let skip = SecPolicy { skip_vencrypt: true, ..pol(P, false) };
     assert_eq!(ok(&[19, 2], C::Password, skip), SecChoice::VncAuth);
-    let skip_req = SecPolicy { security: R, pinned: false, skip_vencrypt: true };
+    let skip_req = SecPolicy { skip_vencrypt: true, ..pol(R, false) };
     assert_eq!(ok(&[19, 2], C::Password, skip_req), SecChoice::VeNCrypt);
     assert_eq!(SecChoice::VeNCrypt.byte(), 19);
 }

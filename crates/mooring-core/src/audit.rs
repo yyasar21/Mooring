@@ -182,6 +182,8 @@ pub enum SessionAudit {
         /// `none` or `vnc-auth`.
         security: &'static str,
     },
+    /// VNC took a None-only offer although a password is configured (`allowNoAuth`, L-27).
+    VncNoAuthAllowed,
     /// Clipboard text crossed the session (coalesced: at most one per second per direction).
     Clipboard {
         /// Direction.
@@ -209,6 +211,7 @@ impl SessionAudit {
             Self::CertCaValid { .. } => "trust.cert.ca_valid",
             Self::RdpLegacySecurity => "session.rdp.legacy_security",
             Self::VncPlaintext { .. } => "session.vnc.plaintext",
+            Self::VncNoAuthAllowed => "session.vnc.no_auth_allowed",
             Self::Clipboard { .. } => "session.clipboard",
         }
     }
@@ -280,6 +283,7 @@ mod tests {
             ),
             (SessionAudit::RdpLegacySecurity, "session.rdp.legacy_security"),
             (SessionAudit::VncPlaintext { security: "none" }, "session.vnc.plaintext"),
+            (SessionAudit::VncNoAuthAllowed, "session.vnc.no_auth_allowed"),
             (
                 SessionAudit::Clipboard { direction: ClipboardDirection::FromRemote, bytes: 3 },
                 "session.clipboard",

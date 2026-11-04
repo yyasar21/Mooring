@@ -81,7 +81,7 @@ pub enum VncSecurity {
     AllowPlaintext,
 }
 
-/// `VncConnOptions = { security, viewOnly, shared, clipboard, caPem|null, maxFps }`. Tight JPEG
+/// `VncConnOptions = { security, viewOnly, shared, clipboard, caPem|null, maxFps, allowNoAuth }`. Tight JPEG
 /// is not an option: it is never requested in A2 (owner decision 5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -104,6 +104,10 @@ pub struct VncConnOptions {
     /// Frame rate cap (default 30).
     #[serde(default)]
     pub max_fps: MaxFps,
+    /// Accept a server that offers only None (type 1) although a password credential is
+    /// configured (review 5 L-27; default `false`, audited when used).
+    #[serde(default)]
+    pub allow_no_auth: bool,
 }
 
 impl Default for VncConnOptions {
@@ -115,6 +119,7 @@ impl Default for VncConnOptions {
             clipboard: ClipboardPolicy::Both,
             ca_pem: None,
             max_fps: MaxFps::Thirty,
+            allow_no_auth: false,
         }
     }
 }
