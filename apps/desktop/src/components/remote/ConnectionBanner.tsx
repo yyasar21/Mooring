@@ -11,7 +11,7 @@ export const CLOSE_TEXT: Record<CloseCode | "unknown", { title: string; hint: st
   trust_rejected: { title: "Certificate rejected", hint: "You declined the server certificate. Nothing was pinned.", hot: false },
   trust_mismatch: {
     title: "Certificate changed",
-    hint: "The pinned certificate no longer matches. Remove the pin under Known certificates only after the server owner confirms the change.",
+    hint: "The stored certificate no longer matches. If the server was reinstalled, confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust.",
     hot: true,
   },
   server_ended: { title: "Remote ended the session", hint: null, hot: false },
@@ -20,16 +20,23 @@ export const CLOSE_TEXT: Record<CloseCode | "unknown", { title: string; hint: st
   unknown: { title: "Disconnected", hint: null, hot: true },
 };
 
-/** Whole seconds until the next attempt, ticking while the banner is shown. */
-function useCountdown(until: number | null): number {
+/** `Date.now()`, ticking every 250 ms while `on`. */
+function useNow(on: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (until === null) return;
+    if (!on) return;
     setNow(Date.now());
     const id = window.setInterval(() => { setNow(Date.now()); }, 250);
     return () => { window.clearInterval(id); };
-  }, [until]);
-  return until === null ? 0 : Math.max(0, Math.ceil((until - now) / 1000));
+  }, [on]);
+  return now;
+}
+
+/** Seconds left and the elapsed fraction (0..1) of one backoff wait. */
+export function backoffProgress(r: { delayMs: number; since: number }, now: number): { secs: number; fraction: number } {
+  const left = Math.max(0, r.since + r.delayMs - now);
+  const fraction = r.delayMs > 0 ? Math.min(1, Math.max(0, 1 - left / r.delayMs)) : 1;
+  return { secs: Math.ceil(left / 1000), fraction };
 }
 
 /**
@@ -37,9 +44,14 @@ function useCountdown(until: number | null): number {
  * (the Tauri layer retries; the UI only shows it), detached to another window, or closed with
  * the reason and a Reconnect button.
  */
-export function ConnectionBanner({ tab, host, onReconnect, onClose }: { tab: Tab; host: string; onReconnect: () => void; onClose: () => void }) {
-  const until = tab.state === "reconnecting" && tab.reconnect ? tab.reconnect.since + tab.reconnect.delayMs : null;
-  const secs = useCountdown(until);
+export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReconnect }: {
+  tab: Tab;
+  host: string;
+  onReconnect: () => void;
+  onClose: () => void;
+  onCancelReconnect: () => void;
+}) {
+  const now = useNow(tab.state === "reconnecting" && tab.reconnect !== null);
 
   if (tab.state === "connecting" && !tab.prompt) {
     return (
@@ -52,18 +64,34 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose }: { tab: Tab
 
   if (tab.state === "reconnecting" && tab.reconnect) {
     const r = tab.reconnect;
+    const { secs, fraction } = backoffProgress(r, now);
+    const attempt = Math.min(Math.max(1, r.attempt), RECONNECT_MAX_ATTEMPTS);
     return (
-      <div className="link-banner m-hud" data-tone="hot" role="status" aria-live="polite">
-        <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost · reconnecting</span>
-        <span className="link-countdown" aria-label={`Next attempt in ${String(secs)} seconds`}>
-          {secs > 0 ? `${String(secs)} s` : "now"}
-        </span>
+      <div className="link-banner m-hud" data-tone="hot" role="status" aria-live="polite" aria-label="Reconnecting">
+        <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost · reconnecting to {host}</span>
+        <div className="flex items-end justify-between gap-3">
+          <span className="link-countdown" aria-label={`Next attempt in ${String(secs)} seconds`}>
+            {secs > 0 ? `${String(secs)} s` : "now"}
+          </span>
+          <ol className="link-attempts" aria-label={`Attempt ${String(attempt)} of ${String(RECONNECT_MAX_ATTEMPTS)}`}>
+            {Array.from({ length: RECONNECT_MAX_ATTEMPTS }, (_, i) => (
+              <li key={i} data-state={i + 1 < attempt ? "spent" : i + 1 === attempt ? "now" : undefined} />
+            ))}
+          </ol>
+        </div>
+        <div className="link-progress" aria-hidden>
+          <span style={{ transform: `scaleX(${fraction.toFixed(3)})` }} />
+        </div>
         <span className="text-text-muted">
-          Attempt {r.attempt} of {RECONNECT_MAX_ATTEMPTS}. Mooring signs in again with the stored credential.
+          Attempt {attempt} of {RECONNECT_MAX_ATTEMPTS}. Mooring signs in again with the stored credential; it never retries after a
+          sign-in or certificate failure.
         </span>
         <div className="actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Stop and close
+            Close tab
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onCancelReconnect}>
+            Cancel reconnect
           </button>
         </div>
       </div>

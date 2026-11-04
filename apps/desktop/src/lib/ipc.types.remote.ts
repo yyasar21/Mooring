@@ -54,6 +54,13 @@ export const DEFAULT_RDP_OPTIONS: RdpConnOptions = {
   maxFps: 30,
 };
 
+export const DEFAULT_WEB_OPTIONS: WebConnOptions = { url: "", allowedOrigins: [], persistent: false, allowHttp: false };
+
+/** Rust caps (mooring_core::options): ≤ 16 extra origins, URLs ≤ 2048 bytes, CA PEM ≤ 64 KiB, options ≤ 128 KiB. */
+export const OPTION_LIMITS = { maxAllowedOrigins: 16, maxUrl: 2048, maxCaPem: 64 * 1024, maxOptionsJson: 128 * 1024 } as const;
+export const MAX_FPS_VALUES: readonly MaxFps[] = [30, 60];
+export const VNC_SECURITIES: readonly VncSecurity[] = ["require_tls", "prefer_tls", "allow_plaintext"];
+
 export const DEFAULT_VNC_OPTIONS: VncConnOptions = {
   security: "prefer_tls",
   viewOnly: false,
@@ -90,6 +97,8 @@ export interface CertificateInfo {
   notAfter: string;
   /** Hex SHA-256 of the leaf DER. */
   sha256: string;
+  /** Subject alternative names (DNS names and IP addresses as text). */
+  san: string[];
   problems: CertificateProblem[];
 }
 
@@ -153,6 +162,11 @@ export interface RemoteIpc {
   sessionScreenshot(args: { sessionId: string }): Promise<Size>;
   /** VNC only; Rust enforces it (drops input), the UI flag is advisory. */
   sessionSetViewOnly(args: { sessionId: string; viewOnly: boolean }): Promise<void>;
+
+  /** The plain per-protocol object with defaults filled in; `{}` for protocols without options. */
+  connectionOptionsGet(args: { connectionId: string }): Promise<ProtocolOptions>;
+  /** Replaces every option (`input.invalid` for unknown fields, wrong protocol, maxFps ∉ {30,60}). */
+  connectionOptionsSet(args: { connectionId: string; options: ProtocolOptions }): Promise<ProtocolOptions>;
 
   knownCertsList(args: { protocol: "rdp" | "vnc" }): Promise<KnownCert[]>;
   knownCertsRemove(args: { protocol: "rdp" | "vnc"; host: string; port: number }): Promise<{ removed: number }>;

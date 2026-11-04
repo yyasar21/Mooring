@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ClipboardPolicy, ConnectionSummary, RdpConnOptions, SessionInput, Size, VncConnOptions } from "../../lib/ipc";
+import type { ClipboardPolicy, ConnectionSummary, ProtocolOptions, RdpConnOptions, SessionInput, Size, VncConnOptions } from "../../lib/ipc";
 import { ackSession, useSessions, type Tab } from "../../stores/sessions";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { RemoteCanvas } from "./RemoteCanvas";
+import { cancelReconnect } from "../../stores/sessions.reconnect";
+import { useConnOptions } from "../../stores/connOptions";
 
 /** `Connected.security` → badge text and whether it is a plaintext warning (ADR-0012 owner decision 4). */
 export function securityBadge(security: string | null): { text: string; hot: boolean } | null {
@@ -21,9 +23,8 @@ export function securityBadge(security: string | null): { text: string; hot: boo
   }
 }
 
-function clipboardPolicy(c: ConnectionSummary | undefined): ClipboardPolicy {
-  const o = c?.options as Partial<RdpConnOptions & VncConnOptions> | undefined;
-  return o?.clipboard ?? "both";
+function clipboardPolicy(o: ProtocolOptions | undefined): ClipboardPolicy {
+  return (o as Partial<RdpConnOptions & VncConnOptions> | undefined)?.clipboard ?? "both";
 }
 
 /**
@@ -42,7 +43,8 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
 
   const vnc = tab.protocol === "vnc";
   const connected = tab.state === "connected";
-  const policy = clipboardPolicy(connection);
+  const cached = useConnOptions((s) => (connection ? s.byId[connection.id] : undefined));
+  const policy = clipboardPolicy(cached ?? connection?.options);
   const toRemote = policy === "both" || policy === "to_remote";
   const viewOnly = vnc && tab.viewOnly;
   const inputEnabled = connected && !viewOnly && tab.prompt === null;
@@ -150,6 +152,7 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
           host={connection?.host ?? ""}
           onReconnect={() => void reconnect(tab.id)}
           onClose={() => void close(tab.id)}
+          onCancelReconnect={() => void cancelReconnect(tab.id)}
         />
       </div>
     </>

@@ -141,6 +141,28 @@
 .seg-opt[data-checked] { position: relative; z-index: 1; border-color: var(--accent); color: var(--accent); background: var(--accent-soft); box-shadow: var(--glow-accent); }
 .seg-opt:has(input:focus-visible) { box-shadow: var(--focus-ring); z-index: 2; }
 
+/* settings: known certificates */
+.trust-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); }
+.trust-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 8px 10px; }
+.trust-row + .trust-row { border-top: 1px solid var(--line); }
+.trust-row:hover { background: var(--accent-soft); }
+.trust-target { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-s); color: var(--text); }
+.trust-names { font: 600 var(--fs-2xs)/1.4 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+.trust-fp { margin: 2px 0 0; font-size: var(--fs-2xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.trust-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border: 1px dashed var(--line-strong); text-align: center; }
+
+/* connection form: protocol options */
+.opt-grid { display: flex; flex-direction: column; gap: 12px; }
+.opt-readonly-row { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+.opt-readonly { display: flex; flex-direction: column; gap: 2px; padding: 6px 9px; border-left: 2px solid var(--line-strong); background: var(--bg-sunken); }
+.opt-danger { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); }
+.opt-danger[data-on] { border-color: var(--hot-line); box-shadow: var(--glow-hot); }
+.opt-danger[data-on] .toggle-label { color: var(--hot); }
+.opt-origins { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; }
+.opt-origin-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); }
+.opt-origin-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 9px; font-size: var(--fs-s); }
+.opt-origin-list li + li { border-top: 1px solid var(--line); }
+
 .toggle { display: flex; align-items: flex-start; gap: 10px; cursor: default; }
 .toggle[data-disabled] { opacity: 0.45; }
 .toggle input { position: absolute; opacity: 0; pointer-events: none; }

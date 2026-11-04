@@ -7,6 +7,7 @@ import { useSessions } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";
 import { useTransfers } from "../stores/transfers";
+import { useConnOptions } from "../stores/connOptions";
 
 /** Fresh mock backend and empty stores for every test. */
 export function freshBackend(opts: MockOptions = {}): MockTransport {
@@ -17,6 +18,7 @@ export function freshBackend(opts: MockOptions = {}): MockTransport {
   useCredentials.getState().reset();
   useUi.getState().reset();
   useTransfers.getState().reset();
+  useConnOptions.getState().reset();
   useUi.setState({ theme: "dark", inspectorOpen: true });
   useApp.setState({ info: null, vault: "unknown", lastError: null, lockReason: null });
   return mock;
