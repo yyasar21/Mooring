@@ -40,7 +40,11 @@ export function bytesToBase64(data: Uint8Array): string {
   return btoa(bin);
 }
 
-/** Decode one channel message. Unknown kinds become a `closed` event so the tab never hangs. */
+/**
+ * Decode one channel message. Strict: only the kinds of `mooring_core::SessionEvent` (plus R5's
+ * `detached`/`attached`) are recognised; anything else becomes a `closed` event so the tab never
+ * hangs on a message it cannot interpret.
+ */
 export function decodeSessionEvent(raw: unknown): SessionEvent {
   const w = rec(raw);
   switch (w.kind) {
@@ -71,6 +75,8 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
       return { kind: "reconnecting", attempt: num(w.attempt), delayMs: num(field(w, "delay_ms", "delayMs")) };
     case "detached":
       return { kind: "detached" };
+    case "attached":
+      return { kind: "attached" };
     case "closed":
       return { kind: "closed", reason: str(w.reason), code: closeCode(w.code) };
     default:
