@@ -62,7 +62,7 @@ export abstract class MockSyncBase extends MockVsphereBase implements SyncIpc {
 
   /** Mock rule: endpoints under `.invalid` lack conditional writes; hosts named `untrusted` carry an unpinned certificate. */
   private probe(endpoint: string): void {
-    if (endpoint.includes(".invalid")) throw new IpcError("sync.backend_unsupported", "the backend has no conditional writes");
+    if (endpoint.includes(".invalid")) throw new IpcError("sync.unsupported_backend", "the backend has no conditional writes");
     if (endpoint.includes("untrusted") && !this.trustCert) throw new IpcError("http.trust_prompt", "the certificate is not trusted");
     if (endpoint.includes("untrusted")) this.record("cert_decision", { protocol: "sync", decision: "trust_remember" });
   }

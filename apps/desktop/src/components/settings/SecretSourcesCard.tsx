@@ -11,8 +11,9 @@ const METHOD_LABEL = { token: "Token", approle: "AppRole", oidc: "OIDC" } as con
 export function ttlText(seconds: number | null): string {
   if (seconds === null) return "no TTL";
   if (seconds < 90) return `${seconds} s`;
-  if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
-  return `${Math.round(seconds / 3600)} h`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  const h = seconds / 3600;
+  return `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
 }
 
 /** One line for a `secret_source_test` result: method, TTL, renewable, policies; or the error and its category. */

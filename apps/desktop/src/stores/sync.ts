@@ -63,7 +63,7 @@ export const useSync = create<SyncState>((set, get) => {
 
     load: async () => {
       try {
-        set({ status: await ipc.syncStatus(), error: null });
+        set({ status: await ipc.syncStatus() });
       } catch (e: unknown) {
         set({ error: describeError(e) });
       }

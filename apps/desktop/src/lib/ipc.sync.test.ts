@@ -55,7 +55,7 @@ describe("mock · vault sync (ADR-0017, S2)", () => {
     expect((await m.syncStatus()).nextRunUnix).toBeNull();
     expect(await code(m.syncConfigure(config({ credentialId: "cr-ops" })))).toBe("credential.incompatible");
     expect(await code(m.syncConfigure({ ...config(), backend: { ...config().backend, kind: "gcs" as "s3" } }))).toBe("sync.backend_unsupported");
-    expect(await code(m.syncConfigure(config({}, { endpoint: "https://s3.invalid" })))).toBe("sync.backend_unsupported");
+    expect(await code(m.syncConfigure(config({}, { endpoint: "https://s3.invalid" })))).toBe("sync.unsupported_backend");
     m.trustCert = false;
     expect(await code(m.syncConfigure(config({}, { endpoint: "https://untrusted.example.test" })))).toBe("http.trust_prompt");
     m.trustCert = true;
