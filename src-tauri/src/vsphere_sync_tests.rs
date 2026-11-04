@@ -238,7 +238,7 @@ async fn consoles_client_plan_and_vmrc_opt_in() {
     let vm = vm_row(&vc, "vm-1").expect("vm").id;
     let ctx = VsCtx::of(&vc.f.state);
     let t = vsphere_vm::vm_target(&ctx, &vm).expect("target");
-    let plan = vsphere_console::client_plan(&t, None).expect("plan");
+    let plan = vsphere_console::client_plan(&t, None, crate::web::Storage::Ephemeral).expect("plan");
     assert_eq!(plan.label, format!("web-{}", vc.id), "keyed by the vCenter connection");
     assert_eq!(plan.url.as_str(), format!("https://127.0.0.1:{}/ui/", vc.srv.addr().port()));
     assert_eq!(plan.policy.allowed(), [format!("https://127.0.0.1:{}", vc.srv.addr().port())]);

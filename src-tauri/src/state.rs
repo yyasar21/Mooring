@@ -146,6 +146,8 @@ impl Ready {
 pub struct AppState {
     /// `$APP_DATA`: vault header, audit log, `mooring.db`, `known_hosts`.
     pub data_dir: PathBuf,
+    /// `$APP_CACHE` (default `$APP_DATA/cache`): Windows ephemeral web profiles (L-29).
+    pub cache_dir: PathBuf,
     /// `None` until a vault is created or its header loaded.
     pub vault: Arc<Mutex<Option<Vault>>>,
     /// Connection tree and sealed credentials (ADR-0005).
@@ -233,6 +235,7 @@ impl AppState {
             Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
         Ok(Self {
             secrets,
+            cache_dir: data_dir.join("cache"),
             data_dir,
             vault: Arc::new(Mutex::new(vault)),
             store: Arc::new(Mutex::new(StoreSlot { store: Some(store), bound_to: None })),
@@ -248,6 +251,13 @@ impl AppState {
             lock_observer: crate::window_lock::LockObserver::default(),
             vsphere: crate::vsphere_sync::VsphereHub::default(),
         })
+    }
+
+    /// Use the OS cache directory for the Windows ephemeral web profiles (set once in setup).
+    #[must_use]
+    pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
+        self.cache_dir = cache_dir;
+        self
     }
 
     /// `$APP_DATA/known_hosts`.

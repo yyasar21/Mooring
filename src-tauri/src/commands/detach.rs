@@ -147,6 +147,12 @@ pub async fn window_detach<R: Runtime>(
             }
         }
     });
+    // Review 5 N-30: a lock that landed during the build must not leave the window visible.
+    crate::commands::web::hide_if_locked(&state, || {
+        if let Err(e) = window.hide() {
+            tracing::warn!(error = %e, "detached window hide after lock failed");
+        }
+    });
     state.audit(AuditEvent::SessionDetached { connection, session: session_id });
     Ok(Detached { window_label: label })
 }

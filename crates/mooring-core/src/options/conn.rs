@@ -178,6 +178,15 @@ impl WebConnOptions {
     }
 }
 
+/// Whether `host` is a sub-name of the RFC 6761 `localhost.` zone (`tauri.localhost`,
+/// `ipc.localhost`, `a.b.localhost`, with or without a trailing dot). Tauri serves every
+/// custom protocol there on Windows, so a web connection never lists one (review 5 N-31).
+/// Plain `localhost` is not a sub-name and stays allowed.
+pub fn is_localhost_subdomain(host: &str) -> bool {
+    let host = host.strip_suffix('.').unwrap_or(host);
+    host.len() > ".localhost".len() && host.to_ascii_lowercase().ends_with(".localhost")
+}
+
 /// `(scheme, authority, rest)` of an absolute `scheme://authority[rest]` URL.
 fn split_url(url: &str) -> Option<(&str, &str, &str)> {
     let (scheme, after) = url.split_once("://")?;
@@ -226,6 +235,9 @@ fn check_url(url: &str, allow_http: bool, origin_only: bool) -> Result<()> {
     };
     if host.is_empty() || port.is_some_and(|p| p.parse::<u16>().map_or(true, |p| p == 0)) {
         return Err(invalid(format!("{what} has an invalid host or port")));
+    }
+    if is_localhost_subdomain(host) {
+        return Err(invalid(format!("{what}: *.localhost names are reserved for the app")));
     }
     if origin_only && !rest.is_empty() && rest != "/" {
         return Err(invalid("allowedOrigins entries are origins, without a path"));

@@ -195,6 +195,11 @@ unlocked (ADR-0010 M-8).
 4. Secrets and ConfigMaps stay unreachable in A3, even read-only.
 5. `exec` credential plugins stay out; a later ADR may add an allow-listed plugin model.
 
+## Amendment (2026-11-04)
+The local refusal of a request outside the allow-list shipped with the IPC error code
+`kube.refused` (K3/K4 handoffs, `commands/kube_wire.rs`), not `kube.forbidden_request` as
+written above; the audit event stays `kube.request_refused`.
+
 ## Sources
 crates.io API (2026-11-04): `kube` 5.0.0, `k8s-openapi` 0.29.0; kube-rs `kube/Cargo.toml`,
 `kube-client/Cargo.toml` and workspace `Cargo.toml` on `main` (features, hyper 1.9, tower 0.5,

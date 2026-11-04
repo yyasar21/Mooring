@@ -5,6 +5,7 @@
 //! Tauri window with the guards; `commands::web` holds the IPC commands.
 
 pub mod policy;
+pub mod sweep;
 pub mod window;
 
 use std::collections::HashMap;
@@ -25,6 +26,8 @@ use policy::{display_origin, NavPolicy};
 pub const MAX_TITLE_CHARS: usize = 256;
 /// Directory under `$APP_DATA` holding the persistent per-connection stores.
 pub const WEB_DATA_DIR: &str = "web";
+/// Directory under `$APP_CACHE` holding the Windows per-window ephemeral profiles (L-29).
+pub const WEB_EPHEMERAL_DIR: &str = "web-ephemeral";
 
 /// An event on the `onEvent` channel of `web_open` (`snake_case`, `kind` tag).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -68,6 +71,8 @@ pub struct WebEntry {
     pub title: String,
     /// Effective storage: `true` only when a per-connection store is in use.
     pub persistent: bool,
+    /// Windows ephemeral profile directory (review 5 L-29), removed when the window is gone.
+    pub ephemeral_dir: Option<PathBuf>,
     /// RFC 3339.
     pub opened_at: String,
     /// The main window's channel.
@@ -110,6 +115,11 @@ pub struct WebWindowInfo {
 pub enum Storage {
     /// `incognito(true)`: nothing reaches disk (default, owner decision 7).
     Ephemeral,
+    /// Windows: `incognito(true)` **and** `data_directory(<cache>/web-ephemeral/<id>)`, so
+    /// each ephemeral window gets its own `WebView2` environment instead of the one `InPrivate`
+    /// session every controller of the shared environment would share (review 5 L-29). The
+    /// directory is removed with the window and swept at start.
+    EphemeralDirectory(PathBuf),
     /// Windows / Linux: `data_directory($APP_DATA/web/<connectionId>)`.
     Directory(PathBuf),
     /// macOS ≥ 14: `data_store_identifier` = the connection UUID bytes.
@@ -119,8 +129,10 @@ pub enum Storage {
 /// The platform facts the storage choice depends on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageOs {
-    /// Per-webview data directories.
-    WindowsOrLinux,
+    /// `WebView2`: per-webview data directories; an `InPrivate` session is per environment.
+    Windows,
+    /// `WebKitGTK`: per-webview data directories; a fresh non-persistent store per webview.
+    Linux,
     /// `WKWebView`: a data store identifier needs macOS 14.
     MacOs {
         /// Major version, `0` when unknown.
@@ -134,8 +146,10 @@ impl StorageOs {
         if cfg!(target_os = "macos") {
             let version = sysinfo::System::os_version().unwrap_or_default();
             Self::MacOs { major: macos_major(&version) }
+        } else if cfg!(target_os = "windows") {
+            Self::Windows
         } else {
-            Self::WindowsOrLinux
+            Self::Linux
         }
     }
 }
@@ -169,11 +183,38 @@ impl WebPlan {
     pub fn origin(&self) -> String {
         display_origin(&self.url)
     }
+
+    /// Whether a per-connection store is in use (what `web_list` reports as `persistent`).
+    pub fn persistent(&self) -> bool {
+        matches!(self.storage, Storage::Directory(_) | Storage::Identifier(_))
+    }
+
+    /// The Windows ephemeral profile directory, when the plan has one.
+    pub fn ephemeral_dir(&self) -> Option<&PathBuf> {
+        match &self.storage {
+            Storage::EphemeralDirectory(dir) => Some(dir),
+            _ => None,
+        }
+    }
 }
 
 /// Directory of the persistent store of `connection_id` (a canonical UUID string).
 pub fn store_dir(state: &AppState, connection_id: &str) -> PathBuf {
     state.data_dir.join(WEB_DATA_DIR).join(connection_id)
+}
+
+/// Directory of the Windows ephemeral profile of `connection_id` (review 5 L-29).
+pub fn ephemeral_dir(state: &AppState, connection_id: &str) -> PathBuf {
+    state.cache_dir.join(WEB_EPHEMERAL_DIR).join(connection_id)
+}
+
+/// Ephemeral storage on `os`: a per-window profile directory on Windows, plain incognito
+/// elsewhere (review 5 L-29). `connection_id` must be a canonical UUID string.
+pub fn ephemeral_storage(state: &AppState, connection_id: &str, os: StorageOs) -> Storage {
+    match os {
+        StorageOs::Windows => Storage::EphemeralDirectory(ephemeral_dir(state, connection_id)),
+        StorageOs::Linux | StorageOs::MacOs { .. } => Storage::Ephemeral,
+    }
 }
 
 /// Resolve a web connection into a window plan. The vault must be unlocked; only the stored,
@@ -200,8 +241,8 @@ pub fn plan(
     let uuid = uuid::Uuid::parse_str(&connection_id)
         .map_err(|_| IpcError::invalid("connectionId", "not a UUID"))?;
     let (storage, persistent_refused) = match (opts.persistent, os) {
-        (false, _) => (Storage::Ephemeral, false),
-        (true, StorageOs::WindowsOrLinux) => {
+        (false, os) => (ephemeral_storage(state, &connection_id, os), false),
+        (true, StorageOs::Windows | StorageOs::Linux) => {
             (Storage::Directory(store_dir(state, &connection_id)), false)
         }
         (true, StorageOs::MacOs { major }) if major >= 14 => {
@@ -264,8 +305,19 @@ pub fn forget(state: &AppState, connection_id: &str) -> Option<WebEntry> {
 /// `connection_delete`). Returns whether a directory was removed.
 pub fn remove_store_dir(state: &AppState, connection_id: &str) -> IpcResult<bool> {
     let id = dto::connection_id("connectionId", connection_id)?.to_string();
-    let dir = store_dir(state, &id);
-    match std::fs::remove_dir_all(&dir) {
+    remove_dir(&store_dir(state, &id))
+}
+
+/// Remove the Windows ephemeral profile of a closed window (L-29). Best effort: a profile
+/// `WebView2` still holds is swept at the next start.
+pub fn remove_ephemeral_dir(dir: &std::path::Path) {
+    if let Err(e) = remove_dir(dir) {
+        tracing::warn!(code = e.code, "ephemeral web profile kept until the next start");
+    }
+}
+
+fn remove_dir(dir: &std::path::Path) -> IpcResult<bool> {
+    match std::fs::remove_dir_all(dir) {
         Ok(()) => Ok(true),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => {
