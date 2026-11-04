@@ -15,6 +15,7 @@ pub mod connect;
 pub mod credential;
 pub mod error;
 pub mod frame;
+pub mod known_certs;
 pub mod model;
 pub mod session;
 pub mod tree;
