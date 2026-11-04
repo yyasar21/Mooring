@@ -13,6 +13,7 @@
 // geometry code uses x / y / w / h / r like the specs do.
 #![allow(clippy::doc_markdown, clippy::many_single_char_names)]
 
+pub mod cli;
 pub mod rdp;
 pub mod rfb;
 pub mod tls;
