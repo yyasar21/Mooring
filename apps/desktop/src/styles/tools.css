@@ -149,6 +149,9 @@
 .trust-target { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: var(--fs-s); color: var(--text); }
 .trust-names { font: 600 var(--fs-2xs)/1.4 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
 .trust-fp { margin: 2px 0 0; font-size: var(--fs-2xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.trust-row[data-conflict] { position: relative; background: var(--hot-soft); }
+.trust-row[data-conflict]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--hot); box-shadow: 0 0 6px var(--hot-line); }
+.trust-conflict { font: 600 var(--fs-2xs)/1.4 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--hot); }
 .trust-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border: 1px dashed var(--line-strong); text-align: center; }
 
 /* connection form: protocol options */

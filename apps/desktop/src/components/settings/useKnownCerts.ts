@@ -12,6 +12,38 @@ export interface PinRow extends KnownCert {
   /** host:port when known (Rust matched a connection, or a hand-written plain line). */
   target: { host: string; port: number } | null;
   connections: string[];
+  /**
+   * Another pin of the same host:port carries a different fingerprint (review 6b L-35, after a
+   * sync merge). Rust refuses to connect until the user removes them; `known_certs_remove`
+   * clears every pin of the host:port.
+   */
+  conflict: boolean;
+}
+
+/**
+ * Flag conflicts and group the rows: conflicting hosts first, pins of one host:port adjacent, the
+ * wire order kept otherwise. Pins without a known host cannot be compared (their hashes carry
+ * different salts) and are never flagged.
+ */
+export function groupPins(rows: Omit<PinRow, "conflict">[]): PinRow[] {
+  const fps = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!r.target) continue;
+    const k = hostKey(r.target.host, r.target.port);
+    fps.set(k, new Set([...(fps.get(k) ?? []), r.fingerprint]));
+  }
+  const keyOf = (r: Omit<PinRow, "conflict">) => (r.target ? hostKey(r.target.host, r.target.port) : null);
+  const flagged = rows.map((r) => ({ ...r, conflict: (fps.get(keyOf(r) ?? "")?.size ?? 0) > 1 }));
+  const order = new Map<string, number>();
+  for (const r of flagged) {
+    const k = keyOf(r);
+    if (k !== null && !order.has(k)) order.set(k, order.size);
+  }
+  const rank = (r: PinRow) => {
+    const k = keyOf(r);
+    return (r.conflict ? 0 : 1) * 1_000_000 + (k === null ? order.size : (order.get(k) ?? 0));
+  };
+  return flagged.map((r, i) => ({ r, i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i).map(({ r }) => r);
 }
 
 /**
@@ -39,11 +71,11 @@ export function useKnownCerts(protocol: CertProtocol) {
     void (async () => {
       try {
         const pins = await ipc.knownCertsList({ protocol });
-        const out: PinRow[] = pins.map((p) => {
+        const out = pins.map((p) => {
           const target = p.host !== undefined && p.port !== undefined ? { host: p.host, port: p.port } : plainHost(p.hostHash);
           return { ...p, target, connections: target ? (names.get(hostKey(target.host, target.port)) ?? []) : [] };
         });
-        if (run.live) setRows(out);
+        if (run.live) setRows(groupPins(out));
       } catch (e: unknown) {
         if (run.live) {
           setRows([]);
