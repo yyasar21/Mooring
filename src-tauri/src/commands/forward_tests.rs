@@ -125,9 +125,17 @@ async fn lock_closes_external_forwards_and_keeps_loopback_ones() {
     crate::commands::vault::lock(st, None).expect("lock");
     let left = list(st, sid).expect("session survives the lock");
     assert_eq!(left.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), [lo.id.as_str()]);
-    // The external listener is gone; the loopback forward still works.
-    let refused = TcpStream::connect(("127.0.0.1", x.bind.port)).await;
-    assert!(refused.is_err(), "external listener closed");
+    // The external listener is gone; the loopback forward still works. The accept task is
+    // aborted asynchronously, so give the socket a moment to close (Windows is slow here).
+    let mut refused = false;
+    for _ in 0..100 {
+        if TcpStream::connect(("127.0.0.1", x.bind.port)).await.is_err() {
+            refused = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(refused, "external listener closed");
     assert_eq!(round_trip(lo.bind.port, b"after").await, b"after");
     let log = audit_text(&live);
     assert_eq!(log.matches(r#""event":"forward_closed""#).count(), 1, "{log}");
