@@ -1,0 +1,3 @@
+# Fuzz inputs are raw bytes: never normalise line endings (CRLF cases are deliberate).
+corpus/** -text
+regressions/** -text
