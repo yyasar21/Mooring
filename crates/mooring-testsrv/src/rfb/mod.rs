@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
 
 use crate::tls::TestCert;
+pub(crate) use encode::tiles;
 pub use encode::{TightMode, ZrleMode};
 pub use framebuffer::{Framebuffer, Rect};
 pub use pixel::PixelFormat;

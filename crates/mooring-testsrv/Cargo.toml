@@ -35,8 +35,11 @@ ironrdp-pdu = "0.11"
 ironrdp-core = { version = "0.3", features = ["alloc"] }
 ironrdp-svc = "0.10"
 ironrdp-cliprdr = "0.9"
+ironrdp-dvc = "0.10"
+ironrdp-displaycontrol = "0.10"
+# RDP 6.0 planar encoder for compressed bitmap updates (same version ironrdp-session decodes with).
+ironrdp-graphics = "0.11"
 
 [dev-dependencies]
 # Verification client for the RDP self-test only (decodes the bitmap updates we send).
 ironrdp-session = "0.13"
-ironrdp-graphics = "0.11"

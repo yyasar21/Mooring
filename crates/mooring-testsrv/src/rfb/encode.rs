@@ -73,7 +73,7 @@ impl Encoders {
     ) -> Vec<Encoded> {
         match enc {
             encoding::ZRLE => vec![Encoded { rect: r, encoding: enc, data: self.zrle(fb, r, pf) }],
-            encoding::TIGHT => split(r, 256)
+            encoding::TIGHT => tiles(r, 256, 256)
                 .into_iter()
                 .map(|p| Encoded { rect: p, encoding: enc, data: self.tight(fb, p, pf) })
                 .collect(),
@@ -83,7 +83,7 @@ impl Encoders {
 
     fn zrle(&mut self, fb: &Framebuffer, r: Rect, pf: &PixelFormat) -> Vec<u8> {
         let mut plain = Vec::new();
-        for tile in tiles(r, 64) {
+        for tile in tiles(r, 64, 64) {
             let px = fb.region(tile);
             zrle_tile(&px, tile.w, pf, self.zrle_mode, &mut plain);
         }
@@ -199,25 +199,21 @@ fn push_compact_len(out: &mut Vec<u8>, len: usize) {
     }
 }
 
-/// Rect split into `size × size` tiles, left to right, top to bottom.
-pub(crate) fn tiles(r: Rect, size: u16) -> Vec<Rect> {
+/// Rect split into `tw × th` tiles, left to right, top to bottom.
+pub(crate) fn tiles(r: Rect, tw: u16, th: u16) -> Vec<Rect> {
     let mut v = Vec::new();
     let mut y = r.y;
     while y < r.y + r.h {
-        let h = size.min(r.y + r.h - y);
+        let h = th.min(r.y + r.h - y);
         let mut x = r.x;
         while x < r.x + r.w {
-            let w = size.min(r.x + r.w - x);
+            let w = tw.min(r.x + r.w - x);
             v.push(Rect::new(x, y, w, h));
             x += w;
         }
         y += h;
     }
     v
-}
-
-fn split(r: Rect, size: u16) -> Vec<Rect> {
-    tiles(r, size)
 }
 
 /// Distinct colours in first-seen order, or `None` when there are more than `max`.
@@ -386,7 +382,7 @@ mod tests {
         push_run(&mut v, 256);
         push_run(&mut v, 300);
         assert_eq!(v, [0, 255, 0, 255, 44]);
-        assert_eq!(tiles(Rect::new(0, 0, 130, 65), 64).len(), 6);
+        assert_eq!(tiles(Rect::new(0, 0, 130, 65), 64, 64).len(), 6);
     }
 
     #[test]

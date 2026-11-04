@@ -4,6 +4,7 @@
 // same reasons as the crate's lib.rs (protocol terms; x / y / w / h / r geometry).
 #![allow(dead_code, clippy::doc_markdown, clippy::many_single_char_names)]
 
+pub mod rdp_client;
 pub mod rfb_client;
 pub mod rfb_decode;
 pub mod tls;
