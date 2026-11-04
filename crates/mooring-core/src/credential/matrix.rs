@@ -112,7 +112,7 @@ mod tests {
     const B: (bool, bool, bool) = (false, false, true);
     const N: (bool, bool, bool) = (false, false, false);
     type Row = [(bool, bool, bool); 6];
-    const ADR: [(K, Row); 14] = [
+    const ADR: [(K, Row); 15] = [
         (K::UserPassword, [T, G, N, T, N, T]),
         (K::DomainUser, [T, G, N, T, N, T]),
         (K::SshKey, [T, N, N, N, N, N]),
@@ -127,6 +127,7 @@ mod tests {
         (K::VncUserPassword, [N, N, T, N, N, N]),
         (K::Prompt, [T, G, T, T, N, T]),
         (K::SudoBecome, [B, N, N, N, N, N]),
+        (K::S3AccessKey, [N, N, N, N, N, N]),
     ];
     const PROTOCOLS: [Protocol; 6] = [Ssh, Rdp, Vnc, Web, Kube, Vsc];
 

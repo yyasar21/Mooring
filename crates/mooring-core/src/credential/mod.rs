@@ -73,11 +73,13 @@ pub enum CredentialKind {
     ExternalRef,
     /// Privilege escalation (`sudo` / `su` / `doas`) after an SSH login.
     SudoBecome,
+    /// S3 access key; valid only as the vault-sync credential (ADR-0017 §4).
+    S3AccessKey,
 }
 
 impl CredentialKind {
     /// Every kind, in table order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::UserPassword,
         Self::DomainUser,
         Self::SshKey,
@@ -93,6 +95,7 @@ impl CredentialKind {
         Self::Prompt,
         Self::ExternalRef,
         Self::SudoBecome,
+        Self::S3AccessKey,
     ];
 
     /// Stable wire / database name.
@@ -114,6 +117,7 @@ impl CredentialKind {
             Self::Prompt => "prompt",
             Self::ExternalRef => "external_ref",
             Self::SudoBecome => "sudo_become",
+            Self::S3AccessKey => "s3_access_key",
         }
     }
 
@@ -138,7 +142,7 @@ impl CredentialKind {
     /// Kinds an `external_ref` may resolve to.
     #[must_use]
     pub const fn is_ref_target(self) -> bool {
-        !matches!(self, Self::Prompt | Self::ExternalRef | Self::SshAgent)
+        !matches!(self, Self::Prompt | Self::ExternalRef | Self::SshAgent | Self::S3AccessKey)
     }
 }
 
@@ -196,11 +200,15 @@ pub enum SecretName {
     RefreshToken,
     /// Whole kubeconfig file.
     KubeconfigYaml,
+    /// S3 secret access key (`s3_access_key`).
+    SecretAccessKey,
+    /// STS session token (`s3_access_key`, optional).
+    SessionToken,
 }
 
 impl SecretName {
     /// Every name.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 12] = [
         Self::Password,
         Self::OtpSeed,
         Self::PrivateKey,
@@ -211,6 +219,8 @@ impl SecretName {
         Self::ClientSecret,
         Self::RefreshToken,
         Self::KubeconfigYaml,
+        Self::SecretAccessKey,
+        Self::SessionToken,
     ];
 
     /// Wire / database name, also the vault AAD field.
@@ -227,6 +237,8 @@ impl SecretName {
             Self::ClientSecret => "client_secret",
             Self::RefreshToken => "refresh_token",
             Self::KubeconfigYaml => "kubeconfig_yaml",
+            Self::SecretAccessKey => "secret_access_key",
+            Self::SessionToken => "session_token",
         }
     }
 

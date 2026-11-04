@@ -67,6 +67,7 @@ fields_enum!(
     Prompt(PromptFields),
     ExternalRef(ExternalRefFields),
     SudoBecome(SudoBecomeFields),
+    S3AccessKey(S3AccessKeyFields),
 );
 
 fn typed<T: DeserializeOwned>(v: Value) -> Result<T, CredentialError> {

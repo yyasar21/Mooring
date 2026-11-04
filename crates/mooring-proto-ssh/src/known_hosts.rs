@@ -7,11 +7,10 @@
 //! entries are always written hashed. Lines are kept verbatim so a rewrite never loses entries
 //! Mooring does not understand.
 
-use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use hmac::{KeyInit, Mac};
 use rand_core::{OsRng, RngCore};
@@ -292,11 +291,10 @@ impl KnownHosts {
     }
 }
 
-/// One mutex per `known_hosts` path, shared by every session in the process.
+/// One mutex per `known_hosts` path, shared by every session in the process and by the
+/// vault-sync apply (the registry of `mooring_core::known_certs::write_lock`).
 fn path_lock(path: &Path) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let mut map = LOCKS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
-    Arc::clone(map.entry(path.to_path_buf()).or_default())
+    mooring_core::known_certs::write_lock(path)
 }
 
 enum LineParse {

@@ -148,6 +148,17 @@ pub struct VsphereUserFields {
     pub otp: Option<OtpParams>,
 }
 
+/// `s3_access_key` (ADR-0017 §4): the sync credential only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3AccessKeyFields {
+    /// Access key id (`AKIA…`); not secret, still never logged.
+    pub access_key_id: String,
+    /// Signing region override (`us-east-1` when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+}
+
 /// `vnc_password`: no plain fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]

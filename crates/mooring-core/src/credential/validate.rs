@@ -163,12 +163,28 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
                 ));
             }
         }
+        CredentialFields::S3AccessKey(f) => s3_access_key(f)?,
         CredentialFields::SudoBecome(f) => {
             if f.become_user.trim().is_empty() {
                 "root".clone_into(&mut f.become_user);
             }
             set(&mut f.become_user, "become_user", MAX_SHORT)?;
         }
+    }
+    Ok(())
+}
+
+/// `s3_access_key` (ADR-0017 §4): alphanumeric key id, `us-east-1`-style region.
+fn s3_access_key(f: &mut super::S3AccessKeyFields) -> Result<(), CredentialError> {
+    set(&mut f.access_key_id, "access_key_id", MAX_SHORT)?;
+    if !f.access_key_id.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return Err(CredentialError::invalid("access_key_id", "must be letters and digits"));
+    }
+    set_opt(&mut f.region, "region", 64)?;
+    let region_ok =
+        |r: &str| r.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    if f.region.as_deref().is_some_and(|r| !region_ok(r)) {
+        return Err(CredentialError::invalid("region", "must be like us-east-1"));
     }
     Ok(())
 }

@@ -236,6 +236,25 @@ impl Store {
         Ok(rows)
     }
 
+    /// Bind this store to another vault for `vault_join` (ADR-0017 §5): a fresh device first
+    /// creates a bootstrap vault, then adopts the remote one. Refused while the store holds
+    /// any connection (only an empty bootstrap store may change vaults).
+    pub fn rebind_vault_for_join(&self, vault_id: &str) -> Result<()> {
+        let uuid = uuid::Uuid::parse_str(vault_id.trim())
+            .map_err(|_| invalid("vault_id", "not a UUID"))?;
+        if uuid.is_nil() {
+            return Err(invalid("vault_id", "nil UUID"));
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let connections: i64 = tx.query_row("SELECT COUNT(*) FROM connection", [], |r| r.get(0))?;
+        if connections > 0 {
+            return Err(invalid("store", "holds connections; only an empty store can join"));
+        }
+        schema::put_setting(&tx, schema::KEY_VAULT_ID, &uuid.hyphenated().to_string())?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Replace every folder, connection and credential row with `rows` in one transaction
     /// (foreign keys deferred to the commit). Ids, names, protocols, ports and timestamps are
     /// validated; the schema's `CHECK`s cover kinds, roles and the JSON columns.

@@ -55,7 +55,7 @@ fn migration_0005_upgrades_a_v4_database() {
     }
     let s = Store::open(&path).expect("migrates");
     assert_eq!(s.schema_version().expect("v"), schema::LATEST);
-    assert_eq!(schema::LATEST, 5);
+    const { assert!(schema::LATEST >= 5) };
     assert_eq!(
         s.connection_options(rdp).expect("rdp defaults"),
         ProtocolOptions::Rdp(RdpConnOptions::default())
