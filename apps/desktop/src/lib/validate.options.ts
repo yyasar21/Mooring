@@ -224,6 +224,7 @@ export function normalizeOptions(p: Protocol, raw: unknown): ProtocolOptions {
         clipboard: clip(w.clipboard),
         caPem: pick<string | null>(w.caPem, isPem, null),
         maxFps: fps(w.maxFps),
+        allowNoAuth: pick(w.allowNoAuth, isBool, false),
       };
     case "web":
       return {

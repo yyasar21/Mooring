@@ -34,6 +34,8 @@ export interface VncConnOptions {
   clipboard: ClipboardPolicy;
   caPem: string | null;
   maxFps: MaxFps;
+  /** Accept a server that offers only None (type 1) although a password credential is set (review 5 L-27; audited when used). */
+  allowNoAuth: boolean;
 }
 
 export interface WebConnOptions {
@@ -70,6 +72,7 @@ export const DEFAULT_VNC_OPTIONS: VncConnOptions = {
   clipboard: "both",
   caPem: null,
   maxFps: 30,
+  allowNoAuth: false,
 };
 
 // ---------- session events (ADR-0011 SessionEvent changes) ----------

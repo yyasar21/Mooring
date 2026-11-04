@@ -47,6 +47,20 @@ export function VncOptions({ value, errors, onChange }: { value: VncConnOptions;
       />
       <ClipboardSelect id="vnc-clip" value={value.clipboard} onChange={(clipboard) => { set({ clipboard }); }} />
       <FpsSeg name="vnc-fps" value={value.maxFps} onChange={(maxFps) => { set({ maxFps }); }} />
+      <div className="opt-danger" data-on={value.allowNoAuth || undefined}>
+        <Toggle
+          checked={value.allowNoAuth}
+          onChange={(allowNoAuth) => { set({ allowNoAuth }); }}
+          label="Allow servers without authentication"
+          hint="Off by default. Only for servers that offer no VNC authentication at all although a password is stored for this connection."
+        />
+        {value.allowNoAuth && (
+          <Warn>
+            A server that offers no authentication is accepted although a password is set: your password proves nothing, and anyone who
+            can reach the port gets the same desktop. Every such connection is recorded in the audit log as weak security.
+          </Warn>
+        )}
+      </div>
       <ReadOnly label="Encodings">{VNC_ENCODINGS}</ReadOnly>
       <CaPemField id="vnc-ca" value={value.caPem} error={errors.caPem} onChange={(caPem) => { set({ caPem }); }} />
     </div>
