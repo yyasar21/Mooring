@@ -89,5 +89,9 @@ export function seedCredentials(): CredentialMeta[] {
     m("cr-prompt", "ask at connect", "prompt", { username: "ops" }, []),
     m("cr-legacy", "legacy admin", "user_password", { username: "EXAMPLE\\legacy" }, ["password"]),
     m("cr-vc", "vcenter sso", "vsphere_user", { upn: "administrator@vsphere.local" }, ["password"]),
+    // ADR-0016 / ADR-0017: the AppRole login of the seeded source `src-ops`, a reference it resolves, and a sync key.
+    m("cr-approle", "vault approle", "vault_approle", {}, ["role_id", "secret_id"]),
+    m("cr-ext", "db via vault", "external_ref", { provider: "vault", source: "src-ops", reference: "kv/ops/db", target_kind: "user_password" }, []),
+    m("cr-s3", "team bucket key", "s3_access_key", { access_key_id: "AKIAEXAMPLE0000001", region: "eu-west-1" }, ["secret_access_key"]),
   ];
 }

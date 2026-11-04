@@ -31,12 +31,10 @@ export const PENDING_A3_CODES: Record<string, string> = {
   "kube.unsupported_auth": "ADR-0014 §6, K4", "kube.stream_limit": "ASSUMED for the 8-streams cap (ADR-0014 §5), K4",
   "tree.synced_readonly": "ADR-0015 §5, V2", "vsphere.auth_failed": "ADR-0015 §5, V2", "vsphere.too_large": "ADR-0015 §5, V2",
   "vsphere.power_disabled": "ADR-0015 §5, V2", "vsphere.tools_missing": "ADR-0015 §5, V2", "vsphere.unavailable": "ADR-0015 §5, V2",
-  "credential.external_unavailable": "ADR-0016 §7, E2", "credential.external_shape": "ADR-0016 §7, E2",
-  "credential.external_not_found": "ADR-0016 §7, E2", "credential.external_root_token": "ADR-0016 §7, E2",
-  "source.in_use": "ADR-0016 §7, E2", "source.not_found": "ADR-0016 §7, E2",
-  "sync.conflict": "ADR-0017 §5, S1", "sync.rollback": "ADR-0017 §5, S1", "sync.fork": "ADR-0017 §5, S1",
-  "sync.unsupported_backend": "ADR-0017 §5, S1", "sync.too_large": "ADR-0017 §5, S1",
-  "sync.not_configured": "ASSUMED (sync_probe/sync_now before sync_set), S1", "sync.not_found": "ASSUMED (vault_join, empty prefix), S1",
+  // E2 ships these at connect (mooring-secrets `SecretsError::code()`), but the generated
+  // `ipc-codes.json` does not list them yet (it is built from src-tauri's own constructors).
+  "credential.external_unavailable": "ADR-0016 §7, E2 (missing from ipc-codes.json)", "credential.external_shape": "ADR-0016 §7, E2 (missing from ipc-codes.json)",
+  "credential.external_not_found": "ADR-0016 §7, E2 (missing from ipc-codes.json)", "credential.external_root_token": "ADR-0016 §7, E2 (missing from ipc-codes.json)",
 };
 const pending = (c: string) => RUST_CODES !== null && !RUST_CODES.has(c) && c in PENDING_A3_CODES;
 

@@ -268,6 +268,9 @@ export function kindValidFor(schema: KindSchema, protocol: Protocol, role: Crede
   const note = FOOTNOTE[schema.kind]?.[protocol];
   if (note) return { ok: false, reason: note };
   const uses = schema.protocols.flatMap((x) => x.roles.map((r) => (r === "primary" ? PROTOCOL_LABEL[x.protocol] : `${PROTOCOL_LABEL[x.protocol]} ${ROLE_LABEL[r]}`)));
+  // ADR-0016/0017: consumer-only kinds never sign in anywhere (Rust: "… is only for secret sources.").
+  const only = schema.consumers?.map((c) => (c === "secret_source" ? "secret sources" : "vault sync")) ?? [];
+  if (only.length > 0) return { ok: false, reason: `${schema.label} is only for ${only.join(" and ")}.` };
   if (uses.length === 0) return { ok: false, reason: `${schema.label} has no supported protocol yet.` };
   return { ok: false, reason: `${schema.label} is for ${uses.join(", ")}, not ${PROTOCOL_LABEL[protocol]} ${ROLE_LABEL[role]}.` };
 }

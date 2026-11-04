@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   ipc,
+  isOtpSettings,
   type CredentialCreate,
   type CredentialFields,
   type CredentialKind,
@@ -119,7 +120,7 @@ export const useCredentials = create<CredentialState>((set, get) => {
       if (!r) return false;
       const cred = get().items.find((c) => c.id === id);
       const o = cred?.fields.otp;
-      const periodMs = (typeof o === "object" && !Array.isArray(o) ? o.period : 30) * 1000;
+      const periodMs = (isOtpSettings(o) ? o.period : 30) * 1000;
       set({
         copiedUntil: { ...get().copiedUntil, [copyKey(id, "otp")]: now + r.clearsInMs },
         otp: { ...get().otp, [id]: { validUntil: now + r.validForMs, periodMs } },

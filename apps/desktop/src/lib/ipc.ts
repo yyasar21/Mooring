@@ -65,6 +65,8 @@ export const POLLED_COMMANDS: readonly string[] = [
   "audit_verify", "forward_list", "session_frame_ack",
   // ADR-0014 §6, ADR-0015 §5, ADR-0017 §5: passive by contract.
   "kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status",
+  // ADR-0016 §4 (E2): polled every second while an OIDC window is open.
+  "secret_source_oidc_status",
 ];
 
 // ---------- Tauri transport ----------
@@ -205,36 +207,40 @@ export class TauriTransport implements Ipc {
   // ---------- ADR-0016 (external secrets) ----------
 
   secretSourceList: Ipc["secretSourceList"] = () => call("secret_source_list");
+  secretSourceGet: Ipc["secretSourceGet"] = (a) => call("secret_source_get", { ...a });
   secretSourceCreate: Ipc["secretSourceCreate"] = (a) => call("secret_source_create", { ...a });
   secretSourceUpdate: Ipc["secretSourceUpdate"] = (a) => call("secret_source_update", { ...a });
   secretSourceDelete: Ipc["secretSourceDelete"] = (a) => call("secret_source_delete", { ...a });
   secretSourceTest: Ipc["secretSourceTest"] = (a) => call("secret_source_test", { ...a });
-  secretSourceLogout: Ipc["secretSourceLogout"] = (a) => call("secret_source_logout", { ...a });
-  externalRefTest: Ipc["externalRefTest"] = (a) => call("external_ref_test", { ...a });
-  secretSourceOidcStart: Ipc["secretSourceOidcStart"] = (a) => call("secret_source_oidc_start", { ...a });
+  secretSourceRevoke: Ipc["secretSourceRevoke"] = (a) => call("secret_source_revoke", { ...a });
+  credentialExternalTest: Ipc["credentialExternalTest"] = (a) => call("credential_external_test", { ...a });
+  secretSourceOidcBegin: Ipc["secretSourceOidcBegin"] = (a) => call("secret_source_oidc_begin", { ...a });
   secretSourceOidcStatus: Ipc["secretSourceOidcStatus"] = (a) => call("secret_source_oidc_status", { ...a });
 
   // ---------- ADR-0017 (vault sync) ----------
 
-  syncGet: Ipc["syncGet"] = () => call("sync_get");
+  syncConfigure: Ipc["syncConfigure"] = (a) => call("sync_configure", { ...a });
   syncStatus: Ipc["syncStatus"] = () => call("sync_status");
-  syncSet: Ipc["syncSet"] = (a) => call("sync_set", { ...a });
-  syncProbe: Ipc["syncProbe"] = () => call("sync_probe");
   syncNow: Ipc["syncNow"] = () => call("sync_now");
+  syncResolveFork: Ipc["syncResolveFork"] = (a) => call("sync_resolve_fork", { ...a });
   syncDisable: Ipc["syncDisable"] = (a) => call("sync_disable", { ...a });
   vaultJoin: Ipc["vaultJoin"] = (a) => call("vault_join", { ...a });
+  onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(payload as Parameters<typeof handler>[0]); });
 
-  onVaultLocked: Ipc["onVaultLocked"] = (handler) => {
-    let off: (() => void) | null = null;
-    let dead = false;
-    void listen("vault:locked", (e) => { handler({ reason: decodeLockReason(e.payload) }); }).then((unlisten) => {
-      if (dead) unlisten();
-      else off = unlisten;
-    });
-    return () => {
-      dead = true;
-      off?.();
-    };
+  onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
+}
+
+/** Subscribe to a Tauri event; the returned function unsubscribes, also when called before `listen` resolved. */
+function subscribe(event: string, handler: (payload: unknown) => void): () => void {
+  let off: (() => void) | null = null;
+  let dead = false;
+  void listen<unknown>(event, (e) => { handler(e.payload); }).then((unlisten) => {
+    if (dead) unlisten();
+    else off = unlisten;
+  });
+  return () => {
+    dead = true;
+    off?.();
   };
 }
 

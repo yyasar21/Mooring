@@ -148,6 +148,7 @@ export const KIND_SCHEMAS: KindSchema[] = [
     label: "API token",
     group: "Web/API",
     protocols: [P("web")],
+    consumers: ["secret_source"],
     supportsOtp: false,
     fields: [
       field("header_name", "Header", 64, "text", { placeholder: "Authorization" }),
@@ -234,6 +235,38 @@ export const KIND_SCHEMAS: KindSchema[] = [
       field("provider", "Provider", 16, "enum", { required: true, options: ["vault", "onepassword", "bitwarden"] }),
       field("reference", "Reference", 1024, "text", { required: true }),
       field("target_kind", "Resolves to", 32, "enum", { required: true, options: TARGET_KINDS }),
+      // ADR-0016 §2: the source id (options come from `secret_source_list`) and a pinned KV
+      // version. `field_map` is stored too but has no schema row: the form owns it.
+      field("source", "Secret source", 36, "enum", { placeholder: "required for Vault" }),
+      field("version", "KV version", 20, "text", { placeholder: "latest" }),
+    ],
+  },
+  // ADR-0016 §1: the AppRole login of a secret source. Both halves are sealed.
+  {
+    kind: "vault_approle",
+    label: "Vault AppRole",
+    group: "Secret sources",
+    protocols: [],
+    consumers: ["secret_source"],
+    supportsOtp: false,
+    fields: [
+      secret("role_id", "Role ID", 256, "text", { required: true }),
+      secret("secret_id", "Secret ID", 4 * KIB, "text", { required: true }),
+    ],
+  },
+  // ADR-0017 §4: the sync credential. Nothing about it is copyable.
+  {
+    kind: "s3_access_key",
+    label: "S3 access key",
+    group: "Sync",
+    protocols: [],
+    consumers: ["sync"],
+    supportsOtp: false,
+    fields: [
+      field("access_key_id", "Access key ID", 128, "text", { required: true, placeholder: "AKIA…" }),
+      field("region", "Region", 64, "text", { placeholder: "us-east-1" }),
+      secret("secret_access_key", "Secret access key", 256, "text", { required: true }),
+      secret("session_token", "Session token", 8 * KIB, "text", { placeholder: "optional" }),
     ],
   },
 ];

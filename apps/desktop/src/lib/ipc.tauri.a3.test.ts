@@ -47,27 +47,32 @@ describe("TauriTransport · ADR-0014..0017", () => {
     await t.vsphereVmIdentity({ connectionId: "c-2" });
     await t.vsphereConsole({ connectionId: "c-2", kind: "client" });
     await t.secretSourceList();
+    await t.secretSourceGet({ id: "src-1" });
     await t.secretSourceDelete({ id: "src-1" });
     await t.secretSourceTest({ id: "src-1" });
-    await t.secretSourceLogout({ id: "src-1" });
-    await t.externalRefTest({ credentialId: "cr-1" });
-    await t.secretSourceOidcStart({ id: "src-1" });
-    await t.secretSourceOidcStatus({ id: "src-1" });
-    await t.syncGet();
+    await t.secretSourceRevoke({ id: "src-1" });
+    await t.credentialExternalTest({ credentialId: "cr-1" });
+    await t.secretSourceOidcBegin({ id: "src-1" });
+    await t.secretSourceOidcStatus({ sessionId: "o-1" });
+    await t.syncConfigure({ backend: { kind: "s3", endpoint: "https://s3.example.test", region: "r", bucket: "b", prefix: "", pathStyle: true }, credentialId: "cr-2", intervalMinutes: null });
     await t.syncStatus();
-    await t.syncProbe();
     await t.syncNow();
+    await t.syncResolveFork({ keep: "remote" });
     await t.syncDisable({ deleteRemote: false });
+    await t.vaultJoin({ backend: { kind: "s3", endpoint: "https://s3.example.test", region: "r", bucket: "b", prefix: "", pathStyle: true }, credentialId: "cr-2", vaultId: "v", password: "p", intervalMinutes: 15 });
     expect(calls.map((c) => c.cmd)).toEqual([
       "kube_open", "kube_access", "kube_namespaces", "kube_pods", "kube_unwatch", "kube_logs_stop",
       "vsphere_test", "vsphere_sync_enable", "vsphere_sync_disable", "vsphere_refresh", "vsphere_status", "vsphere_vm_power",
       "vsphere_vm_action", "vsphere_vm_identity", "vsphere_console",
-      "secret_source_list", "secret_source_delete", "secret_source_test", "secret_source_logout", "external_ref_test",
-      "secret_source_oidc_start", "secret_source_oidc_status",
-      "sync_get", "sync_status", "sync_probe", "sync_now", "sync_disable",
+      "secret_source_list", "secret_source_get", "secret_source_delete", "secret_source_test", "secret_source_revoke", "credential_external_test",
+      "secret_source_oidc_begin", "secret_source_oidc_status",
+      "sync_configure", "sync_status", "sync_now", "sync_resolve_fork", "sync_disable", "vault_join",
     ]);
     expect(calls[3]?.args).toEqual({ sessionId, namespace: "ns", labelSelector: null });
     expect(calls[12]?.args).toEqual({ connectionId: "c-2", action: "reboot" });
+    expect(calls[22]?.args).toEqual({ sessionId: "o-1" });
+    expect(calls[26]?.args).toEqual({ keep: "remote" });
+    expect(calls[28]?.args).toMatchObject({ vaultId: "v", password: "p", intervalMinutes: 15, backend: { kind: "s3" } });
   });
 
   it("passes the exec target on session_open only when given", async () => {
@@ -103,7 +108,7 @@ describe("TauriTransport · ADR-0014..0017", () => {
   });
 
   it("lists the ADR passive commands as polled", () => {
-    for (const c of ["kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status"]) expect(POLLED_COMMANDS).toContain(c);
-    for (const c of ["kube_open", "kube_logs", "kube_watch", "vsphere_refresh", "sync_now", "secret_source_oidc_status"]) expect(POLLED_COMMANDS).not.toContain(c);
+    for (const c of ["kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status", "secret_source_oidc_status"]) expect(POLLED_COMMANDS).toContain(c);
+    for (const c of ["kube_open", "kube_logs", "kube_watch", "vsphere_refresh", "sync_now", "secret_source_oidc_begin", "secret_source_test"]) expect(POLLED_COMMANDS).not.toContain(c);
   });
 });
