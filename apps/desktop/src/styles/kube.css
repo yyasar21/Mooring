@@ -1,0 +1,81 @@
+/* Kubernetes cluster browser and log viewer (ADR-0014). Same bridge-console rules: cyan marks
+   live links, readiness and selection; magenta marks failure, denial and exposure. */
+
+.kube-browser, .kube-logs { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.kube-browser > .session-toolbar, .kube-logs > .session-toolbar { position: relative; flex: none; gap: 8px; }
+.kube-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: var(--fs-s); color: var(--text-muted);
+  border-bottom: 1px solid var(--line); background: linear-gradient(90deg, var(--accent-soft), transparent 70%);
+}
+.kube-banner .m-micro { color: var(--accent); }
+
+.kube-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; }
+.kube-side, .kube-detail { min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.kube-side { border-right: 1px solid var(--line); background: var(--bg-sunken); }
+.kube-detail { border-left: 1px solid var(--line); }
+.kube-main { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.kube-main > .tool-panel { position: absolute; inset: 0; }
+
+.kube-list { display: flex; flex-direction: column; gap: 1px; }
+.kube-list > li { padding: 3px 8px; font-size: var(--fs-s); color: var(--text-muted); }
+.kube-list > li[aria-current] { color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+.kube-list > li[aria-disabled] { color: var(--text-faint); }
+.kube-list > li:has(> .kube-ns) { padding: 0; }
+.kube-ns { width: 100%; text-align: left; padding: 3px 8px; font-size: var(--fs-s); color: var(--text-muted); }
+.kube-ns:hover { color: var(--text); background: var(--accent-soft); }
+.kube-ns[aria-current] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.kube-ns:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.kube-card { margin-top: 10px; padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+.kube-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; font-size: var(--fs-s); }
+.kube-ident dt { color: var(--text-faint); }
+.kube-ident dd { min-width: 0; overflow-wrap: anywhere; }
+.kube-rbac { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-s); }
+.kube-rbac > li { display: flex; align-items: center; gap: 8px; color: var(--hot); }
+.kube-rbac > li[data-allowed] { color: var(--text); }
+.kube-rbac-dot { width: 6px; height: 6px; transform: rotate(45deg); background: var(--hot); flex: none; }
+.kube-rbac > li[data-allowed] .kube-rbac-dot { background: var(--accent); box-shadow: var(--glow-accent-s); }
+.kube-rbac-state { font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
+
+.kube-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.kube-table { flex: 1; min-height: 0; overflow-y: auto; }
+.kube-row {
+  display: grid; grid-template-columns: minmax(0, 2.6fr) 110px 56px 70px minmax(0, 1fr) 48px; gap: 10px; align-items: center;
+  min-height: 32px; padding: 0 12px; font-size: var(--fs-s); cursor: default; position: relative;
+}
+.kube-row + .kube-row { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.kube-row-head { min-height: 30px; border-bottom: 1px solid var(--line-strong); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.kube-row-head > span { font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--text-faint); }
+.kube-row:not(.kube-row-head):hover { background: var(--accent-soft); }
+.kube-row[aria-selected="true"] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.kube-row:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.kube-row [data-hot] { color: var(--hot); }
+
+.kube-exec-cmd { display: grid; gap: 2px; }
+.kube-containers { display: flex; flex-direction: column; gap: 8px; }
+.kube-container { padding: 8px; border: 1px solid var(--line); background: var(--bg); }
+.kube-dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--hot); flex: none; }
+.kube-dot[data-ready] { border-color: var(--accent); background: var(--accent); box-shadow: var(--glow-accent-s); }
+.kube-image { margin: 3px 0 6px 15px; font-size: var(--fs-xs); color: var(--text-faint); }
+.kube-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: 15px; }
+
+.kube-logs-bar { overflow-x: auto; }
+.kube-logs-select { width: auto; max-width: 180px; height: 26px; }
+.kube-logs-tail { width: 72px; height: 26px; }
+.kube-logs-search { width: 180px; height: 26px; }
+.kube-check { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-s); color: var(--text-muted); white-space: nowrap; }
+.kube-check input { accent-color: var(--accent); }
+.kube-cap { flex: none; padding: 6px 14px; background: var(--hot-soft); color: var(--hot); font-size: var(--fs-s); border-bottom: 1px solid var(--hot-line); }
+.kube-log-body {
+  position: relative; inset: auto; flex: 1; min-height: 0; margin: 8px; overflow: auto; padding: 8px 12px;
+  font: var(--fs-s)/1.5 var(--font-mono); color: var(--term-fg); white-space: pre; user-select: text;
+}
+.kube-log-body:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.kube-log-line[data-match] { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.kube-log-line mark { background: var(--accent-dim); color: var(--text); box-shadow: 0 0 0 1px var(--accent-line); }
+.kube-logs-foot { flex: none; display: flex; align-items: center; gap: 10px; height: var(--status-h); padding: 0 12px 6px; font-size: var(--fs-xs); color: var(--text-muted); }
+
+@media (max-width: 1100px) {
+  .kube-grid { grid-template-columns: 200px minmax(0, 1fr); }
+  .kube-detail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); max-height: 40vh; }
+}

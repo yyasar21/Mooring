@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { HudLabel } from "@mooring/ui";
-import { ipc, type Protocol, type ProtocolOptions, type RdpConnOptions, type VncConnOptions, type WebConnOptions } from "../../../lib/ipc";
+import {
+  ipc, type CredentialMeta, type KubeConnOptions, type Protocol, type ProtocolOptions, type RdpConnOptions, type VncConnOptions,
+  type VsphereConnOptions, type WebConnOptions,
+} from "../../../lib/ipc";
 import { defaultOptions, hasOptions, normalizeOptions, validateOptions, type OptionErrors } from "../../../lib/validate.options";
 import { describeError } from "../../../stores/errors";
 import { RdpOptions } from "./RdpOptions";
 import { VncOptions } from "./VncOptions";
 import { WebOptions } from "./WebOptions";
+import { KubeOptions } from "./KubeOptions";
+import { VsphereOptions } from "./VsphereOptions";
 
 export interface OptionsDraft {
   protocol: Protocol;
@@ -57,10 +62,18 @@ export function useOptionsDraft(connectionId: string | undefined, storedProtocol
   };
 }
 
-const TITLE: Partial<Record<Protocol, string>> = { rdp: "RDP options", vnc: "VNC options", web: "Web options" };
+const TITLE: Partial<Record<Protocol, string>> = {
+  rdp: "RDP options", vnc: "VNC options", web: "Web options", kubernetes: "Kubernetes options", "vsphere-console": "vCenter options",
+};
+
+/** What the section needs beyond the draft: the effective credential, and errors that depend on it. */
+export interface OptionsContext {
+  credential?: CredentialMeta | undefined;
+  extraErrors?: OptionErrors | undefined;
+}
 
 /** The protocol-specific section of the connection form; nothing for protocols without options. */
-export function ProtocolOptionsSection({ draft }: { draft: OptionsDraft }) {
+export function ProtocolOptionsSection({ draft, credential, extraErrors }: { draft: OptionsDraft } & OptionsContext) {
   const title = TITLE[draft.protocol];
   if (!title) return null;
   return (
@@ -74,13 +87,13 @@ export function ProtocolOptionsSection({ draft }: { draft: OptionsDraft }) {
       {draft.loading ? (
         <p className="field-hint" role="status">Loading options…</p>
       ) : (
-        <Body draft={draft} />
+        <Body draft={draft} credential={credential} extraErrors={extraErrors} />
       )}
     </section>
   );
 }
 
-function Body({ draft }: { draft: OptionsDraft }) {
+function Body({ draft, credential, extraErrors }: { draft: OptionsDraft } & OptionsContext) {
   switch (draft.protocol) {
     case "rdp":
       return <RdpOptions value={draft.value as RdpConnOptions} errors={draft.errors} onChange={draft.set} />;
@@ -88,6 +101,15 @@ function Body({ draft }: { draft: OptionsDraft }) {
       return <VncOptions value={draft.value as VncConnOptions} errors={draft.errors} onChange={draft.set} />;
     case "web":
       return <WebOptions value={draft.value as WebConnOptions} errors={draft.errors} onChange={draft.set} />;
+    case "kubernetes": {
+      const contexts = Array.isArray(credential?.fields.contexts) ? credential.fields.contexts : [];
+      return (
+        <KubeOptions value={draft.value as KubeConnOptions} errors={{ ...draft.errors, ...extraErrors }} onChange={draft.set}
+          credentialKind={credential?.kind ?? null} contexts={contexts} />
+      );
+    }
+    case "vsphere-console":
+      return <VsphereOptions value={draft.value as VsphereConnOptions} errors={draft.errors} onChange={draft.set} />;
     default:
       return null;
   }
