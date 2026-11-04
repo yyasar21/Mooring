@@ -3845,9 +3845,21 @@ name = "mooring-proto-vnc"
 version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
+ "des",
+ "flate2",
  "mooring-core",
+ "proptest",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "secrecy",
+ "tempfile",
+ "time",
  "tokio",
+ "tokio-rustls",
  "tracing",
+ "x509-parser",
+ "zeroize",
 ]
 
 [[package]]
