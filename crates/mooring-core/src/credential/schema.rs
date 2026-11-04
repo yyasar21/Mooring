@@ -84,6 +84,16 @@ fn protocol_name<S: Serializer>(p: &Protocol, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(p.name())
 }
 
+/// A non-connection consumer of a credential (ADR-0016 §1, ADR-0017 §4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Consumer {
+    /// Login of a Vault / `OpenBao` secret source (`api_token`, `vault_approle`).
+    SecretSource,
+    /// The vault sync target (`s3_access_key`).
+    Sync,
+}
+
 /// One row of `credential_kinds()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +106,9 @@ pub struct KindSchema {
     pub group: &'static str,
     /// Protocol matrix row.
     pub protocols: &'static [KindProtocol],
+    /// Non-connection consumers (omitted on the wire when empty).
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub consumers: &'static [Consumer],
     /// Accepts the `otp_seed` secret + `otp` field.
     pub supports_otp: bool,
     /// Plain fields and secrets in display order.
@@ -206,12 +219,13 @@ const WEB_ONLY: &[KindProtocol] = &[proto(Protocol::Web, &[P])];
 const KUBE_ONLY: &[KindProtocol] = &[proto(Protocol::Kubernetes, &[P])];
 const VNC_ONLY: &[KindProtocol] = &[proto(Protocol::Vnc, &[P])];
 
-static KINDS: [KindSchema; 15] = [
+static KINDS: [KindSchema; 17] = [
     KindSchema {
         kind: K::UserPassword,
         label: "Username and password",
         group: "Windows",
         protocols: LOGIN_PROTOCOLS,
+        consumers: &[],
         supports_otp: true,
         fields: &[USERNAME, DOMAIN_OPT, PASSWORD],
     },
@@ -220,6 +234,7 @@ static KINDS: [KindSchema; 15] = [
         label: "Domain account",
         group: "Windows",
         protocols: LOGIN_PROTOCOLS,
+        consumers: &[],
         supports_otp: true,
         fields: &[
             ph(
@@ -236,6 +251,7 @@ static KINDS: [KindSchema; 15] = [
         label: "SSH key",
         group: "SSH",
         protocols: SSH_ONLY,
+        consumers: &[],
         supports_otp: true,
         fields: &[
             USERNAME,
@@ -262,6 +278,7 @@ static KINDS: [KindSchema; 15] = [
         label: "SSH agent",
         group: "SSH",
         protocols: SSH_ONLY,
+        consumers: &[],
         supports_otp: false,
         fields: &[USERNAME, {
             let mut f = ph(
@@ -277,6 +294,7 @@ static KINDS: [KindSchema; 15] = [
         label: "Become (sudo, su, doas)",
         group: "SSH",
         protocols: &[proto(Protocol::Ssh, &[Role::Become])],
+        consumers: &[],
         supports_otp: false,
         fields: &[
             opts(plain("method", "Method", true, v(8, Enum)), &["sudo", "su", "doas"]),
@@ -292,6 +310,7 @@ static KINDS: [KindSchema; 15] = [
         label: "X.509 client certificate",
         group: "Web/API",
         protocols: &[proto(Protocol::Web, &[P]), proto(Protocol::Kubernetes, &[P])],
+        consumers: &[],
         supports_otp: false,
         fields: &[
             USERNAME_OPT,
@@ -314,6 +333,7 @@ static KINDS: [KindSchema; 15] = [
         label: "API token",
         group: "Web/API",
         protocols: WEB_ONLY,
+        consumers: &[Consumer::SecretSource],
         supports_otp: false,
         fields: &[
             ph(plain("header_name", "Header", false, v(64, Text)), "Authorization"),
@@ -326,6 +346,7 @@ static KINDS: [KindSchema; 15] = [
         label: "OAuth client credentials",
         group: "Web/API",
         protocols: WEB_ONLY,
+        consumers: &[],
         supports_otp: false,
         fields: &[
             ph(
@@ -346,6 +367,7 @@ static KINDS: [KindSchema; 15] = [
         label: "kubeconfig",
         group: "Kubernetes",
         protocols: KUBE_ONLY,
+        consumers: &[],
         supports_otp: false,
         fields: &[
             ml(ph(
@@ -360,6 +382,7 @@ static KINDS: [KindSchema; 15] = [
         label: "Kubernetes token",
         group: "Kubernetes",
         protocols: KUBE_ONLY,
+        consumers: &[],
         supports_otp: false,
         fields: &[
             ph(
@@ -374,6 +397,7 @@ static KINDS: [KindSchema; 15] = [
         label: "vSphere SSO account",
         group: "vSphere",
         protocols: &[proto(Protocol::Web, &[P]), proto(Protocol::VsphereConsole, &[P])],
+        consumers: &[],
         supports_otp: true,
         fields: &[
             ph(plain("upn", "Account", true, v(510, Upn)), "administrator@vsphere.local"),
@@ -385,6 +409,7 @@ static KINDS: [KindSchema; 15] = [
         label: "VNC password",
         group: "VNC",
         protocols: VNC_ONLY,
+        consumers: &[],
         supports_otp: false,
         // RFB DES uses 8 bytes; longer input is rejected, never truncated (ADR-0009 §5).
         fields: &[ph(
@@ -397,6 +422,7 @@ static KINDS: [KindSchema; 15] = [
         label: "VNC username and password",
         group: "VNC",
         protocols: VNC_ONLY,
+        consumers: &[],
         supports_otp: false,
         fields: &[USERNAME, PASSWORD],
     },
@@ -411,6 +437,7 @@ static KINDS: [KindSchema; 15] = [
             proto(Protocol::Web, &[P]),
             proto(Protocol::VsphereConsole, &[P]),
         ],
+        consumers: &[],
         supports_otp: false,
         fields: &[USERNAME_OPT, DOMAIN_OPT],
     },
@@ -419,6 +446,7 @@ static KINDS: [KindSchema; 15] = [
         label: "Secret manager reference",
         group: "Other",
         protocols: &[],
+        consumers: &[],
         supports_otp: false,
         fields: &[
             opts(
@@ -427,9 +455,16 @@ static KINDS: [KindSchema; 15] = [
             ),
             plain("reference", "Reference", true, v(1024, Text)),
             opts(plain("target_kind", "Resolves to", true, v(32, Enum)), TARGET_KINDS),
+            ph(plain("source", "Secret source", false, v(36, Enum)), "required for Vault"),
+            ph(plain("version", "KV version", false, v(20, Text)), "latest"),
         ],
     },
+    source::VAULT_APPROLE,
+    source::S3_ACCESS_KEY,
 ];
+
+#[path = "schema_source.rs"]
+mod source;
 
 /// The whole table, in display order.
 #[must_use]
@@ -444,50 +479,5 @@ pub(crate) fn schema_of(kind: K) -> &'static KindSchema {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_kind_has_one_row() {
-        for k in K::ALL {
-            assert_eq!(KINDS.iter().filter(|s| s.kind == k).count(), 1, "{k:?}");
-            assert_eq!(schema_of(k).kind, k);
-        }
-    }
-
-    #[test]
-    fn secret_fields_are_known_secret_names_and_plain_fields_are_not() {
-        for s in credential_kinds() {
-            for f in s.fields {
-                assert_eq!(
-                    f.secret,
-                    SecretName::parse(f.name).is_some(),
-                    "{}.{}",
-                    s.kind.name(),
-                    f.name
-                );
-                assert!(f.copyable <= f.secret, "only secrets copy");
-            }
-            assert_eq!(s.secret(SecretName::OtpSeed).is_some(), s.supports_otp);
-        }
-    }
-
-    #[test]
-    fn wire_shape_is_camel_case_with_protocol_wire_names() {
-        let json = serde_json::to_value(credential_kinds()).expect("json");
-        let ua = &json[1];
-        assert_eq!(ua["kind"], "domain_user");
-        assert_eq!(ua["supportsOtp"], true);
-        assert_eq!(ua["protocols"][3]["protocol"], "vsphere-console");
-        assert_eq!(ua["protocols"][1]["roles"], serde_json::json!(["primary", "gateway"]));
-        assert_eq!(ua["fields"][0]["validation"]["format"], "netbios_or_upn");
-        assert_eq!(ua["fields"][0]["validation"]["maxBytes"], 256);
-        assert!(ua["fields"][0]["validation"].get("options").is_none());
-        let kube = &json[8];
-        assert_eq!(kube["fields"][1]["validation"]["format"], "enum");
-        assert!(
-            kube["fields"][1]["validation"].get("options").is_none(),
-            "options come from contexts"
-        );
-    }
-}
+#[path = "schema_tests.rs"]
+mod tests;

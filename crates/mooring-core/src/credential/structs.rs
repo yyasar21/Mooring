@@ -2,9 +2,12 @@
 //! names are `snake_case`. Derived values (`fingerprint`, `contexts`, `migrated`) are stored here but are
 //! refused on input (see [`super::CredentialFields::from_input`]).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::{AccountForm, CredentialKind, OtpParams};
+use crate::model::SecretSourceId;
 
 /// `user_password`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,16 +188,41 @@ pub enum RefProvider {
     Bitwarden,
 }
 
-/// `external_ref`.
+/// `external_ref` (ADR-0009 §1, amended by ADR-0016 §2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExternalRefFields {
     /// Provider.
     pub provider: RefProvider,
-    /// Reference (path / URI / id), no secret.
+    /// Reference, no secret. For `vault`: `<mount>/<path>` ([`super::parse_vault_reference`]).
     pub reference: String,
     /// Kind the reference resolves to; drives the matrix.
     pub target_kind: CredentialKind,
+    /// The secret source (`vault`; required on input for that provider).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SecretSourceId>,
+    /// Pinned KV v2 version (else latest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u64>,
+    /// Renames: `{ <target kind field or secret name>: <KV key> }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_map: Option<BTreeMap<String, String>>,
+}
+
+/// `vault_approle`: no plain fields; `role_id` and `secret_id` are both sealed (ADR-0016 §1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct VaultApproleFields {}
+
+/// `s3_access_key` (ADR-0017 §4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3AccessKeyFields {
+    /// Access key id (public half).
+    pub access_key_id: String,
+    /// Signing region (`us-east-1` when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
 }
 
 /// Privilege escalation method.

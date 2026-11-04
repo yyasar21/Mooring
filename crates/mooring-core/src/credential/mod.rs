@@ -11,6 +11,7 @@
 
 mod account;
 mod error;
+pub mod external;
 mod fields;
 pub mod fingerprint;
 pub mod kubeconfig;
@@ -28,11 +29,15 @@ use serde::{Deserialize, Serialize};
 
 pub use account::{parse_account, Account, AccountForm};
 pub use error::CredentialError;
+pub use external::{fuzz_external_ref, parse_vault_reference, VaultPath, MAX_FIELD_MAP};
 pub use fields::{CredentialFields, MAX_FIELDS_JSON};
-pub use matrix::{check_compatible, incompatibility_reason, protocol_label, valid_for};
+pub use matrix::{
+    check_compatible, check_consumer, incompatibility_reason, protocol_label, valid_for,
+    valid_for_consumer,
+};
 pub use otp::{OtpAlgorithm, OtpParams};
 pub use schema::{
-    credential_kinds, FieldFormat, FieldSchema, KindProtocol, KindSchema, Validation,
+    credential_kinds, Consumer, FieldFormat, FieldSchema, KindProtocol, KindSchema, Validation,
 };
 pub use secrets::{validate_secret, MAX_SECRET_BYTES};
 pub use structs::*;
@@ -73,11 +78,15 @@ pub enum CredentialKind {
     ExternalRef,
     /// Privilege escalation (`sudo` / `su` / `doas`) after an SSH login.
     SudoBecome,
+    /// Vault / `OpenBao` `AppRole` login of a secret source (ADR-0016 §1).
+    VaultApprole,
+    /// S3 access key of the vault sync target (ADR-0017 §4).
+    S3AccessKey,
 }
 
 impl CredentialKind {
     /// Every kind, in table order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 17] = [
         Self::UserPassword,
         Self::DomainUser,
         Self::SshKey,
@@ -93,6 +102,8 @@ impl CredentialKind {
         Self::Prompt,
         Self::ExternalRef,
         Self::SudoBecome,
+        Self::VaultApprole,
+        Self::S3AccessKey,
     ];
 
     /// Stable wire / database name.
@@ -114,6 +125,8 @@ impl CredentialKind {
             Self::Prompt => "prompt",
             Self::ExternalRef => "external_ref",
             Self::SudoBecome => "sudo_become",
+            Self::VaultApprole => "vault_approle",
+            Self::S3AccessKey => "s3_access_key",
         }
     }
 
@@ -138,7 +151,14 @@ impl CredentialKind {
     /// Kinds an `external_ref` may resolve to.
     #[must_use]
     pub const fn is_ref_target(self) -> bool {
-        !matches!(self, Self::Prompt | Self::ExternalRef | Self::SshAgent)
+        !matches!(
+            self,
+            Self::Prompt
+                | Self::ExternalRef
+                | Self::SshAgent
+                | Self::VaultApprole
+                | Self::S3AccessKey
+        )
     }
 }
 
@@ -196,11 +216,19 @@ pub enum SecretName {
     RefreshToken,
     /// Whole kubeconfig file.
     KubeconfigYaml,
+    /// Vault `AppRole` role id (sealed: half of the login, ADR-0016 §1).
+    RoleId,
+    /// Vault `AppRole` secret id.
+    SecretId,
+    /// S3 secret access key.
+    SecretAccessKey,
+    /// S3 / STS session token.
+    SessionToken,
 }
 
 impl SecretName {
     /// Every name.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 14] = [
         Self::Password,
         Self::OtpSeed,
         Self::PrivateKey,
@@ -211,6 +239,10 @@ impl SecretName {
         Self::ClientSecret,
         Self::RefreshToken,
         Self::KubeconfigYaml,
+        Self::RoleId,
+        Self::SecretId,
+        Self::SecretAccessKey,
+        Self::SessionToken,
     ];
 
     /// Wire / database name, also the vault AAD field.
@@ -227,6 +259,10 @@ impl SecretName {
             Self::ClientSecret => "client_secret",
             Self::RefreshToken => "refresh_token",
             Self::KubeconfigYaml => "kubeconfig_yaml",
+            Self::RoleId => "role_id",
+            Self::SecretId => "secret_id",
+            Self::SecretAccessKey => "secret_access_key",
+            Self::SessionToken => "session_token",
         }
     }
 

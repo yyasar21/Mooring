@@ -37,11 +37,14 @@ fn samples() -> Vec<(K, Value)> {
             json!({"provider": "onepassword", "reference": "op://vault/item/password", "target_kind": "user_password"}),
         ),
         (K::SudoBecome, json!({"method": "sudo", "become_user": ""})),
+        (K::VaultApprole, json!({})),
+        (K::S3AccessKey, json!({"access_key_id": "AKIAEXAMPLE", "region": "eu-central-1"})),
     ]
 }
 
 #[test]
 fn every_kind_round_trips_through_storage() {
+    assert_eq!(samples().len(), K::ALL.len(), "one sample per kind");
     for (kind, v) in samples() {
         let f = input(kind, v).unwrap_or_else(|e| panic!("{kind:?}: {e}"));
         assert_eq!(f.kind(), kind);
@@ -135,7 +138,7 @@ fn caps_max_and_max_plus_one() {
     let r = |n| {
         input(
             K::ExternalRef,
-            json!({"provider": "vault", "reference": "r".repeat(n), "target_kind": "api_token"}),
+            json!({"provider": "onepassword", "reference": "r".repeat(n), "target_kind": "api_token"}),
         )
     };
     assert!(r(1024).is_ok());
@@ -266,4 +269,24 @@ fn x509_cert_pem_refuses_a_bundled_private_key() {
     assert!(CredentialFields::from_stored(K::X509, &stored).is_err());
     let placeholder = json!({"cert_pem": "(sealed until the next unlock)"}).to_string();
     assert!(CredentialFields::from_stored(K::X509, &placeholder).is_ok(), "migrated row reads");
+}
+
+#[test]
+fn source_and_sync_kinds() {
+    use crate::credential::{validate_secret, SecretName as S};
+    let s3 = |v: Value| input(K::S3AccessKey, v);
+    assert!(s3(json!({"access_key_id": "AKIA EXAMPLE"})).is_err());
+    assert!(s3(json!({"access_key_id": "k", "region": "EU_1"})).is_err());
+    assert!(s3(json!({"access_key_id": "k", "endpoint": "https://s3.example.test"})).is_err());
+    assert!(s3(json!({"access_key_id": "k".repeat(129)})).is_err());
+    assert!(input(K::VaultApprole, json!({"role_id": "r"})).is_err(), "role_id is sealed");
+    assert!(validate_secret(K::VaultApprole, S::RoleId, b"9d6f-role").is_ok());
+    assert!(validate_secret(K::VaultApprole, S::SecretId, b"secret-id").is_ok());
+    assert!(validate_secret(K::VaultApprole, S::Password, b"x").is_err());
+    assert!(validate_secret(K::S3AccessKey, S::SecretAccessKey, b"sk").is_ok());
+    assert!(validate_secret(K::S3AccessKey, S::SessionToken, b"st").is_ok());
+    assert!(validate_secret(K::S3AccessKey, S::Token, b"x").is_err());
+    let required: Vec<_> =
+        K::VaultApprole.schema().fields.iter().filter(|f| f.required).map(|f| f.name).collect();
+    assert_eq!(required, ["role_id", "secret_id"]);
 }

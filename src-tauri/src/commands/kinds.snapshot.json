@@ -434,6 +434,9 @@
     ]
    }
   ],
+  "consumers": [
+   "secret_source"
+  ],
   "supportsOtp": false,
   "fields": [
    {
@@ -891,6 +894,134 @@
       "vnc_user_password",
       "sudo_become"
      ]
+    }
+   },
+   {
+    "name": "source",
+    "label": "Secret source",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "required for Vault",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 36,
+     "format": "enum"
+    }
+   },
+   {
+    "name": "version",
+    "label": "KV version",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "latest",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 20,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "vault_approle",
+  "label": "Vault AppRole",
+  "group": "Secret sources",
+  "protocols": [],
+  "consumers": [
+   "secret_source"
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "role_id",
+    "label": "Role ID",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "secret_id",
+    "label": "Secret ID",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "s3_access_key",
+  "label": "S3 access key",
+  "group": "Sync",
+  "protocols": [],
+  "consumers": [
+   "sync"
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "access_key_id",
+    "label": "Access key ID",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "AKIA…",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 128,
+     "format": "text"
+    }
+   },
+   {
+    "name": "region",
+    "label": "Region",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "us-east-1",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 64,
+     "format": "text"
+    }
+   },
+   {
+    "name": "secret_access_key",
+    "label": "Secret access key",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "session_token",
+    "label": "Session token",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 8192,
+     "format": "text"
     }
    }
   ]

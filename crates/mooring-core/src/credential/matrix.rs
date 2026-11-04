@@ -2,7 +2,7 @@
 //! only source of truth; this module answers questions about them and phrases refusals the way
 //! the UI shows them verbatim ("SSH key is for SSH, not RDP sign-in.").
 
-use super::{CredentialError, CredentialFields, CredentialKind, Role};
+use super::{Consumer, CredentialError, CredentialFields, CredentialKind, Role};
 use crate::model::Protocol;
 
 /// UI label of a protocol.
@@ -71,6 +71,9 @@ pub fn incompatibility_reason(
         })
         .collect();
     if uses.is_empty() {
+        if let Some(c) = schema.consumers.first() {
+            return Some(format!("{} is only for {}.", schema.label, consumer_label(*c)));
+        }
         return Some(format!("{} has no supported protocol yet.", schema.label));
     }
     Some(format!(
@@ -80,6 +83,31 @@ pub fn incompatibility_reason(
         protocol_label(protocol),
         role_label(role)
     ))
+}
+
+const fn consumer_label(c: Consumer) -> &'static str {
+    match c {
+        Consumer::SecretSource => "secret sources",
+        Consumer::Sync => "vault sync",
+    }
+}
+
+/// Can `kind` serve `consumer` (secret-source login, sync target)?
+#[must_use]
+pub fn valid_for_consumer(kind: CredentialKind, consumer: Consumer) -> bool {
+    kind.schema().consumers.contains(&consumer)
+}
+
+/// `Err(Incompatible(reason))` unless `kind` may serve `consumer`.
+pub fn check_consumer(kind: CredentialKind, consumer: Consumer) -> Result<(), CredentialError> {
+    if valid_for_consumer(kind, consumer) {
+        return Ok(());
+    }
+    Err(CredentialError::Incompatible(format!(
+        "{} cannot be used for {}.",
+        kind.schema().label,
+        consumer_label(consumer)
+    )))
 }
 
 /// Check a stored credential against a protocol and role; `external_ref` follows its
@@ -112,7 +140,7 @@ mod tests {
     const B: (bool, bool, bool) = (false, false, true);
     const N: (bool, bool, bool) = (false, false, false);
     type Row = [(bool, bool, bool); 6];
-    const ADR: [(K, Row); 14] = [
+    const ADR: [(K, Row); 16] = [
         (K::UserPassword, [T, G, N, T, N, T]),
         (K::DomainUser, [T, G, N, T, N, T]),
         (K::SshKey, [T, N, N, N, N, N]),
@@ -127,6 +155,8 @@ mod tests {
         (K::VncUserPassword, [N, N, T, N, N, N]),
         (K::Prompt, [T, G, T, T, N, T]),
         (K::SudoBecome, [B, N, N, N, N, N]),
+        (K::VaultApprole, [N, N, N, N, N, N]),
+        (K::S3AccessKey, [N, N, N, N, N, N]),
     ];
     const PROTOCOLS: [Protocol; 6] = [Ssh, Rdp, Vnc, Web, Kube, Vsc];
 
@@ -171,5 +201,23 @@ mod tests {
             r(K::ExternalRef, Ssh, Role::Primary),
             "Secret manager reference has no supported protocol yet."
         );
+        assert_eq!(
+            r(K::VaultApprole, Ssh, Role::Primary),
+            "Vault AppRole is only for secret sources."
+        );
+        assert_eq!(r(K::S3AccessKey, Web, Role::Primary), "S3 access key is only for vault sync.");
+    }
+
+    #[test]
+    fn consumers() {
+        use Consumer::{SecretSource, Sync};
+        for k in K::ALL {
+            let src = matches!(k, K::ApiToken | K::VaultApprole);
+            assert_eq!(valid_for_consumer(k, SecretSource), src, "{k:?}");
+            assert_eq!(valid_for_consumer(k, Sync), k == K::S3AccessKey, "{k:?}");
+            assert_eq!(check_consumer(k, SecretSource).is_ok(), src);
+        }
+        let e = check_consumer(K::UserPassword, Sync).expect_err("refused");
+        assert_eq!(e.to_string(), "Username and password cannot be used for vault sync.");
     }
 }

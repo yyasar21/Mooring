@@ -51,6 +51,16 @@ pub enum StoreError {
         supported: u32,
     },
 
+    /// The row is still referenced: a secret source named by an `external_ref`
+    /// (`source.in_use`), or a credential a secret source logs in with (`credential.in_use`).
+    #[error("{kind} {id} is in use")]
+    InUse {
+        /// `secret_source` or `credential`.
+        kind: &'static str,
+        /// The id.
+        id: String,
+    },
+
     /// `vault_id` is already set to a different vault (ADR-0005: one vault per app).
     #[error("store already belongs to another vault")]
     VaultIdMismatch,
