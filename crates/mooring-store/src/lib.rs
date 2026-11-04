@@ -11,6 +11,7 @@
 //! * [`Store::search`] — FTS5 prefix search over connection name, host and tags
 //! * [`Store::connection_options`] — per-protocol options (`options_json`, migration 0005)
 //! * [`Store::export_sync_rows`] / [`Store::replace_sync_rows`] — raw rows for vault sync
+//! * [`Store::create_secret_source`] — Vault / `OpenBao` secret sources (migration 0007)
 
 #![forbid(unsafe_code)]
 
@@ -25,6 +26,7 @@ mod roles;
 pub mod schema;
 mod search;
 mod sync_rows;
+mod secret_sources;
 #[doc(hidden)]
 pub mod testing;
 mod util;

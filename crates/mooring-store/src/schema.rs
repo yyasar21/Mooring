@@ -22,10 +22,12 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (3, include_str!("../migrations/0003_typed_credentials.sql")),
     (4, include_str!("../migrations/0004_migrated_username.sql")),
     (5, include_str!("../migrations/0005_connection_options.sql")),
+    // TODO(merge): (6, 0006_vsphere_sync.sql) lands with A3 V2.
+    (7, include_str!("../migrations/0007_secret_sources.sql")),
 ];
 
 /// Highest schema version this build understands.
-pub const LATEST: u32 = 5;
+pub const LATEST: u32 = 7;
 
 /// First line of a migration that must run with foreign keys off.
 pub const FK_OFF_DIRECTIVE: &str = "-- mooring:foreign_keys=off";

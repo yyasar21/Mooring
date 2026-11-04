@@ -4184,6 +4184,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "mooring-secrets"
+version = "0.1.0-rc.1"
+dependencies = [
+ "bytes",
+ "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mooring-core",
+ "mooring-http",
+ "proptest",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "mooring-store"
 version = "0.1.0-rc.1"
 dependencies = [

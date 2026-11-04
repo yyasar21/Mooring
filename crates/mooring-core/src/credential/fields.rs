@@ -67,6 +67,8 @@ fields_enum!(
     Prompt(PromptFields),
     ExternalRef(ExternalRefFields),
     SudoBecome(SudoBecomeFields),
+    VaultApprole(VaultApproleFields),
+    S3AccessKey(S3AccessKeyFields),
 );
 
 fn typed<T: DeserializeOwned>(v: Value) -> Result<T, CredentialError> {
@@ -171,6 +173,7 @@ impl CredentialFields {
             }
             Self::X509(f) => f.fingerprint = Some(fingerprint::x509_pem(&f.cert_pem)?),
             Self::Kubeconfig(f) => validate_context(f)?,
+            Self::ExternalRef(f) => super::external::check_input(f)?,
             _ => {}
         }
         Ok(())
