@@ -27,6 +27,11 @@ saphyr-parser = { workspace = true }
 hmac = { workspace = true }
 sha1 = { workspace = true }
 sha2-next = { workspace = true }
+# ADR-0011 known_certs: random salt for hashed host entries, atomic rewrite, parser warnings
+# (all three already in the workspace and the lockfile)
+rand_core = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
