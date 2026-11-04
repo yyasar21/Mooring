@@ -35,10 +35,35 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "kube.rbac_denied": "The cluster's RBAC does not let this token do that here.",
   "kube.forbidden_request": "Mooring refused to send that request: it would change the cluster, and Mooring is read-only.",
   "kube.unsupported_auth": "This kubeconfig signs in with a method Mooring does not run (exec plugins, auth providers or files).",
+  // ADR-0015 (rust-core V2): vSphere sync, power, consoles and the shared HTTP trust codes.
   "tree.synced_readonly": "This folder is synced from vCenter and is read-only. Change it in vCenter, then refresh.",
+  "vsphere.auth_failed": "vCenter refused the sign-in. Check the vsphere_user credential (user@domain) and its password.",
+  "vsphere.forbidden": "vCenter denied this request: the account lacks the privilege.",
+  "vsphere.not_found": "vCenter does not know this item any more, or inventory sync is not enabled for this connection.",
+  "vsphere.too_large": "The inventory is larger than Mooring imports (64 datacenters, 512 clusters, 2 000 hosts, 5 000 VMs). Nothing was written.",
   "vsphere.power_disabled": "Power actions are off for this vCenter. Turn them on in the connection options.",
+  "vsphere.power_denied": "vCenter refused the power action: the account may not change this VM's power state.",
   "vsphere.tools_missing": "VMware Tools are not running in this VM, so a guest shutdown or reboot is not possible.",
+  "vsphere.wrong_state": "The VM is not in a state that allows this action (for example a guest shutdown of a VM that is off).",
+  "vsphere.not_confirmed": "You did not confirm the action in the dialog, so nothing was done.",
+  "vsphere.busy": "Another action is still running on this VM. Wait for it to finish.",
+  "vsphere.unavailable": "vCenter did not answer. Check the host, port and network, then try again.",
+  "vsphere.vmrc_disabled": "VMware Remote Console hand-off is off for this vCenter. Turn it on in the connection options.",
+  "vsphere.vmrc_unavailable": "vCenter did not issue a VMware Remote Console ticket for this VM.",
+  "vsphere.invalid": "vCenter answered with data Mooring could not read.",
+  "vsphere.failed": "vCenter reported an error for this request.",
+  "http.trust_prompt": "The vCenter certificate is not trusted yet. Run Refresh now to review and trust it; the scheduler cannot ask.",
+  "http.trust_rejected": "You rejected the vCenter certificate, so Mooring did not connect. Nothing was stored.",
+  "http.trust_mismatch":
+    "The vCenter certificate changed since you trusted it, so Mooring stopped. Confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and refresh again.",
+  "http.trust_store": "Mooring could not read or write its certificate trust store.",
+  "http.tls": "The TLS handshake with vCenter failed.",
 };
+
+/** The friendly text for a bare error code (status fields carry codes, not messages). */
+export function describeCode(code: string): string {
+  return FRIENDLY[code] ?? code;
+}
 
 export function describeError(e: unknown): string {
   if (!isIpcError(e)) return "unexpected error";

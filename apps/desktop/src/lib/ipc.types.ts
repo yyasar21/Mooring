@@ -56,7 +56,7 @@ export interface ConnectionSummary extends SyncedRowFlags {
   tags: string[];
   /** ADR-0011 per-protocol options; absent from a backend without migration 0005. */
   options?: ProtocolOptions;
-  /** ADR-0015: a synced VM no longer reported by vCenter (ASSUMED wire name). */
+  /** ADR-0015 (V2): only on VM rows inside a synced subtree; `missing` = not reported by vCenter. */
   syncState?: SyncState | null;
   createdAt: string;
   updatedAt: string;

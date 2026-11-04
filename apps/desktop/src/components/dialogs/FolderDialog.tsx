@@ -3,6 +3,7 @@ import { useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
 import { accountSummary } from "../../lib/credentials";
 import { DialogFooter, Modal } from "./Modal";
+import { READONLY_REASON } from "../vsphere/vsphere";
 
 /** Create or edit a folder: name and the default credential inherited by everything below it. */
 export function FolderDialog({ id, parentId, onClose }: { id?: string; parentId: string; onClose: () => void }) {
@@ -13,6 +14,8 @@ export function FolderDialog({ id, parentId, onClose }: { id?: string; parentId:
   const [cred, setCred] = useState(existing?.defaultCredentialId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // ADR-0015: a synced folder keeps its name and place; only the default credential is an overlay.
+  const synced = !!existing?.syncSource;
 
   async function submit() {
     setBusy(true);
@@ -42,7 +45,7 @@ export function FolderDialog({ id, parentId, onClose }: { id?: string; parentId:
   }
 
   return (
-    <Modal title={existing ? `Edit folder` : `New folder in ${parent?.name ?? "tree"}`} onClose={onClose}>
+    <Modal title={synced ? "Folder default credential" : existing ? `Edit folder` : `New folder in ${parent?.name ?? "tree"}`} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -50,9 +53,10 @@ export function FolderDialog({ id, parentId, onClose }: { id?: string; parentId:
         }}
       >
         <div className="space-y-3 px-4 py-4">
+          {synced && <p className="field-hint" role="note">{READONLY_REASON} The default credential is yours and survives refreshes.</p>}
           <div>
             <label className="field-label" htmlFor="folder-name">Name</label>
-            <input id="folder-name" className="field" value={name} maxLength={200} onChange={(e) => { setName(e.target.value); }} />
+            <input id="folder-name" className="field" value={name} maxLength={200} disabled={synced} onChange={(e) => { setName(e.target.value); }} />
           </div>
           <div>
             <label className="field-label" htmlFor="folder-cred">Default credential</label>
@@ -66,7 +70,7 @@ export function FolderDialog({ id, parentId, onClose }: { id?: string; parentId:
           </div>
         </div>
         <DialogFooter error={error}>
-          {existing && (
+          {existing && !synced && (
             <button type="button" className="btn btn-ghost btn-danger" disabled={busy} onClick={() => void remove()}>
               Delete folder and contents
             </button>

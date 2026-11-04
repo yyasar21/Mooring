@@ -1,15 +1,16 @@
-// Mock ADR-0015 vSphere commands: sign-in test, inventory sync into a read-only folder subtree
-// (Datacenter → Cluster → Host → VM), refresh reports, power state and actions (the "native
-// dialog" is simulated by `confirmPower`), guest identity and console hand-off. Fake inventory
-// only (`*.example.test`, RFC 5737 addresses); no hypervisor is ever contacted.
+// Mock of the ADR-0015 vSphere commands as rust-core V2 ships them (docs/handoff/a3-rust-core-v2.md):
+// sign-in test, inventory sync into a read-only folder subtree (Datacenter → Cluster → Host → VM),
+// refresh reports with the two-miss delete rule, status, power state and actions (the Rust-native
+// dialogs are simulated by `confirmPower` / `confirmTrust`), guest identity and console hand-off.
+// Fake inventory only (`*.example.test`, RFC 5737 addresses); no hypervisor is ever contacted.
 // Methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
-import type { ConnectionSummary, Folder, VmPowerState, VsphereConnOptions, VsphereIpc } from "./ipc.types";
+import type { ConnectionSummary, Folder, VmPowerState, VsphereConnOptions, VsphereIpc, VsphereSyncReport } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockKubeBase } from "./ipc.mock.kube";
 import { normalizeOptions } from "./validate.options";
 
-/** `[datacenter, cluster, host, vms[]]` of the fake vCenter. */
+/** `[datacenter, cluster, host, vms[]]` of the fake vCenter; a VM has Tools iff it has an address. */
 const INVENTORY: [string, string, string, [string, VmPowerState, string | null][]][] = [
   ["DC-East", "compute-a", "esx01.example.test", [["app-vm-01", "POWERED_ON", "192.0.2.21"], ["app-vm-02", "POWERED_ON", "192.0.2.22"]]],
   ["DC-East", "compute-a", "esx02.example.test", [["db-vm-01", "POWERED_ON", "192.0.2.31"], ["build-vm", "POWERED_OFF", null]]],
@@ -21,15 +22,27 @@ type TreeMutator = "folderCreate" | "folderRename" | "folderMove" | "folderDelet
 interface MockVc {
   lastRefresh: string | null;
   lastError: string | null;
+  lastReport: VsphereSyncReport | null;
   power: Map<string, VmPowerState>;
 }
+
+const READONLY = () => new IpcError("tree.synced_readonly", "this folder is synced from vCenter and is read-only");
+const NOT_SYNCED = () => new IpcError("vsphere.not_found", "inventory sync is not enabled for this connection");
 
 export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc {
   abstract folders: Folder[];
   abstract connections: ConnectionSummary[];
   vcenters = new Map<string, MockVc>();
-  /** What the Rust-native confirmation dialog answers (tests flip it). */
+  /** What the Rust-native power / VMRC confirmation answers (tests flip it). */
   confirmPower = true;
+  /** What the Rust-native TOFU certificate dialog answers on a manual refresh. */
+  confirmTrust = true;
+  /** External ids (`vm-build-vm`) the fake vCenter stops reporting: missing, then deleted. */
+  vsphereHidden = new Set<string>();
+  /** vCenter ids whose certificate is not pinned: the scheduler stops with `http.trust_prompt`. */
+  vsphereUntrusted = new Set<string>();
+  /** vCenter ids that refuse every call with `vsphere.unavailable`. */
+  vsphereDown = new Set<string>();
   private vsIds = 0;
 
   private vsId(prefix: string): string {
@@ -50,17 +63,22 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
     const vc = vm.syncSource ? this.vcenters.get(vm.syncSource) : undefined;
     const owner = this.connections.find((x) => x.id === vm.syncSource);
     if (!vc || !owner || !vm.externalId?.startsWith("vm-")) throw new IpcError("input.invalid", "invalid connectionId: not a synced VM");
+    if (vm.syncState === "missing") throw new IpcError("vsphere.not_found", "vCenter no longer reports this VM");
+    if (this.vsphereDown.has(owner.id)) throw new IpcError("vsphere.unavailable", "vCenter did not answer");
     return { vm, vc, options: normalizeOptions("vsphere-console", owner.options ?? {}) as VsphereConnOptions };
   }
 
-  /** Whether a folder or connection lives in a synced subtree (the read-only rule of ADR-0015 §2). */
+  /** Whether a folder lives in a synced subtree (the read-only rule of ADR-0015 §2). */
   private synced(folderId: string | null | undefined): boolean {
     return this.folders.some((f) => f.id === folderId && f.syncSource);
   }
 
+  private rootOf(connectionId: string): Folder | undefined {
+    return this.folders.find((f) => f.syncSource === connectionId && !f.externalId);
+  }
+
   /** Wraps the tree mutators of MockTransport with the store's `tree.synced_readonly` rule. */
   protected guardSyncedTree(): void {
-    const refuse = () => { throw new IpcError("tree.synced_readonly", "this folder is synced from vCenter and is read-only"); };
     type Args = { id?: string; parentId?: string; folderId?: string } & Partial<ConnectionSummary>;
     const blocked: Record<TreeMutator, (a: Args) => boolean> = {
       folderCreate: (a) => this.synced(a.parentId),
@@ -81,10 +99,19 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
     for (const name of Object.keys(blocked) as TreeMutator[]) {
       const inner = self[name];
       self[name] = async (a: Args) => {
-        if (blocked[name](a)) refuse();
+        if (blocked[name](a)) throw READONLY();
         return inner(a);
       };
     }
+    // `syncFolderId` is derived from the synced root, never stored: writes cannot change it.
+    const setOptions = this.connectionOptionsSet;
+    this.connectionOptionsSet = async (a) => {
+      const stored = await setOptions(a);
+      const c = this.connections.find((x) => x.id === a.connectionId);
+      if (c?.protocol !== "vsphere-console" || c.syncSource) return stored;
+      c.options = { ...(stored as VsphereConnOptions), syncFolderId: this.rootOf(c.id)?.id ?? null };
+      return { ...c.options };
+    };
   }
 
   private rowFolder(id: string | undefined): string | undefined {
@@ -94,45 +121,90 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
   vsphereTest: VsphereIpc["vsphereTest"] = async ({ connectionId }) => {
     await this.unlocked();
     const c = this.vcenter(connectionId);
+    if (this.vsphereDown.has(connectionId)) throw new IpcError("vsphere.unavailable", "vCenter did not answer");
     if (!c.effectiveCredentialId && !c.credentialId) throw new IpcError("vsphere.auth_failed", "vCenter refused the sign-in");
-    return { version: "8.0.3", build: "24322831", user: "administrator@vsphere.local" };
+    return { version: "8.0.3.00400", build: "24322831", user: "administrator@vsphere.local" };
   };
 
   vsphereSyncEnable: VsphereIpc["vsphereSyncEnable"] = async ({ connectionId, parentFolderId }) => {
     await this.unlocked();
     const c = this.vcenter(connectionId);
+    const existing = this.rootOf(connectionId);
+    if (existing) return { ...existing }; // idempotent (store test)
     if (!this.folders.some((f) => f.id === parentFolderId)) throw new IpcError("tree.not_found", "folder not found");
-    if (this.synced(parentFolderId)) throw new IpcError("tree.synced_readonly", "this folder is synced from vCenter and is read-only");
-    if (this.vcenters.has(connectionId)) throw new IpcError("input.invalid", "invalid connectionId: sync is already on");
+    if (this.synced(parentFolderId)) throw READONLY();
     const root: Folder = { id: this.vsId("f"), parentId: parentFolderId, name: c.name, defaultCredentialId: null, sort: 99, syncSource: connectionId, externalId: null };
     this.folders.push(root);
-    this.vcenters.set(connectionId, { lastRefresh: null, lastError: null, power: new Map() });
+    this.vcenters.set(connectionId, { lastRefresh: null, lastError: null, lastReport: null, power: new Map() });
     c.options = { ...(normalizeOptions("vsphere-console", c.options ?? {}) as VsphereConnOptions), syncFolderId: root.id };
-    await this.vsphereRefresh({ connectionId });
+    try {
+      await this.runRefresh(connectionId, "import");
+    } catch (e: unknown) {
+      // A failed first import removes the empty root again (V2 decision 5).
+      this.folders = this.folders.filter((f) => f.id !== root.id);
+      this.vcenters.delete(connectionId);
+      c.options = { ...c.options, syncFolderId: null };
+      throw e;
+    }
     return { ...root };
   };
 
   vsphereSyncDisable: VsphereIpc["vsphereSyncDisable"] = async ({ connectionId, keep }) => {
     await this.unlocked();
-    this.vcenter(connectionId);
-    if (!this.vcenters.delete(connectionId)) throw new IpcError("input.invalid", "invalid connectionId: sync is off");
+    const c = this.vcenter(connectionId);
+    if (!this.vcenters.delete(connectionId)) throw NOT_SYNCED();
     const ids = new Set(this.folders.filter((f) => f.syncSource === connectionId).map((f) => f.id));
     if (keep) {
       for (const f of this.folders) if (ids.has(f.id)) Object.assign(f, { syncSource: null, externalId: null });
-      for (const c of this.connections) if (c.syncSource === connectionId) Object.assign(c, { syncSource: null, externalId: null, syncState: null });
+      for (const x of this.connections) if (x.syncSource === connectionId) Object.assign(x, { syncSource: null, externalId: null, syncState: null });
     } else {
       this.folders = this.folders.filter((f) => !ids.has(f.id));
-      this.connections = this.connections.filter((c) => c.syncSource !== connectionId);
+      this.connections = this.connections.filter((x) => x.syncSource !== connectionId);
     }
+    c.options = { ...(normalizeOptions("vsphere-console", c.options ?? {}) as VsphereConnOptions), syncFolderId: null };
   };
 
   vsphereRefresh: VsphereIpc["vsphereRefresh"] = async ({ connectionId }) => {
     await this.unlocked();
     this.vcenter(connectionId);
+    if (!this.vcenters.has(connectionId)) throw NOT_SYNCED();
+    if (this.vsphereUntrusted.has(connectionId)) {
+      // Manual: the TOFU dialog is shown by Rust; "Trust" pins and the refresh goes on.
+      if (!this.confirmTrust) throw new IpcError("http.trust_rejected", "you rejected the vCenter certificate");
+      this.vsphereUntrusted.delete(connectionId);
+      this.record("cert_decision", { protocol: "vsphere", connection: connectionId, decision: "trust" });
+    }
+    return this.runRefresh(connectionId, "manual");
+  };
+
+  /** What the scheduler does at its interval: a TOFU prompt cannot be shown, so it stops with `http.trust_prompt`. */
+  async vsphereScheduledTick(connectionId: string): Promise<void> {
     const vc = this.vcenters.get(connectionId);
-    const rootId = this.folders.find((f) => f.syncSource === connectionId && f.externalId === null)?.id;
-    if (!vc || !rootId) throw new IpcError("input.invalid", "invalid connectionId: sync is off");
-    let added = 0;
+    if (!vc) return;
+    if (this.vsphereUntrusted.has(connectionId)) {
+      vc.lastError = "http.trust_prompt";
+      this.record("vsphere_sync_failed", { connection: connectionId, code: "http.trust_prompt" });
+      return;
+    }
+    try {
+      await this.runRefresh(connectionId, "schedule");
+    } catch {
+      // recorded on the status already
+    }
+  }
+
+  private async runRefresh(connectionId: string, trigger: "manual" | "schedule" | "import"): Promise<VsphereSyncReport> {
+    const vc = this.vcenters.get(connectionId);
+    const root = this.rootOf(connectionId);
+    if (!vc || !root) throw NOT_SYNCED();
+    this.record("vsphere_sync_started", { connection: connectionId, trigger });
+    if (this.vsphereDown.has(connectionId)) {
+      vc.lastError = "vsphere.unavailable";
+      this.record("vsphere_sync_failed", { connection: connectionId, code: vc.lastError });
+      throw new IpcError("vsphere.unavailable", "vCenter did not answer");
+    }
+    const report = { added: 0, changed: 0, missing: 0, deleted: 0, at: new Date().toISOString() };
+    const seen = new Set<string>();
     const folderFor = (parentId: string, externalId: string, name: string) => {
       let f = this.folders.find((x) => x.syncSource === connectionId && x.externalId === externalId);
       if (!f) {
@@ -142,13 +214,19 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
       return f.id;
     };
     for (const [dc, cluster, host, vms] of INVENTORY) {
-      const hostFolder = folderFor(folderFor(folderFor(rootId, `datacenter-${dc}`, dc), `cluster-${cluster}`, cluster), `host-${host}`, host);
+      const hostFolder = folderFor(folderFor(folderFor(root.id, `datacenter-${dc}`, dc), `cluster-${cluster}`, cluster), `host-${host}`, host);
       for (const [name, power, ip] of vms) {
         const externalId = `vm-${name}`;
+        if (this.vsphereHidden.has(externalId)) continue;
+        seen.add(externalId);
         vc.power.set(externalId, vc.power.get(externalId) ?? power);
-        if (this.connections.some((c) => c.syncSource === connectionId && c.externalId === externalId)) continue;
-        added += 1;
-        const now = new Date().toISOString();
+        const row = this.connections.find((x) => x.syncSource === connectionId && x.externalId === externalId);
+        if (row) {
+          if (row.syncState === "missing") { row.syncState = "present"; report.changed += 1; }
+          continue;
+        }
+        report.added += 1;
+        const now = report.at;
         this.connections.push({
           id: this.vsId("c"), folderId: hostFolder, name, protocol: "vsphere-console", host: ip ?? `${name}.example.test`, port: null,
           credentialId: null, effectiveCredentialId: null, usernameOverride: null, domainOverride: null, gatewayCredentialId: null,
@@ -156,16 +234,26 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
         });
       }
     }
-    vc.lastRefresh = new Date().toISOString();
+    // The two-miss rule: first miss marks `missing`, the second deletes the row with its overlays.
+    for (const row of this.connections.filter((x) => x.syncSource === connectionId && x.externalId && !seen.has(x.externalId))) {
+      if (row.syncState === "present") { row.syncState = "missing"; report.missing += 1; }
+      else { this.connections = this.connections.filter((x) => x.id !== row.id); report.deleted += 1; }
+    }
+    vc.lastRefresh = report.at;
     vc.lastError = null;
-    this.record("vsphere.sync", { connection: connectionId, added: String(added), changed: "0", missing: "0", deleted: "0" });
-    return { added, changed: 0, missing: 0, deleted: 0, at: vc.lastRefresh };
-  };
+    vc.lastReport = report;
+    this.record("vsphere_sync_finished", { connection: connectionId, added: String(report.added), changed: String(report.changed), missing: String(report.missing), removed: String(report.deleted), ms: "0" });
+    return { ...report };
+  }
 
   vsphereStatus: VsphereIpc["vsphereStatus"] = async ({ connectionId }) => {
-    this.vcenter(connectionId);
+    const c = this.vcenter(connectionId);
     const vc = this.vcenters.get(connectionId);
-    return { lastRefresh: vc?.lastRefresh ?? null, lastError: vc?.lastError ?? null, running: false };
+    const options = normalizeOptions("vsphere-console", c.options ?? {}) as VsphereConnOptions;
+    return {
+      lastRefresh: vc?.lastRefresh ?? null, lastError: vc?.lastError ?? null, running: false, lastReport: vc?.lastReport ?? null,
+      scheduled: vc !== undefined && options.refreshMinutes !== null && this.vault === "unlocked",
+    };
   };
 
   vsphereVmPower: VsphereIpc["vsphereVmPower"] = async ({ connectionId }) => {
@@ -176,16 +264,26 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
   vsphereVmAction: VsphereIpc["vsphereVmAction"] = async ({ connectionId, action }) => {
     await this.unlocked();
     const { vm, vc, options } = this.vm(connectionId);
-    if (!options.allowPowerActions) throw new IpcError("vsphere.power_disabled", "power actions are off for this vCenter");
     const key = vm.externalId ?? "";
-    const state = vc.power.get(key) ?? "POWERED_OFF";
-    if ((action === "shutdown" || action === "reboot") && state === "POWERED_ON" && vm.host.endsWith(".example.test")) {
-      throw new IpcError("vsphere.tools_missing", "VMware Tools are not running in this VM");
+    const audit = (outcome: string) => { this.record("vsphere_power", { connection: vm.syncSource ?? "", vm: key, action, outcome }); };
+    if (!options.allowPowerActions) {
+      audit("power_disabled");
+      throw new IpcError("vsphere.power_disabled", "power actions are off for this vCenter");
     }
-    const outcome = this.confirmPower ? "done" : "cancelled";
-    this.record("vsphere.power", { connection: vm.syncSource ?? "", vm: key, action, outcome });
-    if (outcome === "done") vc.power.set(key, action === "start" || action === "reboot" || action === "reset" ? "POWERED_ON" : "POWERED_OFF");
-    return { outcome };
+    if (!this.confirmPower) {
+      audit("cancelled");
+      return { outcome: "cancelled" };
+    }
+    audit("requested");
+    const state = vc.power.get(key) ?? "POWERED_OFF";
+    const guest = action === "shutdown" || action === "reboot";
+    if (guest && state !== "POWERED_ON") { audit("vsphere.wrong_state"); throw new IpcError("vsphere.wrong_state", "the VM is not powered on"); }
+    if (guest && !/^\d+\.\d+\.\d+\.\d+$/.test(vm.host)) { audit("vsphere.tools_missing"); throw new IpcError("vsphere.tools_missing", "VMware Tools are not running in this VM"); }
+    const wantOn = action === "start" || action === "reboot" || action === "reset";
+    const already = (action === "start" && state === "POWERED_ON") || ((action === "stop" || action === "shutdown") && state === "POWERED_OFF");
+    vc.power.set(key, wantOn ? "POWERED_ON" : "POWERED_OFF");
+    audit(already ? "already" : "done");
+    return { outcome: "done" };
   };
 
   vsphereVmIdentity: VsphereIpc["vsphereVmIdentity"] = async ({ connectionId }) => {
@@ -198,8 +296,11 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
   vsphereConsole: VsphereIpc["vsphereConsole"] = async ({ connectionId, kind }) => {
     await this.unlocked();
     const { vm, options } = this.vm(connectionId);
-    if (kind === "vmrc" && !options.allowVmrc) throw new IpcError("input.invalid", "invalid kind: VMRC hand-off is off for this vCenter");
-    this.record("vsphere.console", { vm: vm.externalId ?? "", kind });
+    if (kind === "vmrc") {
+      if (!options.allowVmrc) throw new IpcError("vsphere.vmrc_disabled", "VMware Remote Console hand-off is off for this vCenter");
+      if (!this.confirmPower) throw new IpcError("vsphere.not_confirmed", "you cancelled the hand-off");
+    }
+    this.record("vsphere_console", { vm: vm.externalId ?? "", kind });
     return { windowLabel: kind === "client" ? `web-${vm.syncSource ?? ""}` : null };
   };
 }

@@ -29,8 +29,7 @@ const missingCodes = missing("ipc-codes.json");
 export const PENDING_A3_CODES: Record<string, string> = {
   "kube.forbidden_request": "ADR-0014 §6, K4", "kube.rbac_denied": "ADR-0014 §6, K4", "kube.not_found": "ADR-0014 §6, K4",
   "kube.unsupported_auth": "ADR-0014 §6, K4", "kube.stream_limit": "ASSUMED for the 8-streams cap (ADR-0014 §5), K4",
-  "tree.synced_readonly": "ADR-0015 §5, V2", "vsphere.auth_failed": "ADR-0015 §5, V2", "vsphere.too_large": "ADR-0015 §5, V2",
-  "vsphere.power_disabled": "ADR-0015 §5, V2", "vsphere.tools_missing": "ADR-0015 §5, V2", "vsphere.unavailable": "ADR-0015 §5, V2",
+  // ADR-0015 (V2) codes shipped with `a3` @ 27433f2 and are no longer pending.
   "credential.external_unavailable": "ADR-0016 §7, E2", "credential.external_shape": "ADR-0016 §7, E2",
   "credential.external_not_found": "ADR-0016 §7, E2", "credential.external_root_token": "ADR-0016 §7, E2",
   "source.in_use": "ADR-0016 §7, E2", "source.not_found": "ADR-0016 §7, E2",
