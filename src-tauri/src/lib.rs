@@ -181,12 +181,37 @@ fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
 }
 
 fn init_tracing() {
-    use tracing_subscriber::{fmt, EnvFilter};
-    let filter = EnvFilter::try_from_env("MOORING_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
+    use tracing_subscriber::fmt;
+    let filter = log_filter(std::env::var("MOORING_LOG").ok().as_deref());
     // Secrets never reach tracing by contract; mooring_audit::redact is applied again in the
     // file sink added in A1 (defence in depth).
     let _ = fmt().with_env_filter(filter).with_target(false).try_init();
 }
+
+// --- review 5 L-24: CredSSP / NTLM exchange bytes never reach any log level -------------
+/// Targets that log whole `TsRequest`s (the NTLM AUTHENTICATE message is offline-crackable).
+const CREDSSP_TARGETS: [&str; 3] =
+    ["ironrdp_connector::credssp", "ironrdp_connector::connection", "sspi"];
+
+/// `MOORING_LOG` directives (default `info`) with every directive for [`CREDSSP_TARGETS`]
+/// dropped and `<target>=info` appended, so neither a broad `debug` nor a targeted `trace`
+/// can lower them.
+fn log_filter(user: Option<&str>) -> tracing_subscriber::EnvFilter {
+    use tracing_subscriber::EnvFilter;
+    let protected = |d: &str| CREDSSP_TARGETS.iter().any(|t| d.trim_start().starts_with(t));
+    let mut spec: Vec<&str> = user
+        .unwrap_or("info")
+        .split(',')
+        .filter(|d| !d.trim().is_empty() && !protected(d))
+        .collect();
+    if spec.is_empty() {
+        spec.push("info");
+    }
+    let tail: Vec<String> = CREDSSP_TARGETS.iter().map(|t| format!("{t}=info")).collect();
+    let full = format!("{},{}", spec.join(","), tail.join(","));
+    EnvFilter::try_new(full).unwrap_or_else(|_| EnvFilter::new(format!("info,{}", tail.join(","))))
+}
+// --- end L-24 ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -202,5 +227,45 @@ mod tests {
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         super::create_private_dir(&dir).expect("again");
         assert_eq!(mode(&dir) & 0o777, 0o700);
+    }
+
+    /// L-24: whatever `MOORING_LOG` says, CredSSP targets stay at info.
+    #[test]
+    fn credssp_targets_never_log_below_info() {
+        use std::sync::Mutex;
+        struct Sink(&'static Mutex<Vec<u8>>);
+        impl std::io::Write for Sink {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("lock").extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        for user in [
+            None,
+            Some("debug"),
+            Some("trace,sspi::ntlm=trace,ironrdp_connector::credssp=trace"),
+            Some("bogus=["),
+        ] {
+            let buf: &'static Mutex<Vec<u8>> = Box::leak(Box::new(Mutex::new(Vec::new())));
+            let sub = tracing_subscriber::fmt()
+                .with_env_filter(super::log_filter(user))
+                .with_writer(move || Sink(buf))
+                .finish();
+            tracing::subscriber::with_default(sub, || {
+                tracing::debug!(target: "ironrdp_connector::credssp", "secret-ts-request");
+                tracing::trace!(target: "sspi::ntlm", "secret-ntlm");
+                tracing::debug!(target: "ironrdp_connector::connection", "secret-connection");
+                tracing::info!(target: "ironrdp_connector::credssp", "visible-info");
+                tracing::debug!(target: "mooring_app", "other-debug");
+            });
+            let text = String::from_utf8(buf.lock().expect("lock").clone()).expect("utf8");
+            assert!(!text.contains("secret"), "{user:?}: {text}");
+            assert!(text.contains("visible-info"), "{user:?}: {text}");
+            let debug_on = user.is_some_and(|u| u.starts_with("debug") || u.starts_with("trace"));
+            assert_eq!(text.contains("other-debug"), debug_on, "{user:?}: {text}");
+        }
     }
 }
