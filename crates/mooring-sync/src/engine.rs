@@ -311,6 +311,27 @@ impl SyncEngine {
         Ok(Some(counter))
     }
 
+    /// First pull of a joining device (`vault_join`): the remote must hold a blob, this device
+    /// must never have synced, and the blob replaces the local rows without a merge (the
+    /// joining store is empty by contract, so nothing local is lost or merged in).
+    pub async fn join<L: LocalSide, S: ObjectStore>(
+        &self,
+        local: &L,
+        remote: &Remote<S>,
+        audit: &dyn AuditSink,
+    ) -> Result<Outcome> {
+        let mut state = Self::load(local)?;
+        if state.last_counter > 0 || state.alarm.is_some() {
+            return Err(SyncError::Invalid("this device has synced before"));
+        }
+        let header = local.header_object()?;
+        let key = local.sync_key()?;
+        let obj = remote.get().await?.ok_or(SyncError::Invalid("the remote holds no vault"))?;
+        let f = open(remote, &obj, local.vault_id(), &key, &header).await?;
+        self.fast_forward(local, &mut state, &f, audit)?;
+        Ok(Outcome::Pulled { counter: f.header.counter })
+    }
+
     /// Clear a fork or rollback alarm with the user's choice: `Remote` applies the current
     /// remote blob (verified as usual), `Local` publishes this device's data on top of it.
     pub async fn resolve_fork<L: LocalSide, S: ObjectStore>(

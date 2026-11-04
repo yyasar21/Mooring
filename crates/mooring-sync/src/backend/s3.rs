@@ -45,6 +45,8 @@ pub struct S3Config {
     pub ca_pem: Option<String>,
     /// Loopback plaintext (tests, a local `MinIO` on 127.0.0.1).
     pub allow_plaintext_loopback: bool,
+    /// A leaf the user trusted for this run only (certificate prompt "once").
+    pub trusted_once: Option<[u8; 32]>,
 }
 
 /// `s3_access_key` secrets, in memory only.
@@ -111,6 +113,7 @@ impl S3Backend {
         let mut http = HttpConfig::new(CertProtocol::Sync, &origin, cfg.known_certs_path.clone());
         http.extra_ca_pem.clone_from(&cfg.ca_pem);
         http.allow_plaintext = cfg.allow_plaintext_loopback;
+        http.trusted_once = cfg.trusted_once;
         http.max_body = crate::blob::MAX_BLOB;
         let read = HttpClient::new(http.clone())?;
         http.retry.max_attempts = 1;

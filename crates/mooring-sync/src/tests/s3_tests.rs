@@ -21,6 +21,7 @@ fn config(endpoint: &str, dir: &std::path::Path) -> S3Config {
         known_certs_path: dir.join("known_sync_certs"),
         ca_pem: None,
         allow_plaintext_loopback: true,
+        trusted_once: None,
     }
 }
 

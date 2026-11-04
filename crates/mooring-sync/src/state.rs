@@ -195,7 +195,8 @@ impl SyncAudit {
 }
 
 /// Receives audit events; the Tauri layer maps them into the hash-chained audit log.
-pub trait AuditSink {
+/// `Send + Sync` so an engine run is a `Send` future (Tauri commands, the interval runner).
+pub trait AuditSink: Send + Sync {
     /// Record one event.
     fn record(&self, event: &SyncAudit);
 }

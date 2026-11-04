@@ -33,7 +33,9 @@ pub use backend::{Cond, Object, ObjectStore, PutMeta, PutOutcome, Remote, Remote
 pub use blob::{decode_msy1, BlobHeader, Msy1};
 pub use engine::{SyncEngine, SyncPolicy};
 pub use error::{Result, SyncError};
-pub use local::{clear_state, header_object, load_state, reseal_secret, StoreLocal};
+pub use local::{
+    clear_state, header_object, load_base, load_state, reseal_secret, save_state, StoreLocal,
+};
 pub use merge::{Conflict, MergePlan, Resolution};
 pub use snapshot::{RecordKind, Snapshot};
 pub use state::{Alarm, AuditSink, Keep, LocalSide, LocalState, Outcome, SyncAudit, VecAudit};
