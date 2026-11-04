@@ -4,11 +4,17 @@
 //! and the resolved path must stay under the canonical base after following symlinks.
 //! On every platform a component may not contain `:` (a Windows alternate data stream) or be
 //! a reserved DOS device name (`CON`, `NUL`, `COM1`, ...), so a path accepted on one OS is
-//! safe on all of them (security review 2, L-7). Errors never contain local paths.
+//! safe on all of them (security review 2, L-7). A component may not end in `.` or a space
+//! either: Windows strips those, so `notes.txt.` would replace `notes.txt` (review 4, L-15).
+//! Errors never contain local paths.
 
 use std::path::{Component, Path, PathBuf};
 
 use mooring_core::MooringError;
+
+/// Reason of the `MooringError::Invalid { field: "local path" }` for a download target that
+/// already exists when replacing was not asked for (review 4, L-15).
+pub const TARGET_EXISTS: &str = "target exists";
 
 /// Longest relative local path accepted, in bytes.
 pub const MAX_LOCAL_PATH: usize = 4096;
@@ -50,9 +56,13 @@ fn is_reserved_device(name: &str) -> bool {
         )
 }
 
-/// Component rules beyond the lexical ones: no stream separator, no device name.
+/// Component rules beyond the lexical ones: no stream separator, no device name, no trailing
+/// dot or space.
 fn check_component(part: &std::ffi::OsStr) -> Result<(), MooringError> {
     let text = part.to_string_lossy();
+    if text.ends_with('.') || text.ends_with(' ') {
+        return Err(invalid("must not end in '.' or a space"));
+    }
     if text.contains(':') {
         return Err(invalid("must not contain ':' (alternate data stream)"));
     }
@@ -104,6 +114,21 @@ impl LocalPath {
     /// target not a symlink or directory). Transfers check again when they create the file.
     pub fn check_new_file(&self) -> Result<(), MooringError> {
         self.resolve_new_file().map(drop)
+    }
+
+    /// [`check_new_file`](Self::check_new_file), and with `overwrite == false` an existing
+    /// target is refused with [`TARGET_EXISTS`].
+    pub fn check_target(&self, overwrite: bool) -> Result<(), MooringError> {
+        let (_, full) = self.resolve_new_file()?;
+        if !overwrite && std::fs::symlink_metadata(full).is_ok() {
+            return Err(invalid(TARGET_EXISTS));
+        }
+        Ok(())
+    }
+
+    /// Whether `e` is the [`TARGET_EXISTS`] refusal.
+    pub fn is_target_exists(e: &MooringError) -> bool {
+        matches!(e, MooringError::Invalid { field: "local path", reason } if reason == TARGET_EXISTS)
     }
 
     fn canonical_base(&self) -> Result<PathBuf, MooringError> {
@@ -197,6 +222,28 @@ mod tests {
         for ok in ["CONSOLE", "com", "COM10", "LPT", "nul_file", "aux-backup", "x.con", "COMA"] {
             assert!(LocalPath::new("/b", ok).is_ok(), "{ok:?} refused");
         }
+    }
+
+    #[test]
+    fn trailing_dots_and_spaces_are_rejected() {
+        for bad in ["notes.txt.", "notes.txt ", "a./b", "dir /f", "x..", "..."] {
+            let e = LocalPath::new("/b", bad).expect_err(bad);
+            assert!(e.to_string().contains("must not end"), "{bad:?}: {e}");
+        }
+        for ok in [".bashrc", "a.b", " lead", "a b.txt", "x.y/z"] {
+            assert!(LocalPath::new("/b", ok).is_ok(), "{ok:?} refused");
+        }
+    }
+
+    #[test]
+    fn check_target_refuses_an_existing_file_unless_overwrite() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("f"), b"x").expect("write");
+        let p = LocalPath::new(dir.path(), "f").expect("ok");
+        let e = p.check_target(false).expect_err("exists");
+        assert!(LocalPath::is_target_exists(&e), "{e}");
+        assert!(p.check_target(true).is_ok());
+        assert!(LocalPath::new(dir.path(), "g").expect("ok").check_target(false).is_ok());
     }
 
     #[test]

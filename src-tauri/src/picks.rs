@@ -132,7 +132,23 @@ impl Picks {
         mode: PickMode,
         now: Instant,
     ) -> IpcResult<PathBuf> {
-        if pick_id.len() != PICK_ID_LEN || !pick_id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        self.take_if(pick_id, session_id, mode, now, |p| Ok(p.to_path_buf()))
+    }
+
+    /// Like [`take`](Self::take), but the pick is consumed only when `check` accepts its path;
+    /// otherwise `check`'s error is returned and the pick stays usable (e.g. `sftp.exists`,
+    /// so the UI can ask "Replace?" and retry with the same pick).
+    pub fn take_if<T>(
+        &self,
+        pick_id: &str,
+        session_id: &str,
+        mode: PickMode,
+        now: Instant,
+        check: impl FnOnce(&std::path::Path) -> IpcResult<T>,
+    ) -> IpcResult<T> {
+        if pick_id.len() != PICK_ID_LEN
+            || !pick_id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
             return Err(refused());
         }
         self.with(|i| {
@@ -144,7 +160,9 @@ impl Picks {
             if p.session_id != session_id || p.mode != mode {
                 return Err(refused());
             }
-            i.picks.remove(pick_id).map(|p| p.path).ok_or_else(refused)
+            let out = check(&p.path)?;
+            i.picks.remove(pick_id);
+            Ok(out)
         })
     }
 
@@ -204,6 +222,18 @@ mod tests {
         for forged in ["", "zz", &"0".repeat(PICK_ID_LEN), &"A".repeat(PICK_ID_LEN), &"a".repeat(64)] {
             assert_eq!(p.take(forged, "s1", PickMode::File, now).expect_err("forged").code, "input.invalid");
         }
+    }
+
+    #[test]
+    fn a_refused_check_keeps_the_pick() {
+        let p = Picks::default();
+        let now = Instant::now();
+        let id = store_one(&p, "s", PickMode::Folder, now);
+        let no = p.take_if(&id, "s", PickMode::Folder, now, |_| -> IpcResult<()> {
+            Err(IpcError::new("sftp.exists", "exists"))
+        });
+        assert_eq!(no.expect_err("check").code, "sftp.exists");
+        assert_eq!(p.take(&id, "s", PickMode::Folder, now).expect("still there"), PathBuf::from("/x"));
     }
 
     #[test]

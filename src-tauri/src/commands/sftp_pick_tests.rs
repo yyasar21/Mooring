@@ -45,11 +45,11 @@ async fn picks_are_single_use_session_bound_and_expire() {
 
     // forged ids
     for forged in ["", "../../etc/passwd", &"0".repeat(PICK_ID_LEN), dst.path().to_str().expect("u")] {
-        refused_pick(&download(st, sid, "/f", forged, sink()).await.expect_err("forged"));
+        refused_pick(&download(st, sid, "/f", forged, false, sink()).await.expect_err("forged"));
         refused_pick(&upload(st, sid, forged, "/", sink()).await.expect_err("forged"));
     }
     // the wrong kind: a file pick is not a download folder
-    refused_pick(&download(st, sid, "/f", &picked.pick_id, sink()).await.expect_err("mode"));
+    refused_pick(&download(st, sid, "/f", &picked.pick_id, false, sink()).await.expect_err("mode"));
     // used once, then gone
     upload(st, sid, &picked.pick_id, "/", sink()).await.expect("first use");
     refused_pick(&upload(st, sid, &picked.pick_id, "/", sink()).await.expect_err("reused"));
@@ -59,12 +59,12 @@ async fn picks_are_single_use_session_bound_and_expire() {
     let epoch = st.picks.epoch();
     let foreign =
         st.picks.insert(epoch, "other-session", PickMode::Folder, dst.path().into(), now).expect("id");
-    refused_pick(&download(st, sid, "/f", &foreign, sink()).await.expect_err("foreign"));
+    refused_pick(&download(st, sid, "/f", &foreign, false, sink()).await.expect_err("foreign"));
 
     // expired after ten minutes
     if let Some(old) = now.checked_sub(PICK_TTL + Duration::from_secs(1)) {
         let stale = st.picks.insert(epoch, sid, PickMode::Folder, dst.path().into(), old).expect("id");
-        refused_pick(&download(st, sid, "/f", &stale, sink()).await.expect_err("expired"));
+        refused_pick(&download(st, sid, "/f", &stale, false, sink()).await.expect_err("expired"));
     }
 
     // cancelled dialog → null, nothing stored
@@ -91,7 +91,7 @@ async fn lock_clears_picks() {
     assert_eq!(st.picks.len(), 1);
     crate::commands::vault::lock(st, None).expect("lock");
     assert!(st.picks.is_empty(), "picks gone after lock");
-    refused_pick(&download(st, sid, "/f", &p, sink()).await.expect_err("after lock"));
+    refused_pick(&download(st, sid, "/f", &p, false, sink()).await.expect_err("after lock"));
     close_session(&live).await;
 }
 

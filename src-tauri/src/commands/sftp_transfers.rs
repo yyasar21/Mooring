@@ -27,7 +27,7 @@ use tauri::State;
 use tokio::sync::oneshot;
 
 use crate::commands::forward::control_of;
-use crate::commands::sftp::{client, sftp_error};
+use crate::commands::sftp::{client, exists, sftp_error};
 use crate::error::{IpcError, IpcResult};
 use crate::picks::PickMode;
 use crate::sessions::{TransferEntry, Transfers};
@@ -228,26 +228,37 @@ fn take_pick(state: &AppState, session_id: &str, pick: &str, mode: PickMode) -> 
     state.picks.take(pick, session_id, mode, Instant::now())
 }
 
-/// `sftp_download({ sessionId, remote, pick })`: `remote` is saved as
-/// `<picked folder>/<basename>`, replacing an existing regular file.
+/// `sftp_download({ sessionId, remote, pick, overwrite? })`: `remote` is saved as
+/// `<picked folder>/<basename>`. An existing file there is replaced only with `overwrite`;
+/// otherwise `sftp.exists` and the pick stays usable for the retry (review 4, L-15).
 pub async fn download(
     state: &AppState,
     session_id: &str,
     remote: &str,
     pick: &str,
+    overwrite: bool,
     sink: ProgressSink,
 ) -> IpcResult<Started> {
     let name = remote_name(remote)?;
     // Lexical name checks first, so a refused name does not consume the pick.
     LocalPath::new(PathBuf::new(), name).map_err(IpcError::from)?;
-    let dir = take_pick(state, session_id, pick, PickMode::Folder)?;
-    let base = dialog_dir(state, "pick", &dir)?;
-    let local = LocalPath::new(base, name).map_err(IpcError::from)?;
-    local.check_new_file().map_err(IpcError::from)?;
+    control_of(state, session_id)?;
+    let local = state.picks.take_if(pick, session_id, PickMode::Folder, Instant::now(), |dir| {
+        let base = dialog_dir(state, "pick", dir)?;
+        let local = LocalPath::new(base, name).map_err(IpcError::from)?;
+        local.check_target(overwrite).map_err(|e| {
+            if LocalPath::is_target_exists(&e) {
+                exists()
+            } else {
+                IpcError::from(e)
+            }
+        })?;
+        Ok(local)
+    })?;
     let (client, connection) = client(state, session_id).await?;
     let remote = remote.to_owned();
     let job = move |c: SftpClient, p: Box<dyn FnMut(u64, Option<u64>) + Send>| -> TransferFuture {
-        Box::pin(async move { c.download(&remote, &local, p).await })
+        Box::pin(async move { c.download_to(&remote, &local, overwrite, p).await })
     };
     start(state, session_id, connection, Direction::Download, job, client, sink)
 }
@@ -316,16 +327,18 @@ fn channel_sink(on_progress: Channel<Progress>) -> ProgressSink {
     Arc::new(move |p| on_progress.send(p).is_ok())
 }
 
-/// `sftp_download({ sessionId, remote, pick, onProgress })`.
+/// `sftp_download({ sessionId, remote, pick, overwrite?, onProgress })`.
 #[tauri::command]
 pub async fn sftp_download(
     state: State<'_, AppState>,
     session_id: String,
     remote: String,
     pick: String,
+    overwrite: Option<bool>,
     on_progress: Channel<Progress>,
 ) -> IpcResult<Started> {
-    download(&state, &session_id, &remote, &pick, channel_sink(on_progress)).await
+    let overwrite = overwrite.unwrap_or(false);
+    download(&state, &session_id, &remote, &pick, overwrite, channel_sink(on_progress)).await
 }
 
 /// `sftp_upload({ sessionId, pick, remoteDir, onProgress })`.

@@ -73,7 +73,7 @@ async fn upload_then_download_with_progress_and_audit() {
     let dst = tempfile::tempdir().expect("dst");
     let (tx, mut rx) = sink();
     let down_pick = pick(&live, "folder", dst.path()).await;
-    download(st, sid, "/in/big.bin", &down_pick, tx).await.expect("download");
+    download(st, sid, "/in/big.bin", &down_pick, false, tx).await.expect("download");
     let events = finish(&mut rx).await;
     let last = events.last().expect("last");
     assert_eq!(last.state, "done", "{last:?}");
@@ -124,9 +124,11 @@ async fn picked_paths_are_confined() {
     }
     // Remote names that cannot be confined in a good folder (the pick is not consumed).
     let good = pick(&live, "folder", dst.path()).await;
-    for (i, remote) in ["/", "/a/..", "/a/con.txt", "/a/b:stream"].iter().enumerate() {
+    for (i, remote) in
+        ["/", "/a/..", "/a/con.txt", "/a/b:stream", "/a/notes.txt.", "/a/notes.txt "].iter().enumerate()
+    {
         let (tx, _rx) = sink();
-        let e = download(st, sid, remote, &good, tx).await.expect_err("refused");
+        let e = download(st, sid, remote, &good, false, tx).await.expect_err("refused");
         assert_eq!(e.code, "input.invalid", "remote case {i}: {e:?}");
     }
     #[cfg(unix)]
@@ -135,7 +137,7 @@ async fn picked_paths_are_confined() {
         std::os::unix::fs::symlink(outside.path().join("f"), dst.path().join("f")).expect("ln");
         let p = pick(&live, "folder", dst.path()).await;
         let (tx, _rx) = sink();
-        let e = download(st, sid, "/f", &p, tx).await.expect_err("symlink target");
+        let e = download(st, sid, "/f", &p, false, tx).await.expect_err("symlink target");
         assert_eq!(e.code, "input.invalid");
         assert!(!outside.path().join("f").exists(), "nothing written through the link");
     }
@@ -157,7 +159,7 @@ async fn picked_paths_are_confined() {
     let (tx, _rx) = sink();
     assert_eq!(upload(st, sid, &p, "", tx).await.expect_err("remoteDir").code, "input.invalid");
     let (tx, _rx) = sink();
-    let e = download(st, "nope", "/g", &good, tx).await.expect_err("session");
+    let e = download(st, "nope", "/g", &good, false, tx).await.expect_err("session");
     assert_eq!(e.code, "session.not_found");
     assert_eq!(std::fs::read(root.path().join("known_hosts")).expect("r"), b"evil");
     close_session(&live).await;
@@ -184,7 +186,7 @@ async fn cancel_stops_a_download_and_leaves_no_partial_file() {
         tx.send(p).is_ok()
     });
     let p = pick(&live, "folder", dst.path()).await;
-    let started = download(st, sid, "/large.bin", &p, sink).await.expect("start");
+    let started = download(st, sid, "/large.bin", &p, false, sink).await.expect("start");
     tokio::task::spawn_blocking(move || first_rx.recv_timeout(Duration::from_secs(20)))
         .await
         .expect("join")
@@ -232,7 +234,7 @@ async fn failed_download_reports_failed_once() {
     let dst = tempfile::tempdir().expect("dst");
     let (tx, mut rx) = sink();
     let p = pick(&live, "folder", dst.path()).await;
-    download(&live.f.state, &live.session_id, "/missing.bin", &p, tx)
+    download(&live.f.state, &live.session_id, "/missing.bin", &p, false, tx)
         .await
         .expect("starts; the open fails in the task");
     let events = finish(&mut rx).await;
@@ -240,5 +242,34 @@ async fn failed_download_reports_failed_once() {
     assert_eq!((last.state, last.error.as_deref()), ("failed", Some("remote path not found")));
     assert_eq!(std::fs::read_dir(dst.path()).expect("dir").count(), 0);
     assert!(audit_text(&live).contains(r#""outcome":"failed""#));
+    close_session(&live).await;
+}
+
+#[tokio::test]
+async fn an_existing_local_file_is_replaced_only_with_overwrite() {
+    let root = tempfile::tempdir().expect("root");
+    std::fs::write(root.path().join(".bashrc"), b"from the server").expect("seed");
+    let srv = server::start_with_sftp(85, root.path().to_path_buf()).await;
+    let live = connect(&srv).await;
+    let (st, sid) = (&live.f.state, live.session_id.as_str());
+    let dst = tempfile::tempdir().expect("dst");
+    let target = dst.path().join(".bashrc");
+    std::fs::write(&target, b"mine").expect("local");
+
+    let p = pick(&live, "folder", dst.path()).await;
+    let (tx, _rx) = sink();
+    let e = download(st, sid, "/.bashrc", &p, false, tx).await.expect_err("exists");
+    assert_eq!(e.code, "sftp.exists", "{e:?}");
+    assert!(!e.message.contains("bashrc") && !e.message.contains(&s(dst.path())), "{e:?}");
+    assert_eq!(std::fs::read(&target).expect("r"), b"mine", "untouched");
+
+    // The UI asks "Replace?" and retries with the same pick.
+    let (tx, mut rx) = sink();
+    download(st, sid, "/.bashrc", &p, true, tx).await.expect("replace");
+    assert_eq!(finish(&mut rx).await.last().expect("last").state, "done");
+    assert_eq!(std::fs::read(&target).expect("r"), b"from the server");
+    let (tx, _rx) = sink();
+    let e = download(st, sid, "/.bashrc", &p, true, tx).await.expect_err("used");
+    assert_eq!(e.code, "input.invalid");
     close_session(&live).await;
 }
