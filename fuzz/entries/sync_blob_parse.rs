@@ -1,21 +1,21 @@
-//! Fuzz entry `sync_blob_parse`: MSY1 object downloaded from the bucket (ADR-0017 §2).
-//! Shared by `fuzz/fuzz_targets/sync_blob_parse.rs` and, once the parser lands, a stable corpus replay in
-//! the owning crate's `tests/fuzz_corpus.rs`.
-//!
-//! PENDING(S1): `mooring_sync::fuzz::blob_parse(data)` is written by rust-core S1 (mooring-sync). Until it exists the target
-//! is built without the `s1` feature and `run` is a no-op, so the nightly matrix and the
-//! libFuzzer wrapper already compile. When it lands: add the crate to `fuzz/Cargo.toml`, build
-//! with `--features s1`, check the call below against the real signature, add the stable
-//! replay, then remove the gate (docs/qa/fuzzing.md, "A3 targets").
+//! Fuzz entry `sync_blob_parse`: an `MSY1` object downloaded from the bucket (ADR-0017 §2).
+//! Shared by `fuzz/fuzz_targets/sync_blob_parse.rs` and the stable replay in
+//! `crates/mooring-sync/tests/fuzz_corpus.rs`.
 
-/// Never panics. With the parser: no panic; header checked (magic, ver, vault_id, size cap) before the body is allocated; AEAD failure is an error, never a panic.
-#[cfg(feature = "s1")]
-pub fn run(data: &[u8]) {
-    mooring_sync::fuzz::blob_parse(data);
-}
+use mooring_sync::blob::{decode_msy1, MAGIC, MAX_BLOB, MIN_BLOB, TAG_LEN, VERSION};
 
-/// Stub until the parser merges (see the module docs).
-#[cfg(not(feature = "s1"))]
+/// Never panics. Anything shorter than the fixed header + nonce + tag or larger than the cap
+/// is refused; an accepted blob starts with the magic and version, its AAD re-encodes to the
+/// header (the crate entry asserts that) and `aad ‖ nonce ‖ ciphertext` is the input.
 pub fn run(data: &[u8]) {
-    let _ = data;
+    mooring_sync::fuzz::fuzz_msy1(data);
+    let r = decode_msy1(data);
+    if data.len() < MIN_BLOB || data.len() > MAX_BLOB {
+        assert!(r.is_err(), "blob outside the size bounds accepted");
+    }
+    let Ok(m) = r else { return };
+    assert_eq!(&data[..4], &MAGIC);
+    assert_eq!(data[4], VERSION);
+    assert_eq!(m.aad.len() + m.nonce.len() + m.ciphertext.len(), data.len());
+    assert!(m.ciphertext.len() >= TAG_LEN);
 }

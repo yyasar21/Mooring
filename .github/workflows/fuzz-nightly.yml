@@ -51,13 +51,13 @@ jobs:
           - rfb_handshake
           - vencrypt_negotiation
           - rdp_reassembly
-          # A3 Q1 scaffolding (ADR-0014..0017): compiling no-op stubs until their parser lands
-          # behind the fuzz crate's k2 / k3 / v1 / e1 / s1 feature; "Stub notice" flags them.
+          # A3 (ADR-0014..0017, Q2): kubeconfig resolve, kube frames / logs / guard, vCenter
+          # bodies, Vault bodies + OIDC URLs, MSY1 blob + snapshot, mooring-http parsers.
           - kubeconfig_resolve
-          - jwt_exp_peek
-          - kube_pod_list_json
           - kube_exec_frames
           - kube_log_sanitize
+          - kube_portforward_frames
+          - kube_guard_path
           - vsphere_inventory_json
           - vsphere_session_token
           - vsphere_ticket_url
@@ -67,6 +67,13 @@ jobs:
           - oidc_callback_url
           - sync_blob_parse
           - sync_snapshot_json
+          - http_certificate_info
+          - http_response_headers
+          - http_json_body
+          # Still gated no-op stubs (docs/qa/fuzzing.md "A3 targets", Q2 handoff "Decision
+          # needed"): the parser is not reachable from the fuzz crate; "Stub notice" flags them.
+          - jwt_exp_peek
+          - kube_pod_list_json
           - s3_error_xml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,7 +107,7 @@ jobs:
           MALLOC=""
           # A3: API body / frame / blob parsers carry the same allocation-before-check rule.
           case "$TARGET" in
-            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*)
+            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*)
               MALLOC="-malloc_limit_mb=1024";;
           esac
           cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "fuzz/regressions/$TARGET" -- \

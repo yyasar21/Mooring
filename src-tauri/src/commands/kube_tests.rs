@@ -212,6 +212,7 @@ async fn an_expired_jwt_fails_early_and_a_live_one_is_shown() {
     let k = fixture_with(Auth::KubeconfigCa, cfg, json!({}), &live).await;
     let (_, _rx, e) = connected(&k).await;
     assert_eq!(e["tokenExpiresAt"], "2100-01-01T00:00:00Z");
+    k.srv.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -223,6 +224,7 @@ async fn a_wrong_token_closes_with_auth_failed() {
     assert_eq!((e["kind"].as_str(), e["code"].as_str()), (Some("closed"), Some("auth_failed")), "{e}");
     wait_gone(&k.f.state).await;
     assert!(!e.to_string().contains("wrong-token"));
+    k.srv.recorder().assert_no_violations();
 }
 
 // ------------------------------------------------------------------ guard / audit mapping

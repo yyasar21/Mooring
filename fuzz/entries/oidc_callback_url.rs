@@ -1,21 +1,21 @@
-//! Fuzz entry `oidc_callback_url`: navigation URL intercepted in the OIDC window (ADR-0016 §4).
-//! Shared by `fuzz/fuzz_targets/oidc_callback_url.rs` and, once the parser lands, a stable corpus replay in
-//! the owning crate's `tests/fuzz_corpus.rs`.
-//!
-//! PENDING(E1): `mooring_secrets::fuzz::oidc_callback_url(data)` is written by rust-core E1 (mooring-secrets; external_ref parser in mooring-core). Until it exists the target
-//! is built without the `e1` feature and `run` is a no-op, so the nightly matrix and the
-//! libFuzzer wrapper already compile. When it lands: add the crate to `fuzz/Cargo.toml`, build
-//! with `--features e1`, check the call below against the real signature, add the stable
-//! replay, then remove the gate (docs/qa/fuzzing.md, "A3 targets").
+//! Fuzz entry `oidc_callback_url`: a navigation URL intercepted in the OIDC window, plus the
+//! `auth_url` Vault returns (ADR-0016 §4). Shared by `fuzz/fuzz_targets/oidc_callback_url.rs`
+//! and the stable replay in `crates/mooring-secrets/tests/fuzz_corpus.rs`.
 
-/// Never panics. With the parser: no panic; only origin+path equal to redirect_uri yields (code, state); state must match.
-#[cfg(feature = "e1")]
-pub fn run(data: &[u8]) {
-    mooring_secrets::fuzz::oidc_callback_url(data);
-}
+use mooring_core::secret_source::OIDC_REDIRECT_URI;
+use mooring_secrets::parse_callback;
 
-/// Stub until the parser merges (see the module docs).
-#[cfg(not(feature = "e1"))]
+/// Never panics. Only a URL on the fixed redirect origin + path is a callback at all, and only
+/// with `code` and `state` and without `error` is it a valid one; the result is deterministic.
 pub fn run(data: &[u8]) {
-    let _ = data;
+    mooring_secrets::fuzz::fuzz_oidc_callback_url(data);
+    let Ok(s) = std::str::from_utf8(data) else { return };
+    let first = parse_callback(s).map(|r| r.is_ok());
+    assert_eq!(first, parse_callback(s).map(|r| r.is_ok()), "parse_callback is not deterministic");
+    if first.is_some() {
+        let path = OIDC_REDIRECT_URI.split_once("//").map_or("", |(_, r)| r);
+        let path = path.find('/').map_or("", |i| &path[i..]);
+        let lower = s.to_ascii_lowercase();
+        assert!(lower.contains(path), "callback recognised on another path: {s:?}");
+    }
 }

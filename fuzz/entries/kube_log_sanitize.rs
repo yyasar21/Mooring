@@ -1,21 +1,16 @@
-//! Fuzz entry `kube_log_sanitize`: pods/log bytes from a container (ADR-0014 §5).
-//! Shared by `fuzz/fuzz_targets/kube_log_sanitize.rs` and, once the parser lands, a stable corpus replay in
-//! the owning crate's `tests/fuzz_corpus.rs`.
-//!
-//! PENDING(K3): `mooring_proto_kube::fuzz::log_sanitize(data)` is written by rust-core K3 (mooring-proto-kube). Until it exists the target
-//! is built without the `k3` feature and `run` is a no-op, so the nightly matrix and the
-//! libFuzzer wrapper already compile. When it lands: add the crate to `fuzz/Cargo.toml`, build
-//! with `--features k3`, check the call below against the real signature, add the stable
-//! replay, then remove the gate (docs/qa/fuzzing.md, "A3 targets").
+//! Fuzz entry `kube_log_sanitize`: `pods/log` bytes from a container (ADR-0014 §5). Shared by
+//! `fuzz/fuzz_targets/kube_log_sanitize.rs` and the stable replay in
+//! `crates/mooring-proto-kube/tests/fuzz_corpus.rs`.
 
-/// Never panics. With the parser: no panic; output contains no C0/C1 control except \t \n and no bidi override; output length <= cap; truncated flag set at the cap.
-#[cfg(feature = "k3")]
-pub fn run(data: &[u8]) {
-    mooring_proto_kube::fuzz::log_sanitize(data);
-}
+use mooring_proto_kube::sanitize_line;
 
-/// Stub until the parser merges (see the module docs).
-#[cfg(not(feature = "k3"))]
+/// Never panics. The output carries no control character other than `\t` / `\n`, no bidi
+/// control and no ESC (the crate entry asserts that, whole and split in two); it never grows
+/// past a lossy UTF-8 replacement per input byte and is deterministic.
 pub fn run(data: &[u8]) {
-    let _ = data;
+    mooring_proto_kube::fuzz::fuzz_log_line(data);
+    let out = sanitize_line(data);
+    assert_eq!(out, sanitize_line(data), "sanitize_line is not deterministic");
+    assert!(out.len() <= data.len() * 4 + 4, "sanitizer output grew unboundedly");
+    assert!(!out.contains('\u{1b}') && !out.contains('\r'), "ESC or CR survived");
 }

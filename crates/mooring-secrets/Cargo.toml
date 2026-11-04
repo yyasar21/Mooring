@@ -33,3 +33,4 @@ proptest = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+mooring-testsrv = { path = "../mooring-testsrv" } # QA mock API servers (A3 Q1/Q2), dev-only

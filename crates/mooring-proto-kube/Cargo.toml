@@ -45,3 +45,4 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
+mooring-testsrv = { path = "../mooring-testsrv" } # QA mock API servers (A3 Q1/Q2), dev-only

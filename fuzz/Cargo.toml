@@ -21,6 +21,13 @@ mooring-vault = { path = "../crates/mooring-vault" }
 mooring-proto-ssh = { path = "../crates/mooring-proto-ssh" }
 mooring-proto-rdp = { path = "../crates/mooring-proto-rdp" } # A2: active stage, cliprdr, certificate, input entries
 mooring-proto-vnc = { path = "../crates/mooring-proto-vnc" } # A2: RFB server messages, ZRLE, Tight entries
+# A3 (ADR-0014..0017): kube frames / logs / guard, vCenter bodies, Vault bodies + OIDC URLs,
+# MSY1 blob + snapshot JSON, mooring-http header / body / certificate parsers.
+mooring-http = { path = "../crates/mooring-http" }
+mooring-proto-kube = { path = "../crates/mooring-proto-kube" }
+mooring-vsphere = { path = "../crates/mooring-vsphere" }
+mooring-secrets = { path = "../crates/mooring-secrets" }
+mooring-sync = { path = "../crates/mooring-sync" }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
@@ -28,15 +35,13 @@ secrecy = { version = "0.10", features = ["serde"] }
 # same version as the root lockfile, no new crate in the tree.
 saphyr-parser = "=0.3.3"
 
-# A3 gates (docs/qa/fuzzing.md, "A3 targets"): each turns on targets whose parser is still being
-# written (ADR-0014..0017); without it the target is a compiling no-op so the nightly matrix is
-# ready. Activating one also needs the owning crate added under [dependencies].
+# Remaining A3 gates (docs/qa/fuzzing.md, "A3 targets"): the parser these targets need is not
+# reachable from this crate yet (Q2 handoff, "Decision needed"); without the gate the target is a
+# compiling no-op flagged by the nightly "Stub notice" step.
 [features]
-k2 = [] # mooring-core kubeconfig::resolve, jwt_exp_peek (K2)
-k3 = [] # mooring-proto-kube fuzz entries (K3)
-v1 = [] # mooring-vsphere fuzz entries (V1)
-e1 = [] # mooring-secrets fuzz entries, mooring-core external_ref parser (E1)
-s1 = [] # mooring-sync fuzz entries (S1)
+k2 = [] # jwt_exp_peek: `peek_exp` lives in src-tauri (mooring-app), not reachable without the WebView toolchain
+k3 = [] # kube_pod_list_json: `PodIn` is pub(crate); needs `mooring_proto_kube::fuzz::fuzz_pod_list_json`
+s1 = [] # s3_error_xml: the product parses no S3 XML (rusty-s3 presign + raw PUT/GET/HEAD/DELETE only)
 
 [[bin]]
 name = "known_hosts_parse"
@@ -265,6 +270,42 @@ bench = false
 [[bin]]
 name = "s3_error_xml"
 path = "fuzz_targets/s3_error_xml.rs"
+test = false
+doc = false
+bench = false
+
+# A3 Q2: entries the crates already expose but no target named (crate `fuzz` modules).
+[[bin]]
+name = "kube_portforward_frames"
+path = "fuzz_targets/kube_portforward_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_guard_path"
+path = "fuzz_targets/kube_guard_path.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_certificate_info"
+path = "fuzz_targets/http_certificate_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_response_headers"
+path = "fuzz_targets/http_response_headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_json_body"
+path = "fuzz_targets/http_json_body.rs"
 test = false
 doc = false
 bench = false
