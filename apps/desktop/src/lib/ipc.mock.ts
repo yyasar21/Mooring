@@ -111,6 +111,10 @@ export class MockTransport extends MockSecretsBase implements Ipc {
 
   protected storeOptions(id: string, options: NonNullable<ConnectionSummary["options"]>): void { this.connection(id).options = options; }
 
+  protected connectionHosts(protocol: "rdp" | "vnc"): { host: string; port: number }[] {
+    return this.connections.filter((c) => c.protocol === protocol).map((c) => ({ host: c.host, port: c.port ?? (protocol === "rdp" ? 3389 : 5900) }));
+  }
+
   protected credentialRows() { return this.creds.items; }
 
   protected sshSession(sessionId: string): MockSession | null {

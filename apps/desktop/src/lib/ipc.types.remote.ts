@@ -121,10 +121,13 @@ export const INPUT_LIMITS = { codeChars: 32, keyBytes: 32, unicodeChars: 64, min
 // ---------- trust store ----------
 
 export interface KnownCert {
-  /** `|2|salt|hmac` form: the host is never stored in the clear. */
+  /** `|2|salt|hmac` form: the host is never stored in the clear (or the plain `host:port` of a hand-written line). */
   hostHash: string;
   fingerprint: string;
   addedAt: string;
+  /** Filled by Rust (`KnownCerts::list_named`) when the hash matches one of the user's own connections; the UI never recomputes the HMAC (N-33). */
+  host?: string;
+  port?: number;
 }
 
 // ---------- web sessions (ADR-0013) ----------

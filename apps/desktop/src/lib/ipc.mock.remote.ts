@@ -22,7 +22,7 @@ import { IpcError } from "./ipc.error";
 import { T0 } from "./ipc.seed";
 import { MockExitBase } from "./ipc.mock.exit";
 import { SyntheticDesktop } from "./frame/synthetic";
-import { hashHost } from "./hostHash";
+import { hashHost, hostMatches } from "./hostHash";
 
 /** What the remote mock needs to know about a connection. */
 export interface RemoteTarget {
@@ -90,6 +90,9 @@ export abstract class MockRemoteBase extends MockExitBase {
   protected pinKey(t: RemoteTarget): string {
     return `${t.protocol}|${t.host.toLowerCase()}:${String(t.port)}`;
   }
+
+  /** `host:port` of every connection of `protocol` (`known_certs_list` names the pins that match one). */
+  protected abstract connectionHosts(protocol: "rdp" | "vnc"): { host: string; port: number }[];
 
   certificateFor(t: RemoteTarget): CertificateInfo {
     return {
@@ -304,9 +307,24 @@ export abstract class MockRemoteBase extends MockExitBase {
     this.record("session_view_only", { connection: s.info.connectionId, view_only: String(viewOnly) });
   };
 
+  /** Like `KnownCerts::list_named`: the HMAC check runs here (the mock's side of the wire), never in the UI. */
   knownCertsList: RemoteIpc["knownCertsList"] = async ({ protocol }) => {
     await this.unlocked();
-    return [...this.knownCerts.entries()].filter(([k]) => k.startsWith(`${protocol}|`)).map(([, v]) => ({ ...v }));
+    const candidates = this.connectionHosts(protocol);
+    const out: KnownCert[] = [];
+    for (const [k, v] of this.knownCerts.entries()) {
+      if (!k.startsWith(`${protocol}|`)) continue;
+      const named: KnownCert = { ...v };
+      for (const c of candidates) {
+        if (await hostMatches(v.hostHash, c.host, c.port)) {
+          named.host = c.host;
+          named.port = c.port;
+          break;
+        }
+      }
+      out.push(named);
+    }
+    return out;
   };
 
   knownCertsRemove: RemoteIpc["knownCertsRemove"] = async ({ protocol, host, port }) => {
