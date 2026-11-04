@@ -1,0 +1,16 @@
+# ADR-0014 §2: kube's own configuration loading (kubeconfig files, exec plugins, in-cluster
+# env, platform TLS) is never used; the client is built over mooring-http by hand.
+disallowed-methods = [
+  { path = "kube::Config::new", reason = "ADR-0014: build the client with KubeClient::connect" },
+  { path = "kube::Config::infer", reason = "ADR-0014: reads kubeconfig files / env; use kubeconfig::resolve" },
+  { path = "kube::Config::incluster", reason = "ADR-0014: reads in-cluster env" },
+  { path = "kube::Config::incluster_env", reason = "ADR-0014: reads in-cluster env" },
+  { path = "kube::Config::incluster_dns", reason = "ADR-0014: reads in-cluster env" },
+  { path = "kube::Config::from_kubeconfig", reason = "ADR-0014: kube's loader runs exec plugins" },
+  { path = "kube::Config::from_custom_kubeconfig", reason = "ADR-0014: kube's loader runs exec plugins" },
+  { path = "kube::config::Kubeconfig::read", reason = "ADR-0014: use mooring_core kubeconfig::resolve" },
+  { path = "kube::config::Kubeconfig::read_from", reason = "ADR-0014: use mooring_core kubeconfig::resolve" },
+  { path = "kube::config::Kubeconfig::from_yaml", reason = "ADR-0014: use mooring_core kubeconfig::resolve" },
+  { path = "kube::config::Kubeconfig::from_env", reason = "ADR-0014: use mooring_core kubeconfig::resolve" },
+  { path = "kube::Client::try_default", reason = "ADR-0014: infers config from the environment" },
+]
