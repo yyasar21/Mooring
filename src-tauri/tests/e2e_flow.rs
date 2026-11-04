@@ -16,6 +16,9 @@ use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_se
 
 #[path = "e2e_flow/credential_kinds.rs"]
 mod credential_kinds;
+// Review 6 L-38: the locked-vault matrix is checked against ipc-manifest.json.
+#[path = "e2e_flow/gate_matrix.rs"]
+mod gate_matrix;
 #[path = "e2e_flow/graphical.rs"]
 mod graphical;
 #[path = "e2e_flow/hostile.rs"]
@@ -132,7 +135,12 @@ async fn create_vault_add_connection_run_uname_close_and_lock() {
     for (name, code) in &locked {
         assert_eq!(*code, "vault.locked", "{name} after lock");
     }
-    assert_eq!(locked.len(), 44, "every vault-gated command is covered");
+    // L-38: no hard-coded count; the matrix plus the allow-list must equal the manifest.
+    let bound = support::kube_session_bound_codes(st, "no-such-cluster").await;
+    for (name, code) in &bound {
+        assert_eq!(*code, "session.not_found", "{name} after lock");
+    }
+    gate_matrix::matrix_covers_manifest(&locked, &bound);
     assert_eq!(support::change_password_while_locked(st), "vault.unlock");
     assert_eq!(vault::status(st).expect("status"), VaultStatus::Locked, "still locked");
     assert_eq!(sess::list(st).expect("session_list is not gated"), vec![]);
