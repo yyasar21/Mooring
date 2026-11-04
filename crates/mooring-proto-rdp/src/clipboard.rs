@@ -66,8 +66,10 @@ pub fn decode_text(format: u32, data: &[u8]) -> Option<String> {
     let text = match format {
         CF_UNICODETEXT => {
             let units = data
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .take_while(|&u| u != 0);
             char::decode_utf16(units).map(|r| r.unwrap_or('\u{FFFD}')).collect::<String>()
         }

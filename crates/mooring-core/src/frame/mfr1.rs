@@ -141,7 +141,7 @@ impl Mfr1Frame {
         if self.is_resized() || mirror.len() != len {
             mirror.clear();
             mirror.resize(len, 0);
-            for px in mirror.chunks_exact_mut(4) {
+            for px in mirror.as_chunks_mut::<4>().0 {
                 px[3] = 255;
             }
         }
@@ -163,8 +163,8 @@ impl Mfr1Frame {
                     for i in 0..usize::from(rect.h) {
                         let d0 = (usize::from(rect.y) + i) * stride + usize::from(rect.x) * 4;
                         let end = d0 + usize::from(rect.w) * 4;
-                        for px in mirror[d0..end].chunks_exact_mut(4) {
-                            px.copy_from_slice(rgba);
+                        for px in mirror[d0..end].as_chunks_mut::<4>().0 {
+                            *px = *rgba;
                         }
                     }
                 }

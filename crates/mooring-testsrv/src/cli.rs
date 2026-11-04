@@ -14,9 +14,9 @@ impl Args {
     /// Parses `std::env::args()`. `switches` take no value, `values` take one; any other flag
     /// is an error (a typo must not silently start a server with defaults).
     pub fn parse(switches: &[&str], values: &[&str]) -> Result<Self, String> {
-        // nosemgrep: rust.lang.security.args.args -- dev-only test-server CLI; argv[0] is skipped and
-        // every flag is validated against the allow-lists; no security decision depends on it.
-        Self::from_iter(std::env::args().skip(1), switches, values)
+        // Dev-only test-server CLI: argv[0] is skipped and every flag is validated against the
+        // allow-lists; no security decision depends on it.
+        Self::from_iter(std::env::args().skip(1), switches, values) // nosemgrep: rust.lang.security.args.args
     }
 
     pub fn from_iter(
@@ -57,6 +57,43 @@ impl Args {
     pub fn get_or<T: FromStr>(&self, name: &str, default: T) -> Result<T, String> {
         Ok(self.get(name)?.unwrap_or(default))
     }
+
+    /// The shared transport flags of the mock API binaries: `--delay-ms`, `--drip-ms`,
+    /// `--max-body` (see [`HTTP_FLAGS`]).
+    pub fn http_knobs(&self) -> Result<crate::http::HttpKnobs, String> {
+        let ms = |n: Option<u64>| n.map(std::time::Duration::from_millis);
+        let d = crate::http::HttpKnobs::default();
+        Ok(crate::http::HttpKnobs {
+            response_delay: ms(self.get("delay-ms")?),
+            drip: ms(self.get("drip-ms")?),
+            max_request_body: self.get_or("max-body", d.max_request_body)?,
+        })
+    }
+}
+
+/// Value flags every mock API binary accepts (with `--port`).
+pub const HTTP_FLAGS: [&str; 4] = ["port", "delay-ms", "drip-ms", "max-body"];
+
+/// Prints the listening address, the certificate pin and `extra` lines, then flushes.
+pub fn announce(
+    name: &str,
+    addr: std::net::SocketAddr,
+    cert: &crate::tls::TestCert,
+    extra: &[String],
+) {
+    use std::io::Write as _;
+    let mut out = std::io::stdout();
+    let _ = writeln!(out, "{name} listening on https://{addr}");
+    let _ = writeln!(out, "certificate SHA256:{}", cert.sha256_hex());
+    for line in extra {
+        let _ = writeln!(out, "{line}");
+    }
+    let _ = out.flush();
+}
+
+/// Joins the shared HTTP flags with a binary's own value flags.
+pub fn with_http_flags<'a>(own: &[&'a str]) -> Vec<&'a str> {
+    HTTP_FLAGS.iter().copied().chain(own.iter().copied()).collect()
 }
 
 #[cfg(test)]

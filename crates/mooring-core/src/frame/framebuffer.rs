@@ -165,8 +165,8 @@ impl Framebuffer {
         }
         for i in 0..usize::from(r.h) {
             let d0 = self.offset(r.x, r.y) + i * usize::from(self.width) * 4;
-            for px in self.pixels[d0..d0 + usize::from(r.w) * 4].chunks_exact_mut(4) {
-                px.copy_from_slice(&rgba);
+            for px in self.pixels[d0..d0 + usize::from(r.w) * 4].as_chunks_mut::<4>().0 {
+                *px = rgba;
             }
         }
         self.mark_dirty(r);
@@ -264,18 +264,18 @@ fn convert_row(d: &mut [u8], s: &[u8], order: PixelOrder) {
     match order {
         PixelOrder::Rgba => d.copy_from_slice(s),
         PixelOrder::Bgra => {
-            for (d, s) in d.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
-                d.copy_from_slice(&[s[2], s[1], s[0], s[3]]);
+            for (d, s) in d.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
+                *d = [s[2], s[1], s[0], s[3]];
             }
         }
         PixelOrder::Rgbx => {
-            for (d, s) in d.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
-                d.copy_from_slice(&[s[0], s[1], s[2], 255]);
+            for (d, s) in d.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
+                *d = [s[0], s[1], s[2], 255];
             }
         }
         PixelOrder::Bgrx => {
-            for (d, s) in d.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
-                d.copy_from_slice(&[s[2], s[1], s[0], 255]);
+            for (d, s) in d.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
+                *d = [s[2], s[1], s[0], 255];
             }
         }
     }
