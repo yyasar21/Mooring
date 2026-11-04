@@ -45,7 +45,7 @@ describe("web session tab", () => {
 
   it("the title is page-controlled: controls and bidi overrides are stripped, length capped", async () => {
     await openLb();
-    act(() => { mock.webSimulate("c-lb", { kind: "title", title: "Sign‮ in\u0007 ​now\n\tplease" }); });
+    act(() => { mock.webSimulate("c-lb", { kind: "title", title: "Sign\u202e in\u0007 ​now\n\tplease" }); });
     expect(screen.getByTestId("web-title")).toHaveTextContent(/^Sign in now please$/);
     expect(Array.from(sanitizeTitle("x".repeat(400)))).toHaveLength(256);
   });

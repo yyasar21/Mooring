@@ -14,6 +14,8 @@ impl Args {
     /// Parses `std::env::args()`. `switches` take no value, `values` take one; any other flag
     /// is an error (a typo must not silently start a server with defaults).
     pub fn parse(switches: &[&str], values: &[&str]) -> Result<Self, String> {
+        // nosemgrep: rust.lang.security.args.args -- dev-only test-server CLI; argv[0] is skipped and
+        // every flag is validated against the allow-lists; no security decision depends on it.
         Self::from_iter(std::env::args().skip(1), switches, values)
     }
 
