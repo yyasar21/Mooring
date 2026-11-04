@@ -40,6 +40,8 @@ use crate::state::{AppState, Settings};
 pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
+        // ADR-0010 §Capability change: file pickers for SFTP transfers (dialog:allow-open/save).
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;

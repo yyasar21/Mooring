@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"  # ADR-0010: OS file pickers for SFTP transfers (capability dialog:allow-open/save only)
 mooring-core = { path = "../crates/mooring-core", version = "0.1.0-rc.1" }
 mooring-vault = { path = "../crates/mooring-vault", version = "0.1.0-rc.1" }
 mooring-audit = { path = "../crates/mooring-audit", version = "0.1.0-rc.1" }
