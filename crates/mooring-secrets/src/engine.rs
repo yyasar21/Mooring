@@ -290,6 +290,9 @@ impl SecretsEngine {
         let SecretSourceAuth::Oidc { mount, role } = &source.auth else {
             return Err(SecretsError::Invalid("source is not an OIDC source"));
         };
+        // 6b L-34 (c): the epoch is read at entry, before the auth-URL request, so a lock that
+        // lands during it leaves the flow stale.
+        let epoch = self.cache.epoch();
         let client = VaultClient::new(source, &self.cfg)?;
         let nonce = new_nonce();
         let url = match client.oidc_auth_url(mount, role, OIDC_REDIRECT_URI, &nonce).await {
@@ -311,7 +314,7 @@ impl SecretsEngine {
             state,
             nonce,
             started: self.cache.clock().now(),
-            epoch: self.cache.epoch(),
+            epoch,
         })
     }
 

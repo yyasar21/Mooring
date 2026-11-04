@@ -233,10 +233,11 @@ impl SecretsRuntime {
     /// Vault lock: close every OIDC window, bump the lock epoch and empty the cache **before
     /// returning** (L-34: a login that completes later is refused by `TokenCache::put`), then
     /// revoke ours in the background. Nothing that needs the vault is touched, so this may run
-    /// after the key is gone.
+    /// after the key is gone. The drain comes first (6b L-34 b): once the epoch is bumped no
+    /// `begin` can pass its post-open re-check and leave an IdP window over the lock screen.
     pub fn on_lock(&self) {
-        self.oidc.fail_all(self, "locked");
         let drained = self.engine.cache().drain_for_lock();
+        self.oidc.fail_all(self, "locked");
         if drained.is_empty() {
             return;
         }

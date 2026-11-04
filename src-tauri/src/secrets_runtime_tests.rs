@@ -275,6 +275,69 @@ async fn a_lock_during_a_login_or_an_oidc_begin_leaves_nothing_behind() {
     assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "locked"));
 }
 
+/// Review 6b L-34 (a): the lock bumps the epoch only after the key wipe. The test holds the
+/// vault mutex while a lock runs: with the fixed order the lock cannot move the epoch before it
+/// wipes the key (it waits for the mutex), so a login that starts after the epoch moved finds
+/// the vault locked. With `on_lock` first, the epoch moves while the key is still readable, the
+/// login (started after the bump, material read before the wipe) caches a token that survives
+/// the lock.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_login_that_starts_after_the_lock_epoch_finds_the_key_gone() {
+    use mooring_secrets::{LoginMaterial, SecretsError};
+    let v = fx::start_default().await;
+    let f = unlocked();
+    let st = &f.state;
+    let a = fx::approle_source(st, &v);
+    let source = cmd::load(st, a.id.parse().expect("id")).expect("source");
+    let cache = Arc::clone(st.secrets.engine().cache());
+    let before = cache.epoch();
+    let inner = login_provider(st.ready());
+    // What a login reads from the still-unlocked vault.
+    let readable = std::sync::Mutex::new(Some(inner.login_material(&source).expect("unlocked")));
+    let handle = tokio::runtime::Handle::current();
+    let wait_for_bump = |deadline: Option<Duration>| {
+        let until = deadline.map(|d| std::time::Instant::now() + d);
+        while cache.epoch() == before && until.is_none_or(|u| std::time::Instant::now() < u) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        cache.epoch() != before
+    };
+    // Set when the epoch moved while the key was still readable (the old order).
+    let bumped_under_the_key = std::sync::atomic::AtomicBool::new(false);
+    let provider = |s: &SecretSource| -> Result<LoginMaterial, SecretsError> {
+        match readable.lock().expect("m").take() {
+            Some(m) if bumped_under_the_key.load(std::sync::atomic::Ordering::SeqCst) => Ok(m),
+            _ => inner.login_material(s),
+        }
+    };
+    let result = std::thread::scope(|scope| {
+        let guard = st.vault().expect("vault");
+        scope.spawn(|| {
+            let _rt = handle.enter();
+            vault::lock(st, Some("user")).expect("lock");
+        });
+        let bumped = wait_for_bump(Some(Duration::from_millis(500)));
+        bumped_under_the_key.store(bumped, std::sync::atomic::Ordering::SeqCst);
+        // The login runs off the runtime's threads (this one drives the test future).
+        let login = || scope.spawn(|| handle.block_on(st.secrets.engine().test_source(&source, &provider)));
+        if !bumped {
+            drop(guard);
+            assert!(wait_for_bump(None));
+            return login().join().expect("login thread");
+        }
+        // Old order: the login starts with the bumped epoch while the key is still there.
+        let r = login().join().expect("login thread");
+        drop(guard);
+        r
+    });
+    let e = result.expect_err("locked");
+    assert_eq!(e.category().as_str(), "locked", "{e}");
+    st.secrets.flush().await;
+    assert!(cache.is_empty(), "nothing cached after the lock");
+    assert_eq!(v.srv.live_issued_tokens(), 0, "no token outlives the lock");
+    assert_eq!(vault::status(st).expect("status"), crate::commands::vault::VaultStatus::Locked);
+}
+
 /// Review 6 N-43: an OIDC window audits its first 16 refused navigations, counts the rest,
 /// is closed at 64 (`failed: navigation_flood`) and writes one summary row.
 #[tokio::test]
