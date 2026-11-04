@@ -1,9 +1,12 @@
-//! The RDP, VNC and web option structs.
+//! The RDP, VNC, web and Kubernetes option structs.
 
 use serde::{Deserialize, Serialize};
 
 use super::{check_ca_pem, invalid, ClipboardPolicy, MaxFps};
+use crate::credential::is_forbidden;
+use crate::credential::kubeconfig::{is_dns_label, is_dns_subdomain, KubeServer, MAX_CONTEXT_NAME};
 use crate::error::Result;
+use crate::CredentialKind;
 
 /// Keyboard layouts (KLID) accepted for RDP (ADR-0011 closed list): en-US, tr-TR Q, tr-TR F,
 /// de-DE, fr-FR, en-GB, it-IT, es-ES, ru-RU.
@@ -228,4 +231,179 @@ fn check_url(url: &str, allow_http: bool, origin_only: bool) -> Result<()> {
         return Err(invalid("allowedOrigins entries are origins, without a path"));
     }
     Ok(())
+}
+
+/// Most extra namespaces a Kubernetes connection lists when `list namespaces` is denied.
+pub const MAX_ALLOWED_NAMESPACES: usize = 64;
+/// `logTailLines` range (default 1000).
+pub const LOG_TAIL_LINES: std::ops::RangeInclusive<u32> = 1..=100_000;
+/// `maxLogBytes` range (default 8 MiB, ADR-0014 §5).
+pub const MAX_LOG_BYTES: std::ops::RangeInclusive<u64> = 1..=64 * 1024 * 1024;
+const DEFAULT_LOG_TAIL_LINES: u32 = 1000;
+const DEFAULT_MAX_LOG_BYTES: u64 = 8 * 1024 * 1024;
+
+const fn default_tail() -> u32 {
+    DEFAULT_LOG_TAIL_LINES
+}
+
+const fn default_log_bytes() -> u64 {
+    DEFAULT_MAX_LOG_BYTES
+}
+
+/// The fixed `exec` command allow-list (ADR-0014 owner decision 3; no custom argv in A3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum ExecCommand {
+    /// `/bin/sh` (default).
+    #[default]
+    #[serde(rename = "/bin/sh")]
+    BinSh,
+    /// `/bin/bash`.
+    #[serde(rename = "/bin/bash")]
+    BinBash,
+    /// `/bin/ash` (Alpine / `BusyBox`).
+    #[serde(rename = "/bin/ash")]
+    BinAsh,
+    /// `sh` from the container's `PATH`.
+    #[serde(rename = "sh")]
+    Sh,
+    /// `bash` from the container's `PATH`.
+    #[serde(rename = "bash")]
+    Bash,
+}
+
+impl ExecCommand {
+    /// Every allowed command, in UI order.
+    pub const ALL: [Self; 5] = [Self::BinSh, Self::BinBash, Self::BinAsh, Self::Sh, Self::Bash];
+
+    /// The single argv element sent as `command=` (also `argv0` in the audit event).
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BinSh => "/bin/sh",
+            Self::BinBash => "/bin/bash",
+            Self::BinAsh => "/bin/ash",
+            Self::Sh => "sh",
+            Self::Bash => "bash",
+        }
+    }
+
+    /// Parse a wire name (closed list).
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.as_str() == s)
+    }
+}
+
+/// `KubeConnOptions = { context|null, server|null, caPem|null, tlsServerName|null,
+/// namespace|null, allowedNamespaces, execCommand, logTailLines, maxLogBytes,
+/// portForwardEnabled }` (ADR-0014 §3). `server` / `caPem` are for `kube_token` credentials
+/// (owner decision 2); see [`Self::check_credential`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KubeConnOptions {
+    /// Kubeconfig context, `null` = `current-context`.
+    #[serde(default)]
+    pub context: Option<String>,
+    /// API server (`https://…`), `kube_token` only.
+    #[serde(default)]
+    pub server: Option<String>,
+    /// Cluster CA (certificate PEM only, ≤ 64 KiB), `kube_token` only.
+    #[serde(default)]
+    pub ca_pem: Option<String>,
+    /// TLS verification name override (lower-case DNS name).
+    #[serde(default)]
+    pub tls_server_name: Option<String>,
+    /// Default namespace (RFC 1123 label); overrides the context namespace.
+    #[serde(default)]
+    pub namespace: Option<String>,
+    /// Namespaces offered when `list namespaces` is denied (≤ 64, unique labels).
+    #[serde(default)]
+    pub allowed_namespaces: Vec<String>,
+    /// Shell for `exec` (default `/bin/sh`).
+    #[serde(default)]
+    pub exec_command: ExecCommand,
+    /// Default `tailLines` for the logs view (1..=100 000, default 1000).
+    #[serde(default = "default_tail")]
+    pub log_tail_lines: u32,
+    /// `limitBytes` per log stream (1 B..=64 MiB, default 8 MiB).
+    #[serde(default = "default_log_bytes")]
+    pub max_log_bytes: u64,
+    /// Whether pod port-forwards may be opened (default `true`; loopback, ADR-0010).
+    #[serde(default = "yes")]
+    pub port_forward_enabled: bool,
+}
+
+impl Default for KubeConnOptions {
+    fn default() -> Self {
+        Self {
+            context: None,
+            server: None,
+            ca_pem: None,
+            tls_server_name: None,
+            namespace: None,
+            allowed_namespaces: Vec::new(),
+            exec_command: ExecCommand::BinSh,
+            log_tail_lines: DEFAULT_LOG_TAIL_LINES,
+            max_log_bytes: DEFAULT_MAX_LOG_BYTES,
+            port_forward_enabled: true,
+        }
+    }
+}
+
+impl KubeConnOptions {
+    /// Shape rules that hold for every credential kind.
+    pub fn validate(&self) -> Result<()> {
+        if let Some(c) = &self.context {
+            if c.is_empty() || c.len() > MAX_CONTEXT_NAME || c.chars().any(is_forbidden) {
+                return Err(invalid("context is empty, too long or has control characters"));
+            }
+        }
+        if let Some(s) = &self.server {
+            KubeServer::parse(s).map_err(invalid)?;
+        }
+        check_ca_pem(self.ca_pem.as_ref())?;
+        if self.tls_server_name.as_deref().is_some_and(|n| !is_dns_subdomain(n)) {
+            return Err(invalid("tlsServerName must be a lower-case DNS name"));
+        }
+        if self.namespace.as_deref().is_some_and(|n| !is_dns_label(n)) {
+            return Err(invalid("namespace must be a lower-case RFC 1123 label"));
+        }
+        if self.allowed_namespaces.len() > MAX_ALLOWED_NAMESPACES {
+            return Err(invalid("allowedNamespaces holds at most 64 namespaces"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for ns in &self.allowed_namespaces {
+            if !is_dns_label(ns) || !seen.insert(ns.as_str()) {
+                return Err(invalid("allowedNamespaces entries must be unique RFC 1123 labels"));
+            }
+        }
+        if !LOG_TAIL_LINES.contains(&self.log_tail_lines) {
+            return Err(invalid("logTailLines must be between 1 and 100000"));
+        }
+        if !MAX_LOG_BYTES.contains(&self.max_log_bytes) {
+            return Err(invalid("maxLogBytes must be between 1 byte and 64 MiB"));
+        }
+        Ok(())
+    }
+
+    /// Rules that depend on the connection's credential kind (ADR-0014 §3): `kube_token`
+    /// needs `server` and `caPem` and has no `context`; `kubeconfig` takes both from the file
+    /// and refuses them here. Call after [`Self::validate`] once the credential is known.
+    pub fn check_credential(&self, kind: CredentialKind) -> Result<()> {
+        match kind {
+            CredentialKind::KubeToken if self.server.is_none() || self.ca_pem.is_none() => {
+                Err(invalid("a kube_token connection needs server and caPem"))
+            }
+            CredentialKind::KubeToken if self.context.is_some() => {
+                Err(invalid("context applies to kubeconfig credentials only"))
+            }
+            CredentialKind::Kubeconfig if self.server.is_some() || self.ca_pem.is_some() => {
+                Err(invalid("server and caPem come from the kubeconfig; leave them empty"))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// The validated [`Self::server`].
+    pub fn server_url(&self) -> Option<KubeServer> {
+        self.server.as_deref().and_then(|s| KubeServer::parse(s).ok())
+    }
 }

@@ -1,5 +1,7 @@
 use super::*;
-use mooring_core::options::{RdpConnOptions, VncConnOptions, VncSecurity, WebConnOptions};
+use mooring_core::options::{
+    ExecCommand, KubeConnOptions, RdpConnOptions, VncConnOptions, VncSecurity, WebConnOptions,
+};
 use mooring_core::{Connection, Protocol};
 use rusqlite::Connection as Raw;
 
@@ -102,6 +104,33 @@ fn set_and_read_back_options() {
     let missing = ConnectionId::new();
     assert!(matches!(s.connection_options(missing), Err(StoreError::NotFound { .. })));
     assert!(matches!(s.set_connection_options(missing, &vnc), Err(StoreError::NotFound { .. })));
+}
+
+/// ADR-0014 K2: no migration; an existing Kubernetes row (`{}`) reads as `KubeConnOptions`
+/// defaults, and a stored value outside the exec allow-list is refused on read.
+#[test]
+fn kubernetes_rows_use_kube_options_without_a_migration() {
+    let (s, id) = store_with(Protocol::Kubernetes);
+    assert_eq!(
+        s.connection_options(id).expect("{}"),
+        ProtocolOptions::Kube(KubeConnOptions::default())
+    );
+    let kube = ProtocolOptions::Kube(KubeConnOptions {
+        namespace: Some("apps".into()),
+        exec_command: ExecCommand::BinAsh,
+        port_forward_enabled: false,
+        ..KubeConnOptions::default()
+    });
+    assert_eq!(s.set_connection_options(id, &kube).expect("set"), kube);
+    let none = ProtocolOptions::default_for(Protocol::Ssh);
+    assert!(s.set_connection_options(id, &none).is_err(), "SSH `{{}}` does not fit kubernetes");
+    s.conn
+        .execute(
+            "UPDATE connection SET options_json = '{\"execCommand\": \"/bin/zsh\"}' WHERE id = ?1",
+            [id.to_string()],
+        )
+        .expect("raw write");
+    assert!(matches!(s.connection_options(id), Err(StoreError::Invalid { field: "options", .. })));
 }
 
 #[test]
