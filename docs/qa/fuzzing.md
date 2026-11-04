@@ -57,6 +57,32 @@ Each one is an `entries/<name>.rs` with `pub fn run(&[u8])`, a seed corpus and a
 the owning crate's `tests/fuzz_corpus.rs`, as for the targets above. The fingerprint, OTP and
 account targets go in `mooring-core` and can land without any API change.
 
+## A2 targets (gated scaffolding)
+
+These targets are in `fuzz/Cargo.toml` and the nightly matrix already, but their parsers are
+still being written (ADR-0011/0012 task split). Until the gate's feature is turned on, `run` is
+a no-op that compiles, the wrapper carries a `PENDING` marker, and the nightly job prints a
+`::warning::` for it. Nothing is fuzzed yet: a green run of these four proves only that they build.
+
+| Target | Entry | Gate | Parser (owner) | Name in the ADR |
+| --- | --- | --- | --- | --- |
+| `mfr1_decode` | `mfr1.rs` | `r1` | `mooring_core::frame::decode_mfr1` (R1) | (MFR1 is ours; ADR-0011 frame path) |
+| `known_certs_parse` | `known_certs.rs` | `r1` | `mooring_core::known_certs::parse_bytes` (R1) | `known_certs_parse` |
+| `rfb_server_msg` | `rfb_server_msg.rs` | `r4` | RFB server-message decoder (R4) | `rfb_server_message` |
+| `rdp_fastpath` | `rdp_fastpath.rs` | `r3` | RDP active-stage driver (R3) | `rdp_active_stage` |
+
+To activate one when its parser has merged: build it with the feature
+(`cargo +nightly fuzz build mfr1_decode --features r1`), fix the call in the entry to the real
+signature (the `r1` branches name the functions from the task brief and have never been compiled),
+fill in the `TODO` invariants, then delete the `cfg` gate and the `PENDING` marker and add the
+stable replay in the owning crate's `tests/fuzz_corpus.rs`. Seeds are in `fuzz/corpus/<target>/`
+(synthetic, fake hosts only); the RFB test server (`mooring-testsrv`, docs/qa/test-servers.md)
+can record more RFB seeds for every encoding.
+
+The ADR also lists `certificate_info`, `cliprdr_text`, `framebuffer_ops`, `rfb_handshake`,
+`zrle_decode`, `tight_decode`, `raw_copyrect_bounds`, `vencrypt_negotiation` and `cut_text`, plus
+pinned upstream IronRDP targets. Those are task Q1 and are not scaffolded here.
+
 ## Layout
 
 ```
