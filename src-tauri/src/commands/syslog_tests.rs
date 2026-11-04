@@ -159,16 +159,26 @@ async fn heartbeats_are_written_only_while_the_mirror_runs() {
     let (server, port) = udp_collector();
     set(&f.state, udp(port, true), TlsRoots::System).expect("set");
     recv(&server);
-    let looped = tokio::time::timeout(HEARTBEAT * 3 + HEARTBEAT / 2, heartbeat_loop(|seq| {
-        heartbeat(&f.state, seq)
-    }));
-    assert!(looped.await.is_err(), "the loop runs until stopped");
+    // Deterministic: stop the loop after exactly two written heartbeats (no wall-clock count;
+    // the old 3.5-period window flaked under load). The generous bound only catches a hang.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let started = std::time::Instant::now();
+    let beats = heartbeat_loop(|seq| {
+        let wrote = heartbeat(&f.state, seq);
+        let _ = tx.send(seq);
+        wrote
+    });
+    tokio::select! {
+        () = beats => unreachable!("the loop runs until stopped"),
+        () = async { while rx.recv().await != Some(2) {} } => {}
+        () = tokio::time::sleep(HEARTBEAT * 50) => panic!("no second heartbeat"),
+    }
+    assert!(started.elapsed() >= HEARTBEAT * 2, "one heartbeat per period, the first after one");
     let first = recv(&server);
     assert!(first.contains(" audit_heartbeat ") && first.contains(r#""seq":1"#), "{first}");
     assert!(recv(&server).contains(r#""seq":2"#));
     let audit = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("audit");
-    let beats = audit.matches(r#""event":"audit_heartbeat""#).count();
-    assert!((2..=3).contains(&beats), "one per period: {beats}");
+    assert_eq!(audit.matches(r#""event":"audit_heartbeat""#).count(), 2, "one per beat");
 }
 
 #[test]
