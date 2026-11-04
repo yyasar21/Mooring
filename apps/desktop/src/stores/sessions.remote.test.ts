@@ -65,12 +65,16 @@ describe("remote session tabs", () => {
     expect(await useSessions.getState().setViewOnly(id, false)).toBe(true);
     expect(tab()?.viewOnly).toBe(false);
 
-    mock.reconnectDelaysMs = [5, 5];
+    // A delay long enough that the reconnecting state is observable on a slow CI runner
+    // (Windows, 2026-11-04), then poll until the cycle completes.
+    mock.reconnectDelaysMs = [150, 150];
     mock.dropLink(tab()?.sessionId ?? "", 2);
     await settle(1);
-    expect(tab()).toMatchObject({ state: "reconnecting", reconnect: { attempt: 1, delayMs: 5 } });
-    await new Promise((r) => setTimeout(r, 30));
-    await settle();
+    expect(tab()).toMatchObject({ state: "reconnecting", reconnect: { attempt: 1, delayMs: 150 } });
+    for (let i = 0; i < 40 && tab()?.state !== "connected"; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      await settle(1);
+    }
     expect(tab()).toMatchObject({ state: "connected", reconnect: null });
   });
 
