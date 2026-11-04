@@ -1,21 +1,33 @@
-//! Fuzz entry `kube_exec_frames`: WebSocket channel frames from the API server (stdout/stderr/status) during exec (ADR-0014 §5).
-//! Shared by `fuzz/fuzz_targets/kube_exec_frames.rs` and, once the parser lands, a stable corpus replay in
-//! the owning crate's `tests/fuzz_corpus.rs`.
-//!
-//! PENDING(K3): `mooring_proto_kube::fuzz::exec_frames(data)` is written by rust-core K3 (mooring-proto-kube). Until it exists the target
-//! is built without the `k3` feature and `run` is a no-op, so the nightly matrix and the
-//! libFuzzer wrapper already compile. When it lands: add the crate to `fuzz/Cargo.toml`, build
-//! with `--features k3`, check the call below against the real signature, add the stable
-//! replay, then remove the gate (docs/qa/fuzzing.md, "A3 targets").
+//! Fuzz entry `kube_exec_frames`: one server → client exec WebSocket message (channel byte +
+//! payload; channel 3 carries a `metav1.Status` document) (ADR-0014 §5). Shared by
+//! `fuzz/fuzz_targets/kube_exec_frames.rs` and the stable replay in
+//! `crates/mooring-proto-kube/tests/fuzz_corpus.rs`.
 
-/// Never panics. With the parser: no panic; channel 3 status JSON maps to Closed { code, reason }; payloads above 64 KiB are refused.
-#[cfg(feature = "k3")]
-pub fn run(data: &[u8]) {
-    mooring_proto_kube::fuzz::exec_frames(data);
-}
+use mooring_proto_kube::{decode_exec, ExecFrame, ExecStatus, FrameError};
 
-/// Stub until the parser merges (see the module docs).
-#[cfg(not(feature = "k3"))]
+/// Never panics. An empty message is `Empty`; stdout / stderr borrow the payload unchanged; a
+/// status over 64 KiB is `Malformed`; a failure reason is clean text ≤ 256 chars (the crate
+/// entry asserts that); decoding is deterministic.
 pub fn run(data: &[u8]) {
-    let _ = data;
+    mooring_proto_kube::fuzz::fuzz_exec_frame(data);
+    let first = decode_exec(data);
+    assert_eq!(first, decode_exec(data), "decode_exec is not deterministic");
+    match (data.split_first(), first) {
+        (None, r) => assert_eq!(r, Err(FrameError::Empty)),
+        (Some((1, rest)), Ok(ExecFrame::Stdout(p)))
+        | (Some((2, rest)), Ok(ExecFrame::Stderr(p))) => {
+            assert_eq!(p, rest, "payload was copied or trimmed");
+        }
+        (Some((3, rest)), r) => {
+            if rest.len() > 64 * 1024 {
+                assert_eq!(r, Err(FrameError::Malformed), "oversized status was parsed");
+            }
+            if let Ok(ExecFrame::Status(ExecStatus::Failure(s))) = r {
+                assert!(s.chars().count() <= 256);
+            }
+        }
+        (Some((255, rest)), r) => assert_eq!(r.is_ok(), rest.len() == 1),
+        (Some((1 | 2, _)), _) => panic!("stdout / stderr message refused"),
+        (Some(_), r) => assert!(matches!(r, Err(FrameError::Channel)), "unknown channel accepted"),
+    }
 }

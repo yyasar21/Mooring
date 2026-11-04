@@ -193,6 +193,7 @@ async fn two_devices_push_pull_merge_fork_and_rollback() {
     assert_eq!(b.now().await.expect_err("cas").code, "sync.conflict");
     assert!(!b.names().contains(&"after".to_owned()), "a merge is applied only after the write");
     assert_eq!(b.status().state, "error");
+    s3.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -241,6 +242,7 @@ async fn configure_refusals_trust_rejection_and_disable() {
     assert_eq!(a.status().state, "disabled");
     assert!(a.audits().contains(&"sync.disabled".to_owned()));
     assert_eq!(disable(st, &a.hub, None, None, false).await.expect_err("again").code, "sync.not_configured");
+    s3.recorder().assert_no_violations();
 }
 
 #[tokio::test]
@@ -280,6 +282,7 @@ async fn vault_join_refusals() {
     vault::lock(&d.f.state, None).expect("lock");
     let e = d.join_from_locked(&s3, &vault_id).await;
     assert_eq!(e.code, "vault.locked");
+    s3.recorder().assert_no_violations();
 }
 
 impl Dev {
@@ -316,6 +319,7 @@ async fn locked_vault_refuses_every_command_and_stops_the_runner() {
     assert_eq!(disable(st, &a.hub, None, None, true).await.expect_err("d").code, "vault.locked");
     let input = ConfigureInput { backend: backend(&s3), credential_id: mooring_vault::Uuid::new_v4().to_string(), interval_minutes: None };
     assert_eq!(configure(st, &a.hub, Some(&a.p), None, input).await.expect_err("c").code, "vault.locked");
+    s3.recorder().assert_no_violations();
 }
 
 #[test]

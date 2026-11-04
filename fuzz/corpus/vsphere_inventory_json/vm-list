@@ -1,1 +1,1 @@
-[{"vm": "vm-42", "name": "web-01", "power_state": "POWERED_ON", "cpu_count": 2, "memory_size_MiB": 4096}]
+[{"vm":"vm-42","name":"web-01","power_state":"POWERED_ON","cpu_count":2,"memory_size_MiB":4096},{"vm":"vm-43","name":"db-01","power_state":"POWERED_OFF"}]

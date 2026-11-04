@@ -1,21 +1,17 @@
-//! Fuzz entry `vsphere_session_token`: POST /api/session response body (a JSON string) (ADR-0015 §1).
-//! Shared by `fuzz/fuzz_targets/vsphere_session_token.rs` and, once the parser lands, a stable corpus replay in
-//! the owning crate's `tests/fuzz_corpus.rs`.
-//!
-//! PENDING(V1): `mooring_vsphere::fuzz::session_token(data)` is written by rust-core V1 (mooring-vsphere). Until it exists the target
-//! is built without the `v1` feature and `run` is a no-op, so the nightly matrix and the
-//! libFuzzer wrapper already compile. When it lands: add the crate to `fuzz/Cargo.toml`, build
-//! with `--features v1`, check the call below against the real signature, add the stable
-//! replay, then remove the gate (docs/qa/fuzzing.md, "A3 targets").
+//! Fuzz entry `vsphere_session_token`: `POST /api/session` response body (a JSON string)
+//! (ADR-0015 §1). Shared by `fuzz/fuzz_targets/vsphere_session_token.rs` and the stable replay
+//! in `crates/mooring-vsphere/tests/fuzz_corpus.rs`.
 
-/// Never panics. With the parser: no panic; only a bounded JSON string of visible ASCII is accepted.
-#[cfg(feature = "v1")]
-pub fn run(data: &[u8]) {
-    mooring_vsphere::fuzz::session_token(data);
-}
+use mooring_vsphere::parse_session_token;
 
-/// Stub until the parser merges (see the module docs).
-#[cfg(not(feature = "v1"))]
+/// Never panics. Only a JSON string of 1..=256 visible ASCII bytes is accepted (the crate
+/// entry asserts that); a body over 4 KiB is refused; parsing is deterministic.
 pub fn run(data: &[u8]) {
-    let _ = data;
+    mooring_vsphere::fuzz::fuzz_session_token(data);
+    let first = parse_session_token(data).ok();
+    let again = parse_session_token(data).ok();
+    assert_eq!(first.is_some(), again.is_some(), "parse_session_token is not deterministic");
+    if data.len() > 4 * 1024 {
+        assert!(first.is_none(), "oversized session body accepted");
+    }
 }
