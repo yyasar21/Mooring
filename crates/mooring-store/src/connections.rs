@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use mooring_core::{Connection, ConnectionId, FolderId, Role};
+use mooring_core::{Connection, ConnectionId, FolderId, Protocol, Role};
 use rusqlite::{params, OptionalExtension, Row};
 
 use crate::error::{invalid, not_found, Result, StoreError};
@@ -231,6 +231,32 @@ impl Store {
         raws.into_iter().map(|r| self.decode(r)).collect()
     }
 
+    /// Ids of every connection of `protocol` inside `folder` or any folder below it (one
+    /// recursive query, bounded by the folder count), sorted. `folder_delete` uses it to find
+    /// the web stores and windows the SQL cascade would otherwise leave behind (review 5 L-30).
+    pub fn connection_ids_under(
+        &self,
+        folder: FolderId,
+        protocol: Protocol,
+    ) -> Result<Vec<ConnectionId>> {
+        let mut stmt = self.conn.prepare(
+            "WITH RECURSIVE
+               bound(n) AS (SELECT count(*) FROM folder),
+               sub(id, depth) AS (
+                 SELECT id, 0 FROM folder WHERE id = ?1
+                 UNION ALL
+                 SELECT f.id, sub.depth + 1 FROM folder f JOIN sub ON f.parent_id = sub.id, bound
+                 WHERE sub.depth <= bound.n
+               )
+             SELECT c.id FROM connection c JOIN sub ON c.folder_id = sub.id
+             WHERE c.protocol = ?2 ORDER BY c.id",
+        )?;
+        let ids = stmt
+            .query_map(params![folder.to_string(), protocol.name()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.iter().map(|id| parse_id(id)).collect()
+    }
+
     pub(crate) fn tags_of(&self, id: &str) -> Result<Vec<String>> {
         let mut stmt = self
             .conn
@@ -293,6 +319,33 @@ mod tests {
         assert!(check_host("").is_err());
         assert!(check_host(&"h".repeat(2049)).is_err());
         assert!(check_host("h\u{7}").is_err());
+    }
+
+    #[test]
+    fn connection_ids_under_walks_the_subtree_by_protocol() {
+        let s = Store::open_in_memory().expect("open");
+        let root = s.create_folder(None, "root").expect("root");
+        let a = s.create_folder(Some(root.id), "a").expect("a");
+        let b = s.create_folder(Some(a.id), "b").expect("b");
+        let other = s.create_folder(Some(root.id), "other").expect("other");
+        let mk = |folder: FolderId, name: &str, p: Protocol| {
+            let c = Connection::new(folder, name, p, "h.example.test").expect("valid");
+            s.create_connection(&c).expect("create").id
+        };
+        let web_a = mk(a.id, "wa", Protocol::Web);
+        let web_b = mk(b.id, "wb", Protocol::Web);
+        mk(b.id, "ssh", Protocol::Ssh);
+        let web_other = mk(other.id, "wo", Protocol::Web);
+        let mut want = vec![web_a, web_b];
+        want.sort();
+        assert_eq!(s.connection_ids_under(a.id, Protocol::Web).expect("under a"), want);
+        assert!(s.connection_ids_under(b.id, Protocol::Ssh).expect("ssh").len() == 1);
+        assert_eq!(s.connection_ids_under(root.id, Protocol::Web).expect("root").len(), 3);
+        assert_eq!(s.connection_ids_under(other.id, Protocol::Web).expect("other"), [web_other]);
+        assert!(s
+            .connection_ids_under(FolderId::new(), Protocol::Web)
+            .expect("missing")
+            .is_empty());
     }
 
     #[test]

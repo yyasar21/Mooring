@@ -18,9 +18,9 @@ use std::time::Duration;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub use conn::{
-    ExecCommand, KubeConnOptions, RdpConnOptions, VncConnOptions, VncSecurity, WebConnOptions,
-    DEFAULT_KEYBOARD_LAYOUT, KEYBOARD_LAYOUTS, LOG_TAIL_LINES, MAX_ALLOWED_NAMESPACES,
-    MAX_ALLOWED_ORIGINS, MAX_LOG_BYTES, MAX_URL,
+    is_localhost_subdomain, ExecCommand, KubeConnOptions, RdpConnOptions, VncConnOptions,
+    VncSecurity, WebConnOptions, DEFAULT_KEYBOARD_LAYOUT, KEYBOARD_LAYOUTS, LOG_TAIL_LINES,
+    MAX_ALLOWED_NAMESPACES, MAX_ALLOWED_ORIGINS, MAX_LOG_BYTES, MAX_URL,
 };
 pub use vsphere::{
     VsphereConnOptions, DEFAULT_REFRESH_MINUTES, MAX_REFRESH_MINUTES, MIN_REFRESH_MINUTES,
