@@ -1,6 +1,6 @@
 [package]
 name = "mooring-proto-rdp"
-description = "Mooring RDP session (IronRDP) — Phase A stub"
+description = "Mooring RDP session (IronRDP): NLA, certificate TOFU, active stage, cliprdr text (ADR-0011)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,3 +15,36 @@ mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+time = { workspace = true }
+# IronRDP component crates at the ADR-0011 versions (MIT OR Apache-2.0). No meta crate, no
+# ironrdp-tls (its default policy accepts any certificate), no rdpsnd/rdpdr/gateway/EGFX.
+ironrdp-connector = "0.12"
+ironrdp-session = "0.13"
+ironrdp-tokio = { version = "0.12", default-features = false }
+ironrdp-graphics = "0.11"
+ironrdp-pdu = "0.11"
+ironrdp-cliprdr = "0.9"
+ironrdp-displaycontrol = "0.10"
+ironrdp-input = "0.9"
+# DrdynvcClient hosts the Display Control DVC; same version ironrdp-session already pulls in.
+ironrdp-dvc = "0.10"
+# SvcMessage / WriteBuf types used at the channel boundary; already in the tree via ironrdp-session.
+ironrdp-svc = "0.10"
+ironrdp-core = "0.3"
+# Our own TLS client (ADR-0011 §Trust): rustls with ring only, system roots via the OS store.
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+# Async TLS stream over tokio for rustls; ring provider only (aws-lc-rs default off).
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+# Leaf DER -> CertificateInfo (subject, issuer, validity, SAN, SPKI for CredSSP); already in the
+# lockfile via rcgen, pure Rust, default features off (no ring/aws-lc verification code).
+x509-parser = { version = "0.18", default-features = false }
+# TCP keepalive on the RDP socket (RDP itself has no keepalive); same version tokio already pulls in.
+socket2 = "0.6"
+
+[dev-dependencies]
+proptest = { workspace = true }
+rcgen = { workspace = true }
+tempfile = { workspace = true }
