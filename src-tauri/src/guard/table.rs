@@ -84,4 +84,11 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("web_zoom", Scope::Main),
     ("web_list", Scope::Main),
     ("window_attach", Scope::Session),
+    // ADR-0017 §5 (A3 S2): vault sync, main only.
+    ("sync_configure", Scope::Main),
+    ("sync_status", Scope::Main),
+    ("sync_now", Scope::Main),
+    ("sync_resolve_fork", Scope::Main),
+    ("sync_disable", Scope::Main),
+    ("vault_join", Scope::Main),
 ];

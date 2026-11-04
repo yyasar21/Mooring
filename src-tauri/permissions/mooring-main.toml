@@ -74,4 +74,10 @@ permissions = [
   "allow-web-zoom",
   "allow-web-list",
   "allow-window-attach",
+  "allow-sync-configure",
+  "allow-sync-status",
+  "allow-sync-now",
+  "allow-sync-resolve-fork",
+  "allow-sync-disable",
+  "allow-vault-join",
 ]

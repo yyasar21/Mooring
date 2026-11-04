@@ -29,6 +29,8 @@ mooring-store = { path = "../crates/mooring-store", version = "0.1.0-rc.1" }
 mooring-proto-ssh = { path = "../crates/mooring-proto-ssh", version = "0.1.0-rc.1" }
 mooring-proto-rdp = { path = "../crates/mooring-proto-rdp", version = "0.1.0-rc.1" } # ADR-0011: RDP sessions (IronRDP); R-RDP-FFI tree accepted by the owner
 mooring-proto-vnc = { path = "../crates/mooring-proto-vnc", version = "0.1.0-rc.1" } # ADR-0012: VNC sessions (own RFB 3.8 client)
+mooring-sync = { path = "../crates/mooring-sync", version = "0.1.0-rc.1" } # ADR-0017 S2: vault sync commands (internal crate)
+mooring-http = { path = "../crates/mooring-http", version = "0.1.0-rc.1" } # ADR-0017 S2: trust-prompt errors of the sync Gate (internal crate)
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }

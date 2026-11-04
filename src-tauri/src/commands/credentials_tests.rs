@@ -53,6 +53,7 @@ fn every_kind_can_be_created_from_its_schema() {
         ("prompt", json!({}), vec![]),
         ("external_ref", json!({"provider": "vault", "reference": "kv/app", "target_kind": "api_token"}), vec![]),
         ("sudo_become", json!({"method": "sudo"}), vec![]),
+        ("s3_access_key", json!({"access_key_id": "AKIDEXAMPLE"}), vec![("secret_access_key", "s")]),
     ];
     assert_eq!(cases.len(), kinds().len());
     for (kind, fields, secrets) in cases {

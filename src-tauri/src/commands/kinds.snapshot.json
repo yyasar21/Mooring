@@ -894,5 +894,66 @@
     }
    }
   ]
+ },
+ {
+  "kind": "s3_access_key",
+  "label": "S3 access key",
+  "group": "Vault sync",
+  "protocols": [],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "access_key_id",
+    "label": "Access key ID",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "AKIA…",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "region",
+    "label": "Region",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "us-east-1",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 64,
+     "format": "text"
+    }
+   },
+   {
+    "name": "secret_access_key",
+    "label": "Secret access key",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 1024,
+     "format": "text"
+    }
+   },
+   {
+    "name": "session_token",
+    "label": "Session token",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional (STS)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 8192,
+     "format": "text"
+    }
+   }
+  ]
  }
 ]

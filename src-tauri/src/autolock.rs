@@ -59,6 +59,8 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "session_frame_ack",
     // ADR-0013: polled by the web-session list (R5).
     "web_list",
+    // ADR-0017 (A3 S2): the sync badge polls it.
+    "sync_status",
 ];
 
 /// Payload of [`LOCKED_EVENT`].
