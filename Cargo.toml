@@ -8,6 +8,7 @@ members = [
   "crates/mooring-proto-ssh",
   "crates/mooring-proto-rdp",
   "crates/mooring-proto-vnc",
+  "crates/mooring-http",
   "crates/mooring-testsrv", # dev-only loopback RFB/RDP test servers (A2 Q2); never a product dependency
   "src-tauri",
 ]
@@ -21,6 +22,7 @@ default-members = [
   "crates/mooring-proto-ssh",
   "crates/mooring-proto-rdp",
   "crates/mooring-proto-vnc",
+  "crates/mooring-http",
 ]
 
 [workspace.package]
