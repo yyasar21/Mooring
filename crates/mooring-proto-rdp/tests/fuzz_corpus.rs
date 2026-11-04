@@ -10,6 +10,8 @@ mod cliprdr_text;
 mod fastpath;
 #[path = "../../../fuzz/entries/rdp_input.rs"]
 mod input;
+#[path = "../../../fuzz/entries/rdp_reassembly.rs"]
+mod reassembly;
 #[path = "../../../fuzz/entries/replay.rs"]
 mod replay;
 
@@ -47,4 +49,9 @@ fn rdp_cliprdr_text_corpus() {
 #[test]
 fn rdp_input_corpus() {
     assert!(replay::replay("rdp_input", input::run) >= 2);
+}
+
+#[test]
+fn rdp_reassembly_corpus() {
+    assert!(replay::replay("rdp_reassembly", reassembly::run) >= 4);
 }

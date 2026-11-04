@@ -6,6 +6,8 @@
 //! | `rfb_server_msg` (server messages after `ServerInit` → `FrameSink`) | [`server_messages`] |
 //! | `vnc_zrle` (one ZRLE rect payload) | [`zrle`] |
 //! | `vnc_tight` (one Tight rect payload) | [`tight`] |
+//! | `rfb_handshake` (version, security list / reason, `ServerInit`; pre-TLS, T3) | [`handshake`] |
+//! | `vencrypt_negotiation` (`VeNCrypt` version, ack, subtypes, subtype ack) | [`vencrypt`] |
 
 use mooring_core::frame::{FrameSink, PixelOrder};
 
@@ -114,6 +116,71 @@ pub fn tight(data: &[u8]) {
     }
 }
 
+/// Run `parse` on `buf`; on `Done` return the rest. `Need` must ask for more than it has.
+fn step<'a, T>(
+    buf: &'a [u8],
+    parse: impl Fn(&[u8]) -> crate::wire::PResult<T>,
+) -> Option<(T, &'a [u8])> {
+    match parse(buf) {
+        Ok(Parsed::Done(v, used)) => {
+            assert!(used <= buf.len(), "a parser consumed more than it was given");
+            Some((v, &buf[used..]))
+        }
+        Ok(Parsed::Need(n)) => {
+            assert!(n > buf.len(), "Need({n}) with {} bytes", buf.len());
+            None
+        }
+        Err(_) => None,
+    }
+}
+
+/// The pre-TLS RFB handshake as a T3 sees it: `ProtocolVersion`, the security type list
+/// (or a refusal reason), a security selection for every credential kind and policy, a
+/// `SecurityResult`, then `ServerInit` (≤ 8192², name ≤ 4096 bytes).
+pub fn handshake(data: &[u8]) {
+    use crate::handshake::{
+        parse_security_result, parse_security_types, parse_server_init, parse_version,
+    };
+    use crate::security::{select_security, CredKind, SecPolicy};
+    use mooring_core::options::VncSecurity;
+    let Some((_, rest)) = step(data, parse_version) else { return };
+    let Some((offered, rest)) = step(rest, parse_security_types) else { return };
+    for cred in [CredKind::None, CredKind::Password, CredKind::UserPassword] {
+        for security in
+            [VncSecurity::AllowPlaintext, VncSecurity::PreferTls, VncSecurity::RequireTls]
+        {
+            for (pinned, allow_no_auth) in [(false, false), (true, false), (false, true)] {
+                let policy = SecPolicy { security, pinned, allow_no_auth, skip_vencrypt: pinned };
+                if let Ok(choice) = select_security(&offered, cred, policy) {
+                    assert!(offered.contains(&choice.byte()), "chose a type not offered");
+                    assert!(!(pinned && choice.byte() != crate::security::SEC_VENCRYPT));
+                }
+            }
+        }
+    }
+    let Some(((), rest)) = step(rest, parse_security_result) else { return };
+    if let Some((init, _)) = step(rest, parse_server_init) {
+        let max = mooring_core::frame::MAX_DIM;
+        assert!(init.width >= 1 && init.height >= 1 && init.width <= max && init.height <= max);
+    }
+}
+
+/// The `VeNCrypt` 0.2 sub-negotiation: version, version ack, subtype list (subtype selection
+/// for every credential kind), subtype ack.
+pub fn vencrypt(data: &[u8]) {
+    use crate::security::CredKind;
+    use crate::vencrypt::{parse_subtype_ack, parse_subtypes, parse_version, parse_version_ack};
+    let Some(((), rest)) = step(data, parse_version) else { return };
+    let Some(((), rest)) = step(rest, parse_version_ack) else { return };
+    let Some((subtypes, rest)) = step(rest, parse_subtypes) else { return };
+    for cred in [CredKind::None, CredKind::Password, CredKind::UserPassword] {
+        if let Ok(s) = crate::vencrypt::select_subtype(&subtypes, cred) {
+            assert!(subtypes.contains(&s), "chose a subtype not offered");
+        }
+    }
+    let _ = step(rest, parse_subtype_ack);
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -126,6 +193,8 @@ mod tests {
             super::server_messages(&data);
             super::zrle(&data);
             super::tight(&data);
+            super::handshake(&data);
+            super::vencrypt(&data);
         }
     }
 

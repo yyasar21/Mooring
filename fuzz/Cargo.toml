@@ -132,3 +132,24 @@ debug = 1
 # Mirror of the root workspace patch (patches only apply from the workspace root).
 [patch.crates-io]
 age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }
+
+[[bin]]
+name = "rfb_handshake"
+path = "fuzz_targets/rfb_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vencrypt_negotiation"
+path = "fuzz_targets/vencrypt_negotiation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdp_reassembly"
+path = "fuzz_targets/rdp_reassembly.rs"
+test = false
+doc = false
+bench = false

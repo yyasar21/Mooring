@@ -2228,7 +2228,7 @@ version = "0.1.0-rc.1"
 dependencies = [
  "async-trait",
  "des",
- "flate2",
+ "miniz_oxide",
  "mooring-core",
  "rustls",
  "rustls-native-certs",

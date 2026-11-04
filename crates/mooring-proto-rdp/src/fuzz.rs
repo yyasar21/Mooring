@@ -7,6 +7,7 @@
 //! | `cliprdr_text` | [`cliprdr_text`] |
 //! | `rdp_active_stage` (bytes → `ActiveStage::process` at 1024×768 → `FrameSink`) | [`active_stage`] |
 //! | `rdp_input` (bytes → input events) | [`input_sequence`] |
+//! | `rdp_reassembly` (frames → the M-14 reassembly caps) | [`reassembly`] |
 
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_session::image::DecodedImage;
@@ -69,6 +70,24 @@ pub fn active_stage(data: &[u8]) {
     }
 }
 
+/// Bytes → server frames through the interim reassembly guard (review 5 M-14): each frame
+/// is `[action, len_lo, len_hi, bytes…]` (action bit 0: fast-path / X.224). The guard must
+/// never panic, and must refuse before its own count passes the cap.
+pub fn reassembly(data: &[u8]) {
+    let mut guard = crate::reassembly::Reassembly::new(1003, Some(1006), Some(1005));
+    let mut rest = data;
+    while let [action, lo, hi, tail @ ..] = rest {
+        let n = usize::from(u16::from_le_bytes([*lo, *hi])).min(tail.len());
+        let (frame, next) = tail.split_at(n);
+        let action =
+            if action % 2 == 0 { ironrdp_pdu::Action::FastPath } else { ironrdp_pdu::Action::X224 };
+        if guard.check(action, frame).is_err() {
+            return;
+        }
+        rest = next;
+    }
+}
+
 /// Bytes → a sequence of pointer / key / wheel / unicode / release operations.
 pub fn input_sequence(data: &[u8]) {
     const CODES: [&str; 6] =
@@ -101,6 +120,7 @@ mod tests {
             super::cliprdr_text(&data);
             super::active_stage(&data);
             super::input_sequence(&data);
+            super::reassembly(&data);
         }
     }
 
