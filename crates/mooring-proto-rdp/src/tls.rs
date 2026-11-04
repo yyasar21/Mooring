@@ -168,7 +168,14 @@ impl ServerCertVerifier for TofuVerifier {
         let fp = fingerprint(end_entity.as_ref());
         let trust: CertTrust = self.known.check(&self.host, self.port, &fp);
         let verdict = decide(trust, chain.is_ok());
-        let problems = chain.as_ref().err().map(chain_problems).unwrap_or_default();
+        let mut problems = chain.as_ref().err().map(chain_problems).unwrap_or_default();
+        // N-24: webpki reports only its first error; check the name on the leaf as VNC does.
+        let name_ok = rustls::server::ParsedCertificate::try_from(end_entity)
+            .and_then(|p| rustls::client::verify_server_name(&p, server_name))
+            .is_ok();
+        if !name_ok && !problems.contains(&CertProblem::NameMismatch) {
+            problems.push(CertProblem::NameMismatch);
+        }
         self.record(Decision {
             der: end_entity.as_ref().to_vec(),
             fingerprint: fp,

@@ -85,6 +85,15 @@ fn ca_valid_is_accepted_without_pin_and_pin_wins_over_ca() {
 }
 
 #[test]
+fn unknown_issuer_for_the_wrong_name_reports_both() {
+    let (leaf, _) = self_signed(&["other.example.test"]);
+    let (v, slot) = verifier(KnownCerts::new(), None);
+    assert!(verify(&v, &leaf).is_err());
+    let d = take_decision(&slot).expect("recorded");
+    assert_eq!(d.problems, vec![CertProblem::UnknownIssuer, CertProblem::NameMismatch]);
+}
+
+#[test]
 fn ca_leaf_for_another_name_asks_with_name_mismatch() {
     let (ca_pem, issuer) = ca();
     let (leaf, _) = signed_by(&["other.example.test"], &issuer);
