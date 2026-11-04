@@ -6,6 +6,7 @@
 @import "./deck.css" layer(components);
 @import "./airlock.css" layer(components);
 @import "./credentials.css" layer(components);
+@import "./tools.css" layer(components);
 
 @theme {
   --color-bg: var(--bg);

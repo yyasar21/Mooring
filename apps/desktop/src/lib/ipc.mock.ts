@@ -3,7 +3,6 @@
 // Session/audit methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
 import type {
-  AuditEntry,
   ConnectionFields,
   ConnectionSummary,
   CredentialRole,
@@ -11,7 +10,6 @@ import type {
   Ipc,
   SessionEventHandler,
   SessionInfo,
-  VaultStatus,
 } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { bestScore } from "./fuzzy";
@@ -19,7 +17,10 @@ import { MockCredentials, parseAccountOrThrow } from "./ipc.mock.creds";
 import { echo } from "./ipc.mock.shell";
 import { credentialValidFor, supportsOverride } from "./credentials";
 
-import { T0, seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
+import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
+import { MockExitBase, type MockOptions } from "./ipc.mock.exit";
+
+export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -34,28 +35,17 @@ interface MockSession {
   line: string;
 }
 
-export interface MockOptions {
-  vault?: VaultStatus;
-  /** Delay for simulated async events; 0 = next macrotask. */
-  delayMs?: number;
-}
-
-export class MockTransport implements Ipc {
+export class MockTransport extends MockExitBase implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
   creds = new MockCredentials(seedCredentials());
-  audit: AuditEntry[] = [];
   trustedHosts = new Set<string>();
   sessions = new Map<string, MockSession>();
   detached: string[] = [];
-  vault: VaultStatus;
-  private seq = 0;
   private ids = 0;
-  private readonly delayMs: number;
 
   constructor(opts: MockOptions = {}) {
-    this.vault = opts.vault ?? "unlocked";
-    this.delayMs = opts.delayMs ?? 0;
+    super(opts);
     this.record("vault_unlocked", {});
     this.record("session_opened", { connection: "c-web01", protocol: "ssh", peer_identity: "SHA256:mock-web01" });
     this.record("session_closed", { connection: "c-web01", reason: "closed by user" });
@@ -68,21 +58,11 @@ export class MockTransport implements Ipc {
     return `${prefix}-${this.ids.toString(16).padStart(4, "0")}`;
   }
 
-  private record(event: string, details: Record<string, string>): void {
-    this.seq += 1;
-    const at = new Date(Date.parse(T0) + this.seq * 61_000).toISOString();
-    this.audit.push({ seq: this.seq, at, prev: this.seq === 1 ? "0".repeat(64) : `mock-${this.seq - 1}`, event, details });
-  }
-
-  private later(fn: () => void): void {
-    setTimeout(fn, this.delayMs);
-  }
-
-  /** Async like a real IPC hop, so callers never rely on synchronous mock behaviour. */
-  private unlocked(): Promise<void> {
-    return this.vault === "unlocked"
-      ? Promise.resolve()
-      : Promise.reject(new IpcError("vault.locked", "unlock the vault first"));
+  protected requireSsh(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new IpcError("session.not_found", "session not found");
+    if (s.info.protocol !== "ssh") throw new IpcError("session.unsupported", "only SSH sessions forward ports and transfer files");
+    if (s.info.state !== "connected") throw new IpcError("session.failed", "the session is not connected yet");
   }
 
   private folder(id: string): Folder {
@@ -145,10 +125,15 @@ export class MockTransport implements Ipc {
   };
   vaultLock: Ipc["vaultLock"] = (reason) => {
     this.vault = "locked";
+    this.dropSession(null);
     this.sessions.clear();
     this.record("vault_locked", { reason });
     return Promise.resolve(this.vault);
   };
+  override fireAutoLock(reason: Parameters<MockExitBase["fireAutoLock"]>[0]): void {
+    this.sessions.clear();
+    super.fireAutoLock(reason);
+  }
   vaultChangePassword: Ipc["vaultChangePassword"] = ({ next }) => {
     if (next.length < 12) return Promise.reject(new IpcError("vault.weak_password", "use at least 12 characters"));
     this.record("password_changed", {});
@@ -422,6 +407,7 @@ export class MockTransport implements Ipc {
 
   private end(s: MockSession, reason: string): void {
     s.info.state = "closed";
+    this.dropSession(s.info.sessionId);
     this.sessions.delete(s.info.sessionId);
     this.record("session_closed", { connection: s.info.connectionId, reason });
     s.emit({ kind: "closed", reason });

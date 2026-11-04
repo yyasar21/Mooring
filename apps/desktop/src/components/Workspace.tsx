@@ -1,9 +1,12 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Kbd } from "@mooring/ui";
 import { useSessions, type Tab } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";
 import { PromptModal } from "./terminal/PromptModal";
+import { SessionToolbar, type SessionTool } from "./SessionToolbar";
+import { ForwardsPanel } from "./forwards/ForwardsPanel";
+import { SftpPanel } from "./sftp/SftpPanel";
 
 // xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
 const TerminalView = lazy(() => import("./terminal/TerminalView").then((m) => ({ default: m.TerminalView })));
@@ -30,6 +33,17 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
   const c = useTree((s) => s.connections.find((x) => x.id === tab.connectionId));
   const reconnect = useSessions((s) => s.reconnect);
   const terminal = c?.protocol === "ssh" || c?.protocol === "kubernetes";
+  const ssh = c?.protocol === "ssh";
+  const [tool, setTool] = useState<SessionTool>("terminal");
+  const liveSession = tab.state === "connected" ? tab.sessionId : null;
+
+  const bezel = (
+    <div className="term-bezel m-hud" data-active={active && tab.state === "connected" && tool === "terminal" ? true : undefined}>
+      <Suspense fallback={<div className="term-host" />}>
+        <TerminalView tabId={tab.id} active={active && tool === "terminal"} />
+      </Suspense>
+    </div>
+  );
 
   return (
     <div
@@ -39,12 +53,26 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       hidden={!active}
       className="absolute inset-0"
     >
-      {terminal ? (
-        <div className="term-bezel m-hud" data-active={active && tab.state === "connected" ? true : undefined}>
-          <Suspense fallback={<div className="term-host" />}>
-            <TerminalView tabId={tab.id} active={active} />
-          </Suspense>
-        </div>
+      {ssh ? (
+        <>
+          <SessionToolbar tool={tool} onTool={setTool} />
+          <div className="session-body">
+            {/* The terminal stays mounted under the tool panels so its scrollback survives. */}
+            {bezel}
+            {tool === "forwards" && (
+              <div className="tool-layer">
+                <ForwardsPanel sessionId={liveSession} />
+              </div>
+            )}
+            {tool === "files" && (
+              <div className="tool-layer">
+                <SftpPanel key={liveSession ?? "offline"} sessionId={liveSession} />
+              </div>
+            )}
+          </div>
+        </>
+      ) : terminal ? (
+        bezel
       ) : (
         <div className="panel-note m-hud">
           <div className="max-w-sm">

@@ -1,5 +1,19 @@
 import { useState } from "react";
+import type { LockReason } from "../lib/ipc";
 import { useApp } from "../stores/app";
+
+const LOCK_TEXT: Record<Exclude<LockReason, "user"> | "unknown", string> = {
+  idle: "Locked after a period of inactivity.",
+  screen_lock: "Locked because the screen was locked.",
+  sleep: "Locked because the computer went to sleep.",
+  window_hidden: "Locked because the Mooring window was hidden.",
+  unknown: "Locked by Mooring.",
+};
+
+/** Message for the unlock screen after an automatic lock; null after a user lock. */
+export function lockReasonText(reason: LockReason | "unknown" | null): string | null {
+  return reason === null || reason === "user" ? null : LOCK_TEXT[reason];
+}
 
 /**
  * The airlock: onboarding (no vault yet) and unlock (vault locked). Both are one field, the master
@@ -10,6 +24,7 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   const createVault = useApp((s) => s.createVault);
   const unlock = useApp((s) => s.unlock);
   const lastError = useApp((s) => s.lastError);
+  const reason = lockReasonText(useApp((s) => s.lockReason));
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -43,6 +58,14 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
           <span className="m-micro">Mooring vault</span>
           <span className="m-micro">{mode === "create" ? "Not initialised" : "Sealed"}</span>
         </div>
+        {mode === "unlock" && reason && (
+          <p role="status" className="airlock-reason">
+            <span aria-hidden className="airlock-reason-mark" />
+            <span>
+              {reason} Sessions, forwards and transfers were closed.
+            </span>
+          </p>
+        )}
         <h1 className="airlock-title">{mode === "create" ? "Create your vault" : "Unlock Mooring"}</h1>
         <p className="airlock-copy">
           {mode === "create"
