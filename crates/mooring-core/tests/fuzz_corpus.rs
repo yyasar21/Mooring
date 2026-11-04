@@ -8,7 +8,8 @@ mod replay;
 
 use mooring_core::credential::{kubeconfig as parser, CredentialError};
 
-/// Seeds that each carry one construct the parser must refuse (review 3 M-5, review 4 M-11).
+/// Seeds that each carry one construct the parser must refuse (review 3 M-5, review 4 M-11,
+/// M-12).
 /// Every one is otherwise a valid kubeconfig, so the forbidden construct is the only reason
 /// to reject it.
 const FORBIDDEN_SEEDS: &[(&str, &str)] = &[
@@ -25,6 +26,9 @@ const FORBIDDEN_SEEDS: &[(&str, &str)] = &[
     ("probe-tagged-merge-key", ""),
     ("probe-binary-tagged-key", ""),
     ("probe-quoted-merge-key", "merge"),
+    ("m12-kelvin-tokenfile", "keys must be ASCII"),
+    ("m12-long-s-users", "keys must be ASCII"),
+    ("m12-nonascii-key", "keys must be ASCII"),
 ];
 
 fn seed(name: &str) -> Vec<u8> {
@@ -93,12 +97,19 @@ fn oracle_flags_each_construct() {
         ("users: [{user: {? {exec: x} : y}}]\n", "non-scalar key"),
         ("users: [{user: {!!str exec: x}}]\n", "tagged key"),
         ("a: &x {b: c}\nusers: [{user: *x}]\n", "alias"),
+        ("users: [{user: {to\u{212A}enFile: x}}]\n", "non-ASCII mapping key"),
+        ("u\u{017F}ers: [{user: {exec: x}}]\n", "non-ASCII mapping key"),
+        ("preferences: {\"caf\\u00e9\": x}\n", "non-ASCII mapping key"),
     ] {
         let found = kubeconfig::violations(&format!("{base}{yaml}"));
         assert!(found.iter().any(|v| v.contains(what)), "{yaml:?}: {found:?}");
     }
     // outside users[]/clusters[] the same names are ordinary keys
-    for yaml in ["contexts: [{name: c, exec: x}]\n", "preferences: {client-key: x}\n"] {
+    for yaml in [
+        "contexts: [{name: c, exec: x}]\n",
+        "preferences: {client-key: x}\n",
+        "contexts: [{name: caf\u{e9}}]\n",
+    ] {
         assert_eq!(kubeconfig::violations(yaml), Vec::<String>::new(), "{yaml:?}");
     }
 }

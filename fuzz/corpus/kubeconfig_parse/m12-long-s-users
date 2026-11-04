@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Config
+contexts:
+- name: lab
+  context: {cluster: lab, user: ops}
+users:
+- name: ops
+  user:
+    token: test-only-token
+uſers:
+- name: ops
+  user:
+    exec: {command: /bin/sh}

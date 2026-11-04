@@ -11,11 +11,16 @@
 //! (`users`, `clusters`, `contexts`) in any other case (`Users:`, `CLUSTERS:`) is rejected
 //! outright rather than checked under its variant spelling (QA-F2): a lenient decoder may read
 //! it as the real section, and rejecting is simpler than proving every lookup case-blind.
+//! Every mapping key anywhere in the document must be ASCII (review 4, M-12): Go's
+//! `encoding/json` matches field names with Unicode simple case folding, so `U+212A KELVIN SIGN`
+//! reads as `k` and `U+017F LATIN SMALL LETTER LONG S` as `s` (`to\u{212A}enFile`,
+//! `u\u{017F}ers`), which no ASCII-insensitive comparison can see. Real kubeconfig keys are all
+//! ASCII; names and values are unaffected. The error names the key's line and column only.
 //! Extracted: context names (capped) and `current-context`.
 
 use std::collections::{BTreeSet, HashSet};
 
-use saphyr_parser::{Event, Parser};
+use saphyr_parser::{Event, Parser, Span};
 
 use super::CredentialError;
 
@@ -83,6 +88,15 @@ fn rejected(reason: &str) -> CredentialError {
     CredentialError::KubeconfigRejected(reason.to_owned())
 }
 
+/// M-12: position only (1-based line and column), never the key's bytes.
+fn non_ascii_key(span: Span) -> CredentialError {
+    rejected(&format!(
+        "kubeconfig keys must be ASCII (key at line {}, column {})",
+        span.start.line(),
+        span.start.col() + 1
+    ))
+}
+
 struct Builder<'a> {
     parser: Parser<'a, saphyr_parser::StrInput<'a>>,
     nodes: usize,
@@ -90,8 +104,12 @@ struct Builder<'a> {
 
 impl<'a> Builder<'a> {
     fn next(&mut self) -> Result<Event<'a>, CredentialError> {
+        self.next_spanned().map(|(ev, _)| ev)
+    }
+
+    fn next_spanned(&mut self) -> Result<(Event<'a>, Span), CredentialError> {
         match self.parser.next_event() {
-            Some(Ok((ev, _))) => Ok(ev),
+            Some(Ok(pair)) => Ok(pair),
             Some(Err(_)) | None => Err(rejected("kubeconfig is not valid YAML")),
         }
     }
@@ -129,11 +147,15 @@ impl<'a> Builder<'a> {
                 // ASCII case-insensitive: a clean `users:` may not sit beside `Users:` (QA-F2)
                 let mut keys: HashSet<String> = HashSet::new();
                 loop {
-                    let key = match self.next()? {
-                        Event::MappingEnd => return Ok(Node::Map(entries)),
-                        Event::Scalar(k, _, 0, None) => k.into_owned(),
+                    let (key, span) = match self.next_spanned()? {
+                        (Event::MappingEnd, _) => return Ok(Node::Map(entries)),
+                        (Event::Scalar(k, _, 0, None), span) => (k.into_owned(), span),
                         _ => return Err(rejected("kubeconfig keys must be plain text")),
                     };
+                    // the resolved key (escapes applied), so `"to\u212AenFile"` is caught too
+                    if !key.is_ascii() {
+                        return Err(non_ascii_key(span));
+                    }
                     if key == "<<" {
                         return Err(rejected("kubeconfig may not use YAML merge keys"));
                     }
@@ -352,6 +374,42 @@ mod tests {
         let e = parse(nested.as_bytes()).expect_err("nested case duplicate");
         assert!(e.to_string().contains("duplicate key"), "{e}");
         assert!(parse(KUBECONFIG.as_bytes()).is_ok());
+    }
+
+    /// M-12: Unicode-folding lookalikes of forbidden or section keys, at any level.
+    #[test]
+    fn non_ascii_keys_are_rejected_anywhere_with_position_only() {
+        let user = "    token: test-only-token";
+        for (yaml, line, col) in [
+            (KUBECONFIG.replace(user, "    to\u{212A}enFile: /var/run/token"), None, 5),
+            (KUBECONFIG.replace(user, "    client-\u{212A}ey: /home/u/c.key"), None, 5),
+            (KUBECONFIG.replace(user, "    \"to\\u212AenFile\": /var/run/token"), None, 5),
+            (
+                format!("{KUBECONFIG}u\u{017F}ers:\n- name: x\n  user: {{exec: {{command: x}}}}\n"),
+                None,
+                1,
+            ),
+            (format!("{KUBECONFIG}cluster\u{017F}: []\n"), None, 1),
+            (format!("{KUBECONFIG}preferences: {{caf\u{e9}: x}}\n"), None, 15),
+            ("k\u{e9}y: v\ncontexts: [{name: c}]\n".to_owned(), Some(1), 1),
+        ] {
+            let e = parse(yaml.as_bytes()).expect_err(&yaml);
+            let msg = e.to_string();
+            assert!(matches!(e, CredentialError::KubeconfigRejected(_)), "{e:?}");
+            assert!(msg.contains("keys must be ASCII"), "{msg}");
+            assert!(msg.contains(&format!("column {col})")), "{msg}");
+            if let Some(line) = line {
+                assert!(msg.contains(&format!("line {line},")), "{msg}");
+            }
+            assert!(msg.is_ascii() && !msg.contains("/var") && !msg.contains("/home"), "{msg}");
+        }
+        // non-ASCII names and values are still fine
+        let named = KUBECONFIG.replace("- name: lab-admin", "- name: lab-\u{e9}");
+        assert_ne!(named, KUBECONFIG);
+        let info = parse(named.as_bytes()).expect("non-ASCII context name");
+        assert_eq!(info.contexts, ["lab", "lab-\u{e9}"]);
+        let value = KUBECONFIG.replace("test-only-token", "t\u{212A}n");
+        assert!(parse(value.as_bytes()).is_ok(), "non-ASCII value");
     }
 
     #[test]

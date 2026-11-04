@@ -6,7 +6,9 @@
 //! parser (review 3 M-5, review 4 M-11). An independent oracle re-scans the input with the
 //! same YAML event parser (`saphyr-parser`, version from the lockfile) and panics when the
 //! parser accepted a file that a lenient consumer (go-yaml, case-insensitive JSON decoding)
-//! could read as running a command or reading a file.
+//! could read as running a command or reading a file. Every mapping key of an accepted file
+//! must also be ASCII (review 4 M-12): Go's `encoding/json` folds `U+212A` to `k` and `U+017F`
+//! to `s`, which an ASCII case-insensitive comparison cannot see.
 
 use std::collections::BTreeSet;
 
@@ -97,7 +99,7 @@ impl Ctx {
 }
 
 /// Re-scan `text` with the raw event stream and list every violation of the property: a
-/// mapping key `<<` (or `!!merge`) anywhere; a forbidden key, ASCII case-insensitively, in any
+/// mapping key `<<` (or `!!merge`) anywhere; a non-ASCII mapping key anywhere; a forbidden key, ASCII case-insensitively, in any
 /// mapping under `users[]` / `clusters[]`; and, under those, anything whose key name the
 /// oracle cannot see (tagged keys, aliases), since a consumer may resolve it to a forbidden
 /// name. Every document of the stream is scanned. A stream the event parser rejects yields a
@@ -198,6 +200,10 @@ impl<'a> Scan<'a> {
     }
 
     fn check_key(&mut self, key: &str, tag: Option<&Tag>, ctx: Ctx) {
+        if !key.is_ascii() {
+            // byte-free: the key may be arbitrary hostile text
+            self.found.push("non-ASCII mapping key (Unicode case folding, M-12)".to_owned());
+        }
         if key == "<<" || is_merge_tag(tag) {
             self.found.push(format!("merge key `{key}`"));
         }

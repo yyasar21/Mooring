@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Config
+contexts:
+- name: lab
+  context: {cluster: lab, user: ops}
+preferences:
+  "client-Key": x
+users:
+- name: ops
+  user:
+    token: test-only-token
