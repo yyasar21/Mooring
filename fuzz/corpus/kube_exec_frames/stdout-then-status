@@ -1,0 +1,2 @@
+$ hello
+{"metadata": {}, "status": "Failure", "reason": "NonZeroExitCode", "details": {"causes": [{"reason": "ExitCode", "message": "3"}]}}

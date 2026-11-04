@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Config
+current-context: c
+clusters:
+- name: k
+  cluster:
+    server: https://k.example.test
+    proxy-url: http://192.0.2.1:3128
+contexts:
+- name: c
+  context: {cluster: k, user: u}
+users:
+- name: u
+  user: {token: t}

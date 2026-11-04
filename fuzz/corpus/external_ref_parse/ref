@@ -1,0 +1,1 @@
+{"provider": "vault", "source": "src-1", "reference": "secret/servers/web", "target_kind": "user_password", "version": null, "fieldMap": {"password": "pw"}}
