@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Config
+contexts:
+- name: lab
+  context: {cluster: lab, user: ops}
+Users:
+- name: ops
+  user:
+    exec: {command: /bin/sh}
+Clusters:
+- name: lab
+  cluster: {server: "https://k8s.example.test", certificate-authority: /tmp/ca}
