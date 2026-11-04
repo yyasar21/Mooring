@@ -28,27 +28,9 @@ use crate::shared::{AuditLog, Reply, Shared};
 pub const CHANNEL_CAPACITY: usize = 256;
 const CLOSE_GRACE: Duration = Duration::from_secs(5);
 
-/// The OS clipboard as the session sees it (implemented by the Tauri layer on top of its
-/// `clipboard.rs`). Text only; it never crosses IPC.
-pub trait Clipboard: Send + Sync + std::fmt::Debug {
-    /// Current text, if any (for `ClipboardOffer`).
-    fn read_text(&self) -> Option<String>;
-    /// Put remote text on the clipboard; `true` when written.
-    fn write_text(&self, text: &str) -> bool;
-}
-
-/// A clipboard that holds nothing and accepts nothing.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NoClipboard;
-
-impl Clipboard for NoClipboard {
-    fn read_text(&self) -> Option<String> {
-        None
-    }
-    fn write_text(&self, _text: &str) -> bool {
-        false
-    }
-}
+/// The OS clipboard as the session sees it, implemented by the Tauri layer on top of its
+/// `clipboard.rs`; the same trait as `mooring_proto_rdp::LocalClipboard`.
+pub use mooring_core::clipboard::{Clipboard, NoClipboard};
 
 /// Per-connection options that are not part of `ConnectParams` (ADR-0012 `VncOptions`).
 #[derive(Debug, Clone)]
@@ -63,6 +45,9 @@ pub struct VncOptions {
     pub connect_timeout: Duration,
     /// Whole-handshake timeout (per attempt, prompts excluded).
     pub handshake_timeout: Duration,
+    /// Accept exactly this leaf (SHA-256 of the DER) as if pinned, for this session only: the
+    /// user said `yes` but the Tauri layer could not write the pin.
+    pub trusted_once: Option<[u8; 32]>,
 }
 
 impl VncOptions {
@@ -74,6 +59,7 @@ impl VncOptions {
             conn,
             connect_timeout: Duration::from_secs(15),
             handshake_timeout: Duration::from_secs(30),
+            trusted_once: None,
         }
     }
 }
@@ -164,6 +150,7 @@ impl VncSession {
                 known_certs: options.known_certs,
                 connect_timeout: options.connect_timeout,
                 handshake_timeout: options.handshake_timeout,
+                trusted_once: options.trusted_once,
             },
             cred,
             sink,

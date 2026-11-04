@@ -1,21 +1,15 @@
 //! What the Tauri layer hands to [`crate::RdpSession::connect`] besides `ConnectParams`.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mooring_core::options::RdpConnOptions;
-use mooring_core::SessionAudit;
 
 /// The OS clipboard, implemented by the Tauri layer (`clipboard.rs`, arboard). This crate
-/// never links a clipboard library: it calls these from `spawn_blocking`.
-pub trait LocalClipboard: Send + Sync + std::fmt::Debug {
-    /// Current OS clipboard text, if any (local → remote on `ClipboardOffer`).
-    fn read_text(&self) -> Option<String>;
-    /// Put remote-originated text on the OS clipboard (the implementation records its digest
-    /// for `clear_if_unchanged` on lock / exit).
-    fn write_text(&self, text: &str);
-}
+/// never links a clipboard library: it calls it from `spawn_blocking`. Same trait as
+/// `mooring_proto_vnc::Clipboard` ([`mooring_core::clipboard::Clipboard`]).
+pub use mooring_core::clipboard::Clipboard as LocalClipboard;
 
 /// Per-connection options.
 #[derive(Debug, Clone)]
@@ -35,6 +29,10 @@ pub struct RdpOptions {
     pub keepalive: Option<Duration>,
     /// Client computer name sent to the server (≤ 15 chars, default `MOORING`).
     pub client_name: String,
+    /// Accept exactly this leaf (SHA-256 of the DER) as if pinned, for this session only: the
+    /// user said `yes` to a `certificate_trust` prompt but the Tauri layer could not write the
+    /// pin (`GraphicalConnect::trusted_once`).
+    pub trusted_once: Option<[u8; 32]>,
 }
 
 impl RdpOptions {
@@ -48,6 +46,7 @@ impl RdpOptions {
             handshake_timeout: Duration::from_secs(30),
             keepalive: Some(Duration::from_secs(30)),
             client_name: "MOORING".to_owned(),
+            trusted_once: None,
         }
     }
 
@@ -59,26 +58,7 @@ impl RdpOptions {
     }
 }
 
-/// Shared, append-only audit buffer. The session pushes; the Tauri layer drains it either
-/// through `Session::take_audit_events` or through its own clone (useful while the session is
-/// owned by a task). Events never carry secret material or clipboard text.
-#[derive(Debug, Clone, Default)]
-pub struct AuditSink(Arc<Mutex<Vec<SessionAudit>>>);
-
-impl AuditSink {
-    /// Empty buffer.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Append one event.
-    pub fn push(&self, event: SessionAudit) {
-        tracing::info!(action = event.action(), "rdp audit event");
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).push(event);
-    }
-
-    /// Drain everything recorded so far.
-    pub fn take(&self) -> Vec<SessionAudit> {
-        std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
-    }
-}
+/// Shared, append-only audit buffer ([`mooring_core::AuditBuffer`], also
+/// `mooring_proto_vnc::AuditLog`). The session pushes; the Tauri layer drains it through
+/// `Session::take_audit_events` or its own clone. Never carries secrets or clipboard text.
+pub type AuditSink = mooring_core::AuditBuffer;

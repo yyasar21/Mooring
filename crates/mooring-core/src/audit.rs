@@ -214,6 +214,39 @@ impl SessionAudit {
     }
 }
 
+/// Most audit events an [`AuditBuffer`] keeps before the oldest are dropped (a caller that
+/// never drains).
+pub const MAX_AUDIT: usize = 4096;
+
+/// Shared, append-only buffer of [`SessionAudit`]s. A graphical session pushes; the Tauri layer
+/// drains it through `Session::take_audit_events` or through its own clone (useful while the
+/// session is owned by a task). `mooring_proto_rdp::AuditSink` and
+/// `mooring_proto_vnc::AuditLog` are this type.
+#[derive(Debug, Clone, Default)]
+pub struct AuditBuffer(std::sync::Arc<std::sync::Mutex<Vec<SessionAudit>>>);
+
+impl AuditBuffer {
+    /// Empty buffer.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append one event (the oldest is dropped beyond [`MAX_AUDIT`]).
+    pub fn push(&self, event: SessionAudit) {
+        tracing::debug!(action = event.action(), "session audit event");
+        let mut v = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if v.len() >= MAX_AUDIT {
+            v.remove(0);
+        }
+        v.push(event);
+    }
+
+    /// Drain everything recorded so far.
+    pub fn take(&self) -> Vec<SessionAudit> {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +290,19 @@ mod tests {
         assert_eq!(AuthMethod::Nla.as_str(), "nla");
         assert_eq!(AuthMethod::KeyboardInteractive.as_str(), "keyboard-interactive");
         assert_eq!(ClipboardDirection::ToRemote.as_str(), "to_remote");
+    }
+
+    #[test]
+    fn audit_buffer_is_shared_capped_and_drained() {
+        let a = AuditBuffer::new();
+        let b = a.clone();
+        for _ in 0..MAX_AUDIT + 3 {
+            a.push(SessionAudit::AuthFailed);
+        }
+        b.push(SessionAudit::RdpLegacySecurity);
+        let all = a.take();
+        assert_eq!(all.len(), MAX_AUDIT);
+        assert_eq!(all.last(), Some(&SessionAudit::RdpLegacySecurity));
+        assert!(b.take().is_empty());
     }
 }

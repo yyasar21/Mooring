@@ -2,7 +2,7 @@
 //! prompt broker (TOFU / credential form), the audit log and the view-only switch.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use mooring_core::audit::ClipboardDirection;
@@ -13,28 +13,12 @@ use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 
 /// Audit events recorded by a session, drained by the Tauri layer
-/// (`Session::take_audit_events`). Cloneable: the caller may keep a handle and drain it too.
-#[derive(Debug, Clone, Default)]
-pub struct AuditLog(Arc<Mutex<Vec<SessionAudit>>>);
+/// (`Session::take_audit_events`): [`mooring_core::AuditBuffer`], also
+/// `mooring_proto_rdp::AuditSink`.
+pub type AuditLog = mooring_core::AuditBuffer;
 
-/// Most audit events kept before the oldest are dropped (a caller that never drains).
-pub const MAX_AUDIT: usize = 4096;
-
-impl AuditLog {
-    /// Record one event.
-    pub fn push(&self, e: SessionAudit) {
-        let mut v = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if v.len() >= MAX_AUDIT {
-            v.remove(0);
-        }
-        v.push(e);
-    }
-
-    /// Drain everything recorded so far.
-    pub fn take(&self) -> Vec<SessionAudit> {
-        std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
-    }
-}
+#[cfg(test)]
+use mooring_core::audit::MAX_AUDIT;
 
 /// `session.clipboard` coalescing: at most one entry per second per direction.
 #[derive(Debug, Default)]
@@ -207,6 +191,7 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn audit_log_caps_and_drains() {

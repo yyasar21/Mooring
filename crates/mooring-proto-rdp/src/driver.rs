@@ -5,10 +5,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mooring_core::frame::FrameSink;
-use mooring_core::known_certs::{display_fingerprint, peer_identity, CertProblem, KnownCerts};
+use mooring_core::known_certs::{display_fingerprint, peer_identity, CertProblem};
 use mooring_core::options::ClipboardPolicy;
 use mooring_core::session::{CloseCode, SessionEvent};
-use mooring_core::{Protocol, SessionAudit};
+use mooring_core::Protocol;
 use time::OffsetDateTime;
 use tokio::sync::mpsc;
 
@@ -86,7 +86,7 @@ impl Driver {
         let clip_queue =
             ClipState::enabled(self.clipboard.as_ref(), self.policy).then(ClipQueue::default);
         let channels = Channels { cliprdr: clip_queue.clone() };
-        let mut session_pin: Option<[u8; 32]> = None;
+        let mut session_pin: Option<[u8; 32]> = self.target.session_pin;
         for _ in 0..MAX_TRUST_ROUNDS {
             if let Some(pin) = session_pin {
                 self.target.session_pin = Some(pin);
@@ -134,8 +134,10 @@ impl Driver {
         end(CloseCode::ProtocolError, "the server certificate could not be established")
     }
 
-    /// The TOFU prompt. `Ok` = trusted (pin written, or kept for this session when the file
-    /// could not be written): the caller reconnects.
+    /// The TOFU prompt. `Ok` = trusted for this session (kept in memory only): the caller
+    /// reconnects. Writing the pin and auditing the answer belong to the Tauri layer
+    /// (ADR-0011 R2 contract): in the app the answer never reaches this session, which is
+    /// closed and reconnected with `trusted_once` / the new pin instead.
     async fn trust(&self, d: &Decision) -> Result<(), End> {
         let (host, port) = (self.target.host.clone(), self.target.port);
         let now = OffsetDateTime::now_utc();
@@ -149,29 +151,8 @@ impl Driver {
             problem_text(&info.problems)
         );
         match self.shared.ask_trust(message, info).await {
-            Some(true) => {
-                let path = self.target.known_certs.clone();
-                let (h, sha) = (host.clone(), d.fingerprint);
-                let stored = tokio::task::spawn_blocking(move || {
-                    KnownCerts::add_and_save(&path, &h, port, &sha, now)
-                })
-                .await
-                .is_ok_and(|r| r.is_ok());
-                if !stored {
-                    tracing::warn!(
-                        "certificate pin could not be saved; trusted for this session only"
-                    );
-                }
-                self.shared.audit.push(SessionAudit::CertAdded {
-                    host,
-                    port,
-                    fingerprint: fp,
-                    stored,
-                });
-                Ok(())
-            }
+            Some(true) => Ok(()),
             Some(false) => {
-                self.shared.audit.push(SessionAudit::CertRejected { host, port, fingerprint: fp });
                 Err(end(CloseCode::TrustRejected, "the server certificate was not trusted"))
             }
             None => Err(end(CloseCode::User, "closed by user")),

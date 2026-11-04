@@ -92,6 +92,7 @@ impl RdpSession {
             handshake_timeout,
             keepalive,
             client_name,
+            trusted_once,
         } = options;
         let policy = conn.clipboard;
         let target = Target {
@@ -103,7 +104,7 @@ impl RdpSession {
             keepalive,
             client_name,
             desktop: clamp_desktop(size.width, size.height),
-            session_pin: None,
+            session_pin: trusted_once,
         };
         let (event_tx, events) = mpsc::channel(CHANNEL_CAPACITY);
         let (commands, command_rx) = mpsc::channel(CHANNEL_CAPACITY);

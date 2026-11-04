@@ -10,12 +10,14 @@
 //! * [`known_certs`] — certificate TOFU store and `CertificateInfo` (RDP, VNC)
 //! * [`options`] — per-protocol connection options (`connection.options_json`)
 //! * [`audit`] — security events a session reports to the audit log
+//! * [`clipboard`] — the text clipboard bridge graphical sessions use
 //!
 //! Secret material lives only in `mooring-vault`; here a credential is an opaque [`model::CredentialId`].
 
 #![forbid(unsafe_code)]
 
 pub mod audit;
+pub mod clipboard;
 pub mod connect;
 pub mod credential;
 pub mod error;
@@ -26,7 +28,7 @@ pub mod options;
 pub mod session;
 pub mod tree;
 
-pub use audit::{AuthMethod, ClipboardDirection, SessionAudit};
+pub use audit::{AuditBuffer, AuthMethod, ClipboardDirection, SessionAudit};
 pub use credential::{CredentialFields, CredentialKind, Role, SecretName};
 pub use error::MooringError;
 pub use frame::FrameSink;

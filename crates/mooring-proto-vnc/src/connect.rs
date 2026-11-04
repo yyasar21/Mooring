@@ -1,6 +1,6 @@
 //! Connect: TCP → version → security (with the downgrade guard) → `VeNCrypt` X509 / VNC auth /
 //! None → `SecurityResult` → `ClientInit` / `ServerInit`. Retries on a new TCP connection after
-//! a TOFU `yes`, and once without `VeNCrypt` when it offered only anonymous TLS and TLS is not
+//! a TOFU `yes` (in-memory trust only; the caller writes the pin), and once without `VeNCrypt` when it offered only anonymous TLS and TLS is not
 //! required.
 
 use std::path::PathBuf;
@@ -31,6 +31,8 @@ pub(crate) struct Target {
     pub(crate) known_certs: PathBuf,
     pub(crate) connect_timeout: Duration,
     pub(crate) handshake_timeout: Duration,
+    /// Leaf accepted as if pinned for this session only (`VncOptions::trusted_once`).
+    pub(crate) trusted_once: Option<[u8; 32]>,
 }
 
 /// A connection past `ServerInit`.
@@ -62,6 +64,11 @@ pub(crate) async fn establish(
             KnownCerts::new()
         }
     };
+    if let Some(fp) = t.trusted_once {
+        if !known.has_pin(&t.host, t.port) {
+            known.add(&t.host, t.port, &fp, time::OffsetDateTime::now_utc());
+        }
+    }
     let mut skip_vencrypt = false;
     let mut trusted_once = false;
     loop {
@@ -78,31 +85,15 @@ pub(crate) async fn establish(
                 tracing::info!("VeNCrypt offers no X509 subtype; retrying without VeNCrypt");
                 skip_vencrypt = true;
             }
+            // Writing the pin and auditing the answer belong to the Tauri layer (ADR-0011 R2
+            // contract; in the app the answer never reaches this session). A `yes` here trusts
+            // the leaf in memory for this session's reconnect only.
             Err(VncError::TrustUnknown { fp, info }) if !trusted_once => {
                 let hp = host_key(&t.host, t.port);
-                let fingerprint = display_fingerprint(&fp);
                 if !shared.ask_certificate(&hp, *info).await {
-                    shared.audit.push(SessionAudit::CertRejected {
-                        host: t.host.clone(),
-                        port: t.port,
-                        fingerprint,
-                    });
                     return Err(VncError::TrustRejected);
                 }
-                let (path, host, port) = (t.known_certs.clone(), t.host.clone(), t.port);
-                let now = time::OffsetDateTime::now_utc();
-                let stored = tokio::task::spawn_blocking(move || {
-                    KnownCerts::add_and_save(&path, &host, port, &fp, now)
-                })
-                .await
-                .is_ok_and(|r| r.is_ok());
-                known.add(&t.host, t.port, &fp, now);
-                shared.audit.push(SessionAudit::CertAdded {
-                    host: t.host.clone(),
-                    port: t.port,
-                    fingerprint,
-                    stored,
-                });
+                known.add(&t.host, t.port, &fp, time::OffsetDateTime::now_utc());
                 trusted_once = true;
             }
             Err(e) => return Err(e),

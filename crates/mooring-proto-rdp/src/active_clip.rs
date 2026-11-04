@@ -156,7 +156,10 @@ impl ClipState {
                         let bytes = text.len();
                         let local = Arc::clone(local);
                         let text = Zeroizing::new(text);
-                        let _ = tokio::task::spawn_blocking(move || local.write_text(&text)).await;
+                        let _ = tokio::task::spawn_blocking(move || {
+                            local.write_text(&text);
+                        })
+                        .await;
                         self.record(ClipboardDirection::FromRemote, bytes, audit);
                     }
                 }

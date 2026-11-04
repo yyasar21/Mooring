@@ -47,8 +47,9 @@ pub(crate) struct Target {
     pub(crate) keepalive: Option<Duration>,
     pub(crate) client_name: String,
     pub(crate) desktop: DesktopSize,
-    /// A certificate the user trusted in this session (also written to the file when
-    /// possible); added to the loaded store in memory so the reconnect hits the pin row.
+    /// A certificate trusted for this session only (`trusted_once`, or a `yes` to the prompt);
+    /// added to the loaded store in memory so the connect hits the pin row. The pin file is
+    /// written by the Tauri layer, never here.
     pub(crate) session_pin: Option<[u8; 32]>,
 }
 

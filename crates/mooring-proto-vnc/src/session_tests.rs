@@ -234,11 +234,12 @@ async fn vencrypt_tofu_pin_then_strip_and_mismatch() {
     assert_eq!(peer, Some(peer_identity(&fingerprint(&der))));
     assert_eq!(srv.conns.load(std::sync::atomic::Ordering::SeqCst), 2, "reconnected after yes");
     let audit = c.s.take_audit_events();
-    assert!(audit.iter().any(|a| matches!(a, SessionAudit::CertAdded { stored: true, .. })));
+    // The pin file and the decision audit belong to the Tauri layer (R2 contract).
+    assert!(!audit.iter().any(|a| matches!(a, SessionAudit::CertAdded { .. })));
     assert!(audit.contains(&SessionAudit::AuthSucceeded { method: AuthMethod::VncAuth }));
     assert!(!audit.iter().any(|a| matches!(a, SessionAudit::VncPlaintext { .. })));
     let known = KnownCerts::load(&pin_path).expect("load");
-    assert!(known.has_pin("127.0.0.1", srv.addr.port()));
+    assert!(!known.has_pin("127.0.0.1", srv.addr.port()), "the session never writes pins");
     let _ = srv.rx.try_recv();
     drop(c);
 
@@ -269,6 +270,34 @@ async fn vencrypt_tofu_pin_then_strip_and_mismatch() {
 }
 
 #[tokio::test]
+async fn trusted_once_connects_without_a_prompt_or_a_pin_write() {
+    let (der, key) = cert("127.0.0.1");
+    let srv = start(SrvConfig {
+        security: vec![19],
+        subtypes: vec![260],
+        tls: Some((der.clone(), key)),
+        fb: (4, 4),
+        ..Default::default()
+    })
+    .await;
+    let dir = tempfile::tempdir().expect("tmp");
+    let path = dir.path().join("known_vnc_certs");
+    let mut o = VncOptions::new(&path, VncConnOptions::default());
+    o.trusted_once = Some(fingerprint(&der));
+    o.handshake_timeout = Duration::from_secs(5);
+    let mut s = VncSession::connect(
+        params(srv.addr.port(), ConnectSecret::None),
+        o,
+        FrameSink::new(),
+        AuditLog::default(),
+    )
+    .await
+    .expect("connect");
+    assert_eq!(connected(&mut s).await.1.as_deref(), Some("vencrypt-x509"));
+    assert!(!KnownCerts::load(&path).expect("load").has_pin("127.0.0.1", srv.addr.port()));
+}
+
+#[tokio::test]
 async fn tofu_no_rejects_and_anonymous_tls_falls_back() {
     let (der, key) = cert("127.0.0.1");
     let srv = start(SrvConfig {
@@ -285,7 +314,11 @@ async fn tofu_no_rejects_and_anonymous_tls_falls_back() {
         .await
         .expect("answer");
     assert_eq!(closed(&mut c.s).await, CloseCode::TrustRejected);
-    assert!(c.s.take_audit_events().iter().any(|a| matches!(a, SessionAudit::CertRejected { .. })));
+    assert!(!c
+        .s
+        .take_audit_events()
+        .iter()
+        .any(|a| matches!(a, SessionAudit::CertRejected { .. })));
 
     // VeNCrypt with anonymous-TLS subtypes only: one retry without VeNCrypt.
     let anon = start(SrvConfig {

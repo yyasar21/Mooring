@@ -147,7 +147,7 @@ async fn tls_only_server_is_refused_without_the_option() {
 }
 
 #[tokio::test]
-async fn unknown_certificate_prompts_pins_and_reconnects() {
+async fn unknown_certificate_prompts_and_reconnects_without_writing_the_pin() {
     let dir = tempfile::tempdir().expect("dir");
     let (der, key) = self_signed(&["127.0.0.1"]);
     let fp = fingerprint(&der);
@@ -170,10 +170,11 @@ async fn unknown_certificate_prompts_pins_and_reconnects() {
     let SessionEvent::Closed { code, .. } = next(&mut s).await else { panic!("closed") };
     assert_ne!(code, CloseCode::TrustRejected);
     assert_ne!(code, CloseCode::TrustMismatch);
+    // The pin file and the decision audit belong to the Tauri layer (R2 contract).
     let known = KnownCerts::load(&dir.path().join("known_rdp_certs")).expect("load");
-    assert_eq!(known.check("127.0.0.1", port, &fp), mooring_core::known_certs::CertTrust::Trusted);
+    assert_eq!(known.check("127.0.0.1", port, &fp), mooring_core::known_certs::CertTrust::Unknown);
     let actions: Vec<_> = audit.take().iter().map(SessionAudit::action).collect();
-    assert!(actions.contains(&"trust.cert.added"), "{actions:?}");
+    assert!(!actions.contains(&"trust.cert.added"), "{actions:?}");
 }
 
 #[tokio::test]
@@ -189,8 +190,26 @@ async fn declined_certificate_closes_with_trust_rejected() {
     s.send(SessionInput::Answer { id, text: "no".to_owned().into() }).await.expect("answer");
     let SessionEvent::Closed { code, .. } = next(&mut s).await else { panic!("closed") };
     assert_eq!(code, CloseCode::TrustRejected);
-    let actions: Vec<_> = s.take_audit_events().iter().map(SessionAudit::action).collect();
-    assert_eq!(actions, vec!["trust.cert.rejected"]);
+    assert!(s.take_audit_events().is_empty(), "the Tauri layer audits the answer");
+}
+
+#[tokio::test]
+async fn trusted_once_skips_the_prompt_without_writing_a_pin() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (der, key) = self_signed(&["127.0.0.1"]);
+    let fp = fingerprint(&der);
+    let port = fake_server(SecurityProtocol::HYBRID, der, key, 1).await;
+    let mut o = options(&dir);
+    o.trusted_once = Some(fp);
+    let mut s = RdpSession::connect(params(port, pw()), o, FrameSink::new(), AuditSink::new())
+        .await
+        .expect("starts");
+    // No prompt: the TLS step accepts the leaf and CredSSP starts; the fake server hangs up.
+    let ev = next(&mut s).await;
+    let SessionEvent::Closed { code, .. } = ev else { panic!("closed, got {ev:?}") };
+    assert!(!matches!(code, CloseCode::TrustRejected | CloseCode::TrustMismatch));
+    let known = KnownCerts::load(&dir.path().join("known_rdp_certs")).expect("load");
+    assert_eq!(known.check("127.0.0.1", port, &fp), mooring_core::known_certs::CertTrust::Unknown);
 }
 
 #[tokio::test]
