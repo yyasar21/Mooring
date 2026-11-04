@@ -31,6 +31,13 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "protocol.unavailable": "This protocol is not available in this build of Mooring.",
   "ipc.forbidden": "This window is not allowed to do that. Use the main Mooring window.",
   "clipboard.unavailable": "The system clipboard is not available right now.",
+  // ADR-0014..0017 (A3): Rust adds these codes with K4/V2/E2/S1.
+  "kube.rbac_denied": "The cluster's RBAC does not let this token do that here.",
+  "kube.forbidden_request": "Mooring refused to send that request: it would change the cluster, and Mooring is read-only.",
+  "kube.unsupported_auth": "This kubeconfig signs in with a method Mooring does not run (exec plugins, auth providers or files).",
+  "tree.synced_readonly": "This folder is synced from vCenter and is read-only. Change it in vCenter, then refresh.",
+  "vsphere.power_disabled": "Power actions are off for this vCenter. Turn them on in the connection options.",
+  "vsphere.tools_missing": "VMware Tools are not running in this VM, so a guest shutdown or reboot is not possible.",
 };
 
 export function describeError(e: unknown): string {

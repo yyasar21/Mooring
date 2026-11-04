@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ipc, type ForwardInfo, type ForwardOpen } from "../../lib/ipc";
+import { ipc, isPodTarget, type ForwardInfo, type ForwardOpen, type PodForwardOpen } from "../../lib/ipc";
+
+/** What a form submits: an SSH forward or (on a cluster session) a pod forward, without the session. */
+export type ForwardDraft = Omit<ForwardOpen, "sessionId"> | Omit<PodForwardOpen, "sessionId">;
 import { describeError } from "../../stores/errors";
 
 /** How often the list refreshes while the panel is open (connection counts change). */
@@ -11,12 +14,12 @@ export interface ForwardsState {
   error: string | null;
   refresh: () => Promise<void>;
   /** Resolves to the new forward, or null when the backend refused (error is set). */
-  open: (f: Omit<ForwardOpen, "sessionId">) => Promise<ForwardInfo | null>;
+  open: (f: ForwardDraft) => Promise<ForwardInfo | null>;
   close: (forwardId: string) => Promise<void>;
   clearError: () => void;
 }
 
-/** Forwards of one SSH session. `sessionId` null = not connected; nothing is requested. */
+/** Forwards of one SSH or cluster session. `sessionId` null = not connected; nothing is requested. */
 export function useForwards(sessionId: string | null): ForwardsState {
   const [items, setItems] = useState<ForwardInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,7 +50,7 @@ export function useForwards(sessionId: string | null): ForwardsState {
   }, [sessionId, refresh]);
 
   const open = useCallback(
-    async (f: Omit<ForwardOpen, "sessionId">) => {
+    async (f: ForwardDraft) => {
       if (!sessionId) return null;
       try {
         const info = await ipc.forwardOpen({ sessionId, ...f });
@@ -85,4 +88,10 @@ export function useForwards(sessionId: string | null): ForwardsState {
 /** `host:port`, with IPv6 literals in brackets. */
 export function formatHostPort(hp: { host: string; port: number }): string {
   return hp.host.includes(":") ? `[${hp.host}]:${hp.port}` : `${hp.host}:${hp.port}`;
+}
+
+/** A forward target for display: `host:port`, or `namespace/pod:port` for pod forwards. */
+export function formatTarget(t: ForwardInfo["target"]): string {
+  if (t === null) return "SOCKS5";
+  return isPodTarget(t) ? `${t.namespace}/${t.pod}:${t.port}` : formatHostPort(t);
 }

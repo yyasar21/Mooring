@@ -5,6 +5,7 @@ import { folderPath, useTree } from "../../stores/tree";
 import { lineState, useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
+import { VsphereImport } from "./VsphereImport";
 
 /** Right pane: properties of the selected node. Credentials show as a reference, never a value. */
 export function Inspector() {
@@ -57,6 +58,7 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
         <button type="button" className="btn" onClick={() => { openDialog({ kind: "connection", id: c.id, folderId: c.folderId }); }}>
           Edit
         </button>
+        {c.protocol === "vsphere-console" && !c.syncSource && <VsphereImport connection={c} />}
       </div>
 
       <section className="readout-section">

@@ -1,12 +1,24 @@
 import { useState } from "react";
-import { FORWARD_LIMITS, type ForwardInfo } from "../../lib/ipc";
+import { FORWARD_LIMITS, type ForwardInfo, type PodTarget } from "../../lib/ipc";
 import { ForwardForm, KIND_META } from "./ForwardForm";
-import { formatHostPort, useForwards } from "./useForwards";
+import { PodForwardForm, type PodChoice } from "./PodForwardForm";
+import { formatHostPort, formatTarget, useForwards, type ForwardDraft } from "./useForwards";
 
-/** Port forwards of one SSH session: list, open, close. Forwards die with the session. */
-export function ForwardsPanel({ sessionId }: { sessionId: string | null }) {
+/**
+ * Port forwards of one SSH session (local/remote/dynamic) or, with `pods`, of one Kubernetes
+ * cluster session (`kind: "pod"`, ADR-0014): list, open, close. Forwards die with the session.
+ */
+export function ForwardsPanel({ sessionId, pods, preset, disabledReason }: {
+  sessionId: string | null;
+  /** Cluster mode: the pods (and their declared ports) a forward may target. */
+  pods?: PodChoice[];
+  /** Cluster mode: open the form pre-filled (from a pod row). */
+  preset?: PodTarget | null;
+  /** Cluster mode: why new forwards are not possible (RBAC or the connection option). */
+  disabledReason?: string | null;
+}) {
   const fw = useForwards(sessionId);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(preset != null);
   const [busy, setBusy] = useState(false);
 
   if (!sessionId) {
@@ -18,6 +30,13 @@ export function ForwardsPanel({ sessionId }: { sessionId: string | null }) {
   }
 
   const full = fw.items.length >= FORWARD_LIMITS.perSession;
+  const submit = async (d: ForwardDraft) => {
+    setBusy(true);
+    const ok = (await fw.open(d)) !== null;
+    setBusy(false);
+    if (ok) setAdding(false);
+    return ok;
+  };
 
   return (
     <section aria-label="Port forwards" className="tool-panel">
@@ -28,26 +47,19 @@ export function ForwardsPanel({ sessionId }: { sessionId: string | null }) {
         </span>
         <span className="flex-1" />
         {!adding && (
-          <button type="button" className="btn btn-primary" disabled={full} onClick={() => { setAdding(true); fw.clearError(); }}>
+          <button type="button" className="btn btn-primary" disabled={full || Boolean(disabledReason)} title={disabledReason ?? undefined} onClick={() => { setAdding(true); fw.clearError(); }}>
             New forward
           </button>
         )}
       </header>
       {fw.error && <p role="alert" className="tool-error">{fw.error}</p>}
+      {disabledReason && <p className="tool-empty" role="note">{disabledReason}</p>}
 
-      {adding && (
-        <ForwardForm
-          busy={busy}
-          onCancel={() => { setAdding(false); }}
-          onSubmit={async (d) => {
-            setBusy(true);
-            const ok = (await fw.open(d)) !== null;
-            setBusy(false);
-            if (ok) setAdding(false);
-            return ok;
-          }}
-        />
-      )}
+      {adding && !disabledReason && (pods ? (
+        <PodForwardForm pods={pods} preset={preset ?? null} busy={busy} onCancel={() => { setAdding(false); }} onSubmit={submit} />
+      ) : (
+        <ForwardForm busy={busy} onCancel={() => { setAdding(false); }} onSubmit={submit} />
+      ))}
 
       <div className="fw-table" role="table" aria-label="Forwards on this session">
         <div role="row" className="fw-row fw-row-head">
@@ -63,7 +75,11 @@ export function ForwardsPanel({ sessionId }: { sessionId: string | null }) {
         ))}
         {fw.items.length === 0 && !fw.loading && (
           <div role="row" className="fw-row-empty">
-            <span role="cell">No forwards yet. A local forward makes a service behind the server reachable on this machine.</span>
+            <span role="cell">
+              {pods
+                ? "No forwards yet. A pod forward makes a container port reachable on this machine."
+                : "No forwards yet. A local forward makes a service behind the server reachable on this machine."}
+            </span>
           </div>
         )}
       </div>
@@ -80,7 +96,7 @@ function ForwardRow({ f, onClose }: { f: ForwardInfo; onClose: () => void }) {
         {KIND_META[f.kind].label}
       </span>
       <span role="cell" className="mono select-text truncate">{bind}</span>
-      <span role="cell" className="mono select-text truncate">{f.target ? formatHostPort(f.target) : "SOCKS5"}</span>
+      <span role="cell" className="mono select-text truncate">{formatTarget(f.target)}</span>
       <span role="cell">
         {f.exposure === "external" ? (
           <span className="chip" data-tone="hot">External</span>

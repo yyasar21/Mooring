@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { HudLabel } from "@mooring/ui";
-import type { Protocol } from "../../lib/ipc";
+import type { KubeConnOptions, Protocol } from "../../lib/ipc";
+import { kubeCredentialFit } from "../../lib/validate.kube";
 import { credentialValidFor, supportsOverride } from "../../lib/credentials";
 import { folderPath, useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
@@ -93,7 +94,10 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const canUser = effective ? supportsOverride(effective.kind, "username") : true;
   const canDomain = effective ? supportsOverride(effective.kind, "domain") : true;
   const dropped = (cred && !primary) || (gateway && protocol === "rdp" && !gw) || (become && protocol === "ssh" && !bc);
-  const valid = name.trim() !== "" && host.trim() !== "" && !portBad && options.valid && !options.loading;
+  // ADR-0014 §3: server/CA are required with a token and refused with a kubeconfig.
+  const fit = protocol === "kubernetes" ? kubeCredentialFit(options.value as KubeConnOptions, effective?.kind) : {};
+  const fitOk = Object.keys(fit).length === 0;
+  const valid = name.trim() !== "" && host.trim() !== "" && !portBad && options.valid && fitOk && !options.loading;
 
   async function submit() {
     setBusy(true);
@@ -260,9 +264,9 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
           {dropped && <p className="field-hint">A previous choice does not fit {protocol.toUpperCase()} and was cleared.</p>}
         </div>
 
-        <ProtocolOptionsSection draft={options} />
+        <ProtocolOptionsSection draft={options} credential={effective} extraErrors={fit} />
 
-        <DialogFooter error={portBad ? "Port must be 1 to 65535." : !options.valid ? "Fix the highlighted options." : error}>
+        <DialogFooter error={portBad ? "Port must be 1 to 65535." : !options.valid || !fitOk ? "Fix the highlighted options." : error}>
           {existing && (
             <button type="button" className="btn btn-ghost btn-danger" disabled={busy} onClick={() => void remove()}>
               Delete

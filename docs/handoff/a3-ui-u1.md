@@ -1,0 +1,57 @@
+# A3 · ui-engineer · U1: typed IPC for ADR-0014..0017, Kubernetes cluster browser, exec, logs, pod forwards
+
+Worktree `agent-a25d6ba19fb1de27e`, branch `worktree-agent-a25d6ba19fb1de27e`, from `a3` @ `aa629eb`. Not merged.
+Built against the ADR texts with `MockTransport`; no Rust for A3 exists yet. Every shape the ADRs do not spell out is marked **ASSUMED** below and in the code.
+
+## Done
+
+| Commit | What |
+| --- | --- |
+| `f0a13a5` | **Typed IPC and mocks.** New `lib/ipc.types.{kube,vsphere,secrets}.ts`, `lib/ipc.decode.kube.ts`, `lib/validate.kube.ts`. `TauriTransport` calls every ADR-0014..0017 command from `ipc.ts` (the polled-command tracer reads them there). Pod watches and log streams arrive on `Channel`s and are decoded field by field: an unknown phase becomes `Unknown`, an access flag that is not literally `true` is a denial, an unknown watch event becomes `resync`, and a bad log chunk ends the stream. `forward_open` takes `kind: "pod"` with `target: { namespace, pod, port }`. `POLLED_COMMANDS` gains `kube_access`, `kube_namespaces`, `kube_pods`, `vsphere_status`, `vsphere_vm_power` and `sync_status`, which are the passive commands the ADRs name. Each one is skipped with a message while `src-tauri/ipc-passive.json` lacks it. The new error codes follow the same pattern: `PENDING_A3_CODES` in `errors.codes.test.ts` skips them while `ipc-codes.json` lacks them, and fails if the mock throws a code that is neither in Rust nor on that list. The mock is a chain of new bases, each in its own file: `MockOptionsBase ← MockKubeBase ← MockVsphereBase ← MockSecretsBase ← MockTransport`. `ipc.mock.ts` is 497 lines. |
+| `1318d4d` | **UI.**<br>- **Kubernetes cluster tab** (`components/kube/`). Opening a kube connection calls `kube_open`, never `session_open`. The tab shows the read-only banner "Mooring never mutates this cluster". Contexts come from the kubeconfig credential; only the connection's own context is active, the others are greyed ("one connection per context"). Namespaces: when the token may not list them, the context namespace plus `allowedNamespaces` are shown. The pod table has status badges (Running / Not ready / Restarting / Pending / Completed / Failed / Unknown), ready and restart counts, node and age. Search matches name, node, container and image. The pod detail lists containers with Exec, Logs and one button per declared port.<br>- **RBAC.** "Token permissions" shows the identity and the five checks for the current namespace. Denied actions are disabled and say why.<br>- **Live updates.** A watch keeps the list current; `kube_pods` re-lists every 15 s and on `resync`.<br>- **Exec** opens an ordinary terminal tab through `sessions.openKube` → `session_open({ kube: { parentSessionId, namespace, pod, container, argv: [shell] } })`. The shell comes from the allow-list select, defaulting to the connection's `execCommand`.<br>- **Logs** open a viewer tab (`LogsViewer`, `useLogStream`) with follow, tail, timestamps and a container select; each change restarts the stream. It also has search with a match count and highlight, "Only matches", Stop/Restart, the line and byte count, and the notice "Stopped at the N MiB log limit". Lines are sanitised again in the UI. The view keeps at most 50 000 lines and draws the last 2 000. Closing the tab stops the stream.<br>- **Pod port-forward** goes through the existing `ForwardsPanel` in cluster mode (`PodForwardForm`): it lists running pods and their ports, opens pre-filled from a port button, is loopback by default and needs the external-exposure confirmation. Targets show as `ns/pod:port`.<br>- **Connection form.** `KubeOptions`: context, server and CA only for `kube_token` (required there, refused with `kubeconfig`), TLS name, namespace, namespaces to offer, exec shell, tail lines, max log bytes, port-forward. `VsphereOptions`: refresh 15–1440 or manual, power actions opt-in with the data-loss warning, VMRC opt-in, CA.<br>- **vCenter.** The inspector has an "Import inventory…" placeholder for vCenter connections. It can run `vsphere_test`; Start import is disabled until U2.<br>- The tab strip names exec and logs tabs `name · pod/container`. A new seed connection `stage-vcenter` uses a `vsphere_user` credential. |
+| (this) | Responsive layout (container queries), screenshots and this note. |
+
+Screenshots are in `docs/handoff/img/a3-ui/`, dark and light, 1440×860. They were taken with `playwright` (headless Chromium) against `vite dev`:
+- `11-kube-browser`: stage-cluster, namespace `payments`, the RBAC card, and a pod selected.
+- `12-kube-logs`: a following log of `api` with the search "upstream" (115 matches).
+
+## Contract assumptions for K3/K4 (please confirm or change; the UI follows Rust)
+
+1. **`KubeConnOptions` has three extra fields** that the owner's brief asks for and the ADR struct lacks: `execCommand` (one of the five allow-listed shells, default `/bin/sh`), `logTailLines` (1..=10 000, default 500) and `portForward` (bool, default true). With `deny_unknown_fields`, K2 must add them or the UI must drop them. The other ranges I assumed: `maxLogBytes` minimum 64 KiB, `allowedNamespaces` ≤ 64 entries of RFC 1123 labels with no duplicates, `context` 1..=253 characters.
+2. **`PodEvent`** = `{ type: "added"|"modified"|"deleted", pod: PodSummary } | { type: "resync" }`. `resync` means events were dropped (more than 50/s) and the UI should re-list. Uppercase `ADDED` and the like are also accepted.
+3. **`LogChunk.data` is base64**, as with the other byte channels. The UI decodes it with a streaming `TextDecoder` and splits lines across chunks.
+4. **`session_list` marks kubernetes sessions** with `kube: { parentSessionId: string | null }` (null = the cluster handle). Without it, after an unlock the UI cannot tell a cluster handle from an exec shell when it re-adopts them. An adopted exec tab has no target, so Reconnect cannot reopen it.
+5. **The cluster session has no event channel.** The UI learns that it ended only from `kube_*` errors (`session.not_found`) and from its exec tabs closing. Should `kube_open` take an `onEvent` for `closed`?
+6. **Error codes**: the ADR's `kube.forbidden_request`, `kube.rbac_denied`, `kube.not_found` and `kube.unsupported_auth`, plus **`kube.stream_limit`** (ASSUMED) for the 8-streams-per-cluster cap. The mock uses `kube.rbac_denied` for a denied list/logs/exec/port-forward and `kube.not_found` for an unknown namespace, pod, container, watch or stream. `kube_namespaces` refuses with `kube.rbac_denied` when listing is denied, and the UI then falls back.
+7. **Exec**: `argv` must be exactly one allow-listed shell, and the mock refuses anything else with `input.invalid`. `session_open` for a kubernetes connection without `kube` is `input.invalid`. A cluster session refuses `local/remote/dynamic` forwards, an SSH session refuses `pod`, and an exec session refuses all forwards (all `input.invalid`).
+8. **`forward_list`** on the cluster session returns pod forwards with `target: { namespace, pod, port }`. The decoder recognises a pod target by its `pod` key.
+9. The **RBAC "List namespaces"** flag comes back from `kube_access` per namespace (as the ADR returns it), although it is cluster-wide.
+
+### Also assumed (V2 / E2 / S1, typed and mocked only)
+- `VsphereConnOptions.allowVmrc` is my field name for owner decision 7. Tree rows inside a synced subtree carry `syncSource`, `externalId` and, for connections, `syncState`. `vsphere_console({ kind: "client" })` returns the web window label.
+- `secret_source_oidc_start({ id }) -> { windowLabel }` and `secret_source_oidc_status({ id }) -> { state: idle|waiting|done|failed|timeout, error }` are invented names: ADR-0016 §4 names no commands for the OIDC window. `SecretSource` = the input plus `id`, `kind`, `createdAt` and `updatedAt`.
+- `SyncStatus.conflicts` is a list of `{ kind, id, name }`, not a count. `SyncStatus.state` is one of `idle|pulling|pushing|merging|error|rollback|fork|disabled`. `SyncConfig` = the settings plus `deviceId`. `sync.not_configured` and `sync.not_found` are ASSUMED codes.
+- `vault_approle` and `s3_access_key` are **not** added to `CREDENTIAL_KINDS` yet, and neither is the amended `external_ref` field set (`source`, `version`, `fieldMap`). Both belong with U3, together with the kind schema from Rust.
+
+## Left open
+- **U2/U3** as planned: the vSphere import wizard, synced-folder badges, power menu and console actions; secret sources, the `external_ref` form, and the sync settings and conflict view.
+- **No E2E** for the cluster flows yet. `e2e/flows.e2e.mjs` could drive the same mock: open stage-cluster, exec, logs, a pod forward.
+- **Line budget:** `stores/sessions.ts` and `lib/ipc.mock.ts` are both at 497 lines. The next feature that touches them should first move code out (the adopt/reset helpers and the SSH session mock are the obvious candidates).
+- **Bundle size:** the main bundle is 577 kB minified (Vite's 500 kB warning; MockTransport ships in it, as before).
+- **Identity after unlock:** a cluster tab adopted after an unlock shows "unknown" identity, because there is no `kube_info` to ask for it again.
+
+## Decision needed
+1. rust-core / owner: keep the three extra `KubeConnOptions` fields (assumption 1), or move them to UI-only preferences?
+2. rust-core: add `SessionInfo.kube.parentSessionId` (assumption 4) and an `onEvent` on `kube_open` (assumption 5)?
+3. architect: the OIDC window commands (start/status) for ADR-0016 §4.
+
+## Test evidence
+- `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` are green in `apps/desktop`.
+- **Vitest: 49 files, 367 passed, 7 skipped** (baseline 42 files, 305 passed). The skips are the pending passive commands and A3 codes, each with a message naming the Rust task that adds it.
+- **New test files:**
+  - `lib/ipc.kube.test.ts` (14): kube_open and its audit; lock; the RBAC matrix enforced on logs and exec; namespace and pod lists with selector and not-found; a denied namespace list; watch fan-out and unwatch; log tail, follow and stop; the byte cap with `truncated: true` at exactly `maxLogBytes`; argument checks and the 8-stream cap; the exec allow-list (no extra args, no other binaries, RBAC); `exit` → `server_ended`; closing the cluster session closes its exec shells, log streams and forwards; pod forward rules and the kind/session pairing; the decoders.
+  - `lib/ipc.a3.test.ts` (12): vSphere test/sync/refresh; the read-only subtree matrix with editable overlays; power opt-in plus native-dialog cancel/done with audit; consoles and VMRC opt-in; Tools missing; sync disable keep/drop; secret source CRUD/test/OIDC/in-use; `external_ref_test` returns names only; sync set/probe/now/disable; unsupported backend; `vault_join` on a fresh device only.
+  - `lib/ipc.tauri.a3.test.ts` (4): command names and camelCase args for every A3 command; the exec target on `session_open`; the watch and log channel decoding; the passive set.
+  - `lib/validate.kube.test.ts` (10): every KubeConnOptions range; the exec allow-list; server URL; namespaces; the token/kubeconfig fit; normalisation; VsphereConnOptions ranges; RFC 1123 names; log args; pod-forward exposure.
+  - `components/kube/ClusterBrowser.test.tsx` (10) and `components/kube/LogsViewer.test.tsx` (8): the UI flows listed under Done.
+  - `components/dialogs/options/kube.options.test.tsx` (3): the kubeconfig and kube_token form paths, saving every field, and the vCenter section.

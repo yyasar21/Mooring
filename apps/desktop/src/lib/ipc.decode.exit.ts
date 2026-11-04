@@ -3,8 +3,8 @@
 import {
   LOCK_REASONS,
   type EntryKind,
+  type AnyForwardKind,
   type ForwardInfo,
-  type ForwardKind,
   type HostPort,
   type LocalPick,
   type LockReason,
@@ -35,7 +35,7 @@ function pick(w: Wire, camel: string, snake: string): unknown {
 
 const TRANSFER_STATES: readonly TransferState[] = ["running", "done", "failed", "cancelled"];
 const ENTRY_KINDS: readonly EntryKind[] = ["file", "dir", "symlink", "other"];
-const FORWARD_KINDS: readonly ForwardKind[] = ["local", "remote", "dynamic"];
+const FORWARD_KINDS: readonly AnyForwardKind[] = ["local", "remote", "dynamic", "pod"];
 
 /** One `Channel<Progress>` message. An unknown state is treated as a failure, never as done. */
 export function decodeProgress(raw: unknown): TransferProgress {
@@ -84,6 +84,12 @@ function hostPort(raw: unknown): HostPort {
   return { host: str(w.host), port: num(w.port) };
 }
 
+function forwardTarget(raw: unknown): ForwardInfo["target"] {
+  if (raw === null || raw === undefined) return null;
+  const w = rec(raw);
+  return "pod" in w ? { namespace: str(w.namespace), pod: str(w.pod), port: num(w.port) } : hostPort(w);
+}
+
 export function decodeForward(raw: unknown): ForwardInfo {
   const w = rec(raw);
   const kind = FORWARD_KINDS.find((k) => k === w.kind) ?? "local";
@@ -91,7 +97,7 @@ export function decodeForward(raw: unknown): ForwardInfo {
     id: str(w.id),
     kind,
     bind: hostPort(w.bind),
-    target: w.target === null || w.target === undefined ? null : hostPort(w.target),
+    target: forwardTarget(w.target),
     // Anything but an explicit loopback is shown as external: never understate exposure.
     exposure: w.exposure === "loopback" ? "loopback" : "external",
     openedAt: str(pick(w, "openedAt", "opened_at")),
