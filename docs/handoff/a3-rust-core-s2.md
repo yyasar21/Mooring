@@ -191,3 +191,27 @@ re-created under the joined vault, or the synced copy with the same `access_key_
   sync Gate, `known_certs_remove`), `KnownHosts::add_and_save` (SSH), and the sync apply, which
   locks every file in `trust_file_names()` (known_hosts + all `CertProtocol`s, kube, vault and
   sync included). Paths are always `data_dir.join(file_name)`, so the lock keys match.
+
+### Follow-ups after the S2 merge (V2 and E2 integration)
+- **Migrations**: V2's `0006_vsphere_sync.sql` filled the reserved slot. `MIGRATIONS` is
+  contiguous 0001..0007 (`LATEST = 7`), and `migrations_are_contiguous_and_end_at_latest`
+  now asserts contiguity, because a gap would be skipped forever by a database already past it.
+- **E1 × S2 (fixed, `f58a428`)**: `replace_sync_rows` deleted all credentials and then
+  re-inserted them. `secret_source.credential_id` is `ON DELETE RESTRICT`, which SQLite
+  enforces immediately even with deferred keys, so every sync apply failed on a device that
+  had a token or AppRole secret source. Credentials are now upserted and stale ones deleted.
+  A credential that a local secret source logs in with is kept. Secret sources are not synced,
+  so such a credential is re-exported and can come back on other devices (accepted).
+- **V2 × S2 (fixed, `58ec4ff`, `bb0d735`)**: deleting every connection cascaded through
+  `sync_source` and dropped each vCenter's synced subtree on every apply. Export also shipped
+  synced rows as ordinary, editable rows. Synced subtrees are now device-local:
+  `export_sync_rows` skips `sync_source IS NOT NULL` rows, and apply upserts folders and
+  connections, deletes only stale unsynced rows and never touches synced ones. Roots are
+  upserted last so that `folder_single_root_idx` holds when a merge moves this device's root.
+  Sync enablement (`syncFolderId`) is derived from the local subtree, so a second device has
+  to enable vSphere sync on its own. User overlays on synced VMs (credential, tags) do not sync.
+- **E2**: E2's async `connect_plan::plan` is kept. Its only callers are `session_open` and the
+  graphical reconnect, and both already await it. K4 (`connect_plan::kube`), V2
+  (`vsphere_login`) and S2 (`sync_config`) resolve their own credential kinds and do not call
+  `plan`. The E2 test commit `5cbfc43` was cherry-picked after S2 to fix the kinds test.
+  E1 had left that test red on a3.
