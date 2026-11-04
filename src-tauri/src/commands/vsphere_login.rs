@@ -195,6 +195,7 @@ pub fn map_error(e: &VsphereError) -> IpcError {
             HttpError::TrustPrompt(_) => "http.trust_prompt",
             HttpError::TrustMismatch(_) => "http.trust_mismatch",
             HttpError::TrustRejected(_) => "http.trust_rejected",
+            HttpError::TrustConflict(_) => "http.trust_conflict",
             HttpError::TrustStore => "http.trust_store",
             HttpError::Tls(_) => "http.tls",
             HttpError::PlaintextRefused | HttpError::InvalidConfig(_) | HttpError::InvalidRequest(_) => "vsphere.invalid",

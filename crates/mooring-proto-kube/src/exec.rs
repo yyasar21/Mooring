@@ -144,6 +144,7 @@ fn code_name(c: CloseCode) -> &'static str {
         CloseCode::AuthFailed => "auth_failed",
         CloseCode::TrustRejected => "trust_rejected",
         CloseCode::TrustMismatch => "trust_mismatch",
+        CloseCode::TrustConflict => "trust_conflict",
         CloseCode::ServerEnded => "server_ended",
         CloseCode::ProtocolError => "protocol_error",
         CloseCode::VaultLocked => "vault_locked",

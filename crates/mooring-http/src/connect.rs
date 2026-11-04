@@ -174,6 +174,7 @@ impl Connector {
                     TrustVerdict::Prompt => HttpError::TrustPrompt(Box::new(d)),
                     TrustVerdict::Mismatch { .. } => HttpError::TrustMismatch(Box::new(d)),
                     TrustVerdict::Rejected => HttpError::TrustRejected(Box::new(d)),
+                    TrustVerdict::Conflict => HttpError::TrustConflict(Box::new(d)),
                     TrustVerdict::Pinned { .. } | TrustVerdict::CaValid => tls_error(&e),
                 },
                 None => tls_error(&e),

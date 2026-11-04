@@ -128,6 +128,7 @@ pub fn close_code_of(e: &IpcError) -> CloseCode {
     match e.code {
         "vault.locked" | "vault.missing" => CloseCode::VaultLocked,
         "session.trust_mismatch" => CloseCode::TrustMismatch,
+        "http.trust_conflict" => CloseCode::TrustConflict,
         "session.trust_rejected" => CloseCode::TrustRejected,
         "session.unsupported_security" | "protocol.unavailable" | "input.invalid" => {
             CloseCode::ProtocolError

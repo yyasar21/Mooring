@@ -31,6 +31,10 @@ pub enum HttpError {
     /// Anchored mode and the chain failed against the explicit CA: not promptable.
     #[error("the server certificate does not validate against the configured CA")]
     TrustRejected(Box<TrustDecision>),
+    /// The trust store holds conflicting pins for the host (review 6b L-35): hard stop until
+    /// the user removes them in the known-certificates manager.
+    #[error("the trust store holds conflicting pins for this host")]
+    TrustConflict(Box<TrustDecision>),
     /// Any other TLS failure (protocol, bad handshake signature, …).
     #[error("TLS failed: {0}")]
     Tls(String),
@@ -121,6 +125,7 @@ impl HttpError {
             Self::TrustPrompt(_) => "http.trust_prompt",
             Self::TrustMismatch(_) => "http.trust_mismatch",
             Self::TrustRejected(_) => "http.trust_rejected",
+            Self::TrustConflict(_) => "http.trust_conflict",
             Self::Tls(_) => "http.tls",
             Self::Connect(_) => "http.connect",
             Self::Timeout => "http.timeout",
@@ -144,7 +149,10 @@ impl HttpError {
     /// The handshake decision of a `Trust*` error.
     pub fn trust_decision(&self) -> Option<&TrustDecision> {
         match self {
-            Self::TrustPrompt(d) | Self::TrustMismatch(d) | Self::TrustRejected(d) => Some(d),
+            Self::TrustPrompt(d)
+            | Self::TrustMismatch(d)
+            | Self::TrustRejected(d)
+            | Self::TrustConflict(d) => Some(d),
             _ => None,
         }
     }

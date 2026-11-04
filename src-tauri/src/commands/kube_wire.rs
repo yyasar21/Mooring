@@ -138,6 +138,7 @@ pub fn kube_error(e: &KubeError) -> IpcError {
         KubeError::Protocol(_) => "kube.protocol",
         KubeError::Closed => "kube.closed",
         KubeError::Http(HttpError::TrustMismatch(_)) => "session.trust_mismatch",
+        KubeError::Http(HttpError::TrustConflict(_)) => "http.trust_conflict",
         KubeError::Http(HttpError::TrustRejected(_) | HttpError::TrustPrompt(_)) => {
             "session.trust_rejected"
         }

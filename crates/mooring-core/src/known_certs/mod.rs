@@ -66,6 +66,10 @@ pub enum CertTrust {
         /// The (first) stored pin.
         expected: [u8; 32],
     },
+    /// More than one distinct pin names this `host:port` (review 6b L-35: two devices accepted
+    /// different certificates and the sync merge kept both): hard stop until the user removes
+    /// the pins in the known-certificates manager. The presented certificate is not consulted.
+    Conflict,
 }
 
 /// What the verifier does: the ADR-0011 four-row decision table (the pin wins over the CA).
@@ -86,6 +90,8 @@ pub enum CertVerdict {
     },
     /// No pin, invalid chain: fail the handshake, prompt `certificate_trust`, reconnect on yes.
     Prompt,
+    /// Conflicting pins (L-35): close with `trust_conflict`; never promptable.
+    Conflict,
 }
 
 /// The decision table. Pure, so RDP and VNC share it exactly.
@@ -95,6 +101,7 @@ pub const fn decide(trust: CertTrust, chain_valid: bool) -> CertVerdict {
         (CertTrust::Mismatch { expected }, _) => CertVerdict::Mismatch { expected },
         (CertTrust::Unknown, true) => CertVerdict::AcceptCa,
         (CertTrust::Unknown, false) => CertVerdict::Prompt,
+        (CertTrust::Conflict, _) => CertVerdict::Conflict,
     }
 }
 
@@ -252,9 +259,14 @@ impl KnownCerts {
         self.truncated
     }
 
-    /// Look `sha256` up for `host:port`. Any matching pin → trusted (several pins for one
-    /// host can exist in a hand-edited file); pins that all differ → mismatch with the first.
+    /// Look `sha256` up for `host:port`. One distinct pin: trusted when it matches, else a
+    /// mismatch. More than one distinct pin (review 6b L-35: a sync merge kept two devices'
+    /// different answers): [`CertTrust::Conflict`], whatever is presented, until the user
+    /// removes the pins. Duplicate lines of one pin are not a conflict.
     pub fn check(&self, host: &str, port: u16, sha256: &[u8; 32]) -> CertTrust {
+        if self.distinct_pins(host, port) > 1 {
+            return CertTrust::Conflict;
+        }
         let name = host_key(host, port);
         let mut first = None;
         for e in self.entries().filter(|e| host_matches(&e.host, &name)) {

@@ -82,6 +82,19 @@ impl ClientHandler {
                 );
                 false
             }
+            // Review 6b L-35: the merge of two devices' answers; never prompted.
+            TrustDecision::Conflict { key_types } => {
+                self.shared.set_reason(
+                    CloseCode::TrustConflict,
+                    format!(
+                        "CONFLICTING HOST KEYS ({}) for {}:{}: remove the extra known_hosts entries",
+                        key_types.join(", "),
+                        self.host,
+                        self.port
+                    ),
+                );
+                false
+            }
             TrustDecision::Unknown => self.ask_trust(key, described).await,
         }
     }

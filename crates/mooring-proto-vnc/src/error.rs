@@ -22,6 +22,8 @@ pub enum VncError {
     AuthFailed(String),
     /// A pinned certificate changed, or TLS was stripped after a pin: hard stop.
     TrustMismatch(String),
+    /// The trust store holds conflicting pins for the host (review 6b L-35): hard stop.
+    TrustConflict(String),
     /// The user declined the certificate.
     TrustRejected,
     /// Unknown certificate whose chain does not validate: prompt, then reconnect on `yes`.
@@ -50,6 +52,7 @@ impl VncError {
             Self::Protocol(_) | Self::Unsupported(_) => CloseCode::ProtocolError,
             Self::AuthFailed(_) => CloseCode::AuthFailed,
             Self::TrustMismatch(_) => CloseCode::TrustMismatch,
+            Self::TrustConflict(_) => CloseCode::TrustConflict,
             Self::TrustRejected | Self::TrustUnknown { .. } => CloseCode::TrustRejected,
             Self::ServerEnded(_) => CloseCode::ServerEnded,
             Self::User => CloseCode::User,
@@ -63,7 +66,7 @@ impl VncError {
             Self::Protocol(r) => format!("protocol error: {r}"),
             Self::Unsupported(r) => format!("unsupported security: {r}"),
             Self::AuthFailed(r) => format!("authentication failed: {r}"),
-            Self::TrustMismatch(r) | Self::ServerEnded(r) => r.clone(),
+            Self::TrustMismatch(r) | Self::TrustConflict(r) | Self::ServerEnded(r) => r.clone(),
             Self::TrustRejected | Self::TrustUnknown { .. } => "certificate not trusted".to_owned(),
             Self::User => "closed by user".to_owned(),
         }

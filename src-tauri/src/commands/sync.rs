@@ -9,13 +9,14 @@
 use std::time::{Duration, Instant};
 
 use mooring_audit::AuditEvent;
-use mooring_sync::{Alarm, Conflict, Keep, Outcome, SyncEngine, SyncError};
+use mooring_sync::{Alarm, Keep, Outcome, SyncEngine, SyncError};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use super::sync_config::{self as config, BackendInput, SyncConfig};
 use super::sync_gate::{self as gate, DialogPrompter, SyncPrompter};
 use super::sync_local::{AppAudit, AppLocal};
+use super::sync_trust::{self, StatusConflict};
 use crate::autolock::AutoLock;
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
@@ -50,6 +51,7 @@ pub const SYNC_CODES: &[&str] = &[
     "http.trust_prompt",
     "http.trust_mismatch",
     "http.trust_rejected",
+    "http.trust_conflict",
     "http.tls",
     "http.connect",
     "http.timeout",
@@ -71,6 +73,9 @@ pub fn sync_error(e: &SyncError) -> IpcError {
         SyncError::Http(h) => match h {
             mooring_http::HttpError::TrustPrompt(_) => "the sync storage certificate is not trusted".to_owned(),
             mooring_http::HttpError::TrustMismatch(_) => "the sync storage certificate changed".to_owned(),
+            mooring_http::HttpError::TrustConflict(_) => {
+                "the trust store holds conflicting pins for the sync storage; remove them in the known certificates manager".to_owned()
+            }
             mooring_http::HttpError::Connect(_) | mooring_http::HttpError::Timeout => {
                 "the sync storage could not be reached".to_owned()
             }
@@ -126,8 +131,9 @@ pub struct SyncStatus {
     pub last_error: Option<IpcError>,
     /// Pending hard stop.
     pub alarm: Option<Alarm>,
-    /// Conflicts of the last merge.
-    pub conflicts: Vec<Conflict>,
+    /// Conflicts of the last merge, then the trust conflicts that stand now (6b L-35:
+    /// `{ kind: "trust", id: <file>, name: <host:port> }`, cleared when the pins are removed).
+    pub conflicts: Vec<StatusConflict>,
     /// Next background run (unix seconds), `null` when none is scheduled.
     pub next_run_unix: Option<u64>,
 }
@@ -136,11 +142,12 @@ pub struct SyncStatus {
 pub fn status(state: &AppState, hub: &SyncHub) -> IpcResult<SyncStatus> {
     let ready = state.ready();
     let cfg = config::load(&ready)?;
-    let (vault_id, local) = state.with_ready(|v, s| {
-        let local = mooring_sync::load_state(s).map_err(|e| sync_error(&e))?;
-        Ok((v.vault_id().to_string(), local))
-    })?;
     let view = hub.view(Instant::now());
+    let (vault_id, local, conflicts) = state.with_ready(|v, s| {
+        let local = mooring_sync::load_state(s).map_err(|e| sync_error(&e))?;
+        let conflicts = sync_trust::status_conflicts(s, &state.data_dir, view.conflicts.clone());
+        Ok((v.vault_id().to_string(), local, conflicts))
+    })?;
     let alarm = local.as_ref().and_then(|l| l.alarm);
     let state_name = match (&cfg, alarm) {
         (None, _) => "disabled",
@@ -171,7 +178,7 @@ pub fn status(state: &AppState, hub: &SyncHub) -> IpcResult<SyncStatus> {
         last_outcome: view.last_outcome,
         last_error: view.last_error,
         alarm,
-        conflicts: view.conflicts,
+        conflicts,
     })
 }
 

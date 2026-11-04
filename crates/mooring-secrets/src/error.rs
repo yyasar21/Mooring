@@ -173,7 +173,8 @@ impl From<HttpError> for SecretsError {
         match e {
             HttpError::TrustPrompt(d)
             | HttpError::TrustMismatch(d)
-            | HttpError::TrustRejected(d) => Self::Trust(d),
+            | HttpError::TrustRejected(d)
+            | HttpError::TrustConflict(d) => Self::Trust(d),
             HttpError::Tls(_) => Self::unavailable(C::Tls, "TLS failed"),
             HttpError::TrustStore => Self::unavailable(C::Tls, "trust store unreadable"),
             HttpError::PlaintextRefused => Self::unavailable(C::Tls, "plaintext refused"),

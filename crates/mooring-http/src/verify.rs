@@ -49,6 +49,9 @@ pub enum TrustVerdict {
     /// Anchored mode (an explicit CA such as kubeconfig `certificate-authority-data`) and the
     /// chain did not validate against it: never promptable (`trust_rejected`).
     Rejected,
+    /// The store holds more than one distinct pin for the host (review 6b L-35): hard stop
+    /// (`trust_conflict`) until the user removes them; never promptable.
+    Conflict,
 }
 
 impl TrustVerdict {
@@ -63,6 +66,7 @@ impl TrustVerdict {
             CertVerdict::AcceptCa => Self::CaValid,
             CertVerdict::Mismatch { expected } => Self::Mismatch { expected },
             CertVerdict::Prompt => Self::Prompt,
+            CertVerdict::Conflict => Self::Conflict,
         }
     }
 }

@@ -45,6 +45,11 @@ pub enum TrustOutcome {
         /// Presented leaf.
         presented: [u8; 32],
     },
+    /// More than one distinct pin for the host (review 6b L-35): hard stop, never prompted.
+    Conflict {
+        /// Presented leaf.
+        presented: [u8; 32],
+    },
     /// No pin and the chain does not validate: prompt.
     Unknown {
         /// SHA-256 of the leaf.
@@ -66,6 +71,7 @@ impl TrustOutcome {
             Self::Pinned { fp, .. }
             | Self::CaValid { fp }
             | Self::Mismatch { presented: fp, .. }
+            | Self::Conflict { presented: fp }
             | Self::Unknown { fp, .. } => *fp,
         }
     }
@@ -173,6 +179,7 @@ pub fn evaluate(
         CertVerdict::AcceptPinned { chain_valid } => TrustOutcome::Pinned { fp, chain_valid },
         CertVerdict::AcceptCa => TrustOutcome::CaValid { fp },
         CertVerdict::Mismatch { expected } => TrustOutcome::Mismatch { expected, presented: fp },
+        CertVerdict::Conflict => TrustOutcome::Conflict { presented: fp },
         CertVerdict::Prompt => {
             let problems = chain_err.map(chain_problems).unwrap_or_default();
             let info = Box::new(certificate_info(der, problems, name_ok, now));

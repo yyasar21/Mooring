@@ -58,6 +58,28 @@ async fn changed_certificate_is_a_hard_stop_even_with_trusted_once() {
     assert_eq!(d.trust, CertTrust::Mismatch { expected: fingerprint(&other) });
 }
 
+/// Review 6b L-35: two distinct pins for the host (what a sync merge of two devices' answers
+/// leaves behind) fail closed with `http.trust_conflict`, whatever the server presents and
+/// even with `trusted_once`; removing the host's pins (the known-certificates manager) ends it.
+#[tokio::test]
+async fn conflicting_pins_fail_closed_until_one_is_removed() {
+    let (s, der) = self_signed_server(ok_json()).await;
+    let (other, _) = self_signed(&["127.0.0.1"]);
+    pin(&s, &der);
+    pin(&s, &other);
+    let mut cfg = s.config();
+    cfg.trusted_once = Some(fingerprint(&der));
+    let err = get(&HttpClient::new(cfg).expect("client")).await.expect_err("conflict");
+    let HttpError::TrustConflict(d) = &err else { panic!("{err:?}") };
+    assert_eq!((d.verdict, d.trust), (TrustVerdict::Conflict, CertTrust::Conflict));
+    assert_eq!(err.code(), "http.trust_conflict");
+    assert_eq!(s.hits(), 0, "no request reached the server");
+    let port = s.addr.port();
+    assert_eq!(KnownCerts::remove_and_save(&s.known(), "127.0.0.1", port).expect("remove"), 2);
+    pin(&s, &der);
+    assert!(get(&HttpClient::new(s.config()).expect("client")).await.expect("one pin again").ok);
+}
+
 #[tokio::test]
 async fn ca_valid_is_accepted_and_reported() {
     let (ca_pem, issuer) = ca();

@@ -366,6 +366,7 @@ fn clone_error(e: &HttpError) -> HttpError {
         HttpError::TrustStore => HttpError::TrustStore,
         HttpError::TrustPrompt(d) => HttpError::TrustPrompt(d.clone()),
         HttpError::TrustMismatch(d) => HttpError::TrustMismatch(d.clone()),
+        HttpError::TrustConflict(d) => HttpError::TrustConflict(d.clone()),
         HttpError::TrustRejected(d) => HttpError::TrustRejected(d.clone()),
         HttpError::Tls(s) => HttpError::Tls(s.clone()),
         HttpError::Connect(k) => HttpError::Connect(*k),

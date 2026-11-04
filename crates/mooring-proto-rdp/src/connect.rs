@@ -194,6 +194,16 @@ fn mismatch(target: &Target, d: &Decision, expected: &[u8; 32], audit: &AuditSin
     (CloseCode::TrustMismatch, reason)
 }
 
+/// Review 6b L-35: the store holds more than one distinct pin for the host (a sync merge kept
+/// two devices' answers). Fail closed; the sync apply already audited `trust_conflict`.
+fn conflict(target: &Target) -> End {
+    let reason = format!(
+        "CONFLICTING PINS for {}:{}: remove them in the known certificates manager",
+        target.host, target.port
+    );
+    (CloseCode::TrustConflict, reason)
+}
+
 /// Whether a TLS failure is the peer's handshake signature (rustls `BadSignature`).
 fn bad_signature(e: &std::io::Error) -> bool {
     e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()).is_some_and(|r| {
@@ -272,6 +282,7 @@ async fn upgrade_tls(
         (Err(e), Some(d)) => match d.verdict {
             CertVerdict::Prompt => Ok(Upgrade::NeedsTrust(d)),
             CertVerdict::Mismatch { expected } => Err(mismatch(target, &d, &expected, audit)),
+            CertVerdict::Conflict => Err(conflict(target)),
             // N-25: the pinned certificate without its key (an active attacker): never retried.
             CertVerdict::AcceptPinned { .. } if bad_signature(&e) => {
                 Err(signature_mismatch(target, &d, audit))

@@ -107,6 +107,46 @@ fn revoked_key_is_a_mismatch() {
     );
 }
 
+/// Review 6b L-35: two distinct keys of one type for one host fail closed, whatever is
+/// presented; two key types for one host, a duplicated line, or a revoked copy do not.
+#[test]
+fn conflicting_keys_of_one_type_fail_closed() {
+    let (k1, k2) = (key(11), key(12));
+    let text = format!("host {}\nhost {}\n", key_line(&k1), key_line(&k1));
+    let store = KnownHosts::parse_bytes(text.as_bytes());
+    assert!(store.conflicting_key_types("host", 22).is_empty(), "a duplicate is no conflict");
+    assert_eq!(store.check("host", 22, &k1), TrustDecision::Known);
+    let text = format!(
+        "host {}\nhost {}\n@revoked host {}\n",
+        key_line(&k1),
+        key_line(&k2),
+        key_line(&key(13))
+    );
+    let store = KnownHosts::parse_bytes(text.as_bytes());
+    assert_eq!(store.conflicting_key_types("host", 22), ["ssh-ed25519"]);
+    for k in [&k1, &k2, &key(14)] {
+        assert_eq!(
+            store.check("host", 22, k),
+            TrustDecision::Conflict { key_types: vec!["ssh-ed25519".into()] }
+        );
+    }
+    assert_eq!(store.check("host", 2222, &k1), TrustDecision::Unknown, "another port is untouched");
+    assert_eq!(
+        store.check("host", 22, &key(13)),
+        TrustDecision::Mismatch { expected_fp: "revoked".into() },
+        "a revoked key stays a mismatch"
+    );
+    let sk = russh::keys::ssh_key::public::SkEd25519::new(
+        *key(15).key_data().ed25519().expect("ed"),
+        "ssh:",
+    );
+    let other_type = PublicKey::new(russh::keys::ssh_key::public::KeyData::SkEd25519(sk), "");
+    assert_ne!(other_type.algorithm(), k1.algorithm());
+    let text = format!("host {}\nhost {}\n", key_line(&k1), key_line(&other_type));
+    let store = KnownHosts::parse_bytes(text.as_bytes());
+    assert_eq!(store.check("host", 22, &k1), TrustDecision::Known, "two key types are normal");
+}
+
 #[test]
 fn patterns_and_negation() {
     let k = key(8);

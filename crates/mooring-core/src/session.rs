@@ -208,6 +208,9 @@ pub enum CloseCode {
     TrustRejected,
     /// A pinned host key / certificate changed, or TLS was stripped after a pin: hard stop.
     TrustMismatch,
+    /// The trust store holds conflicting pins for the host (review 6b L-35, after a sync
+    /// merge): hard stop until the user removes them in the known-certificates manager.
+    TrustConflict,
     /// The server ended the session.
     ServerEnded,
     /// The peer violated the protocol, or a parser/decoder refused its data.

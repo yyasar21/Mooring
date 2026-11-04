@@ -118,6 +118,7 @@ impl KubeError {
                 CloseCode::TrustRejected
             }
             Self::Http(HttpError::TrustMismatch(_)) => CloseCode::TrustMismatch,
+            Self::Http(HttpError::TrustConflict(_)) => CloseCode::TrustConflict,
             Self::Http(_) | Self::Closed => CloseCode::Network,
             Self::Protocol(_) => CloseCode::ProtocolError,
             _ => CloseCode::ServerEnded,

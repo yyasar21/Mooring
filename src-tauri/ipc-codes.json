@@ -26,6 +26,7 @@
   "http.status",
   "http.timeout",
   "http.tls",
+  "http.trust_conflict",
   "http.trust_mismatch",
   "http.trust_prompt",
   "http.trust_rejected",
