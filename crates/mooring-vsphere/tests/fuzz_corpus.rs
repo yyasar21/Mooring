@@ -39,8 +39,8 @@ fn vsphere_ticket_url_corpus() {
     assert!(replay::replay("vsphere_ticket_url", vsphere_ticket_url::run) >= 3);
 }
 
-/// The VMRC seed is accepted against the fuzz entry's fixed host and VM; the other-host and
-/// WebMKS seeds are refused.
+/// The `VMRC` seed is accepted against the fuzz entry's fixed host and VM; the other-host and
+/// `WebMKS` seeds are refused.
 #[test]
 fn ticket_seeds_split_accept_and_refuse() {
     let vm = MoId::new("vm-42").expect("id");

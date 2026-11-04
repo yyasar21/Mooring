@@ -1,4 +1,4 @@
-//! Fuzz entry `vault_login_response`: AppRole / OIDC login, `renew-self` and `lookup-self`
+//! Fuzz entry `vault_login_response`: `AppRole` / OIDC login, `renew-self` and `lookup-self`
 //! bodies (ADR-0016 §3). Shared by `fuzz/fuzz_targets/vault_login_response.rs` and the stable
 //! replay in `crates/mooring-secrets/tests/fuzz_corpus.rs`.
 

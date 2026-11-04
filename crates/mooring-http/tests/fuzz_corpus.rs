@@ -43,7 +43,7 @@ fn http_json_body_corpus() {
     assert!(replay::replay("http_json_body", http_json_body::run) >= 2);
 }
 
-/// Deep nesting is a decode error, never a stack overflow (serde_json's recursion limit).
+/// Deep nesting is a decode error, never a stack overflow (`serde_json`'s recursion limit).
 #[test]
 fn deep_nesting_seed_is_refused() {
     let deep = seed("http_json_body", "deep-nesting");
