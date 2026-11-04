@@ -110,9 +110,16 @@ fn golden_ipc_codes_file_is_in_sync() {
 /// `src-tauri/Cargo.toml`, but `wry` and `tauri-runtime-wry` carry the storage semantics
 /// behind L-29 / L-33 (per-webview `WebView2` environments, `incognito` + `data_directory`)
 /// and are held only by the lock file. A bump must go through security review: update this
-/// list in the same change.
-const LOCKED_WEBVIEW_CRATES: &[(&str, &str)] =
-    &[("wry", "0.57.1"), ("tauri-runtime-wry", "2.12.3")];
+/// list in the same change. Review 6b B-6 / N-49: the safety of the native confirmations
+/// depends on how `tauri-plugin-dialog` remaps rfd's positional results (its cancel slot
+/// carries Escape and the close box) and on `rfd`'s per-OS result mapping; bumping either
+/// needs a security re-read of `desktop.rs` and the three `message_dialog.rs` backends.
+const LOCKED_WEBVIEW_CRATES: &[(&str, &str)] = &[
+    ("wry", "0.57.1"),
+    ("tauri-runtime-wry", "2.12.3"),
+    ("tauri-plugin-dialog", "2.8.4"),
+    ("rfd", "0.17.2"),
+];
 
 fn locked_version(lock: &str, name: &str) -> Option<String> {
     let header = format!("name = \"{name}\"\n");
@@ -133,7 +140,7 @@ fn cargo_lock_pins_the_reviewed_webview_crates() {
         assert_eq!(
             have.as_deref(),
             Some(*want),
-            "{name} must stay at {want} (security review 6 N-46 / review 5 L-32); found {have:?}"
+            "{name} must stay at {want} (security review 6 N-46, 6b N-49, review 5 L-32); found {have:?}"
         );
     }
     assert_eq!(
