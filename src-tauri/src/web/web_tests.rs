@@ -216,3 +216,20 @@ fn start_sweeps_remove_orphans_only() {
     assert_eq!(sweep::ephemeral_profiles(&f.state), 0);
     assert_eq!(sweep::ephemeral_profiles(&crate::state::testing::empty().state), 0, "no directory yet");
 }
+
+/// Review 6 L-33: the OIDC window gets an own ephemeral profile on Windows, plain incognito
+/// elsewhere; a profile left behind is swept at start with the web ones.
+#[test]
+fn oidc_window_storage_is_an_own_profile_on_windows() {
+    let f = unlocked();
+    let source = mooring_core::ConnectionId::new().to_string();
+    let plan = crate::oidc_window::storage(&f.state, &source, StorageOs::Windows);
+    let dir = plan.ephemeral_dir().expect("own profile on Windows").clone();
+    assert_eq!(dir, f.state.cache_dir.join(WEB_EPHEMERAL_DIR).join(format!("oidc-{source}")));
+    for os in [StorageOs::Linux, StorageOs::MacOs { major: 14 }, StorageOs::MacOs { major: 13 }] {
+        assert_eq!(crate::oidc_window::storage(&f.state, &source, os), Storage::Ephemeral, "{os:?}");
+    }
+    std::fs::create_dir_all(dir.join("EBWebView")).expect("mk");
+    assert_eq!(sweep::ephemeral_profiles(&f.state), 1, "leftover OIDC profile swept at start");
+    assert!(!dir.exists());
+}

@@ -9,6 +9,11 @@
 //! and audited. The window never sees a Mooring command or the Vault token.
 //!
 //! The UI polls `secret_source_oidc_status({ sessionId })`: `pending` → `done` | `failed`.
+//!
+//! Review 6 L-33: storage is [`storage`] — `incognito(true)` everywhere and, on Windows, an
+//! own `WebView2` profile `<cache>/web-ephemeral/oidc-<sourceId>` (removed on `Destroyed`,
+//! swept at start like the web windows' profiles), so `IdP` cookies never outlive one sign-in
+//! or reach another source; the init script runs in every frame.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -21,9 +26,18 @@ use zeroize::Zeroizing;
 
 use crate::error::{IpcError, IpcResult};
 use crate::secrets_runtime::{ipc_error, SecretsRuntime};
+use crate::state::AppState;
+use crate::web::{self, Storage, StorageOs};
 
 /// Label prefix of an OIDC window.
 pub const OIDC_PREFIX: &str = "oidc-";
+
+/// Storage of the OIDC window of `source_id` on `os` (L-33): ephemeral, with an own profile
+/// directory `<cache>/web-ephemeral/oidc-<sourceId>` on Windows. The `oidc-` name cannot
+/// collide with a web connection's UUID directory and is swept at start with them.
+pub fn storage(state: &AppState, source_id: &str, os: StorageOs) -> Storage {
+    web::ephemeral_storage(state, &format!("{OIDC_PREFIX}{source_id}"), os)
+}
 /// Finished flows kept for `secret_source_oidc_status`.
 const MAX_FINISHED: usize = 32;
 
@@ -291,16 +305,27 @@ impl<R: tauri::Runtime> OidcWindows for TauriOidcWindows<R> {
     fn open(&self, label: &str, url: &str, session: &str) -> Result<(), String> {
         use tauri::webview::{NewWindowResponse, PermissionResponse};
         use tauri::{WebviewUrl, WebviewWindowBuilder, WindowEvent};
+        use tauri::Manager;
         let url = tauri::Url::parse(url).map_err(|_| "auth_url is not a URL".to_owned())?;
         let (nav_rt, nav_s) = (self.rt.clone(), session.to_owned());
-        let window = WebviewWindowBuilder::new(&self.app, label, WebviewUrl::External(url))
+        let source_id = label.strip_prefix(OIDC_PREFIX).unwrap_or(label);
+        let storage = self
+            .app
+            .try_state::<AppState>()
+            .map_or(Storage::Ephemeral, |st| storage(&st, source_id, StorageOs::current()));
+        let mut builder = WebviewWindowBuilder::new(&self.app, label, WebviewUrl::External(url))
             .title("Mooring · Vault sign-in")
             .inner_size(560.0, 760.0)
             .devtools(false)
             .zoom_hotkeys_enabled(false)
             .general_autofill_enabled(false)
             .incognito(true)
-            .initialization_script(crate::web::window::INIT_SCRIPT)
+            .initialization_script_for_all_frames(crate::web::window::INIT_SCRIPT);
+        // L-33: an own WebView2 environment on Windows (as `web::window::build` does).
+        if let Some(dir) = storage.ephemeral_dir() {
+            builder = builder.data_directory(dir.clone());
+        }
+        let window = builder
             .on_navigation(move |u| nav_rt.upgrade().is_some_and(|rt| navigate(&rt, &nav_s, u.as_str())))
             .on_new_window(|_, _| NewWindowResponse::Deny)
             .on_download(|_, _| false)
@@ -308,10 +333,14 @@ impl<R: tauri::Runtime> OidcWindows for TauriOidcWindows<R> {
             .build()
             .map_err(|e| e.to_string())?;
         let (rt, s) = (self.rt.clone(), session.to_owned());
+        let profile = storage.ephemeral_dir().cloned();
         window.on_window_event(move |e| {
             if matches!(e, WindowEvent::Destroyed) {
                 if let Some(rt) = rt.upgrade() {
                     window_destroyed(&rt, &s);
+                }
+                if let Some(dir) = &profile {
+                    web::remove_ephemeral_dir(dir);
                 }
             }
         });

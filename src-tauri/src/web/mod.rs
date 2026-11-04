@@ -191,7 +191,14 @@ impl WebPlan {
 
     /// The Windows ephemeral profile directory, when the plan has one.
     pub fn ephemeral_dir(&self) -> Option<&PathBuf> {
-        match &self.storage {
+        self.storage.ephemeral_dir()
+    }
+}
+
+impl Storage {
+    /// The Windows ephemeral profile directory, when this storage has one.
+    pub fn ephemeral_dir(&self) -> Option<&PathBuf> {
+        match self {
             Storage::EphemeralDirectory(dir) => Some(dir),
             _ => None,
         }
