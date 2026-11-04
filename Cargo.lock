@@ -4052,6 +4052,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "mooring-vsphere"
+version = "0.1.0-rc.1"
+dependencies = [
+ "base64 0.23.1",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mooring-core",
+ "mooring-http",
+ "proptest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "zeroize",
+]
+
+[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
