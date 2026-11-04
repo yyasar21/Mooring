@@ -187,21 +187,28 @@ impl VaultClient {
         serde_json::to_vec(b).map(Zeroizing::new).map_err(|_| SecretsError::Invalid("body"))
     }
 
-    fn token_from(r: &RawResponse) -> Result<VaultToken, SecretsError> {
-        let auth: AuthResponse = Self::json(r)?;
+    /// The token of a login / renew / OIDC callback body. `root` in any of `policies`,
+    /// `token_policies` or `identity_policies` (N-41) is refused.
+    pub(crate) fn token_from_body(body: &[u8]) -> Result<VaultToken, SecretsError> {
+        let auth: AuthResponse = decode_json(body)?;
         let a = auth.auth.ok_or_else(|| SecretsError::shape("login response without auth"))?;
-        if a.policies.has_root() || a.token_policies.has_root() {
+        if a.policies.has_root() || a.token_policies.has_root() || a.identity_policies.has_root() {
             return Err(SecretsError::RootToken);
         }
         if a.client_token.expose().is_empty() {
             return Err(SecretsError::shape("empty token"));
         }
         Ok(VaultToken {
-            policies: a.policies.0.len().max(a.token_policies.0.len()),
+            policies: a.policies.0.len().max(a.token_policies.0.len())
+                + a.identity_policies.0.len(),
             ttl: Duration::from_secs(a.lease_duration),
             renewable: a.renewable,
             token: a.client_token.into_inner(),
         })
+    }
+
+    fn token_from(r: &RawResponse) -> Result<VaultToken, SecretsError> {
+        Self::token_from_body(&r.body)
     }
 
     /// `GET /v1/auth/token/lookup-self`: TTL and renewability of a stored token. A token
@@ -319,6 +326,30 @@ impl VaultClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review 6 N-41: `root` is refused wherever a login response can carry it.
+    #[test]
+    fn login_responses_with_root_anywhere_are_refused() {
+        let body = |policies: &str| {
+            format!(
+                r#"{{"auth":{{"client_token":"hvs.test-only",{policies},"lease_duration":60}}}}"#
+            )
+        };
+        for p in [
+            r#""policies":["root"]"#,
+            r#""token_policies":["default","root"]"#,
+            r#""identity_policies":["root"]"#,
+            r#""policies":["default"],"identity_policies":["app","root"]"#,
+        ] {
+            let e = VaultClient::token_from_body(body(p).as_bytes()).expect_err(p);
+            assert!(matches!(e, SecretsError::RootToken), "{p}: {e:?}");
+        }
+        let t = VaultClient::token_from_body(
+            body(r#""policies":["default","app"],"identity_policies":["team"]"#).as_bytes(),
+        )
+        .expect("non-root");
+        assert_eq!((t.policies, t.ttl.as_secs()), (3, 60));
+    }
 
     #[test]
     fn encoding() {

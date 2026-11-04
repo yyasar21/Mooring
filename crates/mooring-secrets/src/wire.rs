@@ -198,6 +198,9 @@ pub(crate) struct AuthBlock {
     pub policies: Policies,
     #[serde(default)]
     pub token_policies: Policies,
+    /// Entity policies (review 6 N-41: checked for `root` like `lookup-self`).
+    #[serde(default)]
+    pub identity_policies: Policies,
     #[serde(default)]
     pub lease_duration: u64,
     #[serde(default)]
