@@ -57,31 +57,27 @@ Each one is an `entries/<name>.rs` with `pub fn run(&[u8])`, a seed corpus and a
 the owning crate's `tests/fuzz_corpus.rs`, as for the targets above. The fingerprint, OTP and
 account targets go in `mooring-core` and can land without any API change.
 
-## A2 targets (gated scaffolding)
+## A2 targets
 
-These targets are in `fuzz/Cargo.toml` and the nightly matrix already, but their parsers are
-still being written (ADR-0011/0012 task split). Until the gate's feature is turned on, `run` is
-a no-op that compiles, the wrapper carries a `PENDING` marker, and the nightly job prints a
-`::warning::` for it. Nothing is fuzzed yet: a green run of these four proves only that they build.
+The `r1` / `r3` / `r4` gates are gone (A2 integration): every target below fuzzes the real
+parser and is replayed on stable by the owning crate's `tests/fuzz_corpus.rs`.
 
-| Target | Entry | Gate | Parser (owner) | Name in the ADR |
+| Target | Entry | Parser | Name in the ADR | Stable replay |
 | --- | --- | --- | --- | --- |
-| `mfr1_decode` | `mfr1.rs` | `r1` | `mooring_core::frame::decode_mfr1` (R1) | (MFR1 is ours; ADR-0011 frame path) |
-| `known_certs_parse` | `known_certs.rs` | `r1` | `mooring_core::known_certs::parse_bytes` (R1) | `known_certs_parse` |
-| `rfb_server_msg` | `rfb_server_msg.rs` | `r4` | RFB server-message decoder (R4) | `rfb_server_message` |
-| `rdp_fastpath` | `rdp_fastpath.rs` | `r3` | RDP active-stage driver (R3) | `rdp_active_stage` |
+| `mfr1_decode` | `mfr1.rs` | `mooring_core::frame::decode_mfr1` | (MFR1 frame path) | mooring-core |
+| `known_certs_parse` | `known_certs.rs` | `mooring_core::known_certs::KnownCerts::parse_bytes` | `known_certs_parse` | mooring-core |
+| `rfb_server_msg` | `rfb_server_msg.rs` | `mooring_proto_vnc::fuzz::server_messages` | `rfb_server_message` | mooring-proto-vnc |
+| `vnc_zrle` | `vnc_zrle.rs` | `mooring_proto_vnc::fuzz::zrle` (`decode_zrle`) | `zrle_decode` | mooring-proto-vnc |
+| `vnc_tight` | `vnc_tight.rs` | `mooring_proto_vnc::fuzz::tight` (`decode_tight`) | `tight_decode` | mooring-proto-vnc |
+| `rdp_fastpath` | `rdp_fastpath.rs` | `mooring_proto_rdp::fuzz::active_stage` | `rdp_active_stage` | mooring-proto-rdp |
+| `rdp_certificate_info` | `rdp_certificate_info.rs` | `mooring_proto_rdp::fuzz::certificate_info` | `certificate_info` | mooring-proto-rdp |
+| `rdp_cliprdr_text` | `rdp_cliprdr_text.rs` | `mooring_proto_rdp::fuzz::cliprdr_text` | `cliprdr_text` | mooring-proto-rdp |
+| `rdp_input` | `rdp_input.rs` | `mooring_proto_rdp::fuzz::input_sequence` | (input mapping) | mooring-proto-rdp |
 
-To activate one when its parser has merged: build it with the feature
-(`cargo +nightly fuzz build mfr1_decode --features r1`), fix the call in the entry to the real
-signature (the `r1` branches name the functions from the task brief and have never been compiled),
-fill in the `TODO` invariants, then delete the `cfg` gate and the `PENDING` marker and add the
-stable replay in the owning crate's `tests/fuzz_corpus.rs`. Seeds are in `fuzz/corpus/<target>/`
-(synthetic, fake hosts only); the RFB test server (`mooring-testsrv`, docs/qa/test-servers.md)
-can record more RFB seeds for every encoding.
-
-The ADR also lists `certificate_info`, `cliprdr_text`, `framebuffer_ops`, `rfb_handshake`,
-`zrle_decode`, `tight_decode`, `raw_copyrect_bounds`, `vencrypt_negotiation` and `cut_text`, plus
-pinned upstream IronRDP targets. Those are task Q1 and are not scaffolded here.
+Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test server
+(`mooring-testsrv`, docs/qa/test-servers.md) can record more RFB seeds for every encoding.
+Still Q1: `framebuffer_ops`, `rfb_handshake`, `raw_copyrect_bounds`, `vencrypt_negotiation`,
+`cut_text` as separate targets, and the pinned upstream IronRDP targets.
 
 ## Layout
 

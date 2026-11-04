@@ -17,6 +17,7 @@ mod connect;
 pub mod decode;
 mod driver;
 pub mod error;
+pub mod fuzz;
 pub mod handshake;
 pub mod input;
 pub mod messages;

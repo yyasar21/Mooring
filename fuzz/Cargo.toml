@@ -19,19 +19,14 @@ libfuzzer-sys = "0.4.13" # libFuzzer driver for cargo-fuzz; fuzz crate only, nev
 mooring-core = { path = "../crates/mooring-core" }
 mooring-vault = { path = "../crates/mooring-vault" }
 mooring-proto-ssh = { path = "../crates/mooring-proto-ssh" }
+mooring-proto-rdp = { path = "../crates/mooring-proto-rdp" } # A2: active stage, cliprdr, certificate, input entries
+mooring-proto-vnc = { path = "../crates/mooring-proto-vnc" } # A2: RFB server messages, ZRLE, Tight entries
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
 # kubeconfig oracle re-scans accepted input with mooring-core's own YAML event parser (M-11);
 # same version as the root lockfile, no new crate in the tree.
 saphyr-parser = "=0.3.3"
-
-# A2 gates (docs/qa/fuzzing.md, "A2 targets"): each turns on a target whose parser is still
-# being written; without it the target is a compiling no-op so the nightly matrix is ready.
-[features]
-r1 = [] # mooring_core::frame::decode_mfr1, mooring_core::known_certs::parse_bytes
-r3 = [] # mooring-proto-rdp active-stage driver
-r4 = [] # mooring-proto-vnc server-message decoder
 
 [[bin]]
 name = "known_hosts_parse"
@@ -92,6 +87,41 @@ bench = false
 [[bin]]
 name = "rdp_fastpath"
 path = "fuzz_targets/rdp_fastpath.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdp_certificate_info"
+path = "fuzz_targets/rdp_certificate_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdp_cliprdr_text"
+path = "fuzz_targets/rdp_cliprdr_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdp_input"
+path = "fuzz_targets/rdp_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vnc_zrle"
+path = "fuzz_targets/vnc_zrle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vnc_tight"
+path = "fuzz_targets/vnc_tight.rs"
 test = false
 doc = false
 bench = false

@@ -1,8 +1,13 @@
-//! Stable replay of the `kubeconfig_parse` fuzz corpus and crash regressions through the same
-//! entry point the cargo-fuzz target uses (docs/qa/fuzzing.md).
+//! Stable replay of the `kubeconfig_parse`, `mfr1_decode` and `known_certs_parse` fuzz corpora
+//! and crash regressions through the same entry points the cargo-fuzz targets use
+//! (docs/qa/fuzzing.md).
 
+#[path = "../../../fuzz/entries/known_certs.rs"]
+mod known_certs;
 #[path = "../../../fuzz/entries/kubeconfig.rs"]
 mod kubeconfig;
+#[path = "../../../fuzz/entries/mfr1.rs"]
+mod mfr1;
 #[path = "../../../fuzz/entries/replay.rs"]
 mod replay;
 
@@ -112,4 +117,30 @@ fn oracle_flags_each_construct() {
     ] {
         assert_eq!(kubeconfig::violations(yaml), Vec::<String>::new(), "{yaml:?}");
     }
+}
+
+#[test]
+fn mfr1_decode_corpus() {
+    assert!(replay::replay("mfr1_decode", mfr1::run) >= 3);
+}
+
+/// The full seed must keep decoding, or the fuzzer only explores the refusal paths.
+#[test]
+fn mfr1_full_seed_is_accepted() {
+    let seed = std::fs::read(replay::fuzz_dir().join("corpus/mfr1_decode/full-rgba-fill-cursor"))
+        .expect("seed");
+    let frame = mooring_core::frame::decode_mfr1(&seed).expect("seed decodes");
+    assert!(frame.is_full() && !frame.records.is_empty());
+}
+
+#[test]
+fn known_certs_parse_corpus() {
+    assert!(replay::replay("known_certs_parse", known_certs::run) >= 2);
+}
+
+#[test]
+fn known_certs_seed_has_a_pin() {
+    let seed =
+        std::fs::read(replay::fuzz_dir().join("corpus/known_certs_parse/one-entry")).expect("seed");
+    assert_eq!(mooring_core::known_certs::KnownCerts::parse_bytes(&seed).len(), 1);
 }
