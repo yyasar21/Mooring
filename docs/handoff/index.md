@@ -8,6 +8,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |
 | 2026-11-04 | A3 | rust-core | [a3-rust-core-k1.md](a3-rust-core-k1.md) · [k2](a3-rust-core-k2.md) · [k3](a3-rust-core-k3.md) · [k4](a3-rust-core-k4.md) · [v1](a3-rust-core-v1.md) · [v2](a3-rust-core-v2.md) · [e1](a3-rust-core-e1.md) · [e2](a3-rust-core-e2.md) · [s1](a3-rust-core-s1.md) · [s2 + integration](a3-rust-core-s2.md) |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u1.md](a3-ui-u1.md) — typed IPC, Kubernetes cluster browser, exec, logs, pod forwards |
+| 2026-11-04 | A3 | security-reviewer | [../security/a3-review-6.md](../security/a3-review-6.md) — review 6: APPROVE WITH NITS (M-16, L-33..L-38, N-39..N-46); threat model A3 surface; [handoff](a3-security-reviewer.md) |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u4.md](a3-ui-u4.md) — global sync alarm banner, N-33/N-34/N-36, lazy mock chunk (bundle < 500 kB) |
 | 2026-11-04 | A3 | rust-core | [a3-rust-core-f1.md](a3-rust-core-f1.md) — credential.external_* in ipc-codes.json, 44 vault-gated commands, kube body deadline (QA-Q2-1), peek_exp → core, fuzz_pod_list_json |
 | 2026-11-04 | A3 | qa-engineer | [a3-qa-q2.md](a3-qa-q2.md) — 17 fuzz targets live (3 gated), hostile suites, assert_no_violations everywhere, kube E2E; QA-Q2-1 kube body deadline; Cargo.lock: 4 dev edges on mooring-testsrv |
