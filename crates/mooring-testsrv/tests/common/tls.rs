@@ -14,6 +14,12 @@ pub struct RecordingVerifier {
     pub leaf: Mutex<Option<Vec<u8>>>,
 }
 
+impl RecordingVerifier {
+    pub fn new(provider: Arc<CryptoProvider>) -> Self {
+        Self { provider, leaf: Mutex::new(None) }
+    }
+}
+
 impl ServerCertVerifier for RecordingVerifier {
     fn verify_server_cert(
         &self,

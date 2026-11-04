@@ -79,6 +79,45 @@ Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test 
 Still Q1: `framebuffer_ops`, `rfb_handshake`, `raw_copyrect_bounds`, `vencrypt_negotiation`,
 `cut_text` as separate targets, and the pinned upstream IronRDP targets.
 
+## A3 targets (scaffolding, ADR-0014..0017)
+
+The parsers of A3 are still being written (K2, K3, V1, E1, S1). Each target below is already in
+`fuzz/Cargo.toml`, in the nightly matrix, and has seeds plus an empty regression directory. Each
+entry is gated behind a fuzz-crate feature, as the A2 targets were before R1–R4 landed. Without
+the feature, `run` is a compiling no-op, and the wrapper's `PENDING` marker makes the nightly
+"Stub notice" step print a warning. The gated branch names the function that the ADR and the
+task split imply. Nobody has compiled it against a real signature yet.
+
+| Target | Gate | Expected parser | ADR |
+| --- | --- | --- | --- |
+| `kubeconfig_resolve` | `k2` | `mooring_core::credential::kubeconfig::resolve` | 0014 §3 |
+| `jwt_exp_peek` | `k2` | `mooring_core::credential::kubeconfig::jwt_exp_peek` | 0014 §3 |
+| `kube_pod_list_json` | `k3` | `mooring_proto_kube::fuzz::pod_list_json` | 0014 §5 |
+| `kube_exec_frames` | `k3` | `mooring_proto_kube::fuzz::exec_frames` (channel demux + status JSON) | 0014 §5 |
+| `kube_log_sanitize` | `k3` | `mooring_proto_kube::fuzz::log_sanitize` | 0014 §5 |
+| `vsphere_inventory_json` | `v1` | `mooring_vsphere::fuzz::inventory_json` | 0015 §1–2 |
+| `vsphere_session_token` | `v1` | `mooring_vsphere::fuzz::session_token` | 0015 §1 |
+| `vsphere_ticket_url` | `v1` | `mooring_vsphere::fuzz::ticket_url` | 0015 §4 |
+| `vault_kv_response` | `e1` | `mooring_secrets::fuzz::kv_response` | 0016 §3 |
+| `vault_login_response` | `e1` | `mooring_secrets::fuzz::login_response` | 0016 §3 |
+| `external_ref_parse` | `e1` | `mooring_core::credential::fuzz::external_ref` | 0016 §2 |
+| `oidc_callback_url` | `e1` | `mooring_secrets::fuzz::oidc_callback_url` | 0016 §4 |
+| `sync_blob_parse` | `s1` | `mooring_sync::fuzz::blob_parse` (`MSY1`) | 0017 §2 |
+| `sync_snapshot_json` | `s1` | `mooring_sync::fuzz::snapshot_json` | 0017 §1 |
+| `s3_error_xml` | `s1` | `mooring_sync::fuzz::s3_error_xml` (`quick-xml` path) | 0017 §4 |
+
+To activate a gate when its crate lands:
+
+1. Add the crate to `fuzz/Cargo.toml` `[dependencies]` (path dependency).
+2. Run `cargo check --bins --features <gate>` and fix the call to the real signature.
+3. Turn the invariants in the entry's doc comment into assertions.
+4. Add the stable replay to the owning crate's `tests/fuzz_corpus.rs`.
+5. Delete the gate and the `PENDING` marker.
+
+The nightly job runs these families with `-malloc_limit_mb=1024`, as it does the RDP/VNC
+targets: an API body, frame or blob parser must not allocate before it checks the size.
+`ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is Q2.
+
 ## Layout
 
 ```

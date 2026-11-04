@@ -28,6 +28,16 @@ secrecy = { version = "0.10", features = ["serde"] }
 # same version as the root lockfile, no new crate in the tree.
 saphyr-parser = "=0.3.3"
 
+# A3 gates (docs/qa/fuzzing.md, "A3 targets"): each turns on targets whose parser is still being
+# written (ADR-0014..0017); without it the target is a compiling no-op so the nightly matrix is
+# ready. Activating one also needs the owning crate added under [dependencies].
+[features]
+k2 = [] # mooring-core kubeconfig::resolve, jwt_exp_peek (K2)
+k3 = [] # mooring-proto-kube fuzz entries (K3)
+v1 = [] # mooring-vsphere fuzz entries (V1)
+e1 = [] # mooring-secrets fuzz entries, mooring-core external_ref parser (E1)
+s1 = [] # mooring-sync fuzz entries (S1)
+
 [[bin]]
 name = "known_hosts_parse"
 path = "fuzz_targets/known_hosts_parse.rs"
@@ -150,6 +160,111 @@ bench = false
 [[bin]]
 name = "rdp_reassembly"
 path = "fuzz_targets/rdp_reassembly.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kubeconfig_resolve"
+path = "fuzz_targets/kubeconfig_resolve.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jwt_exp_peek"
+path = "fuzz_targets/jwt_exp_peek.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_pod_list_json"
+path = "fuzz_targets/kube_pod_list_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_exec_frames"
+path = "fuzz_targets/kube_exec_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kube_log_sanitize"
+path = "fuzz_targets/kube_log_sanitize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vsphere_inventory_json"
+path = "fuzz_targets/vsphere_inventory_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vsphere_session_token"
+path = "fuzz_targets/vsphere_session_token.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vsphere_ticket_url"
+path = "fuzz_targets/vsphere_ticket_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_kv_response"
+path = "fuzz_targets/vault_kv_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_login_response"
+path = "fuzz_targets/vault_login_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "external_ref_parse"
+path = "fuzz_targets/external_ref_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oidc_callback_url"
+path = "fuzz_targets/oidc_callback_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_blob_parse"
+path = "fuzz_targets/sync_blob_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sync_snapshot_json"
+path = "fuzz_targets/sync_snapshot_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "s3_error_xml"
+path = "fuzz_targets/s3_error_xml.rs"
 test = false
 doc = false
 bench = false

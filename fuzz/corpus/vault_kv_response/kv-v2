@@ -1,0 +1,1 @@
+{"request_id": "r", "lease_id": "", "renewable": false, "lease_duration": 0, "data": {"data": {"username": "alice", "password": "testpass"}, "metadata": {"created_time": "2026-11-01T00:00:00Z", "deletion_time": "", "destroyed": false, "version": 2}}}
