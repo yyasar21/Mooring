@@ -87,6 +87,12 @@ impl From<StoreError> for IpcError {
                 tracing::error!(what, "corrupt store row");
                 Self::new("store.corrupt", "a stored record is damaged and was not used")
             }
+            StoreError::InUse { kind: "secret_source", .. } => {
+                Self::new("source.in_use", "the secret source is used by a reference")
+            }
+            StoreError::InUse { .. } => {
+                Self::new("credential.in_use", "the credential is used by a secret source")
+            }
             StoreError::VaultIdMismatch => Self::new(
                 "store.vault_mismatch",
                 "the connection database belongs to a different vault",
@@ -167,6 +173,8 @@ mod tests {
             (StoreError::Vault(VaultError::Locked), "vault.locked"),
             (StoreError::Vault(VaultError::Tampered), "vault.tampered"),
             (StoreError::VaultIdMismatch, "store.vault_mismatch"),
+            (StoreError::InUse { kind: "secret_source", id: "x".into() }, "source.in_use"),
+            (StoreError::InUse { kind: "credential", id: "x".into() }, "credential.in_use"),
             (StoreError::Corrupt { what: "id" }, "store.corrupt"),
             (
                 StoreError::Credential(CredentialError::Incompatible("x".into())),
