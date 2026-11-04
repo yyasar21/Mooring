@@ -32,6 +32,7 @@ mod local_path;
 pub mod session;
 pub mod sftp;
 mod sftp_transfer;
+mod sftp_upload;
 mod shared;
 pub mod socks;
 
@@ -41,6 +42,6 @@ pub use control::SshControl;
 pub use forward::{Exposure, ForwardId, ForwardInfo, ForwardKind};
 pub use handler::ClientHandler;
 pub use known_hosts::{KnownHosts, TrustDecision};
-pub use local_path::{LocalPath, MAX_LOCAL_PATH};
+pub use local_path::{LocalPath, MAX_LOCAL_PATH, TARGET_EXISTS};
 pub use session::{SshOptions, SshSession};
 pub use sftp::{Entry, EntryKind, Listing, SftpClient};

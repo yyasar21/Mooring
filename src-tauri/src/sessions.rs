@@ -133,8 +133,20 @@ pub enum SessionCommand {
     Close(oneshot::Sender<()>),
 }
 
-/// Running SFTP transfers of one session: transfer id → cancel signal (ADR-0010).
-pub type Transfers = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
+/// One running SFTP transfer: its cancel signal and its latest progress (for
+/// `sftp_transfers`, review 4 M-10).
+#[derive(Debug)]
+pub struct TransferEntry {
+    /// Fires the cancellation; the transfer then reports `cancelled` itself.
+    pub cancel: oneshot::Sender<()>,
+    /// Start order, so listings are stable.
+    pub seq: u64,
+    /// Bytes done and the size hint, updated after every block.
+    pub progress: Arc<Mutex<(u64, Option<u64>)>>,
+}
+
+/// Running SFTP transfers of one session by transfer id (ADR-0010).
+pub type Transfers = Arc<Mutex<HashMap<String, TransferEntry>>>;
 
 /// Registry entry for one live session.
 #[derive(Debug)]
@@ -348,8 +360,8 @@ async fn run(
     phase.store(Phase::Closed as u8, Ordering::Relaxed);
     // Transfers end with their session (each reports `cancelled` and audits itself).
     let pending: Vec<_> = transfers.lock().map(|mut t| t.drain().collect()).unwrap_or_default();
-    for (_, cancel) in pending {
-        let _ = cancel.send(());
+    for (_, t) in pending {
+        let _ = t.cancel.send(());
     }
     audit_trust(&ctx.audit, &ctx.connection_id, session.take_audit_events());
     if let Ok(mut map) = ctx.registry.lock() {

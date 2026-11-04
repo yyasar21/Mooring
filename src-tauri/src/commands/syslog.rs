@@ -18,6 +18,12 @@ use crate::state::AppState;
 
 /// Setting key.
 pub const KEY: &str = "app.syslog";
+/// Period of `audit_heartbeat` while the mirror runs (review 4, L-18). Short under test.
+#[cfg(not(test))]
+pub const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(3600);
+/// Period of `audit_heartbeat` while the mirror runs (review 4, L-18). Short under test.
+#[cfg(test)]
+pub const HEARTBEAT: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// `syslog_get` result: the configuration plus mirror counters (telemetry).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -127,10 +133,21 @@ fn start(config: &SyslogConfig, roots: TlsRoots) -> IpcResult<SyslogMirror> {
 }
 
 /// Start the stored mirror at app start (before unlock: lock/unlock events are mirrored too).
-/// Failures are logged; startup never fails because of syslog.
+/// Failures are logged; startup never fails because of syslog. Every start from a stored
+/// configuration is audited (`audit_syslog_started`, review 4 L-18): after the mirror started
+/// when enabled, so the collector sees it; with `enabled: false` locally, so a plaintext
+/// setting edited to switch the mirror off shows in the chain.
 pub fn start_stored(state: &AppState) {
-    match stored(state) {
-        Ok(Some(cfg)) if cfg.enabled => match start(&cfg, TlsRoots::System) {
+    let cfg = match stored(state) {
+        Ok(Some(cfg)) => cfg,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(code = e.code, "syslog config unreadable");
+            return;
+        }
+    };
+    if cfg.enabled {
+        match start(&cfg, TlsRoots::System) {
             Ok(m) => {
                 if let Ok(mut log) = state.audit.lock() {
                     log.set_mirror(Some(m));
@@ -138,10 +155,48 @@ pub fn start_stored(state: &AppState) {
                 }
             }
             Err(e) => tracing::warn!(code = e.code, "syslog mirror not started"),
-        },
-        Ok(_) => {}
-        Err(e) => tracing::warn!(code = e.code, "syslog config unreadable"),
+        }
     }
+    state.audit(AuditEvent::AuditSyslogStarted {
+        enabled: cfg.enabled,
+        host: cfg.host.clone(),
+        port: cfg.port,
+        transport: cfg.transport.as_str().to_owned(),
+    });
+}
+
+/// Record `audit_heartbeat { seq }` when a mirror is running; returns whether it did.
+pub fn heartbeat(state: &AppState, seq: u64) -> bool {
+    let running = state.audit.lock().is_ok_and(|log| log.mirror().is_some());
+    if running {
+        state.audit(AuditEvent::AuditHeartbeat { seq });
+    }
+    running
+}
+
+/// Every [`HEARTBEAT`], call `beat(seq)` with `seq` counting the heartbeats actually written
+/// (`beat` returns whether it wrote one). Runs forever.
+pub async fn heartbeat_loop(beat: impl Fn(u64) -> bool) {
+    let mut every = tokio::time::interval(HEARTBEAT);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    every.tick().await; // the first tick is immediate; the first heartbeat comes after one period
+    let mut seq = 1;
+    loop {
+        every.tick().await;
+        if beat(seq) {
+            seq += 1;
+        }
+    }
+}
+
+/// Start the heartbeat task for the app.
+pub fn install_heartbeat<R: tauri::Runtime>(app: &tauri::App<R>) {
+    use tauri::Manager;
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        heartbeat_loop(|seq| handle.try_state::<AppState>().is_some_and(|s| heartbeat(&s, seq)))
+            .await;
+    });
 }
 
 /// Current configuration and counters, `None` when never configured.
@@ -158,6 +213,9 @@ pub fn get(state: &AppState) -> IpcResult<Option<SyslogStatus>> {
 
 /// Persist, (re)start or stop the mirror, and audit the change. Disabling is recorded before
 /// the mirror stops (the old collector sees it); enabling after it starts (the new one does).
+/// A redirect (enabled → enabled) records the change twice (review 4, L-17): first while the
+/// old mirror is still installed, so the old collector learns where the stream went (the
+/// replaced mirror drains its queue), then on the new mirror.
 pub fn set(state: &AppState, config: SyslogConfig, roots: TlsRoots) -> IpcResult<SyslogStatus> {
     let config = config.validated().map_err(|e| syslog_error(&e))?;
     let json = serde_json::to_string(&config)
@@ -172,6 +230,10 @@ pub fn set(state: &AppState, config: SyslogConfig, roots: TlsRoots) -> IpcResult
         facility: config.facility,
     };
     if config.enabled {
+        let redirect = state.audit.lock().map_err(|_| IpcError::poisoned())?.mirror().is_some();
+        if redirect {
+            state.audit(event.clone());
+        }
         state.audit.lock().map_err(|_| IpcError::poisoned())?.set_mirror(mirror);
         state.audit(event);
     } else {

@@ -187,6 +187,25 @@ pub enum AuditEvent {
         /// Syslog facility 0..=23.
         facility: u8,
     },
+    /// The app started with a stored syslog configuration (review 4, L-18). Recorded after the
+    /// mirror started when `enabled`, so the collector sees each start; with `enabled: false`
+    /// it is the "disabled at startup" entry that makes an edited plaintext setting visible in
+    /// the chain.
+    AuditSyslogStarted {
+        /// Whether the stored configuration has the mirror on.
+        enabled: bool,
+        /// Collector host.
+        host: String,
+        /// Collector port.
+        port: u16,
+        /// `udp` | `tcp` | `tls`.
+        transport: String,
+    },
+    /// Hourly liveness entry while the mirror runs (L-18): collectors alert when it is missing.
+    AuditHeartbeat {
+        /// Heartbeat number since this process started the mirror loop (1, 2, ...).
+        seq: u64,
+    },
 }
 
 /// One line of the log.
@@ -341,168 +360,5 @@ impl AuditLog {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    fn three(path: &Path) {
-        let mut log = AuditLog::open(path).expect("open");
-        log.record(AuditEvent::VaultCreated).expect("1");
-        log.record(AuditEvent::VaultUnlocked).expect("2");
-        log.record(AuditEvent::VaultLocked { reason: "idle".into() }).expect("3");
-    }
-
-    #[test]
-    fn trust_decision_expected_is_optional_and_keeps_old_lines_verifiable() {
-        let dir = tempfile::tempdir().expect("tmp");
-        let p = dir.path().join("audit.jsonl");
-        let mut log = AuditLog::open(&p).expect("open");
-        log.record(AuditEvent::TrustDecision {
-            host: "h:22".into(),
-            fingerprint: "SHA256:new".into(),
-            decision: "accepted".into(),
-            expected: None,
-        })
-        .expect("1");
-        log.record(AuditEvent::TrustDecision {
-            host: "h:22".into(),
-            fingerprint: "SHA256:new".into(),
-            decision: "changed".into(),
-            expected: Some("SHA256:old".into()),
-        })
-        .expect("2");
-        let text = fs::read_to_string(&p).expect("read");
-        let lines: Vec<&str> = text.lines().collect();
-        assert!(!lines[0].contains("expected"), "{}", lines[0]);
-        assert!(lines[1].contains(r#""expected":"SHA256:old""#), "{}", lines[1]);
-        assert!(AuditLog::verify(&p).expect("verify").ok());
-    }
-
-    #[test]
-    fn credential_events_have_stable_wire_names() {
-        let cases = [
-            (
-                AuditEvent::CredentialCopied { credential: "c".into(), name: "otp".into() },
-                "credential_copied",
-            ),
-            (
-                AuditEvent::CredentialOtpAttached { credential: "c".into() },
-                "credential_otp_attached",
-            ),
-            (
-                AuditEvent::CredentialPrompted { connection: "x".into(), username: "u".into() },
-                "credential_prompted",
-            ),
-            (AuditEvent::CredentialResealed { count: 3 }, "credential_resealed"),
-            (AuditEvent::BecomeFailed { connection: "x".into() }, "become_failed"),
-            (
-                AuditEvent::VaultPolicyChanged {
-                    idle_minutes: Some(15),
-                    on_screen_lock: true,
-                    on_sleep: true,
-                    on_window_hidden: false,
-                },
-                "vault_policy_changed",
-            ),
-            (
-                AuditEvent::AuditSyslogChanged {
-                    enabled: true,
-                    host: "logs.example.test".into(),
-                    port: 6514,
-                    transport: "tls".into(),
-                    facility: 13,
-                },
-                "audit_syslog_changed",
-            ),
-        ];
-        for (e, name) in cases {
-            let v = serde_json::to_value(&e).expect("json");
-            assert_eq!(v["event"], name);
-        }
-    }
-
-    #[test]
-    fn forward_and_sftp_events_have_stable_wire_names() {
-        let (c, s) = (|| "x".to_owned(), |v: &str| v.to_owned());
-        let cases = [
-            (
-                AuditEvent::ForwardOpened {
-                    connection: c(),
-                    id: s("fwd-1"),
-                    kind: s("local"),
-                    bind: s("127.0.0.1:1"),
-                    target: s("db.example.test:5432"),
-                    exposure: s("external"),
-                },
-                "forward_opened",
-            ),
-            (
-                AuditEvent::ForwardClosed {
-                    connection: c(),
-                    id: s("fwd-1"),
-                    kind: s("dynamic"),
-                    bind: s("127.0.0.1:1"),
-                    target: s("socks5"),
-                },
-                "forward_closed",
-            ),
-            (
-                AuditEvent::SftpTransfer {
-                    connection: c(),
-                    transfer: s("t"),
-                    direction: s("upload"),
-                    bytes: 7,
-                    outcome: s("done"),
-                },
-                "sftp_transfer",
-            ),
-        ];
-        for (e, name) in cases {
-            let v = serde_json::to_value(&e).expect("json");
-            assert_eq!(v["event"], name);
-            assert_eq!(serde_json::from_value::<AuditEvent>(v).expect("round trip"), e);
-        }
-    }
-
-    #[test]
-    fn chain_verifies_and_survives_reopen() {
-        let dir = tempfile::tempdir().expect("tmp");
-        let p = dir.path().join("audit.jsonl");
-        three(&p);
-        let mut again = AuditLog::open(&p).expect("reopen");
-        let e = again.record(AuditEvent::PasswordChanged).expect("4");
-        assert_eq!(e.seq, 4);
-        let r = AuditLog::verify(&p).expect("verify");
-        assert!(r.ok());
-        assert_eq!(r.entries, 4);
-    }
-
-    #[test]
-    fn deleting_or_editing_a_line_breaks_the_chain() {
-        let dir = tempfile::tempdir().expect("tmp");
-        let p = dir.path().join("audit.jsonl");
-        three(&p);
-        let text = fs::read_to_string(&p).expect("read");
-        let lines: Vec<&str> = text.lines().collect();
-
-        // delete the middle line
-        fs::write(&p, format!("{}\n{}\n", lines[0], lines[2])).expect("write");
-        assert_eq!(AuditLog::verify(&p).expect("v").broken_at, Some(2));
-
-        // edit the first line's event
-        let edited = lines[0].replace("vault_created", "vault_unlocked");
-        fs::write(&p, format!("{}\n{}\n{}\n", edited, lines[1], lines[2])).expect("write");
-        assert_eq!(AuditLog::verify(&p).expect("v").broken_at, Some(2));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn file_is_private() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tmp");
-        let p = dir.path().join("audit.jsonl");
-        three(&p);
-        let mode = fs::metadata(&p).expect("meta").permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
-    }
-}
+#[path = "chain_tests.rs"]
+mod tests;

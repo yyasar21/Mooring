@@ -1,20 +1,27 @@
 //! RFC 5424 rendering of an [`AuditEntry`].
 //!
 //! ```text
-//! <PRI>1 TIMESTAMP HOSTNAME mooring PROCID MSGID [mooring@0 seq="N" hash="H"] MSG
+//! <PRI>1 TIMESTAMP HOSTNAME mooring PROCID MSGID [mooring@32473 seq="N" hash="H" trunc="1"? redacted="1"?] MSG
 //! ```
+//!
+//! * `SD-ID` uses 32473, the RFC 5612 documentation enterprise number, until Mooring's own
+//!   IANA PEN is assigned (review 4, N-12); it is not part of the hashed entry.
 //!
 //! * `PRI` = facility × 8 + severity (notice, or warning for trust changes/refusals).
 //! * `TIMESTAMP` is the entry's UTC time with microseconds (RFC 5424 allows at most six digits).
 //! * `HOSTNAME` / `MSGID` are reduced to PRINTUSASCII and their RFC length; empty → `-`.
 //! * `MSGID` is the event name (`vault_locked`, ...).
 //! * `hash` is the SHA-256 of this entry's canonical line: the next entry's `prev`, so a
-//!   collector can re-verify the chain from the mirror alone.
+//!   collector can re-verify the `prev` → `hash` linkage from the mirror alone. Content
+//!   verification (`SHA-256(MSG) == hash`) holds only for lines without `trunc="1"` or
+//!   `redacted="1"`; for those the local entry is needed (review 4, N-13).
 //! * `MSG` is the entry's compact JSON passed through [`crate::redact`] (MSG-ANY, no BOM). JSON
 //!   escapes every control character, so a message is always a single line. Events carry no
 //!   secret values by construction; redaction is defence in depth.
 //!
-//! The whole message is capped at [`MAX_MESSAGE`] bytes (cut at a UTF-8 boundary).
+//! The whole message is capped at [`MAX_MESSAGE`] bytes (cut at a UTF-8 boundary). The
+//! SD-PARAM `trunc="1"` marks a cut message and `redacted="1"` one whose MSG differs from the
+//! entry's JSON because redaction applied.
 
 use time::macros::format_description;
 use time::UtcOffset;
@@ -25,7 +32,7 @@ use crate::redact;
 /// `APP-NAME`.
 pub const APP_NAME: &str = "mooring";
 /// `SD-ID` of the structured-data element.
-pub const SD_ID: &str = "mooring@0";
+pub const SD_ID: &str = "mooring@32473";
 /// Largest message produced (header + SD + MSG). Fits common collector limits for TCP/TLS;
 /// UDP receivers must accept 2048 (RFC 5426) and in practice accept this too.
 pub const MAX_MESSAGE: usize = 8192;
@@ -108,16 +115,24 @@ pub fn format_entry(entry: &AuditEntry, facility: u8, hostname: &str, procid: u3
         .and_then(|v| v.get("event").and_then(|e| e.as_str()).map(str::to_owned))
         .unwrap_or_default();
     let pri = u16::from(facility.min(23)) * 8 + severity(&entry.event) as u16;
-    let mut out = format!(
-        "<{pri}>1 {ts} {host} {APP_NAME} {procid} {msgid} [{SD_ID} seq=\"{seq}\" hash=\"{hash}\"] {msg}",
-        ts = timestamp(entry),
-        host = header_field(hostname, MAX_HOSTNAME),
-        msgid = header_field(&event_name, MAX_MSGID),
-        seq = entry.seq,
-        hash = sd_escape(&entry.digest()),
-        msg = redact(&json),
-    );
-    truncate(&mut out, MAX_MESSAGE);
+    let msg = redact(&json);
+    let redacted = if msg == json { "" } else { " redacted=\"1\"" };
+    let render = |trunc: &str| {
+        format!(
+            "<{pri}>1 {ts} {host} {APP_NAME} {procid} {msgid} [{SD_ID} seq=\"{seq}\" hash=\"{hash}\"{trunc}{redacted}] {msg}",
+            ts = timestamp(entry),
+            host = header_field(hostname, MAX_HOSTNAME),
+            msgid = header_field(&event_name, MAX_MSGID),
+            seq = entry.seq,
+            hash = sd_escape(&entry.digest()),
+        )
+    };
+    let mut out = render("");
+    if out.len() > MAX_MESSAGE {
+        // The header and SD stay far below the cap (hostname ≤ 255 bytes), so only MSG is cut.
+        out = render(" trunc=\"1\"");
+        truncate(&mut out, MAX_MESSAGE);
+    }
     out
 }
 
@@ -155,7 +170,7 @@ mod tests {
         let got = format_entry(&e, 13, "ws01.example.test", 4242);
         let want = format!(
             "<109>1 2026-11-04T10:20:30.123456Z ws01.example.test mooring 4242 vault_locked \
-             [mooring@0 seq=\"7\" hash=\"{}\"] \
+             [mooring@32473 seq=\"7\" hash=\"{}\"] \
              {{\"seq\":7,\"at\":\"2026-11-04T10:20:30.123456789Z\",\"prev\":\"{}\",\"event\":\"vault_locked\",\"reason\":\"idle\"}}",
             e.digest(),
             "0".repeat(64)
@@ -175,11 +190,11 @@ mod tests {
             },
         );
         let got = format_entry(&e, 4, "-", 1);
-        assert!(got.starts_with("<36>1 2026-11-04T10:20:30.123456Z - mooring 1 trust_decision [mooring@0 seq=\"1\" hash=\""), "{got}");
+        assert!(got.starts_with("<36>1 2026-11-04T10:20:30.123456Z - mooring 1 trust_decision [mooring@32473 seq=\"1\" hash=\""), "{got}");
         let at = OffsetDateTime::from_unix_timestamp(0).expect("epoch");
         assert_eq!(
             format_test(1, "h", 9, at),
-            "<13>1 1970-01-01T00:00:00.000000Z h mooring 9 test [mooring@0 seq=\"0\" hash=\"-\"] {\"event\":\"syslog_test\"}"
+            "<13>1 1970-01-01T00:00:00.000000Z h mooring 9 test [mooring@32473 seq=\"0\" hash=\"-\"] {\"event\":\"syslog_test\"}"
         );
     }
 
@@ -206,7 +221,8 @@ mod tests {
         assert!(!got.contains("hunter2") && !got.contains("abc.def"), "{got}");
         assert!(got.contains(" evilhostname] mooring "), "hostname reduced to PRINTUSASCII");
         // the structured-data element is intact and closes before MSG
-        assert!(got.contains(&format!("[mooring@0 seq=\"3\" hash=\"{}\"] {{", e.digest())));
+        let sd = format!("[mooring@32473 seq=\"3\" hash=\"{}\" redacted=\"1\"] {{", e.digest());
+        assert!(got.contains(&sd), "{got}");
     }
 
     #[test]
@@ -216,6 +232,33 @@ mod tests {
         let got = format_entry(&e, 1, &"h".repeat(1000), 1);
         assert!(got.len() <= MAX_MESSAGE);
         assert!(got.contains(&format!(" {} mooring", "h".repeat(255))), "hostname capped");
+        assert!(got.contains(&format!("hash=\"{}\" trunc=\"1\"] ", e.digest())), "{}", &got[..400]);
+        assert!(!got.contains("redacted="), "nothing was redacted");
+    }
+
+    #[test]
+    fn redaction_and_truncation_are_flagged_and_clean_lines_are_not() {
+        let clean = format_entry(&entry(1, AuditEvent::VaultCreated), 1, "h", 1);
+        assert!(!clean.contains("trunc=") && !clean.contains("redacted="), "{clean}");
+        let e = entry(
+            2,
+            AuditEvent::CredentialPrompted {
+                connection: "password=hunter2".into(),
+                username: "u".into(),
+            },
+        );
+        let got = format_entry(&e, 1, "h", 1);
+        assert!(got.contains(&format!("hash=\"{}\" redacted=\"1\"] ", e.digest())), "{got}");
+        assert!(!got.contains("hunter2"));
+        let both = entry(
+            3,
+            AuditEvent::CredentialPrompted {
+                connection: format!("password=hunter2 {}", "x".repeat(MAX_MESSAGE)),
+                username: "u".into(),
+            },
+        );
+        let got = format_entry(&both, 1, "h", 1);
+        assert!(got.contains(" trunc=\"1\" redacted=\"1\"] "), "{}", &got[..300]);
     }
 
     #[test]

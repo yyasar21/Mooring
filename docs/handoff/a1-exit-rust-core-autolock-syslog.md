@@ -119,3 +119,39 @@ reaches the app (the first tick runs ≤ 5 s after resume; the UI receives `vaul
   syslog commands 6 (parse table with hostile values, mirror + counters + disable, restart from
   the stored config before unlock, locked refusals, `syslog_test` ok/refused, unreachable
   collector never fails a user action).
+
+## Fix round 4 (security review 4)
+
+Branch `worktree-agent-a7094f458976bcad7` on `a1-exit` @ 0077e40, one commit per finding.
+
+### Done
+- **M-8** `f94e66f` — `forward_list` and `sftp_transfers` are passive. `PASSIVE_COMMANDS` is
+  exported as `src-tauri/ipc-passive.json` (sorted, checked in) for the UI's
+  `POLLED_COMMANDS` vitest; `golden_passive_commands_file_is_in_sync` keeps it equal
+  (`MOORING_BLESS=1 cargo test -p mooring-app golden` regenerates).
+- **M-9** `1a738f3` — `BLUR_GRACE = 60 s`. While a
+  Mooring-owned dialog is open (`AutoLock::dialog_guard`, held by `sftp_pick_local`) focus
+  loss is not counted; the grace restarts when the dialog closes, and closing it counts as
+  activity. Tests: blur < 60 s → no lock; ≥ 60 s → `window_hidden`; 5 min blur during a pick
+  → no lock, then 60 s after it closes → `window_hidden`.
+- **M-10 (Rust)** — see the forward/SFTP handoff: external forwards closed on every lock.
+- **L-17** `92285f2` — a redirect records `audit_syslog_changed` on the old mirror first
+  (the replaced mirror drains its queue), installs the new one and records it again. Test
+  with two loopback UDP collectors: both receive the change; the old one nothing after.
+- **L-18** `6001052` — new events `audit_syslog_started { enabled, host, port, transport }`
+  and `audit_heartbeat { seq }`. `start_stored` records `audit_syslog_started` after the
+  mirror started (enabled; the collector sees it) or locally with `enabled: false` (stored
+  config is off: the "disabled at startup" entry). Decision taken: it is recorded on every
+  start with a stored config rather than only "when previously enabled", because "previously"
+  could only come from another plaintext setting a T2 can also edit. Heartbeat: one entry per
+  `HEARTBEAT` (1 h, 100 ms under `cfg(test)`) while a mirror runs, task started in `setup`.
+  SECURITY.md "Syslog mirror" says collectors must alert on missing heartbeats.
+  `mooring-audit` chain tests moved to `chain_tests.rs` (chain.rs was 508 lines).
+- **N-12 / N-13** `7f1e3b3` — SD-ID `mooring@32473`; `trunc="1"` when MSG was cut,
+  `redacted="1"` when redaction changed it (module doc: content verification needs the local
+  entry for those lines). SECURITY.md states the SD-ID.
+
+### Left open
+- Switch `SD_ID` to Mooring's own IANA PEN before the first public release (owner request
+  pending).
+- The UI should list `audit_syslog_started` / `audit_heartbeat` in its audit-event labels.

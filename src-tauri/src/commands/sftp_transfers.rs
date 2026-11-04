@@ -1,20 +1,24 @@
-//! SFTP transfers (ADR-0010 §SFTP): `sftp_download`, `sftp_upload`, `sftp_cancel`.
+//! SFTP transfers (ADR-0010 §SFTP): `sftp_download`, `sftp_upload`, `sftp_transfers`,
+//! `sftp_cancel`.
 //!
-//! The local side comes from the OS file dialog (`localDir` for a download, `localPath` for
-//! an upload). It is confined with `LocalPath`: the base is the directory the dialog returned
-//! and the relative part is exactly one file name, so nothing outside that directory is
-//! reachable (no `..`, no symlink escape, no ADS / device names). A base inside the app data
-//! directory (vault header, audit log, `known_hosts`) is refused, so a compromised `WebView`
-//! cannot overwrite or read Mooring's own files through a transfer.
+//! The local side is a `pick` (review 4, B-4): an opaque id from `sftp_pick_local`, whose
+//! path the user chose in the Rust-side dialog. The `WebView` never names a local path. The
+//! pick is consumed here (single-use, session-bound, 10 min) and, as defence in depth, the
+//! path is confined again with `LocalPath`: the base is the picked directory (or the picked
+//! file's parent) and the relative part is exactly one file name (no `..`, no symlink escape,
+//! no ADS / device names). A base inside the app data directory (vault header, audit log,
+//! `known_hosts`) is refused.
 //!
 //! Each transfer runs in its own task, streams in 256 KiB blocks (≤ 8 requests in flight,
 //! crate-enforced), reports `Progress` after every block and ends with exactly one final
-//! `done` / `failed` / `cancelled` event and one `sftp_transfer` audit entry (direction,
-//! bytes, outcome; never contents). A cancelled download leaves no partial local file.
+//! `done` / `failed` / `cancelled` event, preceded by one `sftp_transfer` audit entry
+//! (direction, bytes, outcome; never contents). A cancelled download leaves no partial local
+//! file by the time its final event is sent.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use mooring_audit::AuditEvent;
 use mooring_proto_ssh::{LocalPath, SftpClient};
@@ -23,9 +27,11 @@ use tauri::ipc::Channel;
 use tauri::State;
 use tokio::sync::oneshot;
 
-use crate::commands::sftp::{client, sftp_error};
+use crate::commands::forward::control_of;
+use crate::commands::sftp::{client, exists, sftp_error};
 use crate::error::{IpcError, IpcResult};
-use crate::sessions::Transfers;
+use crate::picks::PickMode;
+use crate::sessions::{TransferEntry, Transfers};
 use crate::state::{record_audit, AppState};
 
 /// Most transfers running at once per session.
@@ -34,6 +40,8 @@ pub const MAX_TRANSFERS: usize = 8;
 const MAX_LOCAL: usize = 4096;
 /// Longest `transferId` accepted.
 const MAX_TRANSFER_ID: usize = 64;
+/// Start order of transfers (listing order of `sftp_transfers`).
+static NEXT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// One progress report. The last one for a transfer has a state other than `running`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -68,7 +76,7 @@ fn bad(field: &str, reason: &str) -> IpcError {
 
 /// Validate a directory returned by the OS dialog: absolute, existing, a directory, and not
 /// inside the app data directory. Returns it canonicalised. Errors never echo the path.
-fn dialog_dir(state: &AppState, field: &str, raw: &Path) -> IpcResult<PathBuf> {
+pub(crate) fn dialog_dir(state: &AppState, field: &str, raw: &Path) -> IpcResult<PathBuf> {
     if raw.as_os_str().is_empty() || raw.as_os_str().len() > MAX_LOCAL {
         return Err(bad(field, "empty or too long"));
     }
@@ -96,13 +104,12 @@ fn remote_name(remote: &str) -> IpcResult<&str> {
     Ok(name)
 }
 
-/// `localPath` → (`LocalPath` confined to its parent, file name for the remote side).
-fn upload_source(state: &AppState, raw: &str) -> IpcResult<(LocalPath, String)> {
-    let path = Path::new(raw);
-    let name = path.file_name().ok_or_else(|| bad("localPath", "names no file"))?;
-    let name = name.to_str().ok_or_else(|| bad("localPath", "file name is not UTF-8"))?;
-    let parent = path.parent().ok_or_else(|| bad("localPath", "names no file"))?;
-    let base = dialog_dir(state, "localPath", parent)?;
+/// Picked file → (`LocalPath` confined to its parent, file name for the remote side).
+fn upload_source(state: &AppState, path: &Path) -> IpcResult<(LocalPath, String)> {
+    let name = path.file_name().ok_or_else(|| bad("pick", "names no file"))?;
+    let name = name.to_str().ok_or_else(|| bad("pick", "file name is not UTF-8"))?;
+    let parent = path.parent().ok_or_else(|| bad("pick", "names no file"))?;
+    let base = dialog_dir(state, "pick", parent)?;
     let local = LocalPath::new(base, name).map_err(IpcError::from)?;
     local.check_existing_file().map_err(IpcError::from)?;
     Ok((local, name.to_owned()))
@@ -143,18 +150,24 @@ fn start(
     let transfers = transfers_of(state, session_id)?;
     let transfer_id = uuid::Uuid::new_v4().to_string();
     let (cancel_tx, cancel_rx) = oneshot::channel();
+    let snapshot = Arc::new(Mutex::new((0_u64, None::<u64>)));
     {
         let mut map = transfers.lock().map_err(|_| IpcError::poisoned())?;
         if map.len() >= MAX_TRANSFERS {
             return Err(IpcError::new("transfer.limit", "too many transfers running"));
         }
-        map.insert(transfer_id.clone(), cancel_tx);
+        let seq = NEXT_SEQ.fetch_add(1, Ordering::Relaxed);
+        let entry = TransferEntry { cancel: cancel_tx, seq, progress: Arc::clone(&snapshot) };
+        map.insert(transfer_id.clone(), entry);
     }
     let done = Arc::new(AtomicU64::new(0));
     let progress = {
         let (sink, id, done) = (Arc::clone(&sink), transfer_id.clone(), Arc::clone(&done));
         Box::new(move |bytes: u64, total: Option<u64>| {
             done.store(bytes, Ordering::Relaxed);
+            if let Ok(mut s) = snapshot.lock() {
+                *s = (bytes, total);
+            }
             let p = Progress {
                 transfer_id: id.clone(),
                 bytes_done: bytes,
@@ -183,18 +196,19 @@ fn start(
             Err(Some(reason)) => ("failed", done.load(Ordering::Relaxed), Some(reason)),
         };
         let total = matches!(state, "done").then_some(bytes);
-        let p = Progress { transfer_id: id.clone(), bytes_done: bytes, bytes_total: total, state, error };
-        let _ = sink(p);
+        // Audit first: when the UI (or a test) sees the final event, the entry is written.
         record_audit(
             &audit,
             AuditEvent::SftpTransfer {
                 connection,
-                transfer: id,
+                transfer: id.clone(),
                 direction: direction.as_str().to_owned(),
                 bytes,
                 outcome: state.to_owned(),
             },
         );
+        let p = Progress { transfer_id: id, bytes_done: bytes, bytes_total: total, state, error };
+        let _ = sink(p);
     });
     Ok(Started { transfer_id })
 }
@@ -209,39 +223,62 @@ fn transfers_of(state: &AppState, session_id: &str) -> IpcResult<Transfers> {
         .ok_or_else(|| IpcError::new("session.not_found", "session not found"))
 }
 
-/// `sftp_download({ sessionId, remote, localDir })`: `remote` is saved as
-/// `localDir/<basename>`, replacing an existing regular file.
+/// Consume `pick` for `session_id` (refused: `input.invalid "pick"`).
+fn take_pick(state: &AppState, session_id: &str, pick: &str, mode: PickMode) -> IpcResult<PathBuf> {
+    // Unknown sessions report `session.not_found` before the pick is looked at.
+    control_of(state, session_id)?;
+    state.picks.take(pick, session_id, mode, Instant::now())
+}
+
+/// `sftp_download({ sessionId, remote, pick, overwrite? })`: `remote` is saved as
+/// `<picked folder>/<basename>`. An existing file there is replaced only with `overwrite`;
+/// otherwise `sftp.exists` and the pick stays usable for the retry (review 4, L-15).
 pub async fn download(
     state: &AppState,
     session_id: &str,
     remote: &str,
-    local_dir: &str,
+    pick: &str,
+    overwrite: bool,
     sink: ProgressSink,
 ) -> IpcResult<Started> {
-    let base = dialog_dir(state, "localDir", Path::new(local_dir))?;
-    let local = LocalPath::new(base, remote_name(remote)?).map_err(IpcError::from)?;
-    local.check_new_file().map_err(IpcError::from)?;
+    let name = remote_name(remote)?;
+    // Lexical name checks first, so a refused name does not consume the pick.
+    LocalPath::new(PathBuf::new(), name).map_err(IpcError::from)?;
+    control_of(state, session_id)?;
+    let local = state.picks.take_if(pick, session_id, PickMode::Folder, Instant::now(), |dir| {
+        let base = dialog_dir(state, "pick", dir)?;
+        let local = LocalPath::new(base, name).map_err(IpcError::from)?;
+        local.check_target(overwrite).map_err(|e| {
+            if LocalPath::is_target_exists(&e) {
+                exists()
+            } else {
+                IpcError::from(e)
+            }
+        })?;
+        Ok(local)
+    })?;
     let (client, connection) = client(state, session_id).await?;
     let remote = remote.to_owned();
     let job = move |c: SftpClient, p: Box<dyn FnMut(u64, Option<u64>) + Send>| -> TransferFuture {
-        Box::pin(async move { c.download(&remote, &local, p).await })
+        Box::pin(async move { c.download_to(&remote, &local, overwrite, p).await })
     };
     start(state, session_id, connection, Direction::Download, job, client, sink)
 }
 
-/// `sftp_upload({ sessionId, localPath, remoteDir })`: the file is written to
+/// `sftp_upload({ sessionId, pick, remoteDir })`: the picked file is written to
 /// `remoteDir/<file name>`, created or truncated.
 pub async fn upload(
     state: &AppState,
     session_id: &str,
-    local_path: &str,
+    pick: &str,
     remote_dir: &str,
     sink: ProgressSink,
 ) -> IpcResult<Started> {
-    if local_path.len() > MAX_LOCAL {
-        return Err(bad("localPath", "too long"));
+    if remote_dir.is_empty() {
+        return Err(bad("remoteDir", "empty"));
     }
-    let (local, name) = upload_source(state, local_path)?;
+    let path = take_pick(state, session_id, pick, PickMode::File)?;
+    let (local, name) = upload_source(state, &path)?;
     let remote = join_remote(remote_dir, &name)?;
     let (client, connection) = client(state, session_id).await?;
     let job = move |c: SftpClient, p: Box<dyn FnMut(u64, Option<u64>) + Send>| -> TransferFuture {
@@ -256,10 +293,34 @@ pub fn cancel(state: &AppState, session_id: &str, transfer_id: &str) -> IpcResul
         return Err(bad("transferId", "not a transfer id"));
     }
     let transfers = transfers_of(state, session_id)?;
-    let tx = transfers.lock().map_err(|_| IpcError::poisoned())?.remove(transfer_id);
-    let tx = tx.ok_or_else(|| IpcError::new("transfer.not_found", "transfer not found"))?;
-    let _ = tx.send(());
+    let entry = transfers.lock().map_err(|_| IpcError::poisoned())?.remove(transfer_id);
+    let entry = entry.ok_or_else(|| IpcError::new("transfer.not_found", "transfer not found"))?;
+    let _ = entry.cancel.send(());
     Ok(())
+}
+
+/// `sftp_transfers({ sessionId })`: the session's running transfers in start order, each as
+/// its latest `running` progress (review 4 M-10: the UI re-adopts them after an unlock).
+pub fn list(state: &AppState, session_id: &str) -> IpcResult<Vec<Progress>> {
+    control_of(state, session_id)?;
+    let transfers = transfers_of(state, session_id)?;
+    let map = transfers.lock().map_err(|_| IpcError::poisoned())?;
+    let mut rows: Vec<(u64, Progress)> = map
+        .iter()
+        .map(|(id, t)| {
+            let (bytes_done, bytes_total) = t.progress.lock().map_or((0, None), |g| *g);
+            let p = Progress {
+                transfer_id: id.clone(),
+                bytes_done,
+                bytes_total,
+                state: "running",
+                error: None,
+            };
+            (t.seq, p)
+        })
+        .collect();
+    rows.sort_by_key(|(seq, _)| *seq);
+    Ok(rows.into_iter().map(|(_, p)| p).collect())
 }
 
 // ------------------------------------------------------------------ Tauri wrappers
@@ -268,28 +329,36 @@ fn channel_sink(on_progress: Channel<Progress>) -> ProgressSink {
     Arc::new(move |p| on_progress.send(p).is_ok())
 }
 
-/// `sftp_download({ sessionId, remote, localDir, onProgress })`.
+/// `sftp_download({ sessionId, remote, pick, overwrite?, onProgress })`.
 #[tauri::command]
 pub async fn sftp_download(
     state: State<'_, AppState>,
     session_id: String,
     remote: String,
-    local_dir: String,
+    pick: String,
+    overwrite: Option<bool>,
     on_progress: Channel<Progress>,
 ) -> IpcResult<Started> {
-    download(&state, &session_id, &remote, &local_dir, channel_sink(on_progress)).await
+    let overwrite = overwrite.unwrap_or(false);
+    download(&state, &session_id, &remote, &pick, overwrite, channel_sink(on_progress)).await
 }
 
-/// `sftp_upload({ sessionId, localPath, remoteDir, onProgress })`.
+/// `sftp_upload({ sessionId, pick, remoteDir, onProgress })`.
 #[tauri::command]
 pub async fn sftp_upload(
     state: State<'_, AppState>,
     session_id: String,
-    local_path: String,
+    pick: String,
     remote_dir: String,
     on_progress: Channel<Progress>,
 ) -> IpcResult<Started> {
-    upload(&state, &session_id, &local_path, &remote_dir, channel_sink(on_progress)).await
+    upload(&state, &session_id, &pick, &remote_dir, channel_sink(on_progress)).await
+}
+
+/// `sftp_transfers({ sessionId })` → `Progress[]` (passive: polled by the Files panel).
+#[tauri::command]
+pub fn sftp_transfers(state: State<'_, AppState>, session_id: String) -> IpcResult<Vec<Progress>> {
+    list(&state, &session_id)
 }
 
 /// `sftp_cancel({ sessionId, transferId })`.

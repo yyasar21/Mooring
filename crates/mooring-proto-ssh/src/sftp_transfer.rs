@@ -3,7 +3,8 @@
 //! so memory use is bounded by one block whatever the file size.
 //!
 //! Downloads go to a temporary file in the target directory and are renamed into place only
-//! when complete; a failed download leaves no partial file behind.
+//! when complete; a failed download leaves no partial file behind. Uploads do the same on the
+//! server side (`sftp_upload`).
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -34,7 +35,7 @@ fn joined<T>(r: Result<T, tokio::task::JoinError>) -> Result<T, MooringError> {
 }
 
 /// Run a blocking local file operation off the async runtime.
-async fn blocking<T, F>(f: F) -> Result<T, MooringError>
+pub(crate) async fn blocking<T, F>(f: F) -> Result<T, MooringError>
 where
     T: Send + 'static,
     F: FnOnce() -> std::io::Result<T> + Send + 'static,
@@ -43,15 +44,43 @@ where
 }
 
 /// One remote file handle, closed on every path out of a transfer.
-struct RemoteFile<'a> {
+pub(crate) struct RemoteFile<'a> {
     client: &'a SftpClient,
-    handle: String,
+    pub(crate) handle: String,
 }
 
 impl RemoteFile<'_> {
-    async fn close(self) -> Result<(), SftpError> {
+    pub(crate) async fn close(self) -> Result<(), SftpError> {
         self.client.raw.close(self.handle).await.map(|_| ())
     }
+}
+
+/// Removes the temporary download file when a transfer is dropped mid-way (cancel). The
+/// `NamedTempFile` may be owned by an in-flight blocking write at that moment and would only
+/// be deleted once that write returns; this guard deletes the path at once, so "cancelled"
+/// means "no partial file" without a race (review 4, N-15).
+struct RemoveOnDrop(Option<PathBuf>);
+
+impl RemoveOnDrop {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            // Best effort: already gone when the NamedTempFile was dropped first.
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
+/// Where a download lands.
+struct Target {
+    parent: PathBuf,
+    path: PathBuf,
+    overwrite: bool,
 }
 
 /// Outcome of reading one block: the bytes in order, and whether EOF was reached.
@@ -61,7 +90,7 @@ struct Block {
 }
 
 impl SftpClient {
-    async fn open_remote(
+    pub(crate) async fn open_remote(
         &self,
         path: &str,
         flags: OpenFlags,
@@ -121,16 +150,30 @@ impl SftpClient {
         Ok(Block { data, eof: false })
     }
 
-    /// Download `remote` to `local` (inside the caller's base directory). `progress` gets
-    /// `(bytes_done, bytes_total)` after every block; the total comes from the server and
-    /// is only a hint. Returns the number of bytes written.
+    /// Download `remote` to `local` (inside the caller's base directory), replacing an
+    /// existing file. `progress` gets `(bytes_done, bytes_total)` after every block; the total
+    /// comes from the server and is only a hint. Returns the number of bytes written.
     pub async fn download(
         &self,
         remote: &str,
         local: &LocalPath,
+        progress: impl FnMut(u64, Option<u64>),
+    ) -> Result<u64, MooringError> {
+        self.download_to(remote, local, true, progress).await
+    }
+
+    /// [`download`](Self::download); with `overwrite == false` an existing target (also one
+    /// created while the transfer ran) is never replaced: the result is the
+    /// [`TARGET_EXISTS`](crate::TARGET_EXISTS) refusal and the temporary file is removed.
+    pub async fn download_to(
+        &self,
+        remote: &str,
+        local: &LocalPath,
+        overwrite: bool,
         mut progress: impl FnMut(u64, Option<u64>),
     ) -> Result<u64, MooringError> {
         check_remote(remote)?;
+        local.check_target(overwrite)?;
         let (parent, target) = local.resolve_new_file()?;
         let file = self.open_remote(remote, OpenFlags::READ).await?;
         let total = self
@@ -140,8 +183,8 @@ impl SftpClient {
             .ok()
             .and_then(|a| a.attrs.size)
             .filter(|s| *s <= MAX_REPORTED_SIZE);
-        let result =
-            self.download_into(&file.handle, remote, parent, target, total, &mut progress).await;
+        let to = Target { parent, path: target, overwrite };
+        let result = self.download_into(&file.handle, remote, to, total, &mut progress).await;
         let closed = file.close().await;
         let done = result?;
         closed.map_err(|e| sftp_err(&e, remote))?;
@@ -152,12 +195,13 @@ impl SftpClient {
         &self,
         handle: &str,
         remote: &str,
-        parent: PathBuf,
-        target: PathBuf,
+        to: Target,
         total: Option<u64>,
         progress: &mut impl FnMut(u64, Option<u64>),
     ) -> Result<u64, MooringError> {
+        let Target { parent, path: target, overwrite } = to;
         let mut tmp = Some(blocking(move || tempfile::NamedTempFile::new_in(parent)).await?);
+        let mut guard = RemoveOnDrop(tmp.as_ref().map(|t| t.path().to_path_buf()));
         let mut done = 0u64;
         progress(0, total);
         loop {
@@ -177,40 +221,31 @@ impl SftpClient {
             }
         }
         let file = tmp.ok_or_else(|| local_io(std::io::ErrorKind::Other.into()))?;
-        blocking(move || {
-            file.as_file().sync_all()?;
-            file.persist(&target).map(drop).map_err(|e| e.error)
-        })
-        .await?;
-        Ok(done)
+        let persisted = joined(
+            tokio::task::spawn_blocking(move || {
+                file.as_file().sync_all()?;
+                if overwrite {
+                    file.persist(&target).map(drop).map_err(|e| e.error)
+                } else {
+                    file.persist_noclobber(&target).map(drop).map_err(|e| e.error)
+                }
+            })
+            .await,
+        )?;
+        match persisted {
+            Ok(()) => {
+                guard.disarm();
+                Ok(done)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(MooringError::Invalid {
+                field: "local path",
+                reason: crate::TARGET_EXISTS.to_owned(),
+            }),
+            Err(e) => Err(local_io(e)),
+        }
     }
 
-    /// Upload `local` (inside the caller's base directory) to `remote`, creating or
-    /// truncating it. `progress` gets `(bytes_done, Some(total))` after every block.
-    pub async fn upload(
-        &self,
-        local: &LocalPath,
-        remote: &str,
-        mut progress: impl FnMut(u64, Option<u64>),
-    ) -> Result<u64, MooringError> {
-        check_remote(remote)?;
-        let source = local.resolve_existing_file()?;
-        let (src, total) = blocking(move || {
-            let f = std::fs::File::open(source)?;
-            let len = f.metadata()?.len();
-            Ok((f, len))
-        })
-        .await?;
-        let flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
-        let file = self.open_remote(remote, flags).await?;
-        let result = self.upload_from(&file.handle, remote, src, total, &mut progress).await;
-        let closed = file.close().await;
-        let done = result?;
-        closed.map_err(|e| sftp_err(&e, remote))?;
-        Ok(done)
-    }
-
-    async fn upload_from(
+    pub(crate) async fn upload_from(
         &self,
         handle: &str,
         remote: &str,

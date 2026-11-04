@@ -7,6 +7,10 @@
 //! compared ASCII case-insensitively (lenient decoders match JSON field names that way), and
 //! YAML merge keys (`<<`) anywhere: go-yaml applies them, so a merge could smuggle `exec` in.
 //! Running a command or reading a file named by imported YAML is code execution / disclosure.
+//! Keys are also unique ASCII case-insensitively at every level, and a top-level section key
+//! (`users`, `clusters`, `contexts`) in any other case (`Users:`, `CLUSTERS:`) is rejected
+//! outright rather than checked under its variant spelling (QA-F2): a lenient decoder may read
+//! it as the real section, and rejecting is simpler than proving every lookup case-blind.
 //! Extracted: context names (capped) and `current-context`.
 
 use std::collections::{BTreeSet, HashSet};
@@ -32,6 +36,9 @@ const MAX_MAP_ENTRIES: usize = 4096;
 const FORBIDDEN_USER_KEYS: &[&str] =
     &["exec", "auth-provider", "tokenFile", "client-certificate", "client-key"];
 const FORBIDDEN_CLUSTER_KEYS: &[&str] = &["certificate-authority"];
+
+/// Top-level section keys that must be spelled exactly (QA-F2).
+const SECTION_KEYS: &[&str] = &["users", "clusters", "contexts"];
 
 /// What a valid kubeconfig yields in plaintext.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +125,8 @@ impl<'a> Builder<'a> {
                     return Err(rejected("kubeconfig may not use YAML anchors or tags"));
                 }
                 let mut entries: Vec<(String, Node)> = Vec::new();
-                // duplicate check in O(1) per key (was a linear scan: quadratic per mapping)
+                // duplicate check in O(1) per key (was a linear scan: quadratic per mapping),
+                // ASCII case-insensitive: a clean `users:` may not sit beside `Users:` (QA-F2)
                 let mut keys: HashSet<String> = HashSet::new();
                 loop {
                     let key = match self.next()? {
@@ -134,7 +142,7 @@ impl<'a> Builder<'a> {
                     if entries.len() >= MAX_MAP_ENTRIES {
                         return Err(rejected("kubeconfig has too many keys in one mapping"));
                     }
-                    if !keys.insert(key.clone()) {
+                    if !keys.insert(key.to_ascii_lowercase()) {
                         return Err(rejected("kubeconfig has a duplicate key"));
                     }
                     entries.push((key, value));
@@ -210,6 +218,14 @@ pub fn parse(yaml: &[u8]) -> Result<KubeconfigInfo, CredentialError> {
     let root = parse_tree(text)?;
     if !matches!(root, Node::Map(_)) {
         return Err(rejected("kubeconfig must be a mapping"));
+    }
+    if let Node::Map(entries) = &root {
+        let variant = entries
+            .iter()
+            .any(|(k, _)| SECTION_KEYS.iter().any(|s| s.eq_ignore_ascii_case(k) && *s != k));
+        if variant {
+            return Err(rejected("kubeconfig section keys must be lower case"));
+        }
     }
     if let Some(kind) = root.get("kind").and_then(Node::str) {
         if kind != "Config" {
@@ -306,6 +322,36 @@ mod tests {
         );
         assert!(parse(ca.as_bytes()).is_err(), "cluster key case variant");
         assert!(parse(KUBECONFIG.as_bytes()).is_ok(), "certificate-authority-data still fine");
+    }
+
+    /// `fuzz/regressions/kubeconfig_parse/qa-f2-section-key-case` (QA-F2).
+    const QA_F2: &str = "apiVersion: v1\nkind: Config\ncontexts:\n- name: lab\n  context: {cluster: lab, user: ops}\nUsers:\n- name: ops\n  user:\n    exec: {command: /bin/sh}\nClusters:\n- name: lab\n  cluster: {server: \"https://k8s.example.test\", certificate-authority: /tmp/ca}\n";
+
+    #[test]
+    fn section_key_case_variants_and_case_duplicates_are_rejected() {
+        let e = parse(QA_F2.as_bytes()).expect_err("QA-F2 reproducer");
+        assert!(!e.to_string().contains("/bin/sh") && !e.to_string().contains("/tmp"), "{e}");
+        for (from, to) in [
+            ("users:", "Users:"),
+            ("users:", "USERS:"),
+            ("clusters:", "Clusters:"),
+            ("contexts:", "Contexts:"),
+        ] {
+            let yaml = KUBECONFIG.replacen(from, to, 1);
+            assert_ne!(yaml, KUBECONFIG, "{to} applied");
+            let e = parse(yaml.as_bytes()).expect_err(to);
+            assert!(e.to_string().contains("lower case"), "{to}: {e}");
+        }
+        // a hostile variant beside a clean section: caught as a duplicate before anything else
+        let mixed = format!("{KUBECONFIG}Users:\n- name: x\n  user: {{exec: {{command: x}}}}\n");
+        let e = parse(mixed.as_bytes()).expect_err("mixed-case duplicate");
+        assert!(e.to_string().contains("duplicate key"), "{e}");
+        // nested duplicates too
+        let nested =
+            KUBECONFIG.replacen("    token: test-only-token", "    token: a\n    Token: b", 1);
+        let e = parse(nested.as_bytes()).expect_err("nested case duplicate");
+        assert!(e.to_string().contains("duplicate key"), "{e}");
+        assert!(parse(KUBECONFIG.as_bytes()).is_ok());
     }
 
     #[test]

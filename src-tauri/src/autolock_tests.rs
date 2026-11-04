@@ -88,22 +88,56 @@ fn activity_defers_the_idle_lock() {
 }
 
 #[test]
-fn focus_loss_locks_as_window_hidden_and_focus_counts_as_activity() {
+fn focus_loss_locks_as_window_hidden_after_the_grace_and_focus_counts_as_activity() {
     let f = unlocked();
     let mut c = Clock::new();
-    let al = AutoLock::new(policy(Some(MIN), true, true), c.mono, c.wall);
+    let al = AutoLock::new(policy(Some(15 * MIN), true, true), c.mono, c.wall);
     al.focus_changed(false, c.mono);
-    assert_eq!(tick(&f.state, &al, c.mono, c.wall), Some(LockReason::WindowHidden));
+    assert_eq!(tick(&f.state, &al, c.mono, c.wall), None, "an alt-tab does not lock");
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None, "55 s < BLUR_GRACE");
+    assert_eq!(BLUR_GRACE, 60 * S);
+    let (m, w) = c.run(5 * S);
+    assert_eq!(tick(&f.state, &al, m, w), Some(LockReason::WindowHidden), "at 60 s = BLUR_GRACE");
     assert_eq!(lock_reasons(&f), ["window_hidden"]);
 
     // focus back + unlock: no stale signal, and focus counted as activity
     al.focus_changed(true, c.mono);
     vault::unlock(&f.state, secrecy::SecretString::from(MASTER.to_owned())).expect("unlock");
+    al.set_policy(policy(Some(MIN), true, true));
     assert_eq!(run_ticks(&f, &al, &mut c, 50 * S), None);
     al.focus_changed(true, c.mono); // e.g. after a click elsewhere and back
     assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None, "focus restarted the minute");
     assert_eq!(status(&f), VaultStatus::Unlocked);
     assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::Idle));
+}
+
+#[test]
+fn a_short_blur_does_not_lock() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(None, true, true), c.mono, c.wall);
+    al.focus_changed(false, c.mono);
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None);
+    al.focus_changed(true, c.mono);
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * MIN), None, "focus came back in time");
+    assert_eq!(status(&f), VaultStatus::Unlocked);
+}
+
+#[test]
+fn focus_loss_during_a_native_dialog_does_not_lock() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(None, true, true), c.mono, c.wall);
+    {
+        let _pick = al.dialog_guard();
+        al.focus_changed(false, c.mono); // the dialog takes focus
+        assert!(al.dialog_open());
+        assert_eq!(run_ticks(&f, &al, &mut c, 5 * MIN), None, "the user is choosing a file");
+    }
+    assert!(!al.dialog_open());
+    // The window is still unfocused after the dialog: the grace starts when it closed.
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None);
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::WindowHidden));
 }
 
 #[test]
@@ -201,9 +235,20 @@ fn passive_commands_are_not_activity() {
     for cmd in PASSIVE_COMMANDS {
         assert!(!is_activity(cmd), "{cmd}");
     }
+    for cmd in ["forward_list", "sftp_transfers"] {
+        assert!(!is_activity(cmd), "{cmd} is polled by the Forwards / Files panels (M-8)");
+    }
     for cmd in ["vault_unlock", "session_send", "tree_list", "autolock_set", "syslog_set", ""] {
         assert!(is_activity(cmd), "{cmd}");
     }
+    for cmd in ["forward_open", "forward_close", "sftp_download", "sftp_pick_local"] {
+        assert!(is_activity(cmd), "{cmd}");
+    }
+}
+
+#[test]
+fn golden_passive_commands_file_is_in_sync() {
+    crate::golden::check_sorted_list("ipc-passive.json", PASSIVE_COMMANDS);
 }
 
 #[test]

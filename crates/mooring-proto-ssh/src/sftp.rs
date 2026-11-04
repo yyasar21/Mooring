@@ -99,6 +99,8 @@ pub struct SftpClient {
     /// Bytes per wire read / write request.
     pub(crate) read_chunk: u32,
     pub(crate) write_chunk: u32,
+    /// The server advertised `posix-rename@openssh.com` (atomic replace on upload, L-16).
+    pub(crate) posix_rename: bool,
 }
 
 impl std::fmt::Debug for SftpClient {
@@ -228,7 +230,9 @@ async fn open_client(
             raw.set_limits(limits.into());
         }
     }
-    Ok(SftpClient { raw: Arc::new(raw), read_chunk, write_chunk })
+    let posix_rename =
+        version.extensions.get(crate::sftp_upload::POSIX_RENAME).is_some_and(|v| v == "1");
+    Ok(SftpClient { raw: Arc::new(raw), read_chunk, write_chunk, posix_rename })
 }
 
 impl SshControl {

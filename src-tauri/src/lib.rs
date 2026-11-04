@@ -18,9 +18,14 @@ macro_rules! test_util_pub {
 }
 
 test_util_pub!(clipboard, commands, dto, error, sessions, state);
+// Review 4 B-4: local paths from the Rust-side file dialog, by pickId.
+test_util_pub!(picks);
 // ADR-0010: auto-lock wiring (clock, 5 s tick, focus, invoke hook).
 test_util_pub!(autolock);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
+/// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
+#[cfg(test)]
+mod golden;
 #[allow(dead_code)]
 mod keyring_store;
 mod navigation;
@@ -33,7 +38,7 @@ use tauri::Manager;
 use crate::commands::{audit, credential_copy, credentials, sessions as session_cmds, tree, vault};
 // ADR-0010 §Port forwarding / §SFTP
 use crate::commands::{autolock as autolock_cmds, syslog as syslog_cmds};
-use crate::commands::{forward, sftp, sftp_transfers};
+use crate::commands::{forward, sftp, sftp_pick, sftp_transfers};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -43,7 +48,8 @@ use crate::state::{AppState, Settings};
 pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
-        // ADR-0010 §Capability change: file pickers for SFTP transfers (dialog:allow-open/save).
+        // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`); the `main`
+        // capability grants the WebView no dialog permission.
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
@@ -54,6 +60,8 @@ pub fn run() {
             navigation::create_main_window(app)?;
             // ADR-0010: syslog mirror from the stored config, then the auto-lock clock + tick.
             commands::syslog::start_stored(&app.state::<AppState>());
+            // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
+            commands::syslog::install_heartbeat(app);
             autolock::install(app);
             tracing::info!("mooring started");
             Ok(())
@@ -105,8 +113,10 @@ pub fn run() {
             sftp::sftp_mkdir,
             sftp::sftp_rename,
             sftp::sftp_remove,
+            sftp_pick::sftp_pick_local,
             sftp_transfers::sftp_download,
             sftp_transfers::sftp_upload,
+            sftp_transfers::sftp_transfers,
             sftp_transfers::sftp_cancel,
             // ADR-0010 (A1 exit): auto-lock + syslog mirror
             autolock_cmds::autolock_get,

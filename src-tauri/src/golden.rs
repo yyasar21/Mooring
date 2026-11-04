@@ -1,0 +1,88 @@
+//! Checked-in JSON lists that other parts of the repo (the UI's vitest) read: a `#[test]`
+//! keeps each one equal to the Rust source of truth.
+//!
+//! Regenerate with `MOORING_BLESS=1 cargo test -p mooring-app golden`.
+
+use std::path::Path;
+
+/// Assert that `file` (relative to `src-tauri/`) holds `items`, sorted and deduplicated, as a
+/// pretty JSON array. With `MOORING_BLESS=1` the file is rewritten instead.
+pub fn check_sorted_list(file: &str, items: &[&str]) {
+    let mut want: Vec<&str> = items.to_vec();
+    want.sort_unstable();
+    want.dedup();
+    let mut text = serde_json::to_string_pretty(&want).expect("json");
+    text.push('\n');
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+    if std::env::var_os("MOORING_BLESS").is_some() {
+        std::fs::write(&path, &text).expect("write golden file");
+        return;
+    }
+    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        have.replace("\r\n", "\n"),
+        text,
+        "{file} is out of date; run `MOORING_BLESS=1 cargo test -p mooring-app golden`"
+    );
+}
+
+/// String literals in `src/` that look like `area.reason` but are not error codes.
+const NOT_CODES: &[&str] =
+    &["app.autolock", "app.syslog", "audit.jsonl", "mooring.db", "tauri.localhost"];
+
+/// Every `IpcError` code the app can emit, collected from the non-test sources: each
+/// `"area.reason"` literal (codes are only ever written as literals: `IpcError::new("…")`,
+/// `Self::new("…")` and the `VaultError` match arms) minus [`NOT_CODES`], plus the first
+/// argument of any `IpcError::new(` / `Self::new(` call (catches dot-less codes such as
+/// `internal`). A new non-code `a.b` literal must be added to [`NOT_CODES`].
+fn emitted_codes() -> Vec<String> {
+    let mut codes = std::collections::BTreeSet::new();
+    let mut stack = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("src dir") {
+            let path = entry.expect("entry").path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let skip =
+                name.ends_with("_tests.rs") || name.starts_with("test_") || name == "golden.rs";
+            if skip || path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("source");
+            let text = text.split("#[cfg(test)]\nmod tests").next().unwrap_or_default();
+            for (i, lit) in text.split('"').enumerate() {
+                let is_code_shape = !lit.is_empty()
+                    && lit.bytes().all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'.')
+                    && lit.as_bytes()[0].is_ascii_lowercase();
+                if i % 2 == 0 || !is_code_shape {
+                    continue;
+                }
+                let before = text.split('"').nth(i - 1).unwrap_or_default().trim_end();
+                // Codes are exactly `area.reason`; `x_tests.rs` (`#[path]`) is a file name.
+                let dotted = lit.matches('.').count() == 1
+                    && !lit.ends_with('.')
+                    && Path::new(lit).extension().and_then(|e| e.to_str()) != Some("rs")
+                    && !NOT_CODES.contains(&lit);
+                let error_new =
+                    before.ends_with("IpcError::new(") || before.ends_with("Self::new(");
+                if dotted || error_new {
+                    codes.insert(lit.to_owned());
+                }
+            }
+        }
+    }
+    codes.into_iter().collect()
+}
+
+#[test]
+fn golden_ipc_codes_file_is_in_sync() {
+    let codes = emitted_codes();
+    let refs: Vec<&str> = codes.iter().map(String::as_str).collect();
+    for expected in ["input.invalid", "sftp.exists", "vault.locked", "session.not_found"] {
+        assert!(refs.contains(&expected), "{expected} not found by the scanner");
+    }
+    check_sorted_list("ipc-codes.json", &refs);
+}

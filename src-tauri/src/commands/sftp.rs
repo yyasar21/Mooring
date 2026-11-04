@@ -58,6 +58,9 @@ impl From<Listing> for ListingDto {
 
 /// Map crate errors to the SFTP codes. Messages are the crate's fixed, path-free sentences.
 pub(crate) fn sftp_error(e: MooringError) -> IpcError {
+    if mooring_proto_ssh::LocalPath::is_target_exists(&e) {
+        return exists();
+    }
     match e {
         MooringError::NotFound { .. } => IpcError::new("sftp.not_found", "remote path not found"),
         MooringError::Protocol { protocol: "sftp", reason } if reason == "permission denied" => {
@@ -68,6 +71,11 @@ pub(crate) fn sftp_error(e: MooringError) -> IpcError {
         }
         other => session_error(other),
     }
+}
+
+/// A download target exists and `overwrite` was not set (review 4, L-15). No path or name.
+pub(crate) fn exists() -> IpcError {
+    IpcError::new("sftp.exists", "a local file with that name exists; confirm to replace it")
 }
 
 /// The session's SFTP client, opening the subsystem on first use.

@@ -1,0 +1,10 @@
+[
+  "app_info",
+  "audit_verify",
+  "autolock_get",
+  "forward_list",
+  "session_list",
+  "sftp_transfers",
+  "syslog_get",
+  "vault_status"
+]
