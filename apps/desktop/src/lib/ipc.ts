@@ -7,9 +7,6 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, PodEventHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
-import { MockTransport } from "./ipc.mock";
-import { detachedDemoTransport } from "./ipc.mock.demo";
-import { bootRoute } from "./route";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
 import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
@@ -278,18 +275,32 @@ function logChannel(onChunk: LogChunkHandler): Channel {
   return channel;
 }
 
-function pickTransport(): Ipc {
-  if (inTauri()) return new TauriTransport();
-  // Plain `vite dev`: a detached-window URL gets a demo session behind the detached ACL.
-  const route = bootRoute();
-  if (route.kind === "detached") return detachedDemoTransport(route.sessionId);
-  // Transfers move slowly enough to watch the progress bars; web windows show their notices.
-  return new MockTransport({ transferStepMs: 350, webDemo: true });
-}
+/**
+ * Outside Tauri the transport arrives with `bootTransport()` (the mock is its own chunk and never
+ * ships in the Tauri bundle). Until then every call fails loudly instead of touching `invoke`.
+ */
+const PENDING: Ipc = new Proxy({} as Ipc, {
+  get(_target, prop) {
+    if (typeof prop !== "string") return undefined;
+    if (prop.startsWith("on")) return () => () => undefined;
+    return () => Promise.reject(new IpcError("internal", `transport not ready: ${prop} called before bootTransport()`));
+  },
+});
 
 /** The process-wide transport. Tests may swap it with `setIpc(new MockTransport())`. */
-export let ipc: Ipc = pickTransport();
+export let ipc: Ipc = inTauri() ? new TauriTransport() : PENDING;
 
 export function setIpc(next: Ipc): void {
   ipc = next;
+}
+
+/**
+ * Plain `vite dev` / Playwright: load `MockTransport` as a lazy chunk and install it, unless a
+ * transport is already set (`e2e/boot.ts` installs its own before importing `main`). In Tauri
+ * this is a no-op and the chunk is never requested.
+ */
+export async function bootTransport(): Promise<void> {
+  if (ipc !== PENDING) return;
+  const { devTransport } = await import("./ipc.mock.demo");
+  if (ipc === PENDING) ipc = devTransport();
 }

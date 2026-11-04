@@ -78,17 +78,16 @@ describe("shell sync banner (ADR-0017)", () => {
 
   it("shows a quiet Syncing… hint in the title bar only while a run is in progress", async () => {
     await boot();
-    const hint = document.querySelector(".sync-indicator");
-    if (!hint) throw new Error("indicator missing");
-    expect(hint).toHaveAttribute("role", "status");
-    expect(hint).toHaveTextContent("");
+    const hint = () => document.querySelector(".sync-indicator");
+    expect(hint()).toBeNull();
     const status = useSync.getState().status;
     if (!status) throw new Error("status not loaded");
     act(() => { useSync.setState({ status: { ...status, state: "running" } }); });
-    expect(hint).toHaveTextContent("Syncing…");
+    expect(hint()).toHaveAttribute("role", "status");
+    expect(hint()).toHaveTextContent("Syncing…");
     expect(banner()).toBeNull();
     act(() => { useSync.setState({ status: { ...status, state: "idle" } }); });
-    expect(hint).toHaveTextContent("");
+    expect(hint()).toBeNull();
   });
 
   it("alarmKey tells alarms apart and is null when nothing is wrong", () => {

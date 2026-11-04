@@ -4,6 +4,7 @@
 // (dc01, certificate pre-pinned), anything else the SSH seed (web01, host pre-trusted).
 import type { Ipc } from "./ipc.types";
 import { MockTransport } from "./ipc.mock";
+import { bootRoute } from "./route";
 
 export function detachedDemoTransport(sessionId: string): Ipc {
   const mock = new MockTransport({ webDemo: true });
@@ -18,4 +19,15 @@ export function detachedDemoTransport(sessionId: string): Ipc {
     await new Promise((r) => setTimeout(r, 20));
   })();
   return mock.viewOf(sessionId, ready);
+}
+
+/**
+ * The transport of a plain `vite dev` window (`bootTransport()` loads this file lazily): a demo
+ * session behind the detached ACL for a detached-window URL, else the full mock. Transfers move
+ * slowly enough to watch the progress bars; web windows show their notices.
+ */
+export function devTransport(): Ipc {
+  const route = bootRoute();
+  if (route.kind === "detached") return detachedDemoTransport(route.sessionId);
+  return new MockTransport({ transferStepMs: 350, webDemo: true });
 }

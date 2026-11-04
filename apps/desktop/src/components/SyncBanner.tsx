@@ -70,17 +70,14 @@ function openSyncSettings(): void {
   });
 }
 
-/** Title-bar hint while a run is in progress; silent otherwise. */
+/** Title-bar hint while a run is in progress; nothing in the DOM otherwise. */
 export function SyncIndicator() {
   const running = useSync((s) => s.status?.state === "running");
+  if (!running) return null;
   return (
-    <span className="sync-indicator" role="status" aria-live="polite">
-      {running && (
-        <>
-          <span aria-hidden className="state-dot" data-state="connecting" />
-          Syncing…
-        </>
-      )}
+    <span className="sync-indicator" role="status">
+      <span aria-hidden className="state-dot" data-state="connecting" />
+      Syncing…
     </span>
   );
 }
