@@ -8,6 +8,37 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
+### Added
+
+- **Port forwarding in the app**: local, remote and dynamic (SOCKS5) forwards per SSH session
+  from a Forwards panel; non-loopback binds require an explicit confirmation and are audited
+  ([ADR-0010](docs/adr/0010-a1-exit-ipc.md)).
+- **SFTP browser**: two-pane file browser with navigate, new folder, rename and delete, streaming
+  uploads and downloads with progress and cancel. Local folders and files are chosen through the
+  native OS dialog opened by the Rust core — no local path ever crosses the WebView boundary.
+  Uploads go through a temporary part file so a cancelled transfer never truncates the original;
+  downloads refuse to overwrite without confirmation.
+- **Auto-lock** is live: idle timeout (1 min–24 h or never), lock on sleep, on screen lock and
+  when the window stays hidden for 60 s; externally exposed forwards are closed on every lock;
+  sessions and loopback forwards survive a lock and reappear after unlock.
+- **Syslog mirror** of the audit log (RFC 5424 over UDP, TCP or TLS with the system trust store),
+  with chain hash in structured data, redirect audited on both collectors, startup entry and
+  hourly heartbeat so collectors can alert on silence; "Send test entry" in Settings.
+- Fuzz targets (`known_hosts`, kubeconfig, vault header, age import, SOCKS5) with a nightly
+  job and a stable-toolchain corpus replay in `cargo test`; Playwright UI flows in CI.
+
+### Fixed
+
+- Kubeconfig credentials: case variants of the `users` / `clusters` / `contexts` sections and
+  mixed-case duplicate keys are now rejected (QA-F2).
+- `known_hosts` files with multiple trailing carriage returns are rewritten byte-identically.
+
+### Security
+
+- Security review 4 ([docs/security/a1-review-4.md](docs/security/a1-review-4.md)): the first
+  SFTP design let the WebView name a local directory; it was replaced before release by a
+  Rust-side picker with single-use pick tokens. The WebView capability remains `core:default`.
+
 ## [0.1.0-rc.1] - 2026-11-04
 
 Work towards v0.1.0: Phase A0 (foundation) and Phase A1 (vault, connection tree, SSH).
