@@ -143,7 +143,7 @@ export abstract class MockVsphereBase extends MockKubeBase implements VsphereIpc
       // A failed first import removes the empty root again (V2 decision 5).
       this.folders = this.folders.filter((f) => f.id !== root.id);
       this.vcenters.delete(connectionId);
-      c.options = { ...(c.options as VsphereConnOptions), syncFolderId: null };
+      c.options = { ...c.options, syncFolderId: null };
       throw e;
     }
     return { ...root };

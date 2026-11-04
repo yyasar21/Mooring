@@ -99,9 +99,9 @@ describe("polled commands (M-8)", () => {
     for (const p of all) {
       for (const c of p.commands) expect({ file: p.file, command: c, polled: POLLED_COMMANDS.includes(c) }).toEqual({ file: p.file, command: c, polled: true });
     }
-    // The tracer works: the two real pollers are found through their local helpers.
+    // The tracer works: the real pollers are found through their local helpers.
     const reached = new Set(all.flatMap((p) => p.commands));
-    expect([...reached].sort()).toEqual(["audit_verify", "forward_list", "kube_pods"]);
+    expect([...reached].sort()).toEqual(["audit_verify", "forward_list", "kube_pods", "vsphere_status", "vsphere_vm_power"]);
   });
 
   it("maps every transport method to a command", () => {
