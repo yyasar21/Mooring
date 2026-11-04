@@ -2,6 +2,7 @@
    live links, readiness and selection; magenta marks failure, denial and exposure. */
 
 .kube-browser, .kube-logs { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
+.kube-browser { container: kube / inline-size; }
 .kube-browser > .session-toolbar, .kube-logs > .session-toolbar { position: relative; flex: none; gap: 8px; }
 .kube-banner {
   flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: var(--fs-s); color: var(--text-muted);
@@ -9,7 +10,7 @@
 }
 .kube-banner .m-micro { color: var(--accent); }
 
-.kube-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; }
+.kube-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); }
 .kube-side, .kube-detail { min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .kube-side { border-right: 1px solid var(--line); background: var(--bg-sunken); }
 .kube-detail { border-left: 1px solid var(--line); }
@@ -28,6 +29,8 @@
 
 .kube-card { margin-top: 10px; padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
 .kube-ident { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; font-size: var(--fs-s); }
+.kube-side .kube-ident { grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.kube-side .kube-ident dd + dt { margin-top: 5px; }
 .kube-ident dt { color: var(--text-faint); }
 .kube-ident dd { min-width: 0; overflow-wrap: anywhere; }
 .kube-rbac { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-s); }
@@ -40,7 +43,7 @@
 .kube-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .kube-table { flex: 1; min-height: 0; overflow-y: auto; }
 .kube-row {
-  display: grid; grid-template-columns: minmax(0, 2.6fr) 110px 56px 70px minmax(0, 1fr) 48px; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: minmax(140px, 2.4fr) 104px 48px 64px minmax(0, 1fr) 40px; gap: 10px; align-items: center;
   min-height: 32px; padding: 0 12px; font-size: var(--fs-s); cursor: default; position: relative;
 }
 .kube-row + .kube-row { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
@@ -75,7 +78,15 @@
 .kube-log-line mark { background: var(--accent-dim); color: var(--text); box-shadow: 0 0 0 1px var(--accent-line); }
 .kube-logs-foot { flex: none; display: flex; align-items: center; gap: 10px; height: var(--status-h); padding: 0 12px 6px; font-size: var(--fs-xs); color: var(--text-muted); }
 
-@media (max-width: 1100px) {
-  .kube-grid { grid-template-columns: 200px minmax(0, 1fr); }
-  .kube-detail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); max-height: 40vh; }
+/* A narrow tab (inspector open, small window): the pod detail moves under the table. */
+@container kube (max-width: 1040px) {
+  .kube-grid { grid-template-columns: 210px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, auto); }
+  .kube-side { grid-row: 1 / span 2; }
+  .kube-detail { grid-column: 2; grid-row: 2; max-height: 46cqh; border-left: 0; border-top: 1px solid var(--line-strong); }
+  .kube-detail > .kube-card { margin-top: 0; }
+  .kube-detail .kube-containers { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+@container kube (max-width: 720px) {
+  .kube-row { grid-template-columns: minmax(120px, 1fr) 96px 44px 56px; }
+  .kube-row > :nth-child(n + 5) { display: none; }
 }
