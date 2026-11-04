@@ -110,6 +110,33 @@ async fn dynamic_and_external_forwards_are_audited_and_die_with_the_session() {
 }
 
 #[tokio::test]
+async fn lock_closes_external_forwards_and_keeps_loopback_ones() {
+    let srv = server::start(66).await;
+    let echo = echo_server().await;
+    let live = connect(&srv).await;
+    let (st, sid) = (&live.f.state, live.session_id.as_str());
+    let to_echo = ep("127.0.0.1", u32::from(echo.port()));
+    let lo = open(st, sid, local(ep("127.0.0.1", 0), to_echo.clone())).await.expect("loopback");
+    let mut ext = local(ep("0.0.0.0", 0), to_echo);
+    ext.exposure = Some("external".into());
+    let x = open(st, sid, ext).await.expect("external");
+    assert_eq!(round_trip(x.bind.port, b"before").await, b"before");
+
+    crate::commands::vault::lock(st, None).expect("lock");
+    let left = list(st, sid).expect("session survives the lock");
+    assert_eq!(left.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), [lo.id.as_str()]);
+    // The external listener is gone; the loopback forward still works.
+    let refused = TcpStream::connect(("127.0.0.1", x.bind.port)).await;
+    assert!(refused.is_err(), "external listener closed");
+    assert_eq!(round_trip(lo.bind.port, b"after").await, b"after");
+    let log = audit_text(&live);
+    assert_eq!(log.matches(r#""event":"forward_closed""#).count(), 1, "{log}");
+    let closed_at = log.find(r#""event":"forward_closed""#).expect("closed");
+    assert!(closed_at < log.find(r#""event":"vault_locked""#).expect("locked"), "{log}");
+    close_session(&live).await;
+}
+
+#[tokio::test]
 async fn bind_conflict_and_forward_limit() {
     let srv = server::start(63).await;
     let live = connect(&srv).await;

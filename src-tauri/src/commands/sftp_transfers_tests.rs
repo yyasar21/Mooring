@@ -189,12 +189,22 @@ async fn cancel_stops_a_download_and_leaves_no_partial_file() {
         .await
         .expect("join")
         .expect("first block");
+    // `sftp_transfers` lists the running transfer with its latest progress (M-10).
+    let running = list(st, sid).expect("list");
+    assert_eq!(running.len(), 1, "{running:?}");
+    assert_eq!((running[0].transfer_id.as_str(), running[0].state), (started.transfer_id.as_str(), "running"));
+    assert!(running[0].bytes_done > 0, "{running:?}");
+    let json = serde_json::to_value(&running).expect("json");
+    assert!(json[0]["transferId"].is_string() && json[0]["bytesDone"].is_number(), "{json}");
+    assert!(json[0].get("bytesTotal").is_some() && json[0]["error"].is_null(), "{json}");
+    assert_eq!(list(st, "nope").expect_err("x").code, "session.not_found");
     cancel(st, sid, &started.transfer_id).expect("cancel");
     go_tx.send(()).expect("release");
     let events = finish(&mut rx).await;
     let last = events.last().expect("last");
     assert_eq!(last.state, "cancelled", "{last:?}");
     assert!(last.bytes_done < 8 * 1024 * 1024);
+    assert!(list(st, sid).expect("list").is_empty(), "finished transfers are not listed");
     // The temp file is dropped (deleted) when the in-flight block write returns.
     for _ in 0..100 {
         if std::fs::read_dir(dst.path()).expect("dir").count() == 0 {

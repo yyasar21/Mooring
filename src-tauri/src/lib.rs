@@ -114,6 +114,7 @@ pub fn run() {
             sftp_pick::sftp_pick_local,
             sftp_transfers::sftp_download,
             sftp_transfers::sftp_upload,
+            sftp_transfers::sftp_transfers,
             sftp_transfers::sftp_cancel,
             // ADR-0010 (A1 exit): auto-lock + syslog mirror
             autolock_cmds::autolock_get,

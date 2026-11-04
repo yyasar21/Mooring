@@ -444,6 +444,38 @@ impl SshControl {
     pub fn forwards(&self) -> Vec<ForwardInfo> {
         self.shared.forwards.list()
     }
+
+    /// Stop every forward with [`Exposure::External`] now, without waiting (vault lock,
+    /// review 4 M-10). Local listeners are gone when this returns and each close is audited
+    /// (`session.forward.close`); the server-side `cancel-tcpip-forward` of a remote forward
+    /// is sent from a background task when a Tokio runtime is available. Returns how many
+    /// forwards were closed.
+    pub fn close_external_forwards(&self) -> usize {
+        let ids: Vec<ForwardId> = self
+            .forwards()
+            .into_iter()
+            .filter(|f| f.exposure == Exposure::External)
+            .map(|f| f.id)
+            .collect();
+        let mut closed = 0;
+        for id in ids {
+            let Some(entry) = self.shared.forwards.remove(id) else { continue };
+            let remote = entry.remote.as_ref().map(|(a, p, _)| (a.clone(), *p));
+            entry.shutdown(&self.shared.audit);
+            closed += 1;
+            let (Some((address, port)), Ok(handle)) = (remote, self.live_handle()) else {
+                continue;
+            };
+            if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                rt.spawn(async move {
+                    if let Err(e) = handle.cancel_tcpip_forward(address, port).await {
+                        tracing::debug!(error = %e, "cancel-tcpip-forward failed");
+                    }
+                });
+            }
+        }
+        closed
+    }
 }
 
 #[cfg(test)]

@@ -124,11 +124,14 @@ fn reseal_legacy(state: &AppState) {
 }
 
 /// Wipe the key from memory and clear a copied password still on the clipboard (review 2,
-/// M-1). Open sessions survive (ADR-0006).
+/// M-1). Open sessions and loopback forwards survive (ADR-0006); `external` forwards are
+/// closed (review 4 M-10).
 pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     state.clear_pending_clipboard();
     // Review 4 B-4: local paths picked before the lock cannot be used after it.
     state.picks.clear();
+    // Review 4 M-10: no LAN-exposed listener keeps running behind a locked UI.
+    crate::commands::forward::close_external(state);
     // Unknown or missing reasons from the WebView are recorded as a user lock.
     let reason = reason.and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard = state.vault()?;

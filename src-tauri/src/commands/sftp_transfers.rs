@@ -1,4 +1,5 @@
-//! SFTP transfers (ADR-0010 §SFTP): `sftp_download`, `sftp_upload`, `sftp_cancel`.
+//! SFTP transfers (ADR-0010 §SFTP): `sftp_download`, `sftp_upload`, `sftp_transfers`,
+//! `sftp_cancel`.
 //!
 //! The local side is a `pick` (review 4, B-4): an opaque id from `sftp_pick_local`, whose
 //! path the user chose in the Rust-side dialog. The `WebView` never names a local path. The
@@ -15,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use mooring_audit::AuditEvent;
@@ -29,7 +30,7 @@ use crate::commands::forward::control_of;
 use crate::commands::sftp::{client, sftp_error};
 use crate::error::{IpcError, IpcResult};
 use crate::picks::PickMode;
-use crate::sessions::Transfers;
+use crate::sessions::{TransferEntry, Transfers};
 use crate::state::{record_audit, AppState};
 
 /// Most transfers running at once per session.
@@ -38,6 +39,8 @@ pub const MAX_TRANSFERS: usize = 8;
 const MAX_LOCAL: usize = 4096;
 /// Longest `transferId` accepted.
 const MAX_TRANSFER_ID: usize = 64;
+/// Start order of transfers (listing order of `sftp_transfers`).
+static NEXT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// One progress report. The last one for a transfer has a state other than `running`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -146,18 +149,24 @@ fn start(
     let transfers = transfers_of(state, session_id)?;
     let transfer_id = uuid::Uuid::new_v4().to_string();
     let (cancel_tx, cancel_rx) = oneshot::channel();
+    let snapshot = Arc::new(Mutex::new((0_u64, None::<u64>)));
     {
         let mut map = transfers.lock().map_err(|_| IpcError::poisoned())?;
         if map.len() >= MAX_TRANSFERS {
             return Err(IpcError::new("transfer.limit", "too many transfers running"));
         }
-        map.insert(transfer_id.clone(), cancel_tx);
+        let seq = NEXT_SEQ.fetch_add(1, Ordering::Relaxed);
+        let entry = TransferEntry { cancel: cancel_tx, seq, progress: Arc::clone(&snapshot) };
+        map.insert(transfer_id.clone(), entry);
     }
     let done = Arc::new(AtomicU64::new(0));
     let progress = {
         let (sink, id, done) = (Arc::clone(&sink), transfer_id.clone(), Arc::clone(&done));
         Box::new(move |bytes: u64, total: Option<u64>| {
             done.store(bytes, Ordering::Relaxed);
+            if let Ok(mut s) = snapshot.lock() {
+                *s = (bytes, total);
+            }
             let p = Progress {
                 transfer_id: id.clone(),
                 bytes_done: bytes,
@@ -271,10 +280,34 @@ pub fn cancel(state: &AppState, session_id: &str, transfer_id: &str) -> IpcResul
         return Err(bad("transferId", "not a transfer id"));
     }
     let transfers = transfers_of(state, session_id)?;
-    let tx = transfers.lock().map_err(|_| IpcError::poisoned())?.remove(transfer_id);
-    let tx = tx.ok_or_else(|| IpcError::new("transfer.not_found", "transfer not found"))?;
-    let _ = tx.send(());
+    let entry = transfers.lock().map_err(|_| IpcError::poisoned())?.remove(transfer_id);
+    let entry = entry.ok_or_else(|| IpcError::new("transfer.not_found", "transfer not found"))?;
+    let _ = entry.cancel.send(());
     Ok(())
+}
+
+/// `sftp_transfers({ sessionId })`: the session's running transfers in start order, each as
+/// its latest `running` progress (review 4 M-10: the UI re-adopts them after an unlock).
+pub fn list(state: &AppState, session_id: &str) -> IpcResult<Vec<Progress>> {
+    control_of(state, session_id)?;
+    let transfers = transfers_of(state, session_id)?;
+    let map = transfers.lock().map_err(|_| IpcError::poisoned())?;
+    let mut rows: Vec<(u64, Progress)> = map
+        .iter()
+        .map(|(id, t)| {
+            let (bytes_done, bytes_total) = t.progress.lock().map_or((0, None), |g| *g);
+            let p = Progress {
+                transfer_id: id.clone(),
+                bytes_done,
+                bytes_total,
+                state: "running",
+                error: None,
+            };
+            (t.seq, p)
+        })
+        .collect();
+    rows.sort_by_key(|(seq, _)| *seq);
+    Ok(rows.into_iter().map(|(_, p)| p).collect())
 }
 
 // ------------------------------------------------------------------ Tauri wrappers
@@ -305,6 +338,12 @@ pub async fn sftp_upload(
     on_progress: Channel<Progress>,
 ) -> IpcResult<Started> {
     upload(&state, &session_id, &pick, &remote_dir, channel_sink(on_progress)).await
+}
+
+/// `sftp_transfers({ sessionId })` → `Progress[]` (passive: polled by the Files panel).
+#[tauri::command]
+pub fn sftp_transfers(state: State<'_, AppState>, session_id: String) -> IpcResult<Vec<Progress>> {
+    list(&state, &session_id)
 }
 
 /// `sftp_cancel({ sessionId, transferId })`.

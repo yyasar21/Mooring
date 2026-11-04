@@ -246,6 +246,29 @@ pub fn list(state: &AppState, session_id: &str) -> IpcResult<Vec<ForwardDto>> {
     Ok(control.forwards().into_iter().map(ForwardDto::from).collect())
 }
 
+/// Close every `external` forward of every session (each audited `forward_closed`). Called on
+/// every vault lock (review 4 M-10, amends ADR-0006): a LAN-reachable listener must not keep
+/// running while nobody can see it. Loopback forwards survive, as sessions do. Returns how
+/// many were closed.
+pub fn close_external(state: &AppState) -> usize {
+    let live: Vec<(SshControl, String)> = match state.sessions.lock() {
+        Ok(map) => map.values().map(|h| (h.control.clone(), h.connection_id.clone())).collect(),
+        Err(_) => return 0,
+    };
+    let mut closed = 0;
+    for (control, connection) in live {
+        let n = control.close_external_forwards();
+        if n > 0 {
+            sessions::audit_trust(&state.audit, &connection, control.take_audit_events());
+            closed += n;
+        }
+    }
+    if closed > 0 {
+        tracing::info!(closed, "external forwards closed on lock");
+    }
+    closed
+}
+
 // ------------------------------------------------------------------ Tauri wrappers
 
 /// `forward_open({ sessionId, kind, bind, target?, exposure })`.
