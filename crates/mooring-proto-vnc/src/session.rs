@@ -222,7 +222,10 @@ impl Session for VncSession {
         if self.closed {
             return Ok(None);
         }
-        let event = self.events.recv().await;
+        // L-21: a panicked driver becomes one `Closed { protocol_error }`, never retried.
+        let event =
+            mooring_core::driver_task::next_driver_event(&mut self.events, &mut self.task, "VNC")
+                .await;
         if matches!(event, Some(SessionEvent::Closed { .. }) | None) {
             self.closed = true;
             if let Some(task) = self.task.take() {

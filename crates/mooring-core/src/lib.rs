@@ -20,6 +20,7 @@ pub mod audit;
 pub mod clipboard;
 pub mod connect;
 pub mod credential;
+pub mod driver_task;
 pub mod error;
 pub mod frame;
 pub mod known_certs;

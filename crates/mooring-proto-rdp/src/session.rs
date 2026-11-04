@@ -171,7 +171,10 @@ impl Session for RdpSession {
         if self.closed {
             return Ok(None);
         }
-        let event = self.events.recv().await;
+        // L-21: a panicked driver becomes one `Closed { protocol_error }`, never retried.
+        let event =
+            mooring_core::driver_task::next_driver_event(&mut self.events, &mut self.task, "RDP")
+                .await;
         if matches!(event, Some(SessionEvent::Closed { .. }) | None) {
             self.closed = true;
             self.shared.begin_close();
