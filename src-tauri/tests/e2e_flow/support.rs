@@ -144,9 +144,9 @@ pub async fn vault_gated_codes(
 
 /// Review 6 L-38: the A3 commands that are gated *indirectly*. `kube_open` goes through
 /// `state.ready()` in `connect_plan::kube`, `kube_contexts` through `with_ready`, and
-/// `vsphere_console` through `vsphere_vm::vm_target` (its Tauri wrapper needs an `AppHandle`,
-/// so the gate function is called directly here). The six session-bound kube commands are in
-/// [`kube_session_bound_codes`].
+/// `vsphere_console` through `vsphere_vm::vm_target` and `web_open` through `web::plan`
+/// (their Tauri wrappers need an `AppHandle`, so the gate function is called directly here,
+/// 6b L-38). The six session-bound kube commands are in [`kube_session_bound_codes`].
 fn vault_gated_codes_indirect(
     st: &AppState,
     cred: &str,
@@ -160,6 +160,15 @@ fn vault_gated_codes_indirect(
         ("kube_open", code(kube::open(st, conn, cluster_sink))),
         ("kube_contexts", code(kube::contexts(st, cred))),
         ("vsphere_console", code(vsphere_vm::vm_target(&VsCtx::of(st), conn))),
+        (
+            "web_open",
+            code(mooring_app_lib::web::plan(
+                st,
+                conn,
+                mooring_app_lib::web::StorageOs::current(),
+                None,
+            )),
+        ),
     ]
 }
 

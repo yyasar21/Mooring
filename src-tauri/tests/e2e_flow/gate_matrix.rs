@@ -44,7 +44,6 @@ pub const NOT_GATED: &[(&str, &str)] = &[
     ("sftp_transfers", "session-bound (ADR-0006)"),
     ("sftp_pick_local", "gated by `vault::status` before the dialog (unit tests in `sftp_pick_tests`); needs a picker"),
     ("window_attach", "window routing: re-attaches a detached session view; session-bound"),
-    ("web_open", "gated in the Tauri wrapper (`unlocked`), needs an `AppHandle`; `check_clear` row covers the store gate"),
     ("web_close", "window-bound: closes an open web window (`session.not_found` otherwise)"),
     ("web_focus", "gated in the Tauri wrapper (`unlocked`), needs an `AppHandle`"),
     ("web_reload", "window-bound, needs an `AppHandle`"),
