@@ -105,3 +105,104 @@ the assertion in `fuzz/entries/known_hosts.rs` to plain equality.
   expectation fails with an assertion diff and writes a screenshot.
   `pnpm exec tsc -p e2e/tsconfig.json` clean; `vitest run` still 109/109 (e2e files are not
   picked up: `*.e2e.mjs`).
+
+## Fix round 4 (review 4 M-11)
+
+Branch `worktree-agent-ae55b8a763ed5b36e` (from `a1-exit` @ 0077e40), not merged. Scope was
+`fuzz/**`, `crates/*/tests/**`, `docs/qa/**` and this file. The parser is unchanged.
+
+- **M-11 met on the QA side.** `fuzz/entries/kubeconfig.rs::run` now checks the security
+  property, not only caps and determinism. After a successful parse, `violations` re-scans the
+  input with `saphyr-parser` 0.3.3 (the parser's own event layer, pinned `=` to the root lock)
+  through code that does not share the parser's lookups. It panics on any of these:
+  - a `<<` or `!!merge` key anywhere;
+  - a key under `users[]` (any depth) that matches `exec`, `auth-provider`, `tokenFile`,
+    `client-certificate` or `client-key`, compared ASCII case-insensitively;
+  - a key under `clusters[]` that matches `certificate-authority`;
+  - under either section, a tagged, aliased or complex key, which the oracle cannot name.
+
+  The section names are also matched case-insensitively, and every document in the stream is
+  scanned. `token-file` is not in the list: it is not a kubeconfig field (client-go's field is
+  `tokenFile`, and case folding does not remove a hyphen).
+- **Seeds** (force-added under `fuzz/corpus/kubeconfig_parse/`):
+  - review 4: `users-merge-inline`, `users-Exec`, `users-AUTH-PROVIDER`, `complex-key-exec`
+    (`? exec` / `: {command: x}`), `quoted-exec` (`"ex\x65c"`);
+  - M-5: `m5-merge-toplevel-inline`, `m5-users-item-level-exec`, `m5-users-nested-TOKENFILE`,
+    `m5-users-path-keys-mixed-case`;
+  - probes: `probe-clusters-ca-path`, `probe-tagged-merge-key`, `probe-binary-tagged-key`
+    (`!!binary ZXhlYw==`), `probe-quoted-merge-key`.
+
+  Each seed is otherwise a valid kubeconfig.
+- **Stable replay** (`crates/mooring-core/tests/fuzz_corpus.rs`):
+  - `kubeconfig_forbidden_seeds_are_seen_and_refused` checks three things for every seed: the
+    oracle flags it, `parse` refuses it with the expected reason (not an unrelated one), and
+    `run` passes.
+  - `oracle_flags_each_construct` pins the oracle itself, including negatives: the same names
+    outside `users[]` / `clusters[]` are not flagged.
+  - `kubeconfig_valid_seed_is_accepted` also checks that the oracle reports no false positive.
+  - `replay_except` skips a named regression only when the file exists, so a stale exception
+    fails the test.
+
+### Finding QA-F2 (medium, latent) — `Users:` / `Clusters:` bypass the forbidden-key check
+
+- **Reproducer:** `fuzz/regressions/kubeconfig_parse/qa-f2-section-key-case`.
+- **How it was found:** the new oracle crashed during the first fuzz run of this
+  round (`fuzz/artifacts/kubeconfig_parse/crash-5edab2f…`, local only). The crash input is a
+  one-byte mutation of the seed `m5-users-nested-TOKENFILE`, with `users` changed to `Users`.
+  The reproducer is a hand-minimised version that covers both sections.
+- **What slips through:** `kubeconfig::parse` finds the sections with
+  `root.get("users")` / `root.get("clusters")`, and `Node::get` compares keys exactly
+  (`kubeconfig.rs:53-58`, `:219-225`). A top-level `Users:` (or `USERS:`, `uSers:` …) is
+  therefore never checked. The same holds for `Clusters:`. `parse` accepts the reproducer,
+  which has:
+  - `Users: [{name: ops, user: {exec: {command: /bin/sh}}}]`;
+  - `Clusters: [{…, certificate-authority: /tmp/ca}]`.
+
+  The duplicate-key check is also exact, so a clean `users:` and a hostile `Users:` can sit
+  side by side.
+- **Impact:** the same threat model and reach as M-5. Review 3 asked for ASCII
+  case-insensitive matching because lenient decoders fold JSON field names. Go's
+  `encoding/json` does that by default, for example `sigs.k8s.io/yaml.Unmarshal` into the
+  client-go `v1.Config` types. Such a consumer reads `Users` as `users`, which means:
+  - it runs `exec` (code execution) from a kubeconfig that Mooring labelled "self-contained";
+  - it reads the file named by `certificate-authority` (disclosure).
+
+  Whether current kubectl, which decodes through apimachinery's case-sensitive serializer,
+  folds the name was **not verified here**. It is latent today: there is no Kubernetes or
+  kubeconfig consumer yet, and review 3 gates any consumer on M-5 / M-11.
+- **Fix (rust-core, not done here):** check every top-level key that matches `users` /
+  `clusters` ASCII case-insensitively, or refuse such a key unless it is the exact lower-case
+  spelling. Make duplicate detection case-insensitive at every level, since a folding decoder
+  merges `exec` and `Exec` as well.
+- **Guard:** `kubeconfig_qa_f2_regression` runs the reproducer through the unchanged `run`. It
+  is `#[ignore = "QA-F2: …"]`, and the corpus replay excludes only this one file
+  (`replay_except(…, &[QA_F2])`). `cargo test -p mooring-core --test fuzz_corpus -- --ignored`
+  fails today with `forbidden key 'exec'`. When the parser is fixed:
+  1. remove the `#[ignore]` and the `QA_F2` exception;
+  2. leave the file in `regressions/`.
+- **For security-reviewer:** the M-11 gate should stay shut until QA-F2 is fixed. The fuzz
+  target now asserts the property, but the parser does not yet satisfy it.
+
+### Left open (round 4)
+
+- `cargo fuzz run` uses `fuzz/corpus/<target>` only, so the nightly job does not replay
+  `regressions/`. That is fine for QA-F2, because the stable test is the guard, and the fuzzer
+  rediscovers the bypass by mutation. Running the ignored test in CI would need a
+  `--include-ignored` job, which is not added (out of scope: workflows).
+- The four owed targets are listed in `docs/qa/fuzzing.md` "Owed targets". The fingerprint,
+  OTP and account targets need no API change. `export_json` still needs decision 4 above.
+
+### Test evidence (round 4, 2026-11-04, Linux x86_64, stable 1.97.0)
+
+- `cargo test --workspace` (incl. `mooring-app`): **458 passed, 0 failed, 4 ignored**. The
+  fourth ignored test is `kubeconfig_qa_f2_regression`. `mooring-core` `fuzz_corpus`: 4 passed,
+  1 ignored. With `-- --ignored` it fails as expected:
+  `kubeconfig::parse accepted a forbidden construct: forbidden key 'exec' (matches 'exec')`.
+- `cargo clippy -p mooring-core --tests -- -D warnings` is clean. In `fuzz/`,
+  `cargo clippy --locked --bins -- -D warnings` is clean, and `rustfmt --check` is clean on the
+  three changed files.
+- `RUSTC_BOOTSTRAP=1 cargo fuzz run kubeconfig_parse -s none -- -max_total_time=120 -timeout=60
+  -rss_limit_mb=3072` (cargo-fuzz 0.13.2, installed `--locked` here; no ASan) finished clean:
+  4.25 M execs in 121 s, cov 3259 (up from 2183 in round 1), corpus 3697, rss 78 MB. That
+  120 s run did not hit QA-F2 again (libFuzzer is random). The earlier run of this round that
+  found it left `crash-5edab2f…`.
