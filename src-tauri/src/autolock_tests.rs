@@ -201,9 +201,20 @@ fn passive_commands_are_not_activity() {
     for cmd in PASSIVE_COMMANDS {
         assert!(!is_activity(cmd), "{cmd}");
     }
+    for cmd in ["forward_list", "sftp_transfers"] {
+        assert!(!is_activity(cmd), "{cmd} is polled by the Forwards / Files panels (M-8)");
+    }
     for cmd in ["vault_unlock", "session_send", "tree_list", "autolock_set", "syslog_set", ""] {
         assert!(is_activity(cmd), "{cmd}");
     }
+    for cmd in ["forward_open", "forward_close", "sftp_download", "sftp_pick_local"] {
+        assert!(is_activity(cmd), "{cmd}");
+    }
+}
+
+#[test]
+fn golden_passive_commands_file_is_in_sync() {
+    crate::golden::check_sorted_list("ipc-passive.json", PASSIVE_COMMANDS);
 }
 
 #[test]

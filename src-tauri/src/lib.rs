@@ -23,6 +23,9 @@ test_util_pub!(picks);
 // ADR-0010: auto-lock wiring (clock, 5 s tick, focus, invoke hook).
 test_util_pub!(autolock);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
+/// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
+#[cfg(test)]
+mod golden;
 #[allow(dead_code)]
 mod keyring_store;
 mod navigation;

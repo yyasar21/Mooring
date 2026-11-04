@@ -35,9 +35,19 @@ pub const SLEEP_GAP: Duration = Duration::from_secs(30);
 pub const BLUR_GRACE: Duration = Duration::ZERO;
 /// UI event emitted after an automatic lock.
 pub const LOCKED_EVENT: &str = "vault:locked";
-/// Commands the UI calls on a timer or to render status; they are not user activity.
-pub const PASSIVE_COMMANDS: &[&str] =
-    &["app_info", "vault_status", "audit_verify", "session_list", "autolock_get", "syslog_get"];
+/// Commands the UI calls on a timer or to render status; they are not user activity. Exported
+/// to the UI as `src-tauri/ipc-passive.json` (`POLLED_COMMANDS`, review 4 M-8): a poller that
+/// calls anything else would keep the vault from ever idle-locking.
+pub const PASSIVE_COMMANDS: &[&str] = &[
+    "app_info",
+    "vault_status",
+    "audit_verify",
+    "session_list",
+    "forward_list",
+    "sftp_transfers",
+    "autolock_get",
+    "syslog_get",
+];
 
 /// Payload of [`LOCKED_EVENT`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
