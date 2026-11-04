@@ -372,3 +372,122 @@ grep timeout|select! around Prompt::ask / gate::confirm   none
 gate_matrix NOT_GATED                                     39 rows, each reason checked against the command source
 ```
 Not run: builds, tests, the per-OS dialog checklist, cargo-fuzz.
+
+## Re-review 6c (fix round 8)
+
+Reviewer: security-reviewer · 2026-11-05 · Range `git diff a17bb6d..4666be7`: rust-core fix
+round 8 (`4e99197`..`8e54b12`, [`a3-rust-core-fix-8.md`](../handoff/a3-rust-core-fix-8.md))
+and the QA table update in [`docs/qa/native-dialogs.md`](../qa/native-dialogs.md). The B-6 rule
+was re-derived from the registry sources: `tauri-plugin-dialog` 2.8.4 `src/desktop.rs:215-257`
+and `Cargo.toml`, and `rfd` 0.17.2 `backend/gtk3/message_dialog.rs`,
+`backend/win_cid/message_dialog.rs`, `backend/macos/message_dialog.rs` and
+`backend/macos/utils/user_alert.rs`. `apps/` was not reviewed: U5 (DTO decoding) is in progress
+concurrently. No build, no test run.
+
+### Verdict: `APPROVE WITH NITS` (A3 tag, code)
+
+B-6 is closed. Every native confirmation is now `YesNoCancelCustom("Cancel", ok, "Not now")`.
+The plugin's positional remap sends Return and Escape/close to the two refusing labels on all
+three desktop OSes, and only the middle button confirms. Every other row of 6b is fixed as
+asked. The L-35 fail-closed path is in every consumer, and no trust-once path bypasses it.
+Nothing is reopened. One new nit (N-50) is forward-looking. The tag is still conditional on the
+per-OS runs below, which cannot be done here. They are conditions, not findings.
+
+### B-6: per-OS, per-slot derivation
+`tauri-plugin-dialog` 2.8.4 is built with its default `gtk3` feature, and `rfd` with
+`common-controls-v6` (the plugin's `Cargo.toml:65-66`, `:111-114`). `Cargo.lock` `rfd` has no
+`ashpd`/zenity edge, so the GTK backend is the one that runs, never the portal or zenity. The
+remap (`desktop.rs:228-253`) applies to positional results only: `Yes` → `Custom(slot 1)`,
+`No` → `Custom(slot 2)`, `Cancel` → `Custom(slot 3)`. Every `Custom(_)` passes through
+unchanged (`:252`).
+
+| OS (backend) | Slot 1 "Cancel" | Slot 2 `<ok>` | Slot 3 "Not now" | Return (OS default) | Escape / close / Alt+F4 / Cmd+W | Other failure |
+| --- | --- | --- | --- | --- | --- | --- |
+| Linux (GTK3 async, `gtk3/message_dialog.rs:61-73`, `:204-215`) | `GTK_RESPONSE_YES` → `Yes` → `Custom("Cancel")`: refuses | `GTK_RESPONSE_NO` → `No` → `Custom(ok)`: **confirms** | `GTK_RESPONSE_CANCEL` → `Cancel` → `Custom("Not now")`: refuses | No default response is set (`:84-107`). Return activates the focused widget: a selectable label (nothing happens) or slot 1. It never reaches slot 2 without a Tab | `GTK_RESPONSE_DELETE_EVENT` → `Cancel` → `Custom("Not now")`: refuses | (no other response; `unreachable!` is rfd's) |
+| Windows (TaskDialog, `win_cid/message_dialog.rs:116-123`, `:137`, `:146`, `:179-199`) | `ID_CUSTOM_YES` (1004) → `Custom("Cancel")` directly: refuses | `ID_CUSTOM_NO` (1008) → `Custom(ok)`: **confirms** | `ID_CUSTOM_CANCEL` (1001) → `Custom("Not now")`: refuses | `nDefaultButton: 0` = the first custom button = slot 1: refuses | `IDCANCEL` under `TDF_ALLOW_DIALOG_CANCELLATION` → `Cancel` → `Custom("Not now")`: refuses | `TaskDialogIndirect` failure → `Cancel` → "Not now": refuses. The `MessageBoxW` fallback (which would show stock Yes/No/Cancel with the confirm on "No") is compiled out, because `common-controls-v6` is forced by the plugin |
+| macOS (NSAlert, `macos/message_dialog.rs:53-64`, `:106-136`; CFUserNotification `utils/user_alert.rs:53-57`, `:153-167`) | `NSAlertFirstButtonReturn` / default response → `Custom("Cancel")`: refuses | second / alternate → `Custom(ok)`: **confirms** | third / other → `Custom("Not now")`: refuses | the first button (slot 1): refuses | NSAlert gives a button titled "Cancel" the Escape key equivalent, so Escape and Cmd+. press slot 1: refuses. Any other modal end → `Cancel` → "Not now": refuses | the CFUserNotification cancel / timeout → `Cancel` → "Not now": refuses |
+
+Result: on every OS, only an explicit activation of the middle button yields `Custom(ok)`. Our
+mapping is label-only (`vsphere_confirm.rs:100-102` `confirmed` = `Custom(s) if s == ok &&
+!refuses(s)`). The `ok` labels are static constants ("Power on", "Shut down", "Restart", "Power
+off", "Reset", "Open", "Trust", "Discard and resolve", `ONCE`, `PIN`), none of them refusing, and
+no label names two buttons.
+
+**Grep `Res::|MessageDialogResult` in `src-tauri/src`:** no positional confirm remains. The
+production matches are `confirmed` (`vsphere_confirm.rs:100-101`) and `remember_answer`
+(`sync_gate.rs:91-98`, `Custom(NOT_NOW)` → `Once`, `confirmed(PIN)` → `Pin`, else `Reject`).
+`trust_once` (`:85`) delegates to `confirmed`. Every other hit is `plugin_remap` (`#[cfg(any(test,
+feature = "test-util"))]`, `:128-146`), a test double, or a test.
+
+**`plugin_remap` replay:** it matches `desktop.rs:228-253` arm for arm (`OkCustom`/`Ok`,
+`OkCancelCustom` `Ok`/`Cancel`, `YesNoCancelCustom` `Yes`/`No`/`Cancel`, passthrough). The two
+`Cancel` arms are merged, which changes nothing. The doubles (`FixedConfirm::with_result`,
+`ScriptedPrompter::with_results`) run OS results through it before the label mapping, so the
+tests exercise the real path. Tests: `vsphere_confirm.rs:305` (slot invariant over the six
+builders), `:321` (remap of Escape/Return/click), `:348` (label-only), `:366` (doubles,
+including Escape on dialog 1 → no dialog 2, and Return on dialog 2 → `Reject`). Weak spot
+(accepted): the catalogue at `:290-300` rebuilds the power, VMRC, vSphere and fork rows with
+`buttons(<label>)` instead of calling the production builders. All of them go through `buttons()`
+(`vsphere_confirm.rs:74`, `sync_gate.rs:75`, `:80`, `:147`), so the invariant still holds.
+
+**Two-dialog sync trust prompt** (`sync_gate.rs:133-143`): dialog 2 is shown only from dialog
+1's callback after `trust_once`. The gate slot and the auto-lock dialog guard are held across
+both dialogs (`ask_trust`, `:235-251`). A dropped reply (dialog 2 never shown) yields
+`unwrap_or(TrustAnswer::Reject)` (`:248`). Escape on dialog 2 keeps the trust-once answer the
+user clicked on dialog 1 and never escalates to a pin. **Return on dialog 2 refuses everything:
+accepted (owner decision).** It is the fail-closed reading.
+
+### Closure of re-review 6b
+| ID | Status | Evidence |
+| --- | --- | --- |
+| **B-6** | **fixed** | Above. `vsphere_confirm.rs:83-102`, `:106-114` (`slots`), `:128-146`; `sync_gate.rs:70-98`, `:133-150`. QA table: close box / Alt+F4 / Cmd+W column, rows 4a/4b (`docs/qa/native-dialogs.md`). **Owed:** the per-OS run (condition 1). The upstream report text in the handoff is accurate. Filing it is the owner's call; it is not a condition, because N-49 pins both crates |
+| M-16 cool-down | **fixed** | `src-tauri/src/commands/vsphere_vm.rs:180` `destructive: a != PowerAction::On`; `is_destructive` keeps the data-loss wording (`:152`). Test `vsphere_sync_tests::power_needs_opt_in_and_the_native_dialog` |
+| L-34 (a) | **fixed** | `src-tauri/src/commands/vault.rs:150` `lock_with_reason`, guard dropped, then `:155` `state.secrets.on_lock()`. Every interleaving is now covered. A login that read its material before the wipe either `put`s with the old epoch before the drain (then it is drained) or after it (then `put` refuses the stale epoch). A login that starts after the bump finds the vault locked. Test `secrets_runtime_tests::a_login_that_starts_after_the_lock_epoch_finds_the_key_gone` fails on the old order (per the handoff) |
+| L-34 (b) | **fixed** | `src-tauri/src/secrets_runtime.rs:239-240` drain, then `fail_all` |
+| L-34 (c) | **fixed** | `crates/mooring-secrets/src/engine.rs:295` epoch read at the entry of `begin_oidc` |
+| L-35 (a)(b) | **fixed, fail closed** | `crates/mooring-core/src/known_certs/mod.rs:266-279`: `distinct_pins > 1` → `CertTrust::Conflict`, whatever is presented; `decide` → `CertVerdict::Conflict` (`:104`). `crates/mooring-proto-ssh/src/known_hosts.rs:206-224` `conflicting_key_types` (non-revoked, per algorithm) → `TrustDecision::Conflict` (`:236-238`), checked after the revoked check. Consumers: http `verify.rs:69` → `connect.rs:177` `HttpError::TrustConflict` = `http.trust_conflict`, with a static `Display`; RDP `connect.rs:285` and `tls.rs:189` (rejected inside the verifier); VNC `tls.rs:182` → `connect.rs:275`; SSH `handler.rs:86-96`. All close with `CloseCode::TrustConflict`. **Trust-once cannot bypass it:** http `connect.rs:100-102`, VNC `connect.rs:66-69` and RDP `connect.rs:164-166` add the session pin only when `!has_pin`, so a host with two pins stays `Conflict`. Only `TrustPrompt` is promptable (`vsphere_login.rs:133`, `sync_gate.rs:297`), so a conflict is never prompted. The close reasons and the `sync_status` row carry `host:port` and key-type names only, never a fingerprint. `sync_status.conflicts` (`sync_trust.rs:41-77`, `sync.rs:143-148`) is computed live from the user's own connections. Accepted gaps (handoff "Left open"): a `known_sync_certs` conflict appears only as `lastError.code == "http.trust_conflict"`, and SSH has no UI manager. Both fail closed, so neither one is a hole |
+| L-37 (a)(b) | **fixed** | `src-tauri/src/commands/sync_join.rs:112-136`: a failed rename keeps the staged file and returns `staged` (a); the file is installed only when `store` is bound to the staged vault **and** the current header is not the joined vault (b), otherwise removed. `state.rs:316-322`: `save_header_bytes` discards a staged header of the vault it just wrote. Test `sync_tests_6b::a_staged_header_is_neither_lost_nor_installed_over_a_newer_one` |
+| N-43 (a)(b) | **fixed** | `src-tauri/src/oidc_window.rs:312-317` (every non-`Pending` phase through `s.refusals.refused()`); `web/mod.rs:215` `unwrap_or(false)` |
+| N-47 | **fixed** (design differs, accepted) | `src-tauri/src/confirm_gate.rs:30-33`, `:64-80`, `:161`. One process-wide budget of 16 rows per hour of uptime, then one `confirm_refused_suppressed { count }`, instead of per open dialog. That is a tighter bound on chain growth. A T5 can spend the 16 rows, but the rest is counted, not lost. Loss of the last window's count at exit: accepted |
+| N-48 | **fixed** | `src-tauri/src/commands/web.rs:243` (reopen) and `:275` (build) both `post_open` |
+| N-49 | **fixed** | `src-tauri/src/golden.rs:114-124`: `tauri-plugin-dialog` 2.8.4, `rfd` 0.17.2, with the re-read obligation in the comment |
+| L-38 nit | **fixed** | `src-tauri/tests/e2e_flow/support.rs:163-170` pins `web_open` through `web::plan`; removed from `NOT_GATED` |
+
+### New findings
+| ID | Sev | Where | Finding | Exact fix |
+| --- | --- | --- | --- | --- |
+| N-50 | Nit (forward) | `crates/mooring-secrets/src/error.rs:173-177` | `HttpError::TrustConflict(d)` folds into `SecretsError::Trust(d)` together with prompt, mismatch and rejected. Today nothing prompts from `Trust(d)` (`secret_source_trust` is not built), so this is safe. When F1's trust command lands, it must refuse `d.verdict == TrustVerdict::Conflict` (and `Mismatch` / `Rejected`), and offer the prompt only for `Prompt` | In the future `secret_source_trust`: match `TrustVerdict::Prompt` only, with a test that a conflicting pin gives `http.trust_conflict` and no dialog |
+
+### Conditions before the A3 tag
+1. **Per-OS run of `docs/qa/native-dialogs.md`** on macOS, Windows and Linux (GTK): on every
+   dialog, including 4a and 4b, Return, Escape, the close box and Alt+F4 / Cmd+W refuse, and a
+   click on the middle button confirms. On GTK, also record where the initial focus sits.
+2. Carried:
+   - the L-28 remainder and one green nightly fuzz run;
+   - L-31 per OS;
+   - the ADR-0013 E2E plan per OS;
+   - the ADR-0016 §4 OIDC interception check per OS;
+   - the Windows L-29 E2E;
+   - the L-36 VMRC help text (UI).
+3. U5 (ui-engineer, in progress): the heterogeneous `sync_status.conflicts` and the new
+   `http.trust_conflict` / `trust_conflict` codes are decoded without showing anything beyond
+   `name`/`id` and the static message. This gets a short security look at the U5 PR.
+4. Unchanged: `security.yml` green (cargo-deny, cargo-audit, gitleaks, semgrep, pnpm audit),
+   `mooring-app` built and tested on macOS, Windows and Linux.
+5. Nits as scheduled: N-50 with F1; the L-33 `create_private_dir` nit; the N-39 one-frame
+   flash.
+
+### Test evidence (re-review 6c)
+```
+Linux x86_64, 2026-11-05, a3 @ 4666be7, no build, no test run (orchestrator gate)
+registry sources read   tauri-plugin-dialog 2.8.4 src/desktop.rs:215-257, Cargo.toml:64-70, :111-114
+                        rfd 0.17.2 gtk3/message_dialog.rs:24-151, :204-215
+                        rfd 0.17.2 win_cid/message_dialog.rs:43-51, :86-199
+                        rfd 0.17.2 macos/message_dialog.rs:42-136, macos/utils/user_alert.rs:40-170
+Cargo.lock rfd 0.17.2   deps: gtk-sys, glib-sys, objc2*, windows-sys; no ashpd/zenity (gtk3 backend)
+grep "Res::|MessageDialogResult" src-tauri/src   production: confirmed, remember_answer, trust_once only; rest cfg(test|test-util)
+grep CertTrust::|TrustDecision::|CertVerdict::Conflict|TrustVerdict::Conflict   every consumer fails closed
+grep has_pin around trusted_once / session_pin   http, VNC, RDP add the session pin only without a pin
+git diff --stat a17bb6d..4666be7                 56 files; no Cargo.toml / Cargo.lock / capabilities / CSP change
+```
+Not run: builds, tests, the per-OS dialog checklist, cargo-fuzz.

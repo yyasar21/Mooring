@@ -96,3 +96,58 @@ Docs only: the "Re-review 6b" section of `docs/security/a3-review-6.md`,
 - Greps: dialog builders (two, covering all five dialogs), no timeout around an ask, the
   `NOT_GATED` reasons against the command sources.
 - Not run: builds, tests, the per-OS checklist, cargo-fuzz.
+
+---
+
+# Re-review 6c (fix round 8) — 2026-11-05, `a3` @ `4666be7`
+
+Docs only: the "Re-review 6c" section of `docs/security/a3-review-6.md`,
+`docs/security/threat-model.md` (native-confirmation boundary, new synced-trust-store
+boundary, A3 open items), this note. `apps/` was not reviewed (U5 is in progress).
+
+## Done
+- **Verdict `APPROVE WITH NITS` for the A3 tag (code).** Nothing reopened.
+- **B-6 closed.** The rule was re-derived per OS and per slot from the registry sources
+  (`tauri-plugin-dialog` 2.8.4 `desktop.rs:228-253`; `rfd` 0.17.2 GTK3, TaskDialog and
+  NSAlert/CFUserNotification). On every OS, Return lands on slot 1 ("Cancel"), and Escape,
+  the close box, Alt+F4 and Cmd+W land on slot 3 ("Not now") or, on macOS, on slot 1. Only
+  the middle button gives `Custom(ok)`. The gtk3 backend is confirmed (no ashpd/zenity in
+  `Cargo.lock`). `common-controls-v6` is forced, so the `MessageBoxW` fallback with stock
+  labels is compiled out. Grep: no positional confirm in `src-tauri/src`. `plugin_remap`
+  matches upstream arm for arm.
+- Owner decision recorded: Return on dialog 2 of the sync trust prompt refuses everything.
+- Fixed and verified with file:line: the M-16 guest-power cool-down; L-34 (a)(b)(c); L-35 fail
+  closed in every consumer (http, RDP, VNC, SSH, kube), with no trust-once bypass (the session
+  pin is added only without an existing pin) and no prompt; L-37 (a)(b); N-43 (a)(b); N-47
+  (a global hourly budget instead of per dialog: accepted); N-48; N-49; the L-38 nit.
+- New: N-50 (forward nit). The future `secret_source_trust` must prompt only on
+  `TrustVerdict::Prompt`, never on `Conflict`.
+
+## Left open (tag conditions)
+- The per-OS run of `docs/qa/native-dialogs.md` (all dialogs, 4a/4b; on GTK, also note the
+  initial focus).
+- Carried:
+  - the L-28 remainder and a green nightly fuzz run;
+  - L-31;
+  - the ADR-0013 E2E per OS;
+  - the ADR-0016 §4 OIDC interception per OS;
+  - the Windows L-29 E2E;
+  - the L-36 VMRC help text.
+- `security.yml` green; `mooring-app` built and tested on all three OSes.
+
+## Decision needed
+- **qa-engineer:** run the native-dialog checklist on macOS, Windows and Linux.
+- **ui-engineer:** U5 PR gets a short security look (conflict rows show `name`/`id` only).
+- **owner:** whether to file the upstream tauri-apps/plugins-workspace report (the text is in
+  `a3-rust-core-fix-8.md`). Not a tag condition.
+
+## Test evidence
+- Registry sources read: `tauri-plugin-dialog` 2.8.4 `desktop.rs:215-257`, `Cargo.toml`; `rfd`
+  0.17.2 `gtk3/message_dialog.rs`, `win_cid/message_dialog.rs`, `macos/message_dialog.rs`,
+  `macos/utils/user_alert.rs`.
+- Greps:
+  - `Res::|MessageDialogResult` in `src-tauri/src`;
+  - every `CertTrust::` / `TrustDecision::` / `*Verdict::Conflict` consumer;
+  - `has_pin` around `trusted_once` / `session_pin`.
+- `git diff --stat a17bb6d..4666be7`: no manifest, lockfile, capability or CSP change.
+- Not run: builds, tests, the per-OS checklist, cargo-fuzz.
