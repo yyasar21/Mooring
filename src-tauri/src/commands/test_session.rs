@@ -77,6 +77,16 @@ pub async fn close(live: &Live) {
     panic!("session did not leave the registry");
 }
 
+/// Run `sftp_pick_local` with a picker that answers `path`; returns the `pickId`.
+pub async fn pick(live: &Live, mode: &str, path: &std::path::Path) -> String {
+    let picker = crate::commands::sftp_pick::FixedPicker(Some(path.to_path_buf()));
+    crate::commands::sftp_pick::pick_local(&live.f.state, &picker, None, &live.session_id, mode)
+        .await
+        .expect("pick accepted")
+        .expect("not cancelled")
+        .pick_id
+}
+
 /// Raw audit log text.
 pub fn audit_text(live: &Live) -> String {
     std::fs::read_to_string(live.f.dir.path().join(crate::state::AppState::AUDIT_FILE))

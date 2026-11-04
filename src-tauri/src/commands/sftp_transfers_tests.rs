@@ -1,12 +1,13 @@
 //! `sftp_download` / `sftp_upload` / `sftp_cancel`: streaming with progress, confinement of
-//! the dialog paths, cancellation, audit.
+//! the picked paths, cancellation, audit.
 
 use std::time::Duration;
 
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::commands::test_session::{audit_text, close as close_session, connect};
+use crate::commands::sftp_pick::{pick_local, FixedPicker};
+use crate::commands::test_session::{audit_text, close as close_session, connect, pick, Live};
 use crate::test_ssh_server as server;
 
 type Events = mpsc::UnboundedReceiver<Progress>;
@@ -40,6 +41,12 @@ fn s(p: &Path) -> String {
     p.to_str().expect("utf-8").to_owned()
 }
 
+/// `sftp_pick_local` answered with `path`: the refusal, if any.
+async fn pick_err(live: &Live, mode: &str, path: &Path) -> IpcError {
+    let picker = FixedPicker(Some(path.to_path_buf()));
+    pick_local(&live.f.state, &picker, None, &live.session_id, mode).await.expect_err("refused")
+}
+
 #[tokio::test]
 async fn upload_then_download_with_progress_and_audit() {
     let root = tempfile::tempdir().expect("root");
@@ -53,7 +60,8 @@ async fn upload_then_download_with_progress_and_audit() {
     let file = src.path().join("big.bin");
     std::fs::write(&file, &data).expect("write");
     let (tx, mut rx) = sink();
-    let up = upload(st, sid, &s(&file), "/in", tx).await.expect("upload");
+    let up_pick = pick(&live, "file", &file).await;
+    let up = upload(st, sid, &up_pick, "/in", tx).await.expect("upload");
     let events = finish(&mut rx).await;
     let last = events.last().expect("last");
     assert_eq!((last.state, last.bytes_done), ("done", data.len() as u64), "{last:?}");
@@ -64,7 +72,8 @@ async fn upload_then_download_with_progress_and_audit() {
 
     let dst = tempfile::tempdir().expect("dst");
     let (tx, mut rx) = sink();
-    download(st, sid, "/in/big.bin", &s(dst.path()), tx).await.expect("download");
+    let down_pick = pick(&live, "folder", dst.path()).await;
+    download(st, sid, "/in/big.bin", &down_pick, tx).await.expect("download");
     let events = finish(&mut rx).await;
     let last = events.last().expect("last");
     assert_eq!(last.state, "done", "{last:?}");
@@ -86,66 +95,69 @@ async fn upload_then_download_with_progress_and_audit() {
 }
 
 #[tokio::test]
-async fn local_paths_are_confined() {
+async fn picked_paths_are_confined() {
     let root = tempfile::tempdir().expect("root");
     std::fs::write(root.path().join("known_hosts"), b"evil").expect("seed");
     std::fs::write(root.path().join("f"), b"x").expect("seed");
     let srv = server::start_with_sftp(82, root.path().to_path_buf()).await;
     let live = connect(&srv).await;
     let (st, sid) = (&live.f.state, live.session_id.as_str());
-    let data_dir = s(&live.f.dir.path().canonicalize().expect("canon"));
+    let data_dir = live.f.dir.path().canonicalize().expect("canon");
     let dst = tempfile::tempdir().expect("dst");
+    std::fs::write(dst.path().join("file"), b"x").expect("plain file");
     let dir = s(dst.path());
 
-    let refused_downloads = [
-        ("/known_hosts", data_dir.clone()),                    // app data dir
-        ("/f", format!("{data_dir}/sub")),                     // missing / inside data dir
-        ("/f", "relative/dir".to_owned()),                     // not absolute
-        ("/f", String::new()),                                 // empty
-        ("/f", format!("{dir}/does-not-exist")),               // missing
-        ("/f", s(&dst.path().join("file"))),                   // set below: not a directory
-        ("/", dir.clone()),                                    // names no file
-        ("/a/..", dir.clone()),                                // `..`
-        ("/a/con.txt", dir.clone()),                           // device name
-        ("/a/b:stream", dir.clone()),                          // ADS
-        ("/f", "x".repeat(5000)),                              // too long
+    // What the dialog may return for a folder pick, and is refused anyway.
+    let refused_folders = [
+        data_dir.clone(),                    // app data dir
+        data_dir.join("sub"),                // missing / inside data dir
+        PathBuf::from("relative/dir"),       // not absolute
+        PathBuf::new(),                      // empty
+        dst.path().join("does-not-exist"),   // missing
+        dst.path().join("file"),             // not a directory
+        PathBuf::from("x".repeat(5000)),     // too long
     ];
-    std::fs::write(dst.path().join("file"), b"x").expect("plain file");
-    for (i, (remote, local_dir)) in refused_downloads.iter().enumerate() {
-        let (tx, _rx) = sink();
-        let e = download(st, sid, remote, local_dir, tx).await.expect_err("refused");
+    for (i, p) in refused_folders.iter().enumerate() {
+        let e = pick_err(&live, "folder", p).await;
         assert_eq!(e.code, "input.invalid", "case {i}: {e:?}");
-        assert!(!e.message.contains(&data_dir) && !e.message.contains(&dir), "no paths: {e:?}");
+        assert!(!e.message.contains(&s(&data_dir)) && !e.message.contains(&dir), "no paths");
+    }
+    // Remote names that cannot be confined in a good folder (the pick is not consumed).
+    let good = pick(&live, "folder", dst.path()).await;
+    for (i, remote) in ["/", "/a/..", "/a/con.txt", "/a/b:stream"].iter().enumerate() {
+        let (tx, _rx) = sink();
+        let e = download(st, sid, remote, &good, tx).await.expect_err("refused");
+        assert_eq!(e.code, "input.invalid", "remote case {i}: {e:?}");
     }
     #[cfg(unix)]
     {
         let outside = tempfile::tempdir().expect("outside");
         std::os::unix::fs::symlink(outside.path().join("f"), dst.path().join("f")).expect("ln");
+        let p = pick(&live, "folder", dst.path()).await;
         let (tx, _rx) = sink();
-        let e = download(st, sid, "/f", &dir, tx).await.expect_err("symlink target");
+        let e = download(st, sid, "/f", &p, tx).await.expect_err("symlink target");
         assert_eq!(e.code, "input.invalid");
         assert!(!outside.path().join("f").exists(), "nothing written through the link");
     }
 
     let audit_file = live.f.dir.path().join(crate::state::AppState::AUDIT_FILE);
-    let refused_uploads = [
-        s(&audit_file),                         // inside the app data dir
-        "big.bin".to_owned(),                   // relative
-        dir.clone(),                            // a directory
-        format!("{dir}/missing"),               // missing
-        "/".to_owned(),                         // no file name
-        format!("{dir}/CON"),                   // device name
+    let refused_files = [
+        audit_file,                         // inside the app data dir
+        PathBuf::from("big.bin"),           // relative
+        dst.path().to_path_buf(),           // a directory
+        dst.path().join("missing"),         // missing
+        PathBuf::from("/"),                 // no file name
+        dst.path().join("CON"),             // device name
     ];
-    for (i, local) in refused_uploads.iter().enumerate() {
-        let (tx, _rx) = sink();
-        let e = upload(st, sid, local, "/", tx).await.expect_err("refused");
+    for (i, local) in refused_files.iter().enumerate() {
+        let e = pick_err(&live, "file", local).await;
         assert_eq!(e.code, "input.invalid", "case {i}: {e:?}");
     }
+    let p = pick(&live, "file", &dst.path().join("file")).await;
     let (tx, _rx) = sink();
-    let e = upload(st, sid, &s(&dst.path().join("file")), "", tx).await.expect_err("remoteDir");
-    assert_eq!(e.code, "input.invalid");
+    assert_eq!(upload(st, sid, &p, "", tx).await.expect_err("remoteDir").code, "input.invalid");
     let (tx, _rx) = sink();
-    let e = download(st, "nope", "/g", &dir, tx).await.expect_err("session");
+    let e = download(st, "nope", "/g", &good, tx).await.expect_err("session");
     assert_eq!(e.code, "session.not_found");
     assert_eq!(std::fs::read(root.path().join("known_hosts")).expect("r"), b"evil");
     close_session(&live).await;
@@ -171,7 +183,8 @@ async fn cancel_stops_a_download_and_leaves_no_partial_file() {
         }
         tx.send(p).is_ok()
     });
-    let started = download(st, sid, "/large.bin", &s(dst.path()), sink).await.expect("start");
+    let p = pick(&live, "folder", dst.path()).await;
+    let started = download(st, sid, "/large.bin", &p, sink).await.expect("start");
     tokio::task::spawn_blocking(move || first_rx.recv_timeout(Duration::from_secs(20)))
         .await
         .expect("join")
@@ -208,7 +221,8 @@ async fn failed_download_reports_failed_once() {
     let live = connect(&srv).await;
     let dst = tempfile::tempdir().expect("dst");
     let (tx, mut rx) = sink();
-    download(&live.f.state, &live.session_id, "/missing.bin", &s(dst.path()), tx)
+    let p = pick(&live, "folder", dst.path()).await;
+    download(&live.f.state, &live.session_id, "/missing.bin", &p, tx)
         .await
         .expect("starts; the open fails in the task");
     let events = finish(&mut rx).await;

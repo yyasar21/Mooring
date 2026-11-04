@@ -17,6 +17,7 @@ use mooring_vault::{Header, KdfParams, Uuid, Vault, VaultError, VaultState};
 
 use crate::clipboard::{self, Clipboard, SystemClipboard, ValueDigest};
 use crate::error::{IpcError, IpcResult};
+use crate::picks::Picks;
 use crate::sessions::SessionHandle;
 
 /// How the vault's KDF cost is chosen at creation and password change (ADR-0006).
@@ -110,6 +111,9 @@ pub struct AppState {
     /// cleared yet. Taken by the 30 s timer, by [`AppState::shutdown`] and by `vault_lock`, so
     /// the clear also happens when the process exits before the timer fires (review 2, M-1).
     pub pending_clipboard: Arc<Mutex<Option<ValueDigest>>>,
+    /// Local paths chosen in the Rust-side file dialog, by `pickId` (review 4, B-4). Cleared
+    /// by `vault_lock`.
+    pub picks: Picks,
 }
 
 /// Errors while loading state at startup.
@@ -166,6 +170,7 @@ impl AppState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             settings,
             pending_clipboard: Arc::new(Mutex::new(None)),
+            picks: Picks::default(),
         })
     }
 

@@ -55,11 +55,25 @@ struct Inner {
     last_wall: SystemTime,
     /// When the main window lost focus, while it is still unfocused.
     blurred_at: Option<Instant>,
+    /// Mooring-owned native dialogs open right now (`sftp_pick_local`).
+    dialogs: u32,
 }
 
 impl Inner {
     fn effective(&self, now: Instant) -> Instant {
         now + self.suspended
+    }
+}
+
+/// Held while a Mooring-owned native dialog is open (see [`AutoLock::dialog_guard`]).
+#[derive(Debug)]
+pub struct DialogGuard<'a> {
+    al: &'a AutoLock,
+}
+
+impl Drop for DialogGuard<'_> {
+    fn drop(&mut self) {
+        self.al.dialog_closed(Instant::now());
     }
 }
 
@@ -79,8 +93,33 @@ impl AutoLock {
                 last_mono: now,
                 last_wall: wall,
                 blurred_at: None,
+                dialogs: 0,
             }),
         }
+    }
+
+    /// Mark a Mooring-owned native dialog as open until the guard is dropped.
+    pub fn dialog_guard(&self) -> DialogGuard<'_> {
+        self.with(|i| i.dialogs += 1);
+        DialogGuard { al: self }
+    }
+
+    /// Whether a Mooring-owned native dialog is open.
+    pub fn dialog_open(&self) -> bool {
+        self.with(|i| i.dialogs > 0)
+    }
+
+    /// The dialog closed: choosing in it was user activity, and a window that is still
+    /// unfocused starts its blur grace now.
+    fn dialog_closed(&self, now: Instant) {
+        self.with(|i| {
+            i.dialogs = i.dialogs.saturating_sub(1);
+            if i.blurred_at.is_some() {
+                i.blurred_at = Some(now);
+            }
+            let t = i.effective(now);
+            i.clock.touch(t);
+        });
     }
 
     fn with<T>(&self, f: impl FnOnce(&mut Inner) -> T) -> T {

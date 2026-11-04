@@ -127,6 +127,8 @@ fn reseal_legacy(state: &AppState) {
 /// M-1). Open sessions survive (ADR-0006).
 pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     state.clear_pending_clipboard();
+    // Review 4 B-4: local paths picked before the lock cannot be used after it.
+    state.picks.clear();
     // Unknown or missing reasons from the WebView are recorded as a user lock.
     let reason = reason.and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard = state.vault()?;
