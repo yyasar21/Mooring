@@ -9,10 +9,13 @@
 //! open the auto-lock ignores focus loss (`AutoLock::dialog_guard`, bounded as for the SFTP
 //! pick).
 //!
-//! Review 6 M-16: "Cancel" is the first (default) button of both dialogs, results are mapped
-//! by label only, and every prompt holds a `ConfirmGate` slot (`confirm.busy`; a cancelled
-//! trust-and-remember or fork resolution cools the same target down). N-45: "Trust once" says
-//! it covers this sync only.
+//! Review 6 M-16 / 6b B-6: every dialog has three slots, refusing / confirming / refusing
+//! (`vsphere_confirm::buttons`), so Return, Escape and the close box all refuse; results are
+//! mapped by label only, and every prompt holds a `ConfirmGate` slot (`confirm.busy`; a
+//! cancelled trust prompt or fork resolution cools the same target down). The trust prompt is
+//! **two** dialogs: the first asks to trust for this sync only ("Cancel" / [`ONCE`] /
+//! "Not now"), the second, only after a "trust once", asks to also remember the pin ("Cancel"
+//! / [`PIN`] / "Not now" = trust once). N-45: "Trust once" says it covers this sync only.
 
 use std::future::Future;
 
@@ -24,7 +27,7 @@ use time::OffsetDateTime;
 use tokio::sync::oneshot;
 
 use crate::autolock::AutoLock;
-use crate::commands::vsphere_confirm::{confirmed, CANCEL};
+use crate::commands::vsphere_confirm::{buttons, confirmed, NOT_NOW};
 pub use crate::confirm_gate::Scope;
 use crate::confirm_gate::ConfirmGate;
 use crate::error::IpcError;
@@ -63,24 +66,56 @@ impl<R: Runtime> std::fmt::Debug for DialogPrompter<R> {
     }
 }
 
-/// Pin button label.
+/// Pin button label (dialog 2).
 pub const PIN: &str = "Trust and remember";
-/// Trust-once button label (N-45: names its scope).
+/// Trust-once button label (dialog 1; N-45: names its scope).
 pub const ONCE: &str = "Trust once (this sync only)";
 
-/// The trust dialog's buttons in dialog order: the refusing one first (M-16).
+/// Dialog 1: trust for this sync only? Refusing / [`ONCE`] / refusing (B-6).
 pub fn trust_buttons() -> tauri_plugin_dialog::MessageDialogButtons {
-    tauri_plugin_dialog::MessageDialogButtons::YesNoCancelCustom(CANCEL.into(), ONCE.into(), PIN.into())
+    buttons(ONCE)
 }
 
-/// Map a trust dialog result by label only (never by position).
-pub fn trust_answer(r: &tauri_plugin_dialog::MessageDialogResult) -> TrustAnswer {
+/// Dialog 2 (after a "trust once"): also remember the pin? Refusing / [`PIN`] / "Not now".
+pub fn remember_buttons() -> tauri_plugin_dialog::MessageDialogButtons {
+    buttons(PIN)
+}
+
+/// Dialog 1 result by label only: `true` for [`ONCE`], everything else refuses.
+pub fn trust_once(r: &tauri_plugin_dialog::MessageDialogResult) -> bool {
+    confirmed(r, ONCE)
+}
+
+/// Dialog 2 result by label only: [`PIN`] pins, [`NOT_NOW`] (Escape / close) keeps the
+/// "trust once" answer, `CANCEL` (Return) and every positional result refuse.
+pub fn remember_answer(r: &tauri_plugin_dialog::MessageDialogResult) -> TrustAnswer {
     use tauri_plugin_dialog::MessageDialogResult as Res;
     match r {
-        Res::Custom(s) if s == PIN => TrustAnswer::Pin,
-        Res::Custom(s) if s == ONCE => TrustAnswer::Once,
+        Res::Custom(s) if s == NOT_NOW => TrustAnswer::Once,
+        _ if confirmed(r, PIN) => TrustAnswer::Pin,
         _ => TrustAnswer::Reject,
     }
+}
+
+/// Body of dialog 1.
+pub fn trust_text(host: &str, info: &CertificateInfo) -> String {
+    format!(
+        "The sync storage {host} presented a certificate Mooring does not trust yet.\n\n\
+         Subject: {}\nIssuer: {}\nFingerprint: {}\n\nOnly trust it if you can verify the \
+         fingerprint with the storage administrator.",
+        info.subject,
+        info.issuer,
+        info.display_fingerprint()
+    )
+}
+
+/// Body of dialog 2.
+pub fn remember_text(host: &str, info: &CertificateInfo) -> String {
+    format!(
+        "Also remember this certificate for {host}?\n\nFingerprint: {}\n\nMooring would then \
+         accept it for every future sync without asking. \"Not now\" trusts it for this sync only.",
+        info.display_fingerprint()
+    )
 }
 
 impl<R: Runtime> DialogPrompter<R> {
@@ -96,24 +131,21 @@ impl<R: Runtime> DialogPrompter<R> {
 
 impl<R: Runtime> SyncPrompter for DialogPrompter<R> {
     fn trust(&self, host: &str, info: &CertificateInfo, reply: Box<dyn FnOnce(TrustAnswer) + Send>) {
-        let text = format!(
-            "The sync storage {host} presented a certificate Mooring does not trust yet.\n\n\
-             Subject: {}\nIssuer: {}\nFingerprint: {}\n\nOnly trust it if you can verify the \
-             fingerprint with the storage administrator.",
-            info.subject,
-            info.issuer,
-            info.display_fingerprint()
-        );
-        self.builder("Untrusted sync storage certificate", text)
+        let second = self.builder("Remember sync storage certificate?", remember_text(host, info)).buttons(remember_buttons());
+        self.builder("Untrusted sync storage certificate", trust_text(host, info))
             .buttons(trust_buttons())
-            .show_with_result(move |r| reply(trust_answer(&r)));
+            .show_with_result(move |r| {
+                if !trust_once(&r) {
+                    return reply(TrustAnswer::Reject);
+                }
+                second.show_with_result(move |r| reply(remember_answer(&r)));
+            });
     }
 
     fn confirm(&self, title: &str, message: &str, ok: &str, reply: Box<dyn FnOnce(bool) + Send>) {
-        use tauri_plugin_dialog::MessageDialogButtons as B;
         let ok = ok.to_owned();
         self.builder(title, message.to_owned())
-            .buttons(B::OkCancelCustom(CANCEL.into(), ok.clone()))
+            .buttons(buttons(&ok))
             .show_with_result(move |r| reply(confirmed(&r, &ok)));
     }
 }
@@ -122,11 +154,14 @@ impl<R: Runtime> SyncPrompter for DialogPrompter<R> {
 #[cfg(any(test, feature = "test-util"))]
 #[derive(Debug)]
 pub struct ScriptedPrompter {
-    /// Answer to every certificate prompt.
+    /// Answer to every certificate prompt (when `results` is `None`).
     pub trust: TrustAnswer,
     /// Answer to every confirmation.
     pub confirm: bool,
-    /// Prompts shown so far (`trust:<host>` / `confirm:<title>`).
+    /// OS results for dialog 1 and dialog 2 instead, fed through the plugin remap and the
+    /// label mapping like the real prompter.
+    pub results: Option<(tauri_plugin_dialog::MessageDialogResult, tauri_plugin_dialog::MessageDialogResult)>,
+    /// Prompts shown so far (`trust:<host>` / `remember:<host>` / `confirm:<title>`).
     pub asked: std::sync::Mutex<Vec<String>>,
 }
 
@@ -134,7 +169,19 @@ pub struct ScriptedPrompter {
 impl ScriptedPrompter {
     /// Answers `trust` and `confirm`.
     pub fn new(trust: TrustAnswer, confirm: bool) -> Self {
-        Self { trust, confirm, asked: std::sync::Mutex::default() }
+        Self { trust, confirm, results: None, asked: std::sync::Mutex::default() }
+    }
+
+    /// Answers the two trust dialogs with the OS results `first` and `second` (positional, as
+    /// rfd returns them); confirmations are refused.
+    pub fn with_results(first: tauri_plugin_dialog::MessageDialogResult, second: tauri_plugin_dialog::MessageDialogResult) -> Self {
+        Self { trust: TrustAnswer::Reject, confirm: false, results: Some((first, second)), asked: std::sync::Mutex::default() }
+    }
+
+    fn record(&self, s: String) {
+        if let Ok(mut a) = self.asked.lock() {
+            a.push(s);
+        }
     }
 
     /// Prompts shown so far.
@@ -146,15 +193,19 @@ impl ScriptedPrompter {
 #[cfg(any(test, feature = "test-util"))]
 impl SyncPrompter for ScriptedPrompter {
     fn trust(&self, host: &str, _info: &CertificateInfo, reply: Box<dyn FnOnce(TrustAnswer) + Send>) {
-        if let Ok(mut a) = self.asked.lock() {
-            a.push(format!("trust:{host}"));
+        use crate::commands::vsphere_confirm::plugin_remap;
+        self.record(format!("trust:{host}"));
+        let Some((first, second)) = &self.results else {
+            return reply(self.trust);
+        };
+        if !trust_once(&plugin_remap(first.clone(), &trust_buttons())) {
+            return reply(TrustAnswer::Reject);
         }
-        reply(self.trust);
+        self.record(format!("remember:{host}"));
+        reply(remember_answer(&plugin_remap(second.clone(), &remember_buttons())));
     }
     fn confirm(&self, title: &str, _message: &str, _ok: &str, reply: Box<dyn FnOnce(bool) + Send>) {
-        if let Ok(mut a) = self.asked.lock() {
-            a.push(format!("confirm:{title}"));
-        }
+        self.record(format!("confirm:{title}"));
         reply(self.confirm);
     }
 }
