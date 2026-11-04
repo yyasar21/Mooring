@@ -21,3 +21,6 @@ pub mod sftp;
 pub mod sftp_transfers;
 #[cfg(test)]
 mod test_session;
+// ADR-0010 (A1 exit): auto-lock policy and syslog mirror settings.
+pub mod autolock;
+pub mod syslog;

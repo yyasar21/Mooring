@@ -41,6 +41,7 @@ tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
 keyring = { workspace = true }
 zeroize = { workspace = true }
+sysinfo = { workspace = true }                   # ADR-0010: local host name for the syslog HOSTNAME field (already in the tree via mooring-vault)
 tempfile = { workspace = true, optional = true } # test-util: fixture data dirs
 russh = { workspace = true, optional = true }    # test-util: in-process SSH server
 russh-sftp = { workspace = true, optional = true } # test-util: SFTP subsystem of the test server (already a workspace dep)

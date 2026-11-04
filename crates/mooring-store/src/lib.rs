@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+mod app_settings;
 mod connections;
 mod credentials;
 mod error;
@@ -28,6 +29,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+pub use app_settings::{APP_PREFIX, MAX_APP_KEY, MAX_APP_VALUE};
 pub use credentials::{CredentialMeta, Secrets};
 pub use error::{Result, StoreError};
 pub use mooring_core::{CredentialKind, Role, SecretName};

@@ -160,6 +160,33 @@ pub enum AuditEvent {
         /// `done` | `failed` | `cancelled`.
         outcome: String,
     },
+    // ---- ADR-0010 (A1 exit): auto-lock policy and syslog mirror -------------------------
+    /// The auto-lock policy was changed (`autolock_set`).
+    VaultPolicyChanged {
+        /// Idle timeout in minutes; `None` = idle trigger off.
+        idle_minutes: Option<u32>,
+        /// Lock on OS screen lock.
+        on_screen_lock: bool,
+        /// Lock on OS sleep.
+        on_sleep: bool,
+        /// Lock when the main window is hidden / loses focus.
+        on_window_hidden: bool,
+    },
+    /// The syslog mirror configuration was changed (`syslog_set`). The host is not a secret
+    /// (inventory-class, like a connection host) and is recorded so a redirected mirror is
+    /// visible in the chain.
+    AuditSyslogChanged {
+        /// Mirror on or off.
+        enabled: bool,
+        /// Collector host.
+        host: String,
+        /// Collector port.
+        port: u16,
+        /// `udp` | `tcp` | `tls`.
+        transport: String,
+        /// Syslog facility 0..=23.
+        facility: u8,
+    },
 }
 
 /// One line of the log.
@@ -183,7 +210,7 @@ impl AuditEntry {
         serde_json::to_vec(self).unwrap_or_default()
     }
 
-    fn digest(&self) -> String {
+    pub(crate) fn digest(&self) -> String {
         hex::encode(Sha256::digest(self.canonical()))
     }
 }
@@ -211,6 +238,8 @@ pub struct AuditLog {
     path: PathBuf,
     last_seq: u64,
     last_hash: String,
+    /// Optional syslog mirror, fed after each successful local write (ADR-0010).
+    mirror: Option<crate::syslog::SyslogMirror>,
 }
 
 impl AuditLog {
@@ -236,7 +265,7 @@ impl AuditLog {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (0, GENESIS.to_owned()),
             Err(e) => return Err(e.into()),
         };
-        Ok(Self { path, last_seq, last_hash })
+        Ok(Self { path, last_seq, last_hash, mirror: None })
     }
 
     /// Path on disk.
@@ -266,7 +295,24 @@ impl AuditLog {
         f.sync_data()?;
         self.last_seq = entry.seq;
         self.last_hash = entry.digest();
+        if let Some(m) = &self.mirror {
+            m.send(&entry); // never blocks, never fails the local write
+        }
         Ok(entry)
+    }
+
+    /// Install (or with `None` remove) the syslog mirror; returns the previous one.
+    pub fn set_mirror(
+        &mut self,
+        mirror: Option<crate::syslog::SyslogMirror>,
+    ) -> Option<crate::syslog::SyslogMirror> {
+        std::mem::replace(&mut self.mirror, mirror)
+    }
+
+    /// The running syslog mirror, if any (telemetry: `dropped`, `sent`).
+    #[must_use]
+    pub fn mirror(&self) -> Option<&crate::syslog::SyslogMirror> {
+        self.mirror.as_ref()
     }
 
     /// Walk the whole file and check every `prev` and `seq`.
@@ -349,6 +395,25 @@ mod tests {
             ),
             (AuditEvent::CredentialResealed { count: 3 }, "credential_resealed"),
             (AuditEvent::BecomeFailed { connection: "x".into() }, "become_failed"),
+            (
+                AuditEvent::VaultPolicyChanged {
+                    idle_minutes: Some(15),
+                    on_screen_lock: true,
+                    on_sleep: true,
+                    on_window_hidden: false,
+                },
+                "vault_policy_changed",
+            ),
+            (
+                AuditEvent::AuditSyslogChanged {
+                    enabled: true,
+                    host: "logs.example.test".into(),
+                    port: 6514,
+                    transport: "tls".into(),
+                    facility: 13,
+                },
+                "audit_syslog_changed",
+            ),
         ];
         for (e, name) in cases {
             let v = serde_json::to_value(&e).expect("json");
