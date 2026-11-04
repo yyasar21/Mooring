@@ -6,6 +6,7 @@
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
+use crate::credential::kubeconfig::KubeAuth;
 use crate::credential::BecomeMethod;
 use crate::session::Size;
 
@@ -57,6 +58,9 @@ pub enum ConnectSecret {
         /// Context, `None` = `current-context`.
         context: Option<String>,
     },
+    /// A resolved Kubernetes user (ADR-0014 §3): bearer token or client certificate, from a
+    /// `kubeconfig` context via [`crate::credential::kubeconfig::resolve`] or a `kube_token`.
+    Kube(KubeAuth),
     /// Ask the user at connect time (`prompt` kind); see [`PromptAccount`].
     Prompt(PromptAccount),
     /// No secret (e.g. anonymous VNC, or agent / keyboard-interactive only).
@@ -75,6 +79,7 @@ impl ConnectSecret {
             Self::Token { .. } => "token",
             Self::ClientCert { .. } => "client-cert",
             Self::Kubeconfig { .. } => "kubeconfig",
+            Self::Kube(_) => "kube",
             Self::Prompt(_) => "prompt",
             Self::None => "none",
         }
@@ -158,6 +163,11 @@ mod tests {
             ConnectSecret::Token { header: "Authorization".into(), value: s("hunter2") },
             ConnectSecret::ClientCert { cert: "c".into(), key: s("hunter2"), passphrase: None },
             ConnectSecret::Kubeconfig { yaml: s("hunter2"), context: None },
+            ConnectSecret::Kube(KubeAuth::Token(s("hunter2"))),
+            ConnectSecret::Kube(KubeAuth::ClientCert {
+                cert_pem: "c".into(),
+                key_pem: s("hunter2"),
+            }),
             ConnectSecret::Prompt(PromptAccount::default()),
             ConnectSecret::None,
         ];
