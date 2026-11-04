@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { MooringLine, ProtocolPip } from "@mooring/ui";
-import { lineState, useSessions, type Tab } from "../stores/sessions";
+import { canDetach, lineState, useSessions, type Tab } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";
 
@@ -73,6 +73,7 @@ interface TabItemProps {
 function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex, onDragStart, onDragEnd, onDropAt }: TabItemProps) {
   const c = useTree((s) => s.connections.find((x) => x.id === tab.connectionId));
   const { activate, close, move, detach } = useSessions.getState();
+  const detachable = canDetach(tab.protocol) && tab.state === "connected" && tab.sessionId !== null;
   const name = c?.name ?? "unknown";
   const stateLabel = tab.prompt ? "waiting for you" : tab.state;
 
@@ -127,13 +128,13 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
       {c && <ProtocolPip protocol={c.protocol} live={tab.state === "connected"} />}
       <span className="tab-name min-w-0 flex-1 truncate">{name}</span>
       {tab.prompt && <span aria-hidden className="tab-attn" />}
-      <button
+      {canDetach(tab.protocol) && <button
         type="button"
         className="tab-action icon-btn flex-none"
         aria-label={`Detach ${name} to a window`}
         title="Detach to a window"
         tabIndex={active ? 0 : -1}
-        disabled={!tab.sessionId}
+        disabled={!detachable}
         onClick={(e) => {
           e.stopPropagation();
           void detach(tab.id);
@@ -142,7 +143,7 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.2">
           <path d="M5 2H2v8h8V7M7 1.5h3.5V5M10.5 1.5 5.5 6.5" />
         </svg>
-      </button>
+      </button>}
       <button
         type="button"
         className="tab-action icon-btn flex-none"

@@ -119,7 +119,7 @@ describe("MockTransport · detach and attach", () => {
     await expect(view.sessionList()).rejects.toMatchObject({ code: "ipc.forbidden" });
     await expect(view.sessionSend({ sessionId: "r-other", input: { kind: "release_all" } })).rejects.toMatchObject({ code: "ipc.forbidden" });
     await expect(view.windowDetach({ sessionId })).rejects.toMatchObject({ code: "ipc.forbidden" });
-    expect(() => view.onVaultLocked(() => undefined)).toThrow(expect.objectContaining({ code: "ipc.forbidden" }) as unknown as Error);
+    expect(() => view.onVaultLocked(() => undefined)).toThrow(expect.objectContaining({ code: "ipc.forbidden" }) as unknown);
     await view.sessionSend({ sessionId, input: { kind: "release_all" } });
     await view.sessionScreenshot({ sessionId });
     expect(m.forbidden).toEqual(["vault_status", "app_info", "session_set_view_only", "session_list", "session_send", "window_detach", "listen"]);

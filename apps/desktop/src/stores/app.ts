@@ -6,6 +6,7 @@ import { useCredentials } from "./credentials";
 import { useSessions } from "./sessions";
 import { useUi } from "./ui";
 import { useTransfers } from "./transfers";
+import { adoptWeb } from "./web";
 
 interface AppState {
   info: AppInfo | null;
@@ -26,6 +27,7 @@ interface AppState {
 async function loadVaultData(): Promise<void> {
   await Promise.all([useTree.getState().load(), useCredentials.getState().load()]);
   await adoptLiveSessions();
+  await adoptWeb(); // web windows were hidden by the lock, not closed (ADR-0013)
 }
 
 /**

@@ -35,7 +35,7 @@ describe("certificate trust dialog", () => {
     const prompt: PendingPrompt = { id: 7, message: "m", secret: false, purpose: "certificate_trust", account: null, certificate };
     const tab: Tab = {
       id: "t1", connectionId: "c-dc", protocol: "rdp", sessionId: "r-x", state: "connecting", peerIdentity: null, security: null,
-      prompt, reason: null, closeCode: null, reconnect: null, desktop: null, viewOnly: false,
+      prompt, reason: null, closeCode: null, reconnect: null, desktop: null, viewOnly: false, attachEpoch: 0,
     };
     const sent: string[] = [];
     vi.spyOn(mock, "sessionSend").mockImplementation(({ input }) => {

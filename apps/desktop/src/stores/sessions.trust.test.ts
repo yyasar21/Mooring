@@ -34,7 +34,11 @@ describe("options-driven session state", () => {
     mock.frameIntervalMs = 60_000;
     await useTree.getState().load();
     // Rust's tree rows carry no options.
-    useTree.setState({ connections: useTree.getState().connections.map(({ options: _o, ...c }) => c) });
+    useTree.setState({ connections: useTree.getState().connections.map((row) => {
+      const c = { ...row };
+      delete c.options;
+      return c;
+    }) });
     const spy = vi.spyOn(mock, "connectionOptionsGet");
     await act(async () => { await useSessions.getState().open("c-kiosk"); });
     expect(spy).toHaveBeenCalledWith({ connectionId: "c-kiosk" });

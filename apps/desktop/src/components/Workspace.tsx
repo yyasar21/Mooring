@@ -1,7 +1,10 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { Kbd } from "@mooring/ui";
-import { isGraphical, useSessions, type Tab } from "../stores/sessions";
+import { canDetach, isGraphical, useSessions, type Tab } from "../stores/sessions";
+import type { Size } from "../lib/ipc";
 import { RemoteSessionTab } from "./remote/RemoteSessionTab";
+import { WebSessionTab } from "./web/WebSessionTab";
+import { DetachedPlaceholder } from "./detached/DetachedPlaceholder";
 import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";
 import { PromptModal } from "./terminal/PromptModal";
@@ -36,13 +39,24 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
   const terminal = c?.protocol === "ssh" || c?.protocol === "kubernetes";
   const ssh = c?.protocol === "ssh";
   const graphical = isGraphical(c?.protocol ?? tab.protocol);
+  const web = (c?.protocol ?? tab.protocol) === "web";
   const [tool, setTool] = useState<SessionTool>("terminal");
   const liveSession = tab.state === "connected" ? tab.sessionId : null;
+  const detached = tab.state === "detached";
+  const onData = useCallback((d: Uint8Array) => void useSessions.getState().send(tab.id, d), [tab.id]);
+  const onResize = useCallback((size: Size) => void useSessions.getState().resize(tab.id, size), [tab.id]);
 
   const bezel = (
     <div className="term-bezel m-hud" data-active={active && tab.state === "connected" && tool === "terminal" ? true : undefined}>
       <Suspense fallback={<div className="term-host" />}>
-        <TerminalView tabId={tab.id} active={active && tool === "terminal"} />
+        <TerminalView
+          tabId={tab.id}
+          active={active && tool === "terminal" && !detached}
+          blocked={tab.prompt !== null}
+          onData={onData}
+          onResize={onResize}
+          resyncKey={tab.attachEpoch}
+        />
       </Suspense>
     </div>
   );
@@ -57,7 +71,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
     >
       {ssh ? (
         <>
-          <SessionToolbar tool={tool} onTool={setTool} />
+          <SessionToolbar tool={tool} onTool={setTool} onDetach={canDetach(tab.protocol) && liveSession ? () => void useSessions.getState().detach(tab.id) : null} />
           <div className="session-body">
             {/* The terminal stays mounted under the tool panels so its scrollback survives. */}
             {bezel}
@@ -76,7 +90,9 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       ) : terminal ? (
         bezel
       ) : graphical ? (
-        <RemoteSessionTab tab={tab} active={active} connection={c} />
+        <RemoteSessionTab tab={tab} active={active && !detached} connection={c} />
+      ) : web ? (
+        <WebSessionTab tab={tab} connection={c} />
       ) : (
         <div className="panel-note m-hud">
           <div className="max-w-sm">
@@ -99,6 +115,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </button>
         </div>
       )}
+      {detached && <DetachedPlaceholder tabId={tab.id} name={c?.name ?? "This session"} />}
       {tab.prompt && active && <PromptModal tabId={tab.id} prompt={tab.prompt} host={c?.host ?? ""} />}
     </div>
   );
