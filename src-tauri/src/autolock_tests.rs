@@ -1,0 +1,213 @@
+//! Auto-lock wiring with a fake clock: every test passes `Instant` / `SystemTime` explicitly.
+
+use std::time::{Duration, Instant, SystemTime};
+
+use mooring_vault::{AutoLockPolicy, LockReason};
+
+use super::*;
+use crate::state::testing::*;
+
+const MIN: Duration = Duration::from_secs(60);
+const S: Duration = Duration::from_secs(1);
+
+fn policy(idle: Option<Duration>, sleep: bool, hidden: bool) -> AutoLockPolicy {
+    AutoLockPolicy { idle, on_screen_lock: true, on_sleep: sleep, on_window_hidden: hidden }
+}
+
+struct Clock {
+    mono: Instant,
+    wall: SystemTime,
+}
+
+impl Clock {
+    fn new() -> Self {
+        Self { mono: Instant::now(), wall: SystemTime::now() }
+    }
+    /// Normal running time: both clocks advance.
+    fn run(&mut self, d: Duration) -> (Instant, SystemTime) {
+        self.mono += d;
+        self.wall += d;
+        (self.mono, self.wall)
+    }
+    /// Suspended time: only the wall clock advances (Linux / macOS `Instant`).
+    fn suspend(&mut self, d: Duration) -> (Instant, SystemTime) {
+        self.wall += d;
+        (self.mono, self.wall)
+    }
+}
+
+fn status(f: &Fixture) -> VaultStatus {
+    vault::status(&f.state).expect("status")
+}
+
+fn lock_reasons(f: &Fixture) -> Vec<String> {
+    let text = std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).expect("audit");
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["event"] == "vault_locked")
+        .map(|v| v["reason"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// Tick every 5 s from the clock's current time up to `until` past it.
+fn run_ticks(f: &Fixture, al: &AutoLock, c: &mut Clock, until: Duration) -> Option<LockReason> {
+    let mut elapsed = Duration::ZERO;
+    while elapsed < until {
+        let (m, w) = c.run(TICK);
+        elapsed += TICK;
+        if let Some(r) = tick(&f.state, al, m, w) {
+            return Some(r);
+        }
+    }
+    None
+}
+
+#[test]
+fn idle_tick_locks_once_and_audits_the_reason() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(MIN), true, true), c.mono, c.wall);
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None);
+    assert_eq!(status(&f), VaultStatus::Unlocked);
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::Idle));
+    assert_eq!(status(&f), VaultStatus::Locked);
+    // further ticks on a locked vault write nothing
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * MIN), None);
+    assert_eq!(lock_reasons(&f), ["idle"]);
+}
+
+#[test]
+fn activity_defers_the_idle_lock() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(MIN), true, true), c.mono, c.wall);
+    assert_eq!(run_ticks(&f, &al, &mut c, 50 * S), None);
+    al.touch(c.mono);
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None, "touch restarted the minute");
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::Idle));
+}
+
+#[test]
+fn focus_loss_locks_as_window_hidden_and_focus_counts_as_activity() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(MIN), true, true), c.mono, c.wall);
+    al.focus_changed(false, c.mono);
+    assert_eq!(tick(&f.state, &al, c.mono, c.wall), Some(LockReason::WindowHidden));
+    assert_eq!(lock_reasons(&f), ["window_hidden"]);
+
+    // focus back + unlock: no stale signal, and focus counted as activity
+    al.focus_changed(true, c.mono);
+    vault::unlock(&f.state, secrecy::SecretString::from(MASTER.to_owned())).expect("unlock");
+    assert_eq!(run_ticks(&f, &al, &mut c, 50 * S), None);
+    al.focus_changed(true, c.mono); // e.g. after a click elsewhere and back
+    assert_eq!(run_ticks(&f, &al, &mut c, 55 * S), None, "focus restarted the minute");
+    assert_eq!(status(&f), VaultStatus::Unlocked);
+    assert_eq!(run_ticks(&f, &al, &mut c, 10 * S), Some(LockReason::Idle));
+}
+
+#[test]
+fn focus_loss_is_ignored_when_the_policy_says_so() {
+    let f = unlocked();
+    let c = Clock::new();
+    let al = AutoLock::new(policy(None, true, false), c.mono, c.wall);
+    al.focus_changed(false, c.mono);
+    assert_eq!(tick(&f.state, &al, c.mono, c.wall), None);
+    assert_eq!(status(&f), VaultStatus::Unlocked);
+}
+
+#[test]
+fn signals_while_locked_are_discarded() {
+    let f = unlocked();
+    vault::lock(&f.state, None).expect("lock");
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(MIN), true, true), c.mono, c.wall);
+    al.signal(LockEvent::ScreenLocked, c.mono);
+    assert_eq!(tick(&f.state, &al, c.mono, c.wall), None);
+    vault::unlock(&f.state, secrecy::SecretString::from(MASTER.to_owned())).expect("unlock");
+    al.touch(c.mono);
+    let (m, w) = c.run(TICK);
+    assert_eq!(tick(&f.state, &al, m, w), None, "the old screen-lock signal is gone");
+    assert_eq!(lock_reasons(&f), ["user"]);
+}
+
+#[test]
+fn suspend_is_detected_from_the_wall_clock() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(15 * MIN), true, true), c.mono, c.wall);
+    run_ticks(&f, &al, &mut c, MIN);
+    let (m, w) = c.suspend(10 * MIN);
+    assert_eq!(tick(&f.state, &al, m, w), Some(LockReason::Sleep));
+    assert_eq!(lock_reasons(&f), ["sleep"]);
+}
+
+#[test]
+fn a_late_tick_is_a_suspend_too() {
+    // Windows-style: the monotonic clock kept running but no tick fired for two minutes.
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(15 * MIN), true, true), c.mono, c.wall);
+    let (m, w) = c.run(2 * MIN);
+    assert_eq!(tick(&f.state, &al, m, w), Some(LockReason::Sleep));
+}
+
+#[test]
+fn suspended_time_counts_as_idle_when_sleep_lock_is_off() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(Some(15 * MIN), false, true), c.mono, c.wall);
+    let (m, w) = c.suspend(10 * MIN);
+    assert_eq!(tick(&f.state, &al, m, w), None, "10 min < 15 min");
+    let (m, w) = c.suspend(6 * MIN);
+    assert_eq!(tick(&f.state, &al, m, w), Some(LockReason::Idle), "16 min asleep");
+}
+
+#[test]
+fn small_jitter_and_a_backwards_wall_clock_are_not_suspends() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(None, true, true), c.mono, c.wall);
+    let (m, w) = c.suspend(20 * S);
+    assert_eq!(tick(&f.state, &al, m, w), None, "under SLEEP_GAP");
+    c.wall -= 3600 * S; // NTP / user moved the clock back an hour
+    let (m, w) = c.run(TICK);
+    assert_eq!(tick(&f.state, &al, m, w), None);
+    assert_eq!(status(&f), VaultStatus::Unlocked);
+}
+
+#[test]
+fn set_policy_takes_effect_on_the_next_tick() {
+    let f = unlocked();
+    let mut c = Clock::new();
+    let al = AutoLock::new(policy(None, true, true), c.mono, c.wall);
+    assert_eq!(run_ticks(&f, &al, &mut c, 30 * MIN), None, "idle off");
+    al.set_policy(policy(Some(MIN), true, true));
+    let (m, w) = c.run(TICK);
+    assert_eq!(tick(&f.state, &al, m, w), Some(LockReason::Idle), "already idle 30 min");
+}
+
+#[test]
+fn no_vault_never_locks() {
+    let f = empty();
+    let c = Clock::new();
+    let al = AutoLock::new(policy(Some(MIN), true, true), c.mono, c.wall);
+    al.signal(LockEvent::Sleeping, c.mono);
+    assert_eq!(tick(&f.state, &al, c.mono + 10 * MIN, c.wall), None);
+}
+
+#[test]
+fn passive_commands_are_not_activity() {
+    for cmd in PASSIVE_COMMANDS {
+        assert!(!is_activity(cmd), "{cmd}");
+    }
+    for cmd in ["vault_unlock", "session_send", "tree_list", "autolock_set", "syslog_set", ""] {
+        assert!(is_activity(cmd), "{cmd}");
+    }
+}
+
+#[test]
+fn locked_payload_wire_shape() {
+    let p = LockedPayload { reason: LockReason::WindowHidden.as_str() };
+    assert_eq!(serde_json::to_string(&p).expect("json"), r#"{"reason":"window_hidden"}"#);
+}

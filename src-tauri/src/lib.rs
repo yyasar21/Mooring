@@ -18,6 +18,8 @@ macro_rules! test_util_pub {
 }
 
 test_util_pub!(clipboard, commands, dto, error, sessions, state);
+// ADR-0010: auto-lock wiring (clock, 5 s tick, focus, invoke hook).
+test_util_pub!(autolock);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 #[allow(dead_code)]
 mod keyring_store;
@@ -29,6 +31,7 @@ pub mod test_ssh_server;
 use tauri::Manager;
 
 use crate::commands::{audit, credential_copy, credentials, sessions as session_cmds, tree, vault};
+use crate::commands::autolock as autolock_cmds;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -45,10 +48,15 @@ pub fn run() {
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
             // the navigation and new-window guard (security review 2, M-4).
             navigation::create_main_window(app)?;
+            // ADR-0010: auto-lock clock + 5 s tick.
+            autolock::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        // ADR-0010: focus → window_hidden.
+        .on_window_event(autolock::on_window_event)
+        // ADR-0010: one hook touches the auto-lock clock before every command.
+        .invoke_handler(with_activity(tauri::generate_handler![
             vault::app_info,
             vault::vault_status,
             vault::vault_create,
@@ -83,7 +91,10 @@ pub fn run() {
             session_cmds::window_detach,
             audit::audit_tail,
             audit::audit_verify,
-        ])
+            // ADR-0010 (A1 exit): auto-lock + syslog mirror
+            autolock_cmds::autolock_get,
+            autolock_cmds::autolock_set,
+        ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");
     app.run(|handle, event| {
@@ -94,6 +105,16 @@ pub fn run() {
             }
         }
     });
+}
+
+/// Wrap the generated command dispatcher so every invoke first touches the auto-lock clock.
+fn with_activity<R: tauri::Runtime>(
+    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        autolock::on_invoke(&invoke);
+        handler(invoke)
+    }
 }
 
 /// Create the app data dir owner-only on unix (review M2): it holds the vault header, the audit
