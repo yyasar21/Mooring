@@ -61,6 +61,28 @@ pub fn clear_screenshot_unless_text(clipboard: &dyn Clipboard) -> Result<bool, C
 pub struct RemoteClipboard {
     inner: std::sync::Arc<dyn Clipboard>,
     last: std::sync::Arc<Mutex<Option<ValueDigest>>>,
+    guard: Option<RemoteGuard>,
+}
+
+/// Lock gate and audit for one session's clipboard (review 5 L-25).
+#[derive(Clone)]
+pub struct RemoteGuard {
+    /// Vault state.
+    pub ready: crate::state::Ready,
+    /// Audit log.
+    pub audit: std::sync::Arc<Mutex<mooring_audit::AuditLog>>,
+    /// Connection id for the entries.
+    pub connection: String,
+    /// `AppState::copied_credential`.
+    pub copied: std::sync::Arc<Mutex<Option<(ValueDigest, String)>>>,
+    /// Set after the first refused write of a locked period (one audit entry per period).
+    pub blocked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl RemoteGuard {
+    fn record(&self, event: mooring_audit::AuditEvent) {
+        crate::state::record_audit(&self.audit, event);
+    }
 }
 
 impl std::fmt::Debug for RemoteClipboard {
@@ -75,12 +97,33 @@ impl RemoteClipboard {
         inner: std::sync::Arc<dyn Clipboard>,
         last: std::sync::Arc<Mutex<Option<ValueDigest>>>,
     ) -> Self {
-        Self { inner, last }
+        Self { inner, last, guard: None }
+    }
+
+    /// Refuse remote writes while the vault is locked and audit offers (L-25).
+    #[must_use]
+    pub fn with_guard(mut self, guard: RemoteGuard) -> Self {
+        self.guard = Some(guard);
+        self
     }
 }
 
 impl Clipboard for RemoteClipboard {
+    /// Remote → local. Refused while the vault is locked (pastejacking behind the lock
+    /// screen); the first refusal of a locked period is audited `session_clipboard_blocked`.
     fn set(&self, text: &str) -> Result<(), ClipboardError> {
+        use std::sync::atomic::Ordering;
+        if let Some(g) = &self.guard {
+            if !g.ready.unlocked() {
+                if !g.blocked.swap(true, Ordering::Relaxed) {
+                    g.record(mooring_audit::AuditEvent::SessionClipboardBlocked {
+                        connection: g.connection.clone(),
+                    });
+                }
+                return Err(ClipboardError);
+            }
+            g.blocked.store(false, Ordering::Relaxed);
+        }
         self.inner.set(text)?;
         *self.last.lock().map_err(|_| ClipboardError)? = Some(digest(text));
         Ok(())
@@ -94,8 +137,25 @@ impl Clipboard for RemoteClipboard {
         self.inner.clear()
     }
 
+    /// Local → remote (`ClipboardOffer`). Nothing is offered while the vault is locked; each
+    /// offer is audited `session_clipboard_offer`, plus `credential_sent_to_remote` when the
+    /// text is the secret `credential_copy_*` placed.
     fn text(&self) -> Result<Option<Zeroizing<String>>, ClipboardError> {
-        self.inner.text()
+        let Some(g) = &self.guard else { return self.inner.text() };
+        if !g.ready.unlocked() {
+            return Ok(None);
+        }
+        let text = self.inner.text()?;
+        if let Some(t) = &text {
+            let connection = g.connection.clone();
+            let bytes = u64::try_from(t.len()).unwrap_or(u64::MAX);
+            g.record(mooring_audit::AuditEvent::SessionClipboardOffer { connection: connection.clone(), bytes });
+            let copied = g.copied.lock().ok().and_then(|c| c.clone());
+            if let Some((_, credential)) = copied.filter(|(d, _)| *d == digest(t)) {
+                g.record(mooring_audit::AuditEvent::CredentialSentToRemote { credential, connection });
+            }
+        }
+        Ok(text)
     }
 
     fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {

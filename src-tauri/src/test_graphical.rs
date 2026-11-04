@@ -33,6 +33,8 @@ pub struct FakeConn {
     pub trusted_once: Option<[u8; 32]>,
     pub options: ProtocolOptions,
     pub size: Size,
+    /// The clipboard the protocol crate would get (read for offers, written by the remote).
+    pub clipboard: crate::session_factory::SessionClipboard,
 }
 
 impl FakeConn {
@@ -140,6 +142,7 @@ impl SessionFactory for FakeFactory {
                 trusted_once: req.trusted_once,
                 options: req.options,
                 size: req.params.size,
+                clipboard: crate::session_factory::SessionClipboard(req.clipboard),
             };
             conns.send(conn).map_err(|_| IpcError::session_failed("test gone"))?;
             let s = FakeSession { events: erx, inputs: itx, audits, closed: None };

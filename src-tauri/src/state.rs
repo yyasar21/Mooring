@@ -110,6 +110,15 @@ pub struct Ready {
 }
 
 impl Ready {
+    /// Whether the vault is unlocked right now (L-25: no remote clipboard writes behind the
+    /// lock screen).
+    pub fn unlocked(&self) -> bool {
+        self.vault
+            .lock()
+            .ok()
+            .is_some_and(|v| v.as_ref().is_some_and(|v| v.state() == VaultState::Unlocked))
+    }
+
     /// Run `f` with an unlocked vault and the store bound to that vault. Binding happens on
     /// first use after unlock: a v1 header reports a nil id until its first password unlock
     /// upgrades it, so binding earlier would pin the store to nil (A1-QA-2).
@@ -159,6 +168,9 @@ pub struct AppState {
     /// Size of the last `session_screenshot` image put on the OS clipboard: cleared on vault
     /// lock and on exit when still there (remote screen content does not outlive a lock).
     pub screenshot_clipboard: Arc<Mutex<Option<(u32, u32)>>>,
+    /// Digest and credential id of the last secret `credential_copy_*` placed, so a
+    /// `ClipboardOffer` of that text is audited `credential_sent_to_remote` (L-25).
+    pub copied_credential: Arc<Mutex<Option<(ValueDigest, String)>>>,
 }
 
 /// Errors while loading state at startup.
@@ -218,6 +230,7 @@ impl AppState {
             picks: Picks::default(),
             remote_clipboard: Arc::new(Mutex::new(None)),
             screenshot_clipboard: Arc::new(Mutex::new(None)),
+            copied_credential: Arc::new(Mutex::new(None)),
         })
     }
 

@@ -67,7 +67,8 @@ pub fn severity(event: &AuditEvent) -> Severity {
         }
         AuditEvent::BecomeFailed { .. }
         | AuditEvent::CertRemoved { .. }
-        | AuditEvent::SessionWeakSecurity { .. } => Severity::Warning,
+        | AuditEvent::SessionWeakSecurity { .. }
+        | AuditEvent::CredentialSentToRemote { .. } => Severity::Warning,
         AuditEvent::ConnectionOptionsChanged { weakened: true, .. } => Severity::Warning,
         _ => Severity::Notice,
     }
@@ -218,6 +219,9 @@ mod tests {
         };
         assert_eq!(severity(&opts(true)), Severity::Warning);
         assert_eq!(severity(&opts(false)), Severity::Notice);
+        let sent =
+            AuditEvent::CredentialSentToRemote { credential: "k".into(), connection: "c".into() };
+        assert_eq!(severity(&sent), Severity::Warning);
     }
 
     #[test]

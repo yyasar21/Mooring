@@ -260,6 +260,26 @@ pub enum AuditEvent {
         /// Height in pixels.
         height: u32,
     },
+    /// The local clipboard text was offered to a remote session (`ClipboardOffer`, L-25).
+    SessionClipboardOffer {
+        /// Connection id.
+        connection: String,
+        /// UTF-8 bytes offered.
+        bytes: u64,
+    },
+    /// The offered text is a vault secret Mooring copied (`credential_copy_*`, L-25).
+    CredentialSentToRemote {
+        /// Credential id.
+        credential: String,
+        /// Connection id.
+        connection: String,
+    },
+    /// Remote clipboard writes were refused while the vault was locked (L-25); one entry per
+    /// locked period and session.
+    SessionClipboardBlocked {
+        /// Connection id.
+        connection: String,
+    },
     /// `session_set_view_only` toggled a session's view-only switch (ADR-0012 §IPC, L-26).
     SessionViewOnly {
         /// Connection id.

@@ -351,3 +351,32 @@ async fn vnc_tls_connect_records_the_tls_seen_marker() {
     assert!(KnownCerts::load(&path).expect("load").is_empty(), "a marker, not a pin");
     sess::close(&b.f.state, &ui.session_id).await.expect("close");
 }
+
+/// L-25: offers are audited (vault secrets as `credential_sent_to_remote`); the remote
+/// cannot write, and nothing is offered, while the vault is locked.
+#[tokio::test]
+async fn remote_clipboard_is_gated_by_the_lock_and_offers_are_audited() {
+    use mooring_core::clipboard::Clipboard as _;
+    let mut b = bench("rdp");
+    let (mut ui, conn) = open(&mut b).await;
+    conn.connected();
+    expect_kind(&mut ui, "connected").await;
+    crate::clipboard::Clipboard::set(&*b.f.clipboard, "copied-secret").expect("set");
+    *b.f.state.copied_credential.lock().expect("lock") =
+        Some((crate::clipboard::digest("copied-secret"), "cred-42".to_owned()));
+    assert_eq!(conn.clipboard.read_text().as_deref(), Some("copied-secret"));
+    let log = audit(&b);
+    assert!(log.contains(r#""event":"session_clipboard_offer""#) && log.contains(r#""bytes":13"#), "{log}");
+    assert!(log.contains(r#""event":"credential_sent_to_remote""#) && log.contains(r#""credential":"cred-42""#));
+    assert!(!log.contains("copied-secret"), "never the text");
+    assert!(conn.clipboard.write_text("from the remote"), "unlocked: written");
+
+    crate::commands::vault::lock(&b.f.state, None).expect("lock");
+    assert!(!conn.clipboard.write_text("pastejack"), "locked: refused");
+    assert!(!conn.clipboard.write_text("pastejack again"));
+    assert_ne!(b.f.clipboard.peek().as_deref(), Some("pastejack"));
+    assert_eq!(conn.clipboard.read_text(), None, "nothing offered while locked");
+    let log = audit(&b);
+    assert_eq!(log.matches(r#""event":"session_clipboard_blocked""#).count(), 1, "{log}");
+    assert_eq!(log.matches(r#""event":"session_clipboard_offer""#).count(), 1, "{log}");
+}

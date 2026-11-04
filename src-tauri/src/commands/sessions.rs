@@ -139,7 +139,14 @@ async fn graphical(
 ) -> IpcResult<GraphicalTask> {
     let cert = if protocol == Protocol::Vnc { CertProtocol::Vnc } else { CertProtocol::Rdp };
     let clipboard =
-        RemoteClipboard::new(Arc::clone(&state.settings.clipboard), Arc::clone(&state.remote_clipboard));
+        RemoteClipboard::new(Arc::clone(&state.settings.clipboard), Arc::clone(&state.remote_clipboard))
+            .with_guard(crate::clipboard::RemoteGuard {
+                ready: state.ready(),
+                audit: Arc::clone(&state.audit),
+                connection: connection_id.clone(),
+                copied: Arc::clone(&state.copied_credential),
+                blocked: Arc::default(),
+            });
     let launcher = Launcher {
         ready: state.ready(),
         factory: Arc::clone(&state.settings.graphical),

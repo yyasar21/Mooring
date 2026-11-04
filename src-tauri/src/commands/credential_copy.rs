@@ -48,7 +48,7 @@ fn text(bytes: &[u8]) -> IpcResult<Zeroizing<String>> {
 
 /// Put `value` on the clipboard and schedule the clear after `delay`. Must run inside a Tokio
 /// runtime.
-fn place(state: &AppState, value: &str, delay: Duration) -> IpcResult<()> {
+fn place(state: &AppState, credential: &str, value: &str, delay: Duration) -> IpcResult<()> {
     let clipboard = Arc::clone(&state.settings.clipboard);
     clipboard
         .set(value)
@@ -56,6 +56,9 @@ fn place(state: &AppState, value: &str, delay: Duration) -> IpcResult<()> {
     let expected = clipboard::digest(value);
     if let Ok(mut pending) = state.pending_clipboard.lock() {
         *pending = Some(expected);
+    }
+    if let Ok(mut copied) = state.copied_credential.lock() {
+        *copied = Some((expected, credential.to_owned()));
     }
     tokio::spawn(clear_later(clipboard, Arc::clone(&state.pending_clipboard), expected, delay));
     Ok(())
@@ -79,7 +82,7 @@ pub fn copy_secret(state: &AppState, id: &str, name: &str) -> IpcResult<CopyResu
     let value = text(&secret)?;
     drop(secret);
     let delay = state.settings.clipboard_clear_after;
-    place(state, &value, delay)?;
+    place(state, &cred.to_string(), &value, delay)?;
     drop(value);
     state.audit(AuditEvent::CredentialCopied { credential: cred.to_string(), name: name.as_str().to_owned() });
     Ok(CopyResult { clears_in_ms: ms(delay) })
@@ -109,7 +112,7 @@ pub fn copy_otp_at(state: &AppState, id: &str, now: SystemTime) -> IpcResult<Otp
         Ok(otp::totp_now(&seed, params, unix_ms))
     })?;
     let delay = state.settings.clipboard_clear_after.min(Duration::from_millis(valid_for));
-    place(state, &code, delay)?;
+    place(state, &cred.to_string(), &code, delay)?;
     drop(code);
     state.audit(AuditEvent::CredentialCopied { credential: cred.to_string(), name: "otp".to_owned() });
     Ok(OtpCopyResult { clears_in_ms: ms(delay), valid_for_ms: valid_for })
