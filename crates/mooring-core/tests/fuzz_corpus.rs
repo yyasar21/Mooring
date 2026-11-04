@@ -1,9 +1,11 @@
-//! Stable replay of the `kubeconfig_parse`, `kubeconfig_resolve`, `external_ref_parse`,
+//! Stable replay of the `kubeconfig_parse`, `kubeconfig_resolve`, `external_ref_parse`, `jwt_exp_peek`,
 //! `mfr1_decode` and `known_certs_parse` fuzz corpora and crash regressions through the same
 //! entry points the cargo-fuzz targets use (docs/qa/fuzzing.md).
 
 #[path = "../../../fuzz/entries/external_ref_parse.rs"]
 mod external_ref_parse;
+#[path = "../../../fuzz/entries/jwt_exp_peek.rs"]
+mod jwt_exp_peek;
 #[path = "../../../fuzz/entries/known_certs.rs"]
 mod known_certs;
 #[path = "../../../fuzz/entries/kubeconfig.rs"]
@@ -182,4 +184,23 @@ fn kubeconfig_resolve_seeds_split_accept_and_refuse() {
 #[test]
 fn external_ref_parse_corpus() {
     assert!(replay::replay("external_ref_parse", external_ref_parse::run) >= 1);
+}
+
+#[test]
+fn jwt_exp_peek_corpus() {
+    assert!(replay::replay("jwt_exp_peek", jwt_exp_peek::run) >= 2);
+}
+
+/// The JWT seed must keep yielding its `exp`, or the fuzzer only explores the refusal branch.
+#[test]
+fn jwt_seed_has_an_exp() {
+    let read = |n: &str| {
+        String::from_utf8(
+            std::fs::read(replay::fuzz_dir().join("corpus").join("jwt_exp_peek").join(n))
+                .expect("seed"),
+        )
+        .expect("utf-8")
+    };
+    assert!(parser::peek_exp(read("jwt-exp").trim()).is_some());
+    assert!(parser::peek_exp(read("not-jwt").trim()).is_none());
 }

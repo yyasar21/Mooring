@@ -1,5 +1,5 @@
 //! Stable replay of the Kubernetes fuzz corpora (`kube_exec_frames`, `kube_log_sanitize`,
-//! `kube_portforward_frames`, `kube_guard_path`) and crash regressions through the same entry
+//! `kube_portforward_frames`, `kube_guard_path`, `kube_pod_list_json`) and crash regressions through the same entry
 //! points the cargo-fuzz targets use (docs/qa/fuzzing.md).
 
 #[path = "../../../fuzz/entries/kube_exec_frames.rs"]
@@ -8,6 +8,8 @@ mod kube_exec_frames;
 mod kube_guard_path;
 #[path = "../../../fuzz/entries/kube_log_sanitize.rs"]
 mod kube_log_sanitize;
+#[path = "../../../fuzz/entries/kube_pod_list_json.rs"]
+mod kube_pod_list_json;
 #[path = "../../../fuzz/entries/kube_portforward_frames.rs"]
 mod kube_portforward_frames;
 #[path = "../../../fuzz/entries/replay.rs"]
@@ -66,4 +68,9 @@ fn portforward_seed_reaches_data() {
 #[test]
 fn kube_guard_path_corpus() {
     assert!(replay::replay("kube_guard_path", kube_guard_path::run) >= 6);
+}
+
+#[test]
+fn kube_pod_list_json_corpus() {
+    assert!(replay::replay("kube_pod_list_json", kube_pod_list_json::run) >= 1);
 }

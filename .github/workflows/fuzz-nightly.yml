@@ -70,10 +70,10 @@ jobs:
           - http_certificate_info
           - http_response_headers
           - http_json_body
-          # Still gated no-op stubs (docs/qa/fuzzing.md "A3 targets", Q2 handoff "Decision
-          # needed"): the parser is not reachable from the fuzz crate; "Stub notice" flags them.
           - jwt_exp_peek
           - kube_pod_list_json
+          # Still a gated no-op stub (docs/qa/fuzzing.md "A3 targets"): the product parses no S3
+          # XML; "Stub notice" flags it.
           - s3_error_xml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

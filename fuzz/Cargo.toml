@@ -35,13 +35,10 @@ secrecy = { version = "0.10", features = ["serde"] }
 # same version as the root lockfile, no new crate in the tree.
 saphyr-parser = "=0.3.3"
 
-# Remaining A3 gates (docs/qa/fuzzing.md, "A3 targets"): the parser these targets need is not
-# reachable from this crate yet (Q2 handoff, "Decision needed"); without the gate the target is a
-# compiling no-op flagged by the nightly "Stub notice" step.
+# Remaining A3 gate (docs/qa/fuzzing.md, "A3 targets"): the product parses no S3 XML, so the
+# target stays a compiling no-op flagged by the nightly "Stub notice" step until an ADR drops it.
 [features]
-k2 = [] # jwt_exp_peek: `peek_exp` lives in src-tauri (mooring-app), not reachable without the WebView toolchain
-k3 = [] # kube_pod_list_json: `PodIn` is pub(crate); needs `mooring_proto_kube::fuzz::fuzz_pod_list_json`
-s1 = [] # s3_error_xml: the product parses no S3 XML (rusty-s3 presign + raw PUT/GET/HEAD/DELETE only)
+s1 = [] # s3_error_xml: rusty-s3 presign + raw PUT/GET/HEAD/DELETE only
 
 [[bin]]
 name = "known_hosts_parse"

@@ -106,6 +106,8 @@ branch).
 | `http_certificate_info` | `http_certificate_info.rs` | `mooring_http::fuzz::fuzz_certificate_info` | 0011 / 0014 §3 | mooring-http |
 | `http_response_headers` | `http_response_headers.rs` | `mooring_http::fuzz::fuzz_response_headers` (`[selector, value]`) | 0014 §4 | mooring-http |
 | `http_json_body` | `http_json_body.rs` | `mooring_http::fuzz::fuzz_json_body` (`decode_json`) | 0014 §4 | mooring-http |
+| `jwt_exp_peek` | `jwt_exp_peek.rs` | `mooring_core::credential::kubeconfig::peek_exp` | 0014 §3 | mooring-core |
+| `kube_pod_list_json` | `kube_pod_list_json.rs` | `mooring_proto_kube::fuzz::fuzz_pod_list_json` | 0014 §5 | mooring-proto-kube |
 
 Selector-prefixed targets take the first byte as the model / header selector and the rest as
 the body (see the crate's `fuzz.rs`); their seeds carry that byte. `sync_blob_parse` seeds
@@ -113,16 +115,13 @@ include the committed `test-vectors/blob-v1.hex` blob so the fuzzer starts past 
 checks. The seed under `http_certificate_info` is a throwaway self-signed EC certificate for
 `k.example.test` (no key is committed; kubeconfig seeds use token auth for the same reason).
 
-### Still gated (no-op stubs)
+### Still gated (no-op stub)
 
-Three targets remain a compiling no-op behind a fuzz-crate feature because the parser is not
-reachable from `fuzz/`; the nightly "Stub notice" step flags them. Each needs a one-line change
-from rust-core (Q2 handoff, "Decision needed"):
+One target remains a compiling no-op behind a fuzz-crate feature; the nightly "Stub notice"
+step flags it.
 
 | Target | Gate | Blocker |
 | --- | --- | --- |
-| `jwt_exp_peek` | `k2` | `peek_exp` lives in `src-tauri/src/commands/kube_jwt.rs` (`mooring-app`, needs the WebView toolchain). Move it to `mooring_core::credential::kubeconfig::peek_exp`. |
-| `kube_pod_list_json` | `k3` | `browse::PodIn` / `List<T>` are `pub(crate)`. Add `pub fn fuzz_pod_list_json(&[u8])` to `mooring-proto-kube/src/fuzz.rs`. |
 | `s3_error_xml` | `s1` | `mooring-sync` parses no XML (presigned PUT/GET/HEAD/DELETE only, errors from status + `ETag`). Keep gated until a listing / error-body parser exists, or drop the target in the ADR. |
 
 To activate one: run `cargo check --bins --features <gate>` in `fuzz/`, fix the call, add the

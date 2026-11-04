@@ -1,5 +1,4 @@
-// cargo-fuzz target `jwt_exp_peek`; the logic is in `entries/jwt_exp_peek.rs`, shared with the stable
-// corpus replay. PENDING: a no-op until the `k2` feature gate is enabled (docs/qa/fuzzing.md).
+// cargo-fuzz target `jwt_exp_peek`; the logic is in `entries/jwt_exp_peek.rs`, shared with the stable corpus replay.
 // `fuzz_target!` expands to a `#[no_mangle]` export, so the crate cannot carry the workspace's
 // crate-level `forbid(unsafe_code)`; the entry module still does.
 #![no_main]
