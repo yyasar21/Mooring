@@ -283,3 +283,21 @@ async fn consoles_client_plan_and_vmrc_opt_in() {
     assert!(log.contains("vsphere_console") && !log.contains("cst-"), "ticket never audited");
     read_only(&vc);
 }
+
+/// Review 6 N-39: the vSphere Client window build path hides the window when the vault locked
+/// while it was being opened (both the fresh build and the reopen call `post_open`).
+#[test]
+fn client_window_post_open_hides_when_locked() {
+    let f = unlocked();
+    let hidden = std::cell::Cell::new(0);
+    let hide = || {
+        hidden.set(hidden.get() + 1);
+        Ok(())
+    };
+    assert!(!vsphere_console::post_open(&f.state, "web-x", hide), "unlocked: visible");
+    assert_eq!(hidden.get(), 0);
+    crate::commands::vault::lock(&f.state, None).expect("lock");
+    assert!(vsphere_console::post_open(&f.state, "web-x", hide), "locked: hidden");
+    assert_eq!(hidden.get(), 1);
+    assert!(vsphere_console::post_open(&f.state, "web-x", || Err("gone".to_owned())), "a failed hide still reports the lock");
+}
