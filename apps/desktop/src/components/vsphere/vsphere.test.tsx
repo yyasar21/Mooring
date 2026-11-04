@@ -323,7 +323,7 @@ describe("vSphere · sync status panel", () => {
     const panel = () => within(details()).getByRole("region", { name: "Inventory sync" });
     expect(panel()).toHaveTextContent("Refreshedjust now");
     expect(panel()).toHaveTextContent(/Nextabout in (59|60) min \(every 60 min\)/);
-    expect(panel()).toHaveTextContent("The vCenter certificate is not trusted yet. Run Refresh now to review and trust it; the scheduler cannot ask.");
+    expect(panel()).toHaveTextContent("The server's certificate is not trusted yet. Run Refresh now or Sync now to review and trust it; background runs cannot ask.");
 
     fireEvent.click(within(panel()).getByRole("button", { name: "Refresh now" }));
     await settle();

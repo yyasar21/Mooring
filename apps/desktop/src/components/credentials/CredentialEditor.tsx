@@ -21,7 +21,8 @@ import {
   type SecretMode,
 } from "./formModel";
 import { AccountField, DerivedReadout, KindBadge, MatrixStrip, OtpSection, PlainField, SecretField } from "./fields";
-import { KIND_BLURB, PROVIDERS } from "./kindMeta";
+import { ExternalRefSection } from "./ExternalRefSection";
+import { KIND_BLURB } from "./kindMeta";
 import { usePublicKeyFingerprint } from "./usePublicKeyFingerprint";
 
 const PRIVATE_KEY = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
@@ -78,7 +79,7 @@ export function CredentialEditor({
   };
   const read = (name: string) => inputs.current.get(name)?.value ?? "";
 
-  const problems = useMemo(() => validate(schema, s, meta), [schema, s, meta]);
+  const problems = useMemo(() => validate(schema, s, meta, kinds), [schema, s, meta, kinds]);
   const acct = accountField(schema);
   const pubFp = usePublicKeyFingerprint(s.values.public_key ?? "");
 
@@ -190,7 +191,6 @@ export function CredentialEditor({
   }
 
   const show = (name: string) => (tried ? problems[name] : undefined);
-  const provider = PROVIDERS.find((p) => p.value === s.values.provider);
   const legacyAccount = editing && schema.kind === "user_password" && looksLikeDomainAccount(s.values.username ?? "");
 
   return (
@@ -234,12 +234,6 @@ export function CredentialEditor({
             a connection can override both.
           </p>
         )}
-        {schema.kind === "external_ref" && (
-          <p className="kind-note" role="note">
-            Only the reference is stored. Resolving it from {provider?.label ?? "the provider"} arrives in a later release;
-            until then, connecting with it reports that the kind is not supported yet.
-          </p>
-        )}
         {legacyAccount && (
           <div className="kind-note flex items-center gap-3" role="note">
             <span className="flex-1">
@@ -256,7 +250,11 @@ export function CredentialEditor({
           </div>
         )}
 
-        {(acct || plainFields(schema).length > 0) && <section className="space-y-3">
+        {schema.kind === "external_ref" && (
+          <ExternalRefSection schema={schema} kinds={kinds} s={s} meta={meta} tried={tried} problems={problems} setValue={setValue}
+            setFieldMap={(fieldMap) => { set({ fieldMap }); }} />
+        )}
+        {schema.kind !== "external_ref" && (acct || plainFields(schema).length > 0) && <section className="space-y-3">
           <HudLabel>{acct || schema.fields.some((f) => !f.secret && /^(username|user|upn)$/.test(f.name)) ? "Account" : "Settings"}</HudLabel>
           <div className="cred-grid">
             {acct && (

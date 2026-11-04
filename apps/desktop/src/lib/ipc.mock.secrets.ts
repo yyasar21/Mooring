@@ -1,50 +1,59 @@
-// Mock ADR-0016 secret sources (Vault / OpenBao KV v2) and ADR-0017 vault sync. No Vault or
-// bucket exists: sources and the sync config live in memory, `external_ref_test` answers from a
-// fake KV, tokens and secret values never exist at all. The OIDC window is simulated by a timer.
-// Methods stay `async` to mirror the IPC signature even when they do not await.
+// Mock ADR-0016 secret sources (Vault / OpenBao KV v2) as rust-core E2 serves them. No Vault
+// exists: sources live in memory, `credential_external_test` answers from a fake KV that holds key
+// NAMES only, tokens and secret values never exist at all. The OIDC window is simulated by a timer
+// and the `oidcOutcome` knob. Methods stay `async` to mirror the IPC signature even when they do
+// not await.
 /* eslint-disable @typescript-eslint/require-await */
-import type {
-  CredentialMeta,
-  SecretSource,
-  SecretSourceInput,
-  SecretsIpc,
-  SyncConfig,
-  SyncIpc,
-  SyncStatus,
-  OidcStatus,
-} from "./ipc.types";
-import { SECRET_AUTH_METHODS } from "./ipc.types.secrets";
+import type { CredentialMeta, ExternalRefTest, OidcFailure, OidcStatus, SecretSource, SecretSourceInput, SecretsIpc } from "./ipc.types";
 import { IpcError } from "./ipc.error";
-import { MockVsphereBase } from "./ipc.mock.vsphere";
-import { checkCaPem, checkUrl } from "./validate.options";
+import { KIND_SCHEMAS } from "./ipc.kinds";
+import { MockSyncBase } from "./ipc.mock.sync";
+import { T0 } from "./ipc.seed";
+import { checkReference, validateSecretSource } from "./validate.secrets";
 
-const LOOPBACK_HTTP = /^http:\/\/(127\.0\.0\.1|\[::1\])(:\d{1,5})?(\/|$)/;
-const REFERENCE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)+$/;
-/** KV keys the fake Vault holds per reference (names only). */
-const FAKE_KV: Record<string, string[]> = { "kv/ops/db": ["username", "password"], "kv/ops/ssh": ["username", "private_key"] };
+/** KV keys the fake Vault holds per reference (names only, never values). */
+const FAKE_KV: Record<string, string[]> = {
+  "kv/ops/db": ["username", "password"],
+  "kv/ops/ssh": ["username", "private_key", "passphrase"],
+  "kv/ops/legacy": ["user", "pass", "note"],
+};
 
-export abstract class MockSecretsBase extends MockVsphereBase implements SecretsIpc, SyncIpc {
-  sources = new Map<string, SecretSource>();
-  oidc = new Map<string, OidcStatus>();
-  syncConfig: SyncConfig | null = null;
-  syncState: SyncStatus = { lastPull: null, lastPush: null, counter: 0, state: "disabled", conflicts: [] };
-  /** Credentials the mock consults for `external_ref_test` and `source.in_use`. */
-  protected abstract credentialRows(): CredentialMeta[];
+interface OidcFlow extends OidcStatus { id: string }
+
+/** The seeded source: AppRole through the `cr-approle` credential. */
+export function seedSources(): SecretSource[] {
+  return [{
+    id: "src-ops", name: "ops vault", kind: "vault", address: "https://vault.example.test:8200", namespace: null, authMethod: "approle",
+    authMount: "approle", credentialId: "cr-approle", oidcRole: null, options: { caPem: null, allowHttp: false, allowedOrigins: [] },
+    createdAt: T0, updatedAt: T0,
+  }];
+}
+
+export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc {
+  sources = new Map<string, SecretSource>(seedSources().map((s) => [s.id, s]));
+  /** OIDC flows by session id. */
+  oidc = new Map<string, OidcFlow>();
+  /** How a simulated OIDC sign-in ends (`done`, or a failure reason). */
+  oidcOutcome: "done" | OidcFailure = "done";
   private srcIds = 0;
+  private oidcIds = 0;
+  protected abstract override credentialRows(): CredentialMeta[];
 
-  private checkSource(a: SecretSourceInput): void {
-    const name = a.name.trim();
-    if (name === "" || name.length > 200) throw new IpcError("input.invalid", "invalid name: 1 to 200 characters");
-    const http = a.address.startsWith("http://");
-    if (http && !(a.options.allowHttp && LOOPBACK_HTTP.test(a.address))) throw new IpcError("input.invalid", "invalid address: https only (http for loopback with allowHttp)");
-    if (!http && checkUrl(a.address, false, false)) throw new IpcError("input.invalid", "invalid address");
-    if (!SECRET_AUTH_METHODS.includes(a.authMethod)) throw new IpcError("input.invalid", "invalid authMethod");
-    if (!/^[A-Za-z0-9._-]{1,128}$/.test(a.authMount)) throw new IpcError("input.invalid", "invalid authMount");
-    if (a.authMethod === "oidc" ? a.oidcRole === null || a.credentialId !== null : a.credentialId === null) {
-      throw new IpcError("input.invalid", "invalid credentialId: token/approle need a credential, oidc a role");
+  private checkSource(a: SecretSourceInput): SecretSourceInput {
+    const errors = validateSecretSource(a);
+    const field = Object.keys(errors)[0];
+    if (field) throw new IpcError("input.invalid", `invalid ${field}`);
+    if (a.credentialId !== null) {
+      const cred = this.credentialRows().find((c) => c.id === a.credentialId);
+      if (!cred) throw new IpcError("credential.not_found", "credential not found");
+      const want = a.authMethod === "token" ? "api_token" : "vault_approle";
+      if (cred.kind !== want) throw new IpcError("credential.incompatible", `the ${a.authMethod} method needs a ${want} credential`);
     }
-    if (a.options.allowedOrigins.length > 16) throw new IpcError("input.invalid", "invalid allowedOrigins: at most 16");
-    if (checkCaPem(a.options.caPem)) throw new IpcError("input.invalid", "invalid caPem");
+    return {
+      ...structuredClone(a), name: a.name.trim(), address: a.address.trim().replace(/\/+$/, "").toLowerCase(),
+      namespace: a.namespace?.trim().replace(/^\/+|\/+$/g, "") || null, authMount: a.authMount.trim().replace(/^\/+|\/+$/g, "") || a.authMethod,
+      oidcRole: a.oidcRole?.trim() || null,
+    };
   }
 
   private source(id: string): SecretSource {
@@ -53,139 +62,141 @@ export abstract class MockSecretsBase extends MockVsphereBase implements Secrets
     return s;
   }
 
+  /** Mock rule: addresses under `.invalid` (RFC 6761) never answer. */
+  private down(s: SecretSource): boolean {
+    return s.address.includes(".invalid");
+  }
+
   secretSourceList: SecretsIpc["secretSourceList"] = async () => {
     await this.unlocked();
     return [...this.sources.values()].map((s) => structuredClone(s));
   };
 
+  secretSourceGet: SecretsIpc["secretSourceGet"] = async ({ id }) => {
+    await this.unlocked();
+    return structuredClone(this.source(id));
+  };
+
   secretSourceCreate: SecretsIpc["secretSourceCreate"] = async (a) => {
     await this.unlocked();
-    this.checkSource(a);
+    const v = this.checkSource(a);
     this.srcIds += 1;
     const now = new Date().toISOString();
-    const s: SecretSource = { ...structuredClone(a), name: a.name.trim(), id: `src-${this.srcIds.toString(16).padStart(4, "0")}`, kind: "vault", createdAt: now, updatedAt: now };
+    const s: SecretSource = { ...v, id: `src-${this.srcIds.toString(16).padStart(4, "0")}`, kind: "vault", createdAt: now, updatedAt: now };
     this.sources.set(s.id, s);
+    this.record("secret_source_changed", { source: s.id, changed: "created", warning: String(v.options.allowHttp || v.options.caPem !== null) });
     return structuredClone(s);
   };
 
   secretSourceUpdate: SecretsIpc["secretSourceUpdate"] = async ({ id, ...a }) => {
     await this.unlocked();
     const cur = this.source(id);
-    this.checkSource(a);
-    const changed = (Object.keys(a) as (keyof SecretSourceInput)[]).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(cur[k]));
-    Object.assign(cur, structuredClone(a), { name: a.name.trim(), updatedAt: new Date().toISOString() });
-    this.record("secret.source_changed", { source: id, changed: changed.join(",") });
+    const v = this.checkSource(a);
+    const changed = (Object.keys(v) as (keyof SecretSourceInput)[]).filter((k) => JSON.stringify(v[k]) !== JSON.stringify(cur[k]));
+    Object.assign(cur, v, { updatedAt: new Date().toISOString() });
+    this.record("secret_source_changed", { source: id, changed: changed.join(","), warning: String(changed.includes("options")) });
     return structuredClone(cur);
   };
 
   secretSourceDelete: SecretsIpc["secretSourceDelete"] = async ({ id }) => {
     await this.unlocked();
     this.source(id);
-    if (this.credentialRows().some((c) => c.kind === "external_ref" && c.fields.source === id)) throw new IpcError("source.in_use", "an external reference uses this source");
+    if (this.credentialRows().some((c) => c.kind === "external_ref" && c.fields.source === id)) {
+      this.record("secret_refused", { source: id, action: "delete", detail: "in use" });
+      throw new IpcError("source.in_use", "an external reference uses this source");
+    }
     this.sources.delete(id);
+    this.record("secret_source_changed", { source: id, changed: "deleted", warning: "false" });
   };
 
-  /** Mock rule: addresses under `.invalid` (RFC 6761) never answer. */
   secretSourceTest: SecretsIpc["secretSourceTest"] = async ({ id }) => {
     await this.unlocked();
     const s = this.source(id);
-    const down = s.address.includes(".invalid");
-    if (!down) this.record("secret.login", { source: id, method: s.authMethod, ttl: "3600" });
-    return { ok: !down, method: s.authMethod, ttlSeconds: down ? null : 3600, renewable: !down && s.authMethod !== "token", policiesCount: down ? 0 : 2, error: down ? "network" : null };
+    if (this.down(s)) {
+      this.record("secret_failed", { source: id, category: "network" });
+      return { ok: false, method: s.authMethod, ttlSeconds: null, renewable: false, policiesCount: 0, error: "credential.external_unavailable", category: "network" };
+    }
+    if (s.authMethod === "oidc" && ![...this.oidc.values()].some((f) => f.sourceId === id && f.state === "done")) {
+      return { ok: false, method: "oidc", ttlSeconds: null, renewable: false, policiesCount: 0, error: "credential.external_unavailable", category: "auth_failed" };
+    }
+    this.record("secret_login", { source: id, method: s.authMethod, ttl: "3600" });
+    return { ok: true, method: s.authMethod, ttlSeconds: 3600, renewable: s.authMethod !== "token", policiesCount: 2, error: null, category: null };
   };
 
-  secretSourceLogout: SecretsIpc["secretSourceLogout"] = async ({ id }) => {
-    await this.unlocked();
-    this.source(id);
-    this.record("secret.revoked", { source: id });
+  /** Works while locked: the token is revoked (AppRole/OIDC) or forgotten (token). */
+  secretSourceRevoke: SecretsIpc["secretSourceRevoke"] = async ({ id }) => {
+    const s = this.source(id);
+    for (const [sid, f] of this.oidc) if (f.sourceId === id) this.oidc.delete(sid);
+    if (s.authMethod !== "token") this.record("secret_revoked", { source: id });
   };
 
-  externalRefTest: SecretsIpc["externalRefTest"] = async ({ credentialId }) => {
+  credentialExternalTest: SecretsIpc["credentialExternalTest"] = async ({ credentialId }) => {
     await this.unlocked();
     const c = this.credentialRows().find((x) => x.id === credentialId);
     if (!c) throw new IpcError("credential.not_found", "credential not found");
     if (c.kind !== "external_ref") throw new IpcError("input.invalid", "invalid credentialId: not an external reference");
+    if (c.fields.provider !== "vault") throw new IpcError("credential.kind_unsupported", "only Vault references resolve in this release");
+    const src = typeof c.fields.source === "string" ? this.sources.get(c.fields.source) : undefined;
+    if (!src) throw new IpcError("source.not_found", "secret source not found");
+    const fail = (error: string, category: string): ExternalRefTest => {
+      this.record("secret_failed", { source: src.id, category });
+      return { ok: false, version: null, present: [], missing: [], extra: [], error, category };
+    };
+    if (this.down(src)) return fail("credential.external_unavailable", "network");
     const ref = typeof c.fields.reference === "string" ? c.fields.reference : "";
-    if (!REFERENCE.test(ref) || ref.split("/").includes("..")) return { ok: false, version: null, present: [], missing: [], error: "shape" };
+    if (checkReference(ref)) return fail("credential.external_shape", "shape");
     const keys = FAKE_KV[ref];
-    if (!keys) return { ok: false, version: null, present: [], missing: [], error: "not_found" };
-    return { ok: true, version: 3, present: [...keys], missing: [], error: null };
+    if (!keys) return fail("credential.external_not_found", "not_found");
+    const target = KIND_SCHEMAS.find((k) => k.kind === c.fields.target_kind);
+    if (!target) return fail("credential.external_shape", "shape");
+    const map = typeof c.fields.field_map === "object" && !Array.isArray(c.fields.field_map) ? (c.fields.field_map as Record<string, string>) : {};
+    const keyOf = (name: string) => map[name] ?? name;
+    const names = [...target.fields.map((f) => f.name), ...(target.supportsOtp ? ["otp_seed"] : [])];
+    const present = names.filter((n) => keys.includes(keyOf(n)));
+    const missing = target.fields.filter((f) => f.required && !keys.includes(keyOf(f.name))).map((f) => f.name);
+    const wanted = new Set(names.map(keyOf));
+    const extra = keys.filter((k) => !wanted.has(k));
+    const version = typeof c.fields.version === "number" ? c.fields.version : 3;
+    this.record("secret_resolved", { credential: c.id, source: src.id, reference: ref, version: String(version), target_kind: target.kind, fields: present.join(",") });
+    return { ok: missing.length === 0 && extra.length === 0, version, present, missing, extra, error: null, category: null };
   };
 
-  secretSourceOidcStart: SecretsIpc["secretSourceOidcStart"] = async ({ id }) => {
+  secretSourceOidcBegin: SecretsIpc["secretSourceOidcBegin"] = async ({ id }) => {
     await this.unlocked();
     const s = this.source(id);
     if (s.authMethod !== "oidc") throw new IpcError("input.invalid", "invalid id: not an OIDC source");
-    if (this.oidc.get(id)?.state === "waiting") throw new IpcError("input.invalid", "invalid id: a sign-in is already running");
-    this.oidc.set(id, { state: "waiting", error: null });
-    this.later(() => {
-      if (this.oidc.get(id)?.state !== "waiting") return;
-      this.oidc.set(id, { state: "done", error: null });
-      this.record("secret.login", { source: id, method: "oidc", ttl: "3600" });
-    });
-    return { windowLabel: `oidc-${id}` };
+    const running = [...this.oidc.values()].find((f) => f.sourceId === id && f.state === "pending");
+    if (running) return { sessionId: running.id, windowLabel: `oidc-${id}` };
+    if (this.down(s)) throw new IpcError("window.failed", "the identity provider did not answer");
+    this.oidcIds += 1;
+    const flow: OidcFlow = { id: `oidc-${this.oidcIds.toString(16).padStart(4, "0")}`, state: "pending", sourceId: id, error: null };
+    this.oidc.set(flow.id, flow);
+    this.later(() => { this.finishOidc(flow.id, this.oidcOutcome); });
+    return { sessionId: flow.id, windowLabel: `oidc-${id}` };
   };
 
-  secretSourceOidcStatus: SecretsIpc["secretSourceOidcStatus"] = async ({ id }) => {
-    this.source(id);
-    return { ...(this.oidc.get(id) ?? { state: "idle", error: null }) };
+  /** Test/dev hook: end a pending flow (the window closed, the vault locked, the IdP answered). */
+  finishOidc(sessionId: string, outcome: string): void {
+    const f = this.oidc.get(sessionId);
+    if (!f || f.state !== "pending") return;
+    if (outcome === "done") {
+      Object.assign(f, { state: "done", error: null });
+      this.record("secret_login", { source: f.sourceId, method: "oidc", ttl: "3600" });
+    } else {
+      Object.assign(f, { state: "failed", error: outcome });
+      this.record("secret_refused", { source: f.sourceId, action: "oidc", detail: outcome });
+    }
+  }
+
+  secretSourceOidcStatus: SecretsIpc["secretSourceOidcStatus"] = async ({ sessionId }) => {
+    const f = this.oidc.get(sessionId);
+    if (!f) throw new IpcError("session.not_found", "unknown OIDC session");
+    return { state: f.state, sourceId: f.sourceId, error: f.error };
   };
 
-  // ---------- sync (ADR-0017) ----------
-
-  syncGet: SyncIpc["syncGet"] = async () => {
-    await this.unlocked();
-    return this.syncConfig ? structuredClone(this.syncConfig) : null;
-  };
-
-  syncStatus: SyncIpc["syncStatus"] = async () => structuredClone(this.syncState);
-
-  syncSet: SyncIpc["syncSet"] = async (a) => {
-    await this.unlocked();
-    if (checkUrl(a.endpoint, false, false)) throw new IpcError("input.invalid", "invalid endpoint");
-    if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(a.bucket)) throw new IpcError("input.invalid", "invalid bucket");
-    if (a.prefix.length > 512 || a.prefix.includes("..")) throw new IpcError("input.invalid", "invalid prefix");
-    const cred = this.credentialRows().find((c) => c.id === a.credentialId);
-    if (!cred) throw new IpcError("credential.not_found", "credential not found");
-    this.syncConfig = { ...structuredClone(a), deviceId: this.syncConfig?.deviceId ?? "dev-0001" };
-    this.syncState = { ...this.syncState, state: "idle" };
-    this.record("sync.config_changed", { endpoint: a.endpoint });
-    return structuredClone(this.syncConfig);
-  };
-
-  /** Mock rule: endpoints under `.invalid` lack conditional writes. */
-  syncProbe: SyncIpc["syncProbe"] = async () => {
-    await this.unlocked();
-    if (!this.syncConfig) throw new IpcError("sync.not_configured", "save the sync settings first");
-    const ok = !this.syncConfig.endpoint.includes(".invalid");
-    return { conditionalWrites: ok, error: ok ? null : "the backend ignores If-None-Match" };
-  };
-
-  syncNow: SyncIpc["syncNow"] = async () => {
-    await this.unlocked();
-    if (!this.syncConfig) throw new IpcError("sync.not_configured", "save the sync settings first");
-    if (this.syncConfig.endpoint.includes(".invalid")) throw new IpcError("sync.unsupported_backend", "the backend has no conditional writes");
-    const now = new Date().toISOString();
-    this.syncState = { ...this.syncState, counter: this.syncState.counter + 1, lastPull: now, lastPush: now, state: "idle" };
-    this.record("sync.push", { counter: String(this.syncState.counter), bytes: "48211" });
-    return { pulled: true, pushed: true, merged: this.syncState.conflicts.length > 0, conflicts: structuredClone(this.syncState.conflicts) };
-  };
-
-  syncDisable: SyncIpc["syncDisable"] = async ({ deleteRemote }) => {
-    await this.unlocked();
-    if (!this.syncConfig) throw new IpcError("sync.not_configured", "sync is not configured");
-    this.syncConfig = null;
-    this.syncState = { lastPull: null, lastPush: null, counter: 0, state: "disabled", conflicts: [] };
-    this.record("sync.config_changed", { enabled: "false", delete_remote: String(deleteRemote) });
-  };
-
-  /** Only on a fresh device; the mock "finds" a vault unless the prefix is `empty`. */
-  vaultJoin: SyncIpc["vaultJoin"] = async (a) => {
-    if (this.vault !== "missing") throw new IpcError("vault.exists", "a vault already exists on this device");
-    if (a.password.length === 0) throw new IpcError("vault.unlock", "wrong password");
-    if (a.prefix === "empty") throw new IpcError("sync.not_found", "no vault under this prefix");
-    this.vault = "unlocked";
-    this.record("vault_unlocked", {});
-    return this.vault;
-  };
+  /** Every lock fails the open OIDC flows and forgets the tokens (E2 `on_lock`). */
+  protected override lockBackend(): void {
+    super.lockBackend();
+    for (const f of this.oidc.values()) if (f.state === "pending") Object.assign(f, { state: "failed", error: "locked" });
+  }
 }

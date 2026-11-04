@@ -101,7 +101,7 @@ describe("polled commands (M-8)", () => {
     }
     // The tracer works: the real pollers are found through their local helpers.
     const reached = new Set(all.flatMap((p) => p.commands));
-    expect([...reached].sort()).toEqual(["audit_verify", "forward_list", "kube_pods", "vsphere_status", "vsphere_vm_power"]);
+    expect([...reached].sort()).toEqual(["audit_verify", "forward_list", "kube_pods", "secret_source_oidc_status", "vsphere_status", "vsphere_vm_power"]);
   });
 
   it("maps every transport method to a command", () => {
@@ -122,8 +122,7 @@ describe("polled commands (M-8)", () => {
     kube_access: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
     kube_namespaces: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
     kube_pods: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
-    // vsphere_status / vsphere_vm_power: shipped by V2 (ADR-0015 §5), checked against ipc-passive.json.
-    sync_status: "S1 (ADR-0017 §5) adds it to PASSIVE_COMMANDS",
+    // vsphere_status / vsphere_vm_power (V2) and sync_status (S2) shipped; checked against ipc-passive.json.
   };
 
   for (const c of POLLED_COMMANDS) {

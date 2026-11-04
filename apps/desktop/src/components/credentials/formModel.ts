@@ -9,7 +9,8 @@
 //   fields `domain` and `form` and fills all three from one typed account;
 // - an `enum` field without `options` takes them from the derived list `contexts`;
 // - the TOTP slot (`otp_seed` secret + `otp` field) exists when `supportsOtp` is true.
-import type { CredentialFields, CredentialMeta, FieldSchema, KindSchema, OtpSettings } from "../../lib/ipc";
+import { isOtpSettings, type CredentialFields, type CredentialMeta, type FieldSchema, type KindSchema, type OtpSettings } from "../../lib/ipc";
+import { validateExternalRef, type ExternalRefDraft } from "../../lib/validate.secrets";
 import {
   OTP_SEED_SCHEMA,
   isAccountError,
@@ -41,6 +42,8 @@ export interface FormState {
   typedContexts: string[] | null;
   otpOn: boolean;
   otp: OtpSettings;
+  /** `external_ref` only (ADR-0016 §2): target field or secret name → KV key. */
+  fieldMap: Record<string, string>;
 }
 
 /** Reads a typed secret from its input at submit time. */
@@ -69,7 +72,10 @@ export function initialState(schema: KindSchema, meta?: CredentialMeta): FormSta
   const values: Record<string, string> = {};
   for (const f of schema.fields) if (!f.secret) values[f.name] = str(meta?.fields[f.name]);
   const otp = meta?.fields.otp;
-  const otpSettings = typeof otp === "object" && !Array.isArray(otp) ? otp : DEFAULT_OTP;
+  const otpSettings = isOtpSettings(otp) ? otp : DEFAULT_OTP;
+  const storedMap = meta?.fields.field_map;
+  const fieldMap = typeof storedMap === "object" && !Array.isArray(storedMap) && !isOtpSettings(storedMap) ? { ...storedMap } : {};
+  if (typeof meta?.fields.version === "number") values.version = String(meta.fields.version);
   const acct = accountField(schema);
   const user = acct ? (values[acct.name] ?? "") : "";
   const account =
@@ -85,7 +91,15 @@ export function initialState(schema: KindSchema, meta?: CredentialMeta): FormSta
     typedContexts: null,
     otpOn: meta?.secretNames.includes(OTP_SEED) ?? false,
     otp: { ...otpSettings },
+    fieldMap,
   };
+}
+
+/** Names an `external_ref` field map may rename: every field and secret of the target kind, plus the TOTP seed. */
+export function targetNames(kinds: KindSchema[], targetKind: string): string[] {
+  const t = kinds.find((k) => k.kind === targetKind);
+  if (!t) return [];
+  return [...t.fields.map((f) => f.name), ...(t.supportsOtp ? [OTP_SEED] : [])];
 }
 
 /** Apply a typed account: the split lands in user/domain/form, or they are emptied. */
@@ -139,10 +153,15 @@ export function secretActive(name: string, s: FormState, editing: boolean): bool
 
 export type Problems = Record<string, string>;
 
-export function validate(schema: KindSchema, s: FormState, meta?: CredentialMeta): Problems {
+export function validate(schema: KindSchema, s: FormState, meta?: CredentialMeta, kinds: KindSchema[] = []): Problems {
   const p: Problems = {};
   const editing = meta !== undefined;
   if (s.name.trim() === "") p.name = "Name is required.";
+  if (schema.kind === "external_ref") {
+    const v = s.values;
+    const d: ExternalRefDraft = { provider: v.provider ?? "", source: v.source ?? "", reference: v.reference ?? "", target_kind: v.target_kind ?? "", version: v.version ?? "", field_map: s.fieldMap };
+    return { ...p, ...validateExternalRef(d, targetNames(kinds, d.target_kind)) };
+  }
   const acct = accountField(schema);
   if (acct) {
     const r = parseAccount(s.account);
@@ -188,6 +207,14 @@ export function buildFields(schema: KindSchema, s: FormState): CredentialFields 
     if (v !== "") out[f.name] = v;
   }
   if (schema.supportsOtp && s.otpOn) out.otp = { ...s.otp };
+  if (schema.kind === "external_ref") {
+    // ADR-0016 §2 (E1): `version` travels as a number, `field_map` as an object; empty = omitted.
+    const v = (s.values.version ?? "").trim();
+    if (v !== "") out.version = Number(v);
+    const map: Record<string, string> = {};
+    for (const [k, val] of Object.entries(s.fieldMap)) if (val.trim() !== "") map[k] = val.trim();
+    if (Object.keys(map).length > 0) out.field_map = map;
+  }
   return out;
 }
 

@@ -52,12 +52,37 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "vsphere.vmrc_unavailable": "vCenter did not issue a VMware Remote Console ticket for this VM.",
   "vsphere.invalid": "vCenter answered with data Mooring could not read.",
   "vsphere.failed": "vCenter reported an error for this request.",
-  "http.trust_prompt": "The vCenter certificate is not trusted yet. Run Refresh now to review and trust it; the scheduler cannot ask.",
-  "http.trust_rejected": "You rejected the vCenter certificate, so Mooring did not connect. Nothing was stored.",
+  // ADR-0016 (E2): secret sources and external references.
+  "source.not_found": "That secret source no longer exists.",
+  "source.in_use": "A credential still references this source. Point those external references at another source or delete them first.",
+  "credential.in_use": "A secret source signs in with this credential. Change the source's credential first.",
+  "credential.external_unavailable": "Mooring could not fetch the secret from the source. Nothing is cached, so the connection was not attempted. Test the source in Settings → Secret sources.",
+  "credential.external_shape": "The secret exists but does not have the fields the target kind needs. Check the reference, the field map and the KV keys.",
+  "credential.external_not_found": "The secret, or the pinned version, does not exist (or was deleted) at that reference.",
+  "credential.external_root_token": "The source's token has the root policy. Mooring refuses root tokens; use a token or role with the policies it needs.",
+  "window.failed": "The sign-in window could not be opened.",
+  // ADR-0017 (S2): vault sync.
+  "sync.not_configured": "Vault sync is not configured. Set it up in Settings → Vault sync.",
+  "sync.in_progress": "A sync is already running. Wait for it to finish.",
+  "sync.cancelled": "You cancelled the confirmation, so nothing was changed.",
+  "sync.fork": "Two devices published the same generation (a fork). Choose which copy to keep in Settings → Vault sync.",
+  "sync.rollback": "The bucket holds an older generation than this device has seen. Nothing was applied; resolve it in Settings → Vault sync.",
+  "sync.conflict": "Another device pushed while this sync ran. Nothing was applied; run Sync now again.",
+  "sync.backend_unsupported": "Only S3-compatible storage is supported.",
+  "sync.unsupported_backend": "This storage does not honour conditional writes (If-None-Match / If-Match), which sync needs to detect concurrent pushes. Use AWS S3, MinIO or Ceph RGW.",
+  "sync.store_not_empty": "This device already holds data. Joining is only possible on a fresh device.",
+  "sync.wrong_vault": "The bucket does not hold a vault with that id under that prefix.",
+  "sync.tampered": "The synced blob failed verification. It was not applied.",
+  "sync.header_mismatch": "The synced vault's password changed on another device. Sync stops until this device adopts the new password.",
+  "sync.keyring_header": "Sync is not available while the vault is wrapped in the system keyring.",
+  "sync.too_large": "The vault is too large to sync (64 MiB limit).",
+  // Shared by the vCenter (ADR-0015) and sync (ADR-0017) HTTP clients.
+  "http.trust_prompt": "The server's certificate is not trusted yet. Run Refresh now or Sync now to review and trust it; background runs cannot ask.",
+  "http.trust_rejected": "You rejected the server's certificate, so Mooring did not connect. Nothing was stored.",
   "http.trust_mismatch":
-    "The vCenter certificate changed since you trusted it, so Mooring stopped. Confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and refresh again.",
+    "The server's certificate changed since you trusted it, so Mooring stopped. Confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and try again.",
   "http.trust_store": "Mooring could not read or write its certificate trust store.",
-  "http.tls": "The TLS handshake with vCenter failed.",
+  "http.tls": "The TLS handshake with the server failed.",
 };
 
 /** The friendly text for a bare error code (status fields carry codes, not messages). */

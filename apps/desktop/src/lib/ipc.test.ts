@@ -101,9 +101,9 @@ describe("MockTransport", () => {
     await expect(m.credentialCopyOtp({ id: "cr-ops" })).rejects.toMatchObject({ code: "credential.secret_missing" });
   });
 
-  it("serves all 15 kinds with English labels and the ADR matrix", async () => {
+  it("serves all 17 kinds with English labels and the ADR matrix", async () => {
     const kinds = await new MockTransport().credentialKinds();
-    expect(kinds.map((k) => k.kind).sort()).toHaveLength(15);
+    expect(kinds.map((k) => k.kind).sort()).toHaveLength(17);
     const of = (k: string) => kinds.find((x) => x.kind === k);
     expect(of("user_password")?.protocols).toContainEqual({ protocol: "rdp", roles: ["primary", "gateway"] });
     expect(of("sudo_become")?.protocols).toEqual([{ protocol: "ssh", roles: ["become"] }]);

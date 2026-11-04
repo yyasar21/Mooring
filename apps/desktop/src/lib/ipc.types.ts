@@ -109,10 +109,15 @@ export const CREDENTIAL_KINDS = [
   "prompt",
   "external_ref",
   "sudo_become",
+  // ADR-0016 §1 / ADR-0017 §4: consumer-only kinds (no protocol).
+  "vault_approle",
+  "s3_access_key",
 ] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 
-export type KindGroup = "Windows" | "SSH" | "VNC" | "Web/API" | "Kubernetes" | "vSphere" | "Other";
+export type KindGroup = "Windows" | "SSH" | "VNC" | "Web/API" | "Kubernetes" | "vSphere" | "Other" | "Secret sources" | "Sync";
+/** ADR-0016/0017: non-protocol uses of a credential (a Vault login, the sync access key). */
+export type KindConsumer = "secret_source" | "sync";
 export type CredentialRole = "primary" | "gateway" | "become";
 export type FieldFormat = "text" | "pem" | "base32" | "yaml" | "url" | "netbios_or_upn" | "upn" | "enum";
 
@@ -147,6 +152,8 @@ export interface KindSchema {
   label: string;
   group: KindGroup;
   protocols: KindProtocol[];
+  /** Omitted on the wire when empty. */
+  consumers?: KindConsumer[];
   supportsOtp: boolean;
   fields: FieldSchema[];
 }
@@ -160,8 +167,16 @@ export interface OtpSettings {
   algorithm: OtpAlgorithm;
 }
 
-/** Non-secret field values. `otp` holds the TOTP parameters; `contexts` is derived (names only). */
-export type FieldValue = string | string[] | OtpSettings;
+/**
+ * Non-secret field values. `otp` holds the TOTP parameters; `contexts` is derived (names only);
+ * `external_ref` stores `version` as a number and `field_map` as name → KV key (ADR-0016 §2).
+ */
+export type FieldValue = string | number | string[] | OtpSettings | Record<string, string>;
+
+/** The `otp` field value (other object values are the `external_ref` field map). */
+export function isOtpSettings(v: unknown): v is OtpSettings {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && typeof (v as { period?: unknown }).period === "number";
+}
 export type CredentialFields = Record<string, FieldValue>;
 
 export interface CredentialMeta {
