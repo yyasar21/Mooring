@@ -122,8 +122,7 @@ describe("polled commands (M-8)", () => {
     kube_access: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
     kube_namespaces: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
     kube_pods: "K4 (ADR-0014 §6) adds it to PASSIVE_COMMANDS",
-    vsphere_status: "V2 (ADR-0015 §5) adds it to PASSIVE_COMMANDS",
-    vsphere_vm_power: "V2 (ADR-0015 §5) adds it to PASSIVE_COMMANDS",
+    // vsphere_status / vsphere_vm_power: shipped by V2 (ADR-0015 §5), checked against ipc-passive.json.
     sync_status: "S1 (ADR-0017 §5) adds it to PASSIVE_COMMANDS",
   };
 
