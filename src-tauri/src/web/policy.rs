@@ -92,6 +92,11 @@ impl NavPolicy {
         if is_app_url(url, self.dev_url.as_ref()) {
             return block();
         }
+        // Review 5 N-31: every Tauri custom protocol is served at `<scheme>.localhost` on
+        // Windows (RFC 6761 zone); plain `localhost` is an ordinary host.
+        if url.host_str().is_some_and(mooring_core::options::is_localhost_subdomain) {
+            return block();
+        }
         match tuple_origin(url) {
             Some(origin) if self.allowed.contains(&origin) => Nav::Allow,
             _ => block(),

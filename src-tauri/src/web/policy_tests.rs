@@ -62,6 +62,10 @@ fn everything_else_is_blocked_with_origin_only() {
         ("http://tauri.localhost/", "http://tauri.localhost"),
         ("https://tauri.localhost/index.html", "https://tauri.localhost"),
         ("ipc://localhost/vault_unlock", "ipc:"),
+        // N-31: the whole RFC 6761 localhost zone is app surface on Windows.
+        ("https://ipc.localhost/vault_unlock", "https://ipc.localhost"),
+        ("http://ipc.localhost:8080/", "http://ipc.localhost:8080"),
+        ("https://a.b.localhost/", "https://a.b.localhost"),
         // non-http schemes.
         ("file:///etc/passwd", "file:"),
         ("javascript:alert(document.cookie)", "javascript:"),
@@ -101,10 +105,21 @@ fn dev_url_counts_as_app_origin() {
 
 #[test]
 fn app_origin_start_url_is_refused() {
-    for url in ["https://tauri.localhost/", "http://tauri.localhost/"] {
+    // N-31: `*.localhost` fails validation, before the policy is even built.
+    for url in ["https://tauri.localhost/", "http://tauri.localhost/", "https://ipc.localhost/"] {
         let e = NavPolicy::from_options(&opts(url, &[], true), None).expect_err(url);
-        assert_eq!(e.code, "web.origin_refused", "{url}");
+        assert_eq!(e.code, "input.invalid", "{url}");
     }
+    for allowed in ["https://ipc.localhost", "https://tauri.localhost"] {
+        let o = opts("https://console.example.test/", &[allowed], false);
+        assert_eq!(NavPolicy::from_options(&o, None).expect_err(allowed).code, "input.invalid");
+    }
+    // Plain `localhost` is an ordinary host (a local console over http with allowHttp).
+    let o = opts("http://localhost:8006/", &["http://localhost:8007"], true);
+    let (p, _) = NavPolicy::from_options(&o, None).expect("localhost");
+    assert_eq!(p.decide(&u("http://localhost:8007/x")), Nav::Allow);
+    assert!(matches!(p.decide(&u("http://ipc.localhost:8007/")), Nav::Block { .. }));
+    assert!(matches!(p.decide(&u("http://console.localhost:8006/")), Nav::Block { .. }));
 }
 
 #[test]
