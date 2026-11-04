@@ -26,6 +26,8 @@ test_util_pub!(autolock);
 test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_factory, session_task);
 // ADR-0013 (A2 R5): command ACL, web windows, detach routing, lock hiding.
 test_util_pub!(guard, route, web, window_lock);
+// ADR-0014 K4: Kubernetes cluster / exec sessions.
+test_util_pub!(kube_sessions);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -50,12 +52,16 @@ use crate::commands::{forward, sftp, sftp_pick, sftp_transfers};
 use crate::commands::{conn_options, known_certs, session_graphics};
 // ADR-0013 §IPC
 use crate::commands::{detach, web as web_cmds};
+// ADR-0014 K4
+use crate::commands::{kube, kube_logs};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
 ///
 /// # Panics
 /// Panics only if the Tauri runtime itself cannot start (no display, broken `WebView` install).
+// The `generate_handler!` list is one line per command (ADR-0014 K4 pushed it past 100).
+#[allow(clippy::too_many_lines)]
 pub fn run() {
     init_tracing();
     let app = tauri::Builder::default()
@@ -157,6 +163,16 @@ pub fn run() {
             web_cmds::web_zoom,
             web_cmds::web_list,
             detach::window_attach,
+            // ADR-0014 K4: Kubernetes (pod forwards go through forward_open kind "pod")
+            kube::kube_open,
+            kube::kube_access,
+            kube::kube_contexts,
+            kube::kube_namespaces,
+            kube::kube_pods,
+            kube::kube_pod,
+            kube::kube_exec_open,
+            kube_logs::kube_logs_open,
+            kube_logs::kube_logs_close,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

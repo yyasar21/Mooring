@@ -57,6 +57,12 @@ pub struct SessionInfo {
     pub state: &'static str,
     /// RFC 3339.
     pub opened_at: String,
+    /// ADR-0014 K4: `cluster` | `exec` for Kubernetes sessions, absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
+    /// ADR-0014 K4: the cluster session of an `exec` session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_session_id: Option<String>,
 }
 
 /// `session_open` for SSH (no frame channel); see [`open_with`].
@@ -249,6 +255,8 @@ pub fn list(state: &AppState) -> IpcResult<Vec<SessionInfo>> {
             protocol: h.protocol.name(),
             state: h.phase().as_str(),
             opened_at: h.opened_at.clone(),
+            kind: crate::kube_sessions::list_kind(&h.control).map(|k| k.0),
+            parent_session_id: crate::kube_sessions::list_kind(&h.control).and_then(|k| k.1),
         })
         .collect();
     out.sort_by(|a, b| a.opened_at.cmp(&b.opened_at).then(a.session_id.cmp(&b.session_id)));

@@ -84,4 +84,14 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("web_zoom", Scope::Main),
     ("web_list", Scope::Main),
     ("window_attach", Scope::Session),
+    // ADR-0014 K4: Kubernetes (main only; exec shells use session_send/close as above).
+    ("kube_open", Scope::Main),
+    ("kube_access", Scope::Main),
+    ("kube_contexts", Scope::Main),
+    ("kube_namespaces", Scope::Main),
+    ("kube_pods", Scope::Main),
+    ("kube_pod", Scope::Main),
+    ("kube_exec_open", Scope::Main),
+    ("kube_logs_open", Scope::Main),
+    ("kube_logs_close", Scope::Main),
 ];

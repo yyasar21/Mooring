@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kube-logs-open"
+description = "Enables the kube_logs_open command without any pre-configured scope."
+commands.allow = ["kube_logs_open"]
+
+[[permission]]
+identifier = "deny-kube-logs-open"
+description = "Denies the kube_logs_open command without any pre-configured scope."
+commands.deny = ["kube_logs_open"]

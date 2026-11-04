@@ -59,6 +59,10 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "session_frame_ack",
     // ADR-0013: polled by the web-session list (R5).
     "web_list",
+    // ADR-0014 K4: polled by the cluster browser.
+    "kube_access",
+    "kube_namespaces",
+    "kube_pods",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

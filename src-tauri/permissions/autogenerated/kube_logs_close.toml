@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kube-logs-close"
+description = "Enables the kube_logs_close command without any pre-configured scope."
+commands.allow = ["kube_logs_close"]
+
+[[permission]]
+identifier = "deny-kube-logs-close"
+description = "Denies the kube_logs_close command without any pre-configured scope."
+commands.deny = ["kube_logs_close"]

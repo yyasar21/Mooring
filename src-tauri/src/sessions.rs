@@ -208,6 +208,8 @@ pub enum Control {
     Ssh(SshControl),
     /// Frames of an RDP / VNC session.
     Graphical(GraphicalControl),
+    /// ADR-0014 K4: a Kubernetes cluster handle (no terminal) or an exec shell of one.
+    Kube(crate::kube_sessions::KubeRole),
 }
 
 /// Registry entry for one live session.
@@ -241,7 +243,7 @@ impl SessionHandle {
     pub fn ssh(&self) -> Option<&SshControl> {
         match &self.control {
             Control::Ssh(c) => Some(c),
-            Control::Graphical(_) => None,
+            _ => None,
         }
     }
 
@@ -249,7 +251,7 @@ impl SessionHandle {
     pub fn graphical(&self) -> Option<&GraphicalControl> {
         match &self.control {
             Control::Graphical(g) => Some(g),
-            Control::Ssh(_) => None,
+            _ => None,
         }
     }
 
@@ -356,6 +358,22 @@ pub fn spawn_graphical(
     let control = Control::Graphical(task.control());
     let meta = (control, ctx.connection_id.clone(), task.protocol(), opened_at, Arc::clone(&ctx.route));
     register(&registry, id, meta, move |rx, phase, _transfers| task.run(rx, ctx, phase))
+}
+
+/// ADR-0014 K4: register a Kubernetes cluster or exec session whose task the caller builds
+/// (`kube_sessions`).
+pub(crate) fn spawn_kube<F>(
+    registry: &SessionRegistry,
+    id: String,
+    meta: (Control, String, String, Arc<crate::route::Route>),
+    task: impl FnOnce(mpsc::Receiver<SessionCommand>, PhaseCell) -> F,
+) -> IpcResult<()>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let (control, connection_id, opened_at, route) = meta;
+    let meta = (control, connection_id, Protocol::Kubernetes, opened_at, route);
+    register(registry, id, meta, move |rx, phase, _transfers| task(rx, phase))
 }
 
 #[cfg(test)]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kube-access"
+description = "Enables the kube_access command without any pre-configured scope."
+commands.allow = ["kube_access"]
+
+[[permission]]
+identifier = "deny-kube-access"
+description = "Denies the kube_access command without any pre-configured scope."
+commands.deny = ["kube_access"]

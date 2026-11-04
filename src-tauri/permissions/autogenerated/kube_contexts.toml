@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kube-contexts"
+description = "Enables the kube_contexts command without any pre-configured scope."
+commands.allow = ["kube_contexts"]
+
+[[permission]]
+identifier = "deny-kube-contexts"
+description = "Denies the kube_contexts command without any pre-configured scope."
+commands.deny = ["kube_contexts"]
