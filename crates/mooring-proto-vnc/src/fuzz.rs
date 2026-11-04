@@ -92,7 +92,7 @@ fn dims(data: &[u8]) -> Option<(u16, u16, &[u8])> {
 /// decoded twice with one persistent stream.
 pub fn zrle(data: &[u8]) {
     let Some((w, h, payload)) = dims(data) else { return };
-    let mut z = flate2::Decompress::new(true);
+    let mut z = crate::decode::ZStream::new();
     for _ in 0..2 {
         if let Ok(px) = decode_zrle(&mut z, payload, w, h) {
             assert_eq!(px.len(), usize::from(w) * usize::from(h) * 4);

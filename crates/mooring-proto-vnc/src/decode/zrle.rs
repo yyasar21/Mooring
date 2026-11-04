@@ -2,7 +2,7 @@
 //! packed-palette, plain RLE or palette RLE. With our 32-bpp depth-24 format a CPIXEL is
 //! 3 bytes (R, G, B).
 
-use flate2::Decompress;
+use super::zlib::ZStream;
 
 use super::{inflate, put_cpixel, MAX_INFLATE};
 use crate::error::VncError;
@@ -44,7 +44,7 @@ fn run_length(r: &mut Rd<'_>, remaining: usize) -> Result<usize, VncError> {
 
 /// Decode a ZRLE rectangle. `data` is the zlib payload (after the u32 length). Returns RGBX
 /// pixels, `w·h·4` bytes.
-pub fn decode_zrle(z: &mut Decompress, data: &[u8], w: u16, h: u16) -> Result<Vec<u8>, VncError> {
+pub fn decode_zrle(z: &mut ZStream, data: &[u8], w: u16, h: u16) -> Result<Vec<u8>, VncError> {
     let (w, h) = (usize::from(w), usize::from(h));
     let raw = inflate(z, data, inflate_bound(w, h))?;
     let mut out = vec![0u8; w * h * 4];
@@ -143,7 +143,7 @@ mod tests {
 
     fn run(raws: &[&[u8]], w: u16, h: u16) -> Vec<Result<Vec<u8>, VncError>> {
         let mut c = Compress::new(Compression::default(), true);
-        let mut z = Decompress::new(true);
+        let mut z = ZStream::new();
         raws.iter().map(|raw| decode_zrle(&mut z, &zlib_chunk(&mut c, raw), w, h)).collect()
     }
 
@@ -213,7 +213,7 @@ mod tests {
             assert!(run(&[raw], 2, 2).remove(0).is_err(), "{raw:?}");
         }
         // Corrupt zlib.
-        let mut z = Decompress::new(true);
+        let mut z = ZStream::new();
         assert!(decode_zrle(&mut z, &[0xde, 0xad, 0xbe, 0xef], 2, 2).is_err());
     }
 
@@ -231,7 +231,7 @@ mod tests {
         fn never_panics(raw in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..600),
                         w in 0u16..80, h in 0u16..80) {
             let _ = run(&[&raw], w, h);
-            let mut z = Decompress::new(true);
+            let mut z = ZStream::new();
             let _ = decode_zrle(&mut z, &raw, w, h);
         }
     }

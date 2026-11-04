@@ -8,15 +8,16 @@
 //! length is checked against the tile; nothing panics.
 
 pub mod tight;
+pub mod zlib;
 pub mod zrle;
 
-use flate2::{Decompress, FlushDecompress, Status};
 use mooring_core::frame::{Cursor, Rect};
 
 use crate::error::VncError;
 use crate::messages::{enc, ext_desktop_screen, RectFrame};
 
 pub use tight::{decode_tight, TightOutput, TightStreams};
+pub use zlib::{inflate, ZStream};
 pub use zrle::decode_zrle;
 
 /// Largest zlib output for one rectangle (ADR-0012: 64 MiB).
@@ -73,18 +74,12 @@ pub enum RectOp {
 }
 
 /// The persistent decoder state of one RFB connection (reset on reconnect).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Decoders {
     /// The single ZRLE zlib stream.
-    pub zrle: Decompress,
+    pub zrle: ZStream,
     /// The four Tight zlib streams.
     pub tight: TightStreams,
-}
-
-impl Default for Decoders {
-    fn default() -> Self {
-        Self { zrle: Decompress::new(true), tight: TightStreams::default() }
-    }
 }
 
 impl Decoders {
@@ -186,44 +181,6 @@ pub fn decode_cursor(rect: Rect, data: &[u8]) -> Cursor {
     } else {
         Cursor::Default
     }
-}
-
-/// Inflate `input` on a persistent stream with a hard output cap. More than `limit` bytes of
-/// output is a protocol error (zlib bomb); so is corrupt data.
-pub fn inflate(z: &mut Decompress, input: &[u8], limit: usize) -> Result<Vec<u8>, VncError> {
-    const STEP: usize = 64 * 1024;
-    let bomb = || VncError::protocol("zlib output exceeds the cap");
-    let mut out: Vec<u8> = Vec::new();
-    let start_in = z.total_in();
-    let used = |z: &Decompress| usize::try_from(z.total_in() - start_in).unwrap_or(usize::MAX);
-    loop {
-        let u = used(z).min(input.len());
-        if out.len() == out.capacity() {
-            // Allow one byte past the limit so that "exactly limit" and "more" differ.
-            let room = (limit + 1).saturating_sub(out.len());
-            if room == 0 {
-                return Err(bomb());
-            }
-            out.reserve_exact(room.min(STEP.max(out.len())));
-        }
-        let before = (z.total_in(), z.total_out());
-        let status = z
-            .decompress_vec(&input[u..], &mut out, FlushDecompress::Sync)
-            .map_err(|_| VncError::protocol("corrupt zlib data"))?;
-        if out.len() > limit {
-            return Err(bomb());
-        }
-        let progressed = (z.total_in(), z.total_out()) != before;
-        let done_input = used(z) >= input.len();
-        if (done_input && out.len() < out.capacity()) || !progressed || status == Status::StreamEnd
-        {
-            break;
-        }
-    }
-    if used(z) < input.len() {
-        return Err(VncError::protocol("zlib stream ended early"));
-    }
-    Ok(out)
 }
 
 /// Write a 3-byte CPIXEL/TPIXEL (R, G, B in our format) as RGBX.

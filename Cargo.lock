@@ -3930,6 +3930,7 @@ dependencies = [
  "async-trait",
  "des",
  "flate2",
+ "miniz_oxide 0.9.1",
  "mooring-core",
  "mooring-testsrv",
  "proptest",

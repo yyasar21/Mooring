@@ -33,7 +33,7 @@ fn vnc_tight_corpus() {
 #[test]
 fn decoder_seeds_decode() {
     let z = seed("vnc_zrle", "solid");
-    let mut d = flate2::Decompress::new(true);
+    let mut d = mooring_proto_vnc::decode::ZStream::new();
     let px = mooring_proto_vnc::decode_zrle(&mut d, &z[2..], 4, 4).expect("zrle seed");
     assert_eq!(&px[..3], &[7, 8, 9]);
     let t = seed("vnc_tight", "fill");

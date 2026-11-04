@@ -5,7 +5,7 @@
 //! [`frame_len`] finds the rectangle's length without touching the zlib streams (the session
 //! needs it to know when the rectangle is fully buffered); [`decode_tight`] decodes it.
 
-use flate2::Decompress;
+use super::zlib::ZStream;
 
 use super::{inflate, put_cpixel, MAX_INFLATE};
 use crate::error::VncError;
@@ -18,11 +18,11 @@ pub const MAX_COMPACT: usize = 0x3F_FFFF;
 
 /// The four persistent Tight zlib streams.
 #[derive(Debug)]
-pub struct TightStreams(pub [Decompress; 4]);
+pub struct TightStreams(pub [ZStream; 4]);
 
 impl Default for TightStreams {
     fn default() -> Self {
-        Self(std::array::from_fn(|_| Decompress::new(true)))
+        Self(std::array::from_fn(|_| ZStream::new()))
     }
 }
 
@@ -113,7 +113,7 @@ pub fn decode_tight(
     let control = *data.first().ok_or_else(|| VncError::protocol("Tight data truncated"))?;
     for (i, z) in streams.0.iter_mut().enumerate() {
         if control & (1 << i) != 0 {
-            z.reset(true);
+            z.reset();
         }
     }
     let Parsed::Done(header, _) = parse_header(data, w, h)? else {

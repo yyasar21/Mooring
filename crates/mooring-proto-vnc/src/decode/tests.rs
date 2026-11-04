@@ -137,13 +137,13 @@ fn inflate_limits() {
     let mut c = Compress::new(Compression::default(), true);
     let mut z = Vec::with_capacity(4096);
     c.compress_vec(&[5u8; 1000], &mut z, FlushCompress::Sync).expect("z");
-    let mut d = Decompress::new(true);
+    let mut d = ZStream::new();
     assert_eq!(inflate(&mut d, &z, 1000).expect("exact").len(), 1000);
-    let mut d = Decompress::new(true);
+    let mut d = ZStream::new();
     assert!(inflate(&mut d, &z, 999).is_err());
-    let mut d = Decompress::new(true);
+    let mut d = ZStream::new();
     assert!(inflate(&mut d, &z[..z.len() / 2], 1000).expect("partial").len() < 1000);
-    let mut d = Decompress::new(true);
+    let mut d = ZStream::new();
     assert_eq!(inflate(&mut d, &[], 10).expect("empty"), Vec::<u8>::new());
 }
 
