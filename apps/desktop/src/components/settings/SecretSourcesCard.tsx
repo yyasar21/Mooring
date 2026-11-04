@@ -111,7 +111,7 @@ export function SecretSourcesCard() {
               const isBusy = busy === s.id;
               return (
                 <li key={s.id} className="source-row" aria-label={s.name}>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0">
                     <p className="trust-target">
                       <span className="text-text">{s.name}</span>
                       <span className="trust-names">{METHOD_LABEL[s.authMethod]}</span>
@@ -141,7 +141,7 @@ export function SecretSourcesCard() {
                     )}
                   </div>
                   {confirm === s.id && used > 0 && (
-                    <p className="settings-warn col-span-full" role="note">
+                    <p className="settings-warn" role="note">
                       {used} credential{used === 1 ? "" : "s"} still reference this source, so Mooring will refuse the deletion. Point them at another
                       source or delete them first.
                     </p>

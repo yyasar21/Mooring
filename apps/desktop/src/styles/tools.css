@@ -180,10 +180,11 @@
 .toggle-label { font-weight: 500; }
 
 /* settings: secret sources (ADR-0016) and vault sync (ADR-0017) */
-.source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 8px 10px; }
+.source-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
 .source-row + .source-row { border-top: 1px solid var(--line); }
 .source-row:hover { background: var(--accent-soft); }
-.source-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: 4px; max-width: 220px; }
+.source-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.source-actions .btn-danger:last-child { margin-left: auto; }
 .sync-status { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); background: var(--bg); }
 .sync-status[data-state="fork"], .sync-status[data-state="rollback"], .sync-status[data-state="error"] { border-color: var(--hot-line); }
 .sync-state { display: flex; align-items: center; gap: 8px; }
