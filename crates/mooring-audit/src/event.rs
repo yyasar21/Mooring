@@ -116,13 +116,19 @@ pub enum AuditEvent {
         /// Source id.
         source: String,
     },
-    /// A source was created, changed or deleted (`secret.source_changed`).
+    /// A source was created, changed or deleted (`secret.source_changed`). Field **names**
+    /// only (the fields actually set or changed, review 6 N-42); no values except the
+    /// SHA-256 fingerprints of a new `caPem`.
     SecretSourceChanged {
         /// Source id.
         source: String,
         /// Changed field names, or `created` / `deleted`.
         changed: Vec<String>,
-        /// `caPem` or `allowHttp` changed (a trust change).
+        /// `SHA256:<hex>` of every certificate in a new or changed `caPem`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ca_pem: Vec<String>,
+        /// `caPem` or `allowHttp` changed, or an `allowedOrigins` entry was added (a trust
+        /// change).
         warning: bool,
     },
     /// A secret-source action was refused (`secret.refused`: OIDC navigation, delete in use).

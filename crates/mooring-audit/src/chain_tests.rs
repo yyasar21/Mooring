@@ -296,6 +296,7 @@ fn secret_events_have_stable_wire_names() {
             AuditEvent::SecretSourceChanged {
                 source: s("s"),
                 changed: vec![s("caPem")],
+                ca_pem: vec![s("SHA256:00")],
                 warning: true,
             },
             "secret_source_changed",

@@ -92,7 +92,7 @@ fn changes(
 }
 
 /// `SHA256:<hex>` of each certificate block (validated as certificates-only on write).
-fn ca_fingerprints(pem: &str) -> Vec<String> {
+pub(crate) fn ca_fingerprints(pem: &str) -> Vec<String> {
     const END: &str = "-----END CERTIFICATE-----";
     pem.split_inclusive(END)
         .filter(|b| b.contains("-----BEGIN CERTIFICATE-----"))

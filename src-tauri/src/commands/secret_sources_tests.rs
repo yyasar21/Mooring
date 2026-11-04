@@ -35,9 +35,28 @@ async fn token_source_crud_and_test_never_return_the_token() {
     assert_eq!(u.name, "renamed");
     assert_eq!(st.secrets.engine().cache().len(), 0, "token forgotten on update");
     let changed = audit_rows(st, "secret_source_changed");
-    assert_eq!(changed[0]["changed"], json!(["created", "caPem", "allowHttp"]));
+    // N-42: only the fields actually set; a caPem is fingerprinted, never copied.
+    assert_eq!(changed[0]["changed"], json!(["created", "caPem"]));
+    assert_eq!(changed[0]["warning"], true);
     assert_eq!(changed[1]["changed"], json!(["name", "caPem"]));
     assert_eq!(changed[1]["warning"], true);
+    for row in &changed[..2] {
+        let fps = row["ca_pem"].as_array().expect("fingerprints");
+        assert_eq!(fps.len(), 1);
+        assert!(fps[0].as_str().expect("s").starts_with("SHA256:"), "{row}");
+    }
+    assert!(!serde_json::to_string(&changed).expect("json").contains("BEGIN CERTIFICATE"));
+    // An added allowedOrigins entry widens the OIDC window: warning; removing one does not.
+    let o = fx::oidc_source(st, &v);
+    let mut oidc = fx::source_json(&v, "oidc", None, Some("mooring"));
+    oidc["options"]["allowedOrigins"] = json!(["https://login.example.test"]);
+    update(st, &o.id, &oidc).await.expect("origins");
+    oidc["options"]["allowedOrigins"] = json!([]);
+    update(st, &o.id, &oidc).await.expect("origins removed");
+    let changed = audit_rows(st, "secret_source_changed");
+    assert_eq!((changed[3]["changed"].clone(), changed[3]["warning"].clone()), (json!(["allowedOrigins"]), json!(true)));
+    assert!(changed[3].get("ca_pem").is_none(), "unchanged caPem: no fingerprints");
+    assert_eq!((changed[4]["changed"].clone(), changed[4]["warning"].clone()), (json!(["allowedOrigins"]), json!(false)));
     assert_eq!(audit_rows(st, "secret_login")[0]["method"], "token");
 
     delete(st, &s.id).await.expect("delete");
