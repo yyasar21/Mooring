@@ -10,6 +10,30 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ### Added
 
+- **RDP sessions** on IronRDP: NLA/CredSSP with domain or plain credentials, TLS through
+  Mooring's own rustls verifier with certificate trust-on-first-use (hard stop on a changed
+  certificate), dynamic resolution, text clipboard both ways under a per-connection policy,
+  reconnect with backoff ([ADR-0011](docs/adr/0011-rdp-session.md)).
+- **VNC sessions** with an own RFB 3.8 client: VeNCrypt (X509) with the same trust store,
+  VNC auth, Raw/CopyRect/ZRLE/Tight (no JPEG), view-only, `prefer_tls`/`require_tls`
+  ([ADR-0012](docs/adr/0012-vnc-session.md)).
+- **Frame path**: Rust owns the framebuffer and streams dirty rectangles as binary messages
+  with credit-based back-pressure; the UI renders with WebGL2.
+- **Isolated web sessions**: one window per web connection with an empty capability, origin
+  allow-list, ephemeral storage by default, downloads and permission prompts denied; **detach
+  any session tab** into its own window with a six-command capability
+  ([ADR-0013](docs/adr/0013-web-sessions.md)).
+- Per-protocol connection options, a certificate trust dialog, a known-certificates manager,
+  screenshot to clipboard (cleared on lock), in-process RDP/RFB test servers and nine more
+  fuzz targets.
+
+### Security
+
+- Security review 5 ([docs/security/a2-review-5.md](docs/security/a2-review-5.md)): a
+  server-chosen desktop size was allocated before validation (B-5, fixed), VNC could be
+  downgraded to plaintext for CA-issued hosts (M-13, fixed), reassembly caps (M-14),
+  VNC zlib now decompresses in pure Rust (M-15). `tauri` is pinned to the reviewed release.
+
 - **Port forwarding in the app**: local, remote and dynamic (SOCKS5) forwards per SSH session
   from a Forwards panel; non-loopback binds require an explicit confirmation and are audited
   ([ADR-0010](docs/adr/0010-a1-exit-ipc.md)).

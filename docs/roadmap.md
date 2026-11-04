@@ -31,7 +31,7 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
 | Syslog mirror (RFC 5424 udp/tcp/tls, heartbeat) | ✅ |
 | Fuzz targets with a nightly job; Playwright E2E against the dev server with the mock transport | ✅ |
 
-## A2 — RDP, VNC and web sessions 🗓
+## A2 — RDP, VNC and web sessions ✅ (exit 2026-11-04; ADR-0011/0012/0013, review 5)
 
 - **RDP** via IronRDP: NLA/CredSSP, TLS with system and custom CA roots, certificate TOFU with
   explicit approval, dynamic resolution, text clipboard both ways, keyboard layouts, audio off

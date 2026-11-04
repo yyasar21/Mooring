@@ -20,7 +20,7 @@ test-util = ["dep:tempfile", "dep:russh", "dep:russh-sftp"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "=2.12.5", features = [] }  # ADR-0013 / review 5 L-32: pinned to the reviewed release; bumps go through Dependabot + review
 tauri-plugin-dialog = "2"  # ADR-0010 / review 4 B-4: native pickers opened from Rust only; the WebView gets no dialog:* permission
 mooring-core = { path = "../crates/mooring-core", version = "0.1.0-rc.1" }
 mooring-vault = { path = "../crates/mooring-vault", version = "0.1.0-rc.1" }
