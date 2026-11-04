@@ -65,6 +65,10 @@ pub fn severity(event: &AuditEvent) -> Severity {
         {
             Severity::Warning
         }
+        // ADR-0015 §3: a hard power-off / reset of a VM.
+        AuditEvent::VspherePower { action, .. } if action == "stop" || action == "reset" => {
+            Severity::Warning
+        }
         AuditEvent::BecomeFailed { .. }
         | AuditEvent::CertRemoved { .. }
         | AuditEvent::SessionWeakSecurity { .. }

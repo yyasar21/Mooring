@@ -11,7 +11,7 @@ use serde::Deserialize;
 #[derive(Debug, thiserror::Error)]
 pub enum VsphereError {
     /// Login refused, the session expired and re-login failed, or no credential is available
-    /// (vault locked). Code `vsphere.auth`.
+    /// (vault locked). Code `vsphere.auth_failed`.
     #[error("vCenter authentication failed")]
     Auth,
     /// The account lacks the privilege for this call (HTTP 403). Code `vsphere.forbidden`.
@@ -71,7 +71,7 @@ impl VsphereError {
     /// Stable machine code for IPC.
     pub fn code(&self) -> &'static str {
         match self {
-            Self::Auth => "vsphere.auth",
+            Self::Auth => "vsphere.auth_failed",
             Self::Forbidden => "vsphere.forbidden",
             Self::RateLimited { .. } => "vsphere.rate_limited",
             Self::NotFound => "vsphere.not_found",
@@ -197,7 +197,7 @@ mod tests {
         let doc =
             |t: &str| format!(r#"{{"error_type":"{t}","messages":[{{"default_message":"x"}}]}}"#);
         let code = |s, t: &str| status_error(s, doc(t).as_bytes(), None).code();
-        assert_eq!(code(401, "UNAUTHENTICATED"), "vsphere.auth");
+        assert_eq!(code(401, "UNAUTHENTICATED"), "vsphere.auth_failed");
         assert_eq!(code(403, "UNAUTHORIZED"), "vsphere.forbidden");
         assert_eq!(code(404, "NOT_FOUND"), "vsphere.not_found");
         assert_eq!(code(400, "NOT_ALLOWED_IN_CURRENT_STATE"), "vsphere.wrong_state");

@@ -218,6 +218,38 @@ fn graphical_session_events_have_stable_wire_names() {
         (AuditEvent::WebDataCleared { connection: s("c") }, "web_data_cleared"),
         (AuditEvent::SessionDetached { connection: s("c"), session: s("s") }, "session_detached"),
         (AuditEvent::SessionAttached { connection: s("c"), session: s("s") }, "session_attached"),
+        (
+            AuditEvent::VsphereSyncStarted { connection: s("c"), trigger: s("manual") },
+            "vsphere_sync_started",
+        ),
+        (
+            AuditEvent::VsphereSyncFinished {
+                connection: s("c"),
+                added: 1,
+                changed: 0,
+                missing: 0,
+                removed: 0,
+                ms: 3,
+            },
+            "vsphere_sync_finished",
+        ),
+        (
+            AuditEvent::VsphereSyncFailed { connection: s("c"), code: s("vsphere.failed") },
+            "vsphere_sync_failed",
+        ),
+        (
+            AuditEvent::VspherePower {
+                connection: s("c"),
+                vm: s("vm-1"),
+                action: s("stop"),
+                outcome: s("done"),
+            },
+            "vsphere_power",
+        ),
+        (
+            AuditEvent::VsphereConsole { connection: s("c"), vm: s("vm-1"), kind: s("vmrc") },
+            "vsphere_console",
+        ),
     ];
     for (e, name) in cases {
         let v = serde_json::to_value(&e).expect("json");

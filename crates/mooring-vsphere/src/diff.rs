@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::VsphereError;
 use crate::model::PowerState;
@@ -17,7 +17,7 @@ pub const DELETE_AFTER_MISSES: u8 = 2;
 pub type ExternalId = String;
 
 /// Tree level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemKind {
     /// Root level.
@@ -33,7 +33,8 @@ pub enum ItemKind {
 }
 
 impl ItemKind {
-    fn depth(self) -> u8 {
+    /// Tree depth: datacenter 0, cluster / standalone 1, host 2, VM 3.
+    pub fn depth(self) -> u8 {
         match self {
             Self::Datacenter => 0,
             Self::Cluster | Self::StandaloneHosts => 1,
@@ -53,8 +54,8 @@ impl ItemKind {
     }
 }
 
-/// One node of the snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// One node of the snapshot (V2 stores it as `sync_data` and reads it back).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InventoryItem {
     /// Stable key.
@@ -64,12 +65,16 @@ pub struct InventoryItem {
     /// Display name as vCenter reports it (bounded; the store sanitises).
     pub name: String,
     /// Parent's `external_id` (`None` for datacenters).
+    #[serde(default)]
     pub parent: Option<ExternalId>,
     /// VMs: power state from the list call.
+    #[serde(default)]
     pub power_state: Option<PowerState>,
     /// VMs: vCPUs.
+    #[serde(default)]
     pub cpu_count: Option<u32>,
     /// VMs: memory in MiB.
+    #[serde(default)]
     pub memory_mib: Option<u64>,
 }
 

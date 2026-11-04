@@ -8,8 +8,9 @@ use crate::diff::{Inventory, InventoryItem, ItemKind};
 use crate::error::VsphereError;
 use crate::ids::{MoId, Name};
 use crate::model::{
-    ClusterList, ClusterSummary, DatacenterList, DatacenterSummary, GuestIdentity, HostList,
-    HostSummary, PowerState, VmInfo, VmList, VmSummary, MAX_CLUSTERS, MAX_DATACENTERS, MAX_HOSTS,
+    ApplianceVersion, ClusterList, ClusterSummary, DatacenterList, DatacenterSummary,
+    GuestIdentity, HostList, HostSummary, PowerState, VmInfo, VmList, VmSummary, MAX_CLUSTERS,
+    MAX_DATACENTERS, MAX_HOSTS,
 };
 use crate::session::Session;
 
@@ -207,6 +208,11 @@ impl Session {
             Err(VsphereError::Unavailable) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// `GET /api/appliance/system/version` (`vsphere_test`).
+    pub async fn version(&self) -> Result<ApplianceVersion, VsphereError> {
+        self.get("/api/appliance/system/version").await
     }
 
     /// `GET /api/vcenter/vm/{vm}` and its guest identity.

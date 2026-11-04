@@ -5,8 +5,9 @@ use std::collections::BTreeSet;
 use mooring_core::{Connection, ConnectionId, FolderId, Role};
 use rusqlite::{params, OptionalExtension, Row};
 
-use crate::error::{invalid, not_found, Result};
+use crate::error::{invalid, not_found, Result, StoreError};
 use crate::folders::folder_exists;
+use crate::sync::{connection_source, ensure_folder_editable};
 use crate::util::{check_name, fmt_ts, now, parse_id, parse_opt_id, parse_ts, protocol_from_str};
 use crate::{Store, MAX_TAGS};
 
@@ -96,11 +97,31 @@ impl Store {
 }
 
 impl Store {
+    /// ADR-0015 §2: a synced connection keeps its folder, name, protocol, host and port (only
+    /// the overlays change); an ordinary connection may not move into a synced folder.
+    fn ensure_update_allowed(&self, c: &Connection, v: &Validated) -> Result<()> {
+        if connection_source(&self.conn, c.id)?.is_none() {
+            return ensure_folder_editable(&self.conn, c.folder);
+        }
+        let old = self.get_connection(c.id)?;
+        let same = old.folder == c.folder
+            && old.name == v.name
+            && old.host == v.host
+            && old.port == c.port
+            && old.protocol == c.protocol;
+        if same {
+            Ok(())
+        } else {
+            Err(StoreError::SyncedReadOnly)
+        }
+    }
+
     /// Insert a connection (validated again here; fields of `Connection` are public).
     /// Returns the stored form (trimmed name/host, normalised tags).
     pub fn create_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
         self.check_links(c, &v)?;
+        ensure_folder_editable(&self.conn, c.folder)?;
         let tx = self.conn.unchecked_transaction()?;
         let created = fmt_ts(c.created_at)?;
         tx.execute(
@@ -132,6 +153,7 @@ impl Store {
     pub fn update_connection(&self, c: &Connection) -> Result<Connection> {
         let v = validate(c)?;
         self.check_links(c, &v)?;
+        self.ensure_update_allowed(c, &v)?;
         let tx = self.conn.unchecked_transaction()?;
         let n = tx.execute(
             "UPDATE connection SET folder_id = ?2, name = ?3, protocol = ?4, host = ?5, port = ?6,
@@ -181,6 +203,9 @@ impl Store {
 
     /// Delete a connection and its tags.
     pub fn delete_connection(&self, id: ConnectionId) -> Result<()> {
+        if connection_source(&self.conn, id)?.is_some() {
+            return Err(StoreError::SyncedReadOnly);
+        }
         let n = self.conn.execute("DELETE FROM connection WHERE id = ?1", [id.to_string()])?;
         if n == 0 {
             return Err(not_found("connection", &id));

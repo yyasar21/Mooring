@@ -58,6 +58,7 @@ pub struct Session {
     relogin: tokio::sync::Mutex<()>,
     reauth: Option<CredentialSource>,
     pub(crate) power_in_flight: Mutex<std::collections::HashSet<crate::ids::MoId>>,
+    ticket_hosts: Mutex<Vec<String>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -160,6 +161,7 @@ impl VsphereClient {
             relogin: tokio::sync::Mutex::new(()),
             reauth: None,
             power_in_flight: Mutex::new(std::collections::HashSet::new()),
+            ticket_hosts: Mutex::new(Vec::new()),
         })
     }
 }
@@ -170,6 +172,23 @@ impl Session {
     pub fn with_reauth(mut self, source: CredentialSource) -> Self {
         self.reauth = Some(source);
         self
+    }
+
+    /// Extra host names a VMRC ticket may name: the DNS names of the vCenter certificate the
+    /// caller trusted for this session (at most 16, each a DNS name of at most 253 bytes).
+    pub fn allow_ticket_hosts(&self, hosts: impl IntoIterator<Item = String>) {
+        let ok = |h: &String| {
+            !h.is_empty()
+                && h.len() <= 253
+                && h.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+                && !h.starts_with('*')
+        };
+        let list: Vec<String> = hosts.into_iter().filter(ok).take(16).collect();
+        *self.ticket_hosts.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = list;
+    }
+
+    pub(crate) fn ticket_hosts(&self) -> Vec<String> {
+        self.ticket_hosts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The vCenter base URL.
@@ -265,6 +284,12 @@ impl Session {
 
     /// Close the session (`DELETE /api/session`). An already expired token is not an error.
     pub async fn logout(self) -> Result<(), VsphereError> {
+        self.logout_shared().await
+    }
+
+    /// [`Session::logout`] through a shared handle (V2 keeps sessions in an `Arc` and logs
+    /// them out on vault lock); drop the handle afterwards.
+    pub async fn logout_shared(&self) -> Result<(), VsphereError> {
         let (_, token) = self.current();
         let r = self.send(&Method::DELETE, "/api/session", None, &token).await?;
         match r.status.as_u16() {

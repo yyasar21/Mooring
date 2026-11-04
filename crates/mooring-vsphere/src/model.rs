@@ -165,6 +165,15 @@ pub struct PowerInfo {
     pub state: PowerState,
 }
 
+/// `GET /api/appliance/system/version` (only the two fields `vsphere_test` shows).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ApplianceVersion {
+    /// `8.0.3.00400`.
+    pub version: Name,
+    /// `24322831`.
+    pub build: Name,
+}
+
 /// Localizable message (`std.LocalizableMessage`): only the default text, bounded.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Localizable {
