@@ -5,7 +5,10 @@
 //! All three commands require an unlocked vault: the collector host is inventory, and
 //! redirecting the mirror must not be possible from a locked screen.
 
-use mooring_audit::syslog::{send_test, SyslogConfig, SyslogMirror, TlsRoots, Transport};
+use mooring_audit::syslog::{
+    facility_from_str, send_test, SyslogConfig, SyslogMirror, TlsRoots, Transport,
+};
+use serde::Deserialize;
 use mooring_audit::AuditEvent;
 use serde::Serialize;
 use tauri::State;
@@ -54,23 +57,46 @@ pub fn local_hostname() -> String {
     sysinfo::System::host_name().unwrap_or_default()
 }
 
+/// `facility` as the UI sends it: an RFC 5424 keyword (`"local4"`) or a numeric code.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum FacilityArg {
+    /// Numeric code (0..=23).
+    Code(i64),
+    /// Keyword, e.g. `authpriv`.
+    Keyword(String),
+}
+
+impl From<i64> for FacilityArg {
+    fn from(c: i64) -> Self {
+        Self::Code(c)
+    }
+}
+
+impl From<&str> for FacilityArg {
+    fn from(k: &str) -> Self {
+        Self::Keyword(k.to_owned())
+    }
+}
+
 /// Validate IPC input into a config. Numbers arrive as `i64` so out-of-range values get a
 /// typed `input.invalid` instead of a deserialisation failure.
 pub fn parse(
     host: &str,
     port: i64,
     transport: &str,
-    facility: i64,
+    facility: impl Into<FacilityArg>,
     enabled: bool,
 ) -> IpcResult<SyslogConfig> {
     let port = u16::try_from(port)
         .ok()
         .filter(|p| *p != 0)
         .ok_or_else(|| IpcError::invalid("port", "must be 1..=65535"))?;
-    let facility = u8::try_from(facility)
-        .ok()
-        .filter(|f| *f <= 23)
-        .ok_or_else(|| IpcError::invalid("facility", "must be 0..=23"))?;
+    let facility = match facility.into() {
+        FacilityArg::Code(c) => u8::try_from(c).ok().filter(|f| *f <= 23),
+        FacilityArg::Keyword(k) => facility_from_str(&k),
+    }
+    .ok_or_else(|| IpcError::invalid("facility", "must be a facility keyword or 0..=23"))?;
     let transport = match transport {
         "udp" => Transport::Udp,
         "tcp" => Transport::Tcp,
@@ -185,7 +211,7 @@ pub fn syslog_set(
     host: String,
     port: i64,
     transport: String,
-    facility: i64,
+    facility: FacilityArg,
     enabled: bool,
 ) -> IpcResult<SyslogStatus> {
     let config = parse(&host, port, &transport, facility, enabled)?;

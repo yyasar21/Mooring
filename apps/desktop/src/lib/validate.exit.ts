@@ -41,10 +41,20 @@ function isPort(p: number, min: number): boolean {
 export type FieldErrors<K extends string> = Partial<Record<K, string>>;
 export type ForwardField = "bindHost" | "bindPort" | "targetHost" | "targetPort" | "exposure";
 
+/** The local side of a forward is bound/connected by Mooring itself: an IP literal or
+ *  `localhost` only — no implicit DNS resolution (mirrors the Rust validator). */
+export function isLocalAddrHost(host: string): boolean {
+  const h = host.trim();
+  return h.toLowerCase() === "localhost" || (isValidHost(h) && (isIpv4(h) || isIpv6(h)));
+}
+
 /** Field errors for a new forward; empty object = valid. */
 export function validateForward(f: Omit<ForwardOpen, "sessionId">): FieldErrors<ForwardField> {
   const e: FieldErrors<ForwardField> = {};
   if (!isValidHost(f.bind.host)) e.bindHost = "Enter a host name or IP address.";
+  else if (f.kind !== "remote" && !isLocalAddrHost(f.bind.host)) {
+    e.bindHost = "Bind to an IP address or localhost.";
+  }
   if (!isPort(f.bind.port, 0)) e.bindPort = "Use 0 to 65535 (0 picks a free port).";
   if (f.exposure === "loopback" && isValidHost(f.bind.host) && !isLoopbackHost(f.bind.host)) {
     e.exposure = "A non-loopback bind address needs external exposure.";
@@ -55,6 +65,9 @@ export function validateForward(f: Omit<ForwardOpen, "sessionId">): FieldErrors<
     e.targetHost = "Enter the target host.";
   } else {
     if (!isValidHost(f.target.host)) e.targetHost = "Enter a host name or IP address.";
+    else if (f.kind === "remote" && !isLocalAddrHost(f.target.host)) {
+      e.targetHost = "A remote forward targets a local IP address or localhost.";
+    }
     if (!isPort(f.target.port, 1)) e.targetPort = "Use 1 to 65535.";
   }
   return e;

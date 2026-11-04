@@ -56,6 +56,12 @@ describe("ADR-0010 validation", () => {
     expect(validateForward({ ...base, target: { host: "db.example.test", port: 0 } }).targetPort).toBeDefined();
     expect(validateForward({ ...base, kind: "dynamic", target: null })).toEqual({});
     expect(validateForward({ ...base, bind: { host: "127.0.0.1", port: 70000 } }).bindPort).toBeDefined();
+    // the side Mooring binds/connects itself is an IP literal or localhost — never a DNS name
+    expect(validateForward({ ...base, bind: { host: "bastion.example.test", port: 8080 }, exposure: "external" }).bindHost).toBeDefined();
+    expect(validateForward({ ...base, bind: { host: "localhost", port: 8080 } })).toEqual({});
+    const remote = { ...base, kind: "remote" as const, bind: { host: "gateway.example.test", port: 9000 }, target: { host: "127.0.0.1", port: 3000 }, exposure: "external" as const };
+    expect(validateForward(remote)).toEqual({});
+    expect(validateForward({ ...remote, target: { host: "db.example.test", port: 3000 } }).targetHost).toBeDefined();
   });
 
   it("bounds the idle timeout and syslog fields", () => {

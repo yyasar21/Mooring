@@ -27,6 +27,9 @@ fn udp(port: u16, enabled: bool) -> SyslogConfig {
 fn parse_table() {
     assert!(parse("logs.example.test", 6514, "tls", 23, true).is_ok());
     assert!(parse("192.0.2.7", 1, "tcp", 0, false).is_ok());
+    assert_eq!(parse("192.0.2.7", 1, "tcp", "local4", false).expect("keyword").facility, 20);
+    assert!(parse("192.0.2.7", 1, "tcp", "LOCAL4", false).is_err());
+    assert!(parse("192.0.2.7", 1, "tcp", "bogus", false).is_err());
     let cases: &[(&str, i64, &str, i64, &str)] = &[
         ("logs.example.test", 0, "udp", 1, "port"),
         ("logs.example.test", -1, "udp", 1, "port"),
@@ -72,7 +75,7 @@ fn set_mirrors_entries_get_reports_counters_and_disable_stops() {
     assert_eq!(st.dropped, 0);
     assert_eq!(
         serde_json::to_value(&st).expect("json"),
-        serde_json::json!({"host":"127.0.0.1","port":port,"transport":"udp","facility":13,
+        serde_json::json!({"host":"127.0.0.1","port":port,"transport":"udp","facility":"security",
             "enabled":true,"running":true,"dropped":0,"sent":2})
     );
 

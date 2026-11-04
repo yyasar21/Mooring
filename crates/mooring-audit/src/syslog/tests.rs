@@ -237,8 +237,18 @@ fn config_wire_shape() {
     let c = cfg(Transport::Tls, 6514);
     assert_eq!(
         serde_json::to_string(&c).expect("json"),
-        r#"{"host":"127.0.0.1","port":6514,"transport":"tls","facility":13,"enabled":true}"#
+        r#"{"host":"127.0.0.1","port":6514,"transport":"tls","facility":"security","enabled":true}"#
     );
+    // numeric codes are still accepted on input; keywords round-trip
+    let back: SyslogConfig = serde_json::from_str(
+        r#"{"host":"127.0.0.1","port":6514,"transport":"tls","facility":13,"enabled":true}"#,
+    )
+    .expect("numeric facility");
+    assert_eq!(back, c);
+    assert!(serde_json::from_str::<SyslogConfig>(
+        r#"{"host":"h","port":1,"transport":"udp","facility":"nope","enabled":true}"#
+    )
+    .is_err());
     let unknown = r#"{"host":"h","port":1,"transport":"udp","facility":1,"enabled":true,"x":1}"#;
     assert!(serde_json::from_str::<SyslogConfig>(unknown).is_err());
     assert!(serde_json::from_str::<SyslogConfig>(

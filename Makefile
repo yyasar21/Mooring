@@ -49,11 +49,11 @@ app-check: ## clippy + tests including the Tauri crate (needs the OS WebView too
 e2e-ipc: ## A1 E2E flow + hostile IPC input through the command layer (needs the WebView toolchain)
 	cargo test -p mooring-app --test e2e_flow
 
-e2e: ## Playwright E2E through tauri-driver (A1+)
-	pnpm --filter @mooring/desktop exec playwright test tests/e2e
+e2e: ## Playwright UI flows against the Vite dev server + mock transport (apps/desktop/e2e)
+	node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/flows.e2e.mjs
 
 fuzz: ## run every fuzz target for 60 s each (A1+)
-	@for t in $$(cargo fuzz list 2>/dev/null); do cargo fuzz run $$t -- -max_total_time=60; done
+	@cd fuzz && for t in $$(cargo +nightly fuzz list 2>/dev/null); do cargo +nightly fuzz run $$t -- -max_total_time=60; done
 
 bundle: ## unsigned local bundles
 	cargo tauri build

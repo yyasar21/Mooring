@@ -50,7 +50,7 @@ machine; `mooring-app` needs the platform WebView toolchain.
 | rust-core | crates/**, src-tauri/src/** | touches apps/ or capabilities without security review |
 | ui-engineer | apps/desktop/**, packages/ui/** | calls invoke() outside apps/desktop/src/lib/ipc.ts |
 | security-reviewer | docs/security/**, SECURITY.md; veto on every PR | edits source files |
-| qa-engineer | tests/**, crates/*/tests/**, .github/workflows/test*.yml | weakens a gate |
+| qa-engineer | tests/**, crates/*/tests/**, apps/desktop/e2e/**, fuzz/**, .github/workflows/{test*,e2e,fuzz-nightly}.yml | weakens a gate |
 | release-engineer | .github/workflows/release*.yml, scripts/release/**, bundle config | commits signing material |
 
 Agent definitions: `.claude/agents/<role>.md`. Each agent reads `docs/handoff/index.md` and the

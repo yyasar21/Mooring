@@ -16,10 +16,6 @@ concurrency:
   cancel-in-progress: true
 permissions: { contents: read }
 
-env:
-  # Exact version; the browser build is the one this release pins.
-  PLAYWRIGHT_VERSION: "1.63.0"
-
 jobs:
   ui-flows:
     runs-on: ubuntu-24.04
@@ -31,13 +27,11 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      # Playwright is not an app dependency yet (see docs/handoff/a1-exit-qa.md): a pinned global
-      # copy, resolved by the harness through NODE_PATH, plus its Chromium and system libraries.
-      - name: Install Playwright ${{ env.PLAYWRIGHT_VERSION }} + Chromium
-        run: |
-          npm install --global --no-fund --no-audit "playwright@${PLAYWRIGHT_VERSION}"
-          playwright install --with-deps chromium
-          echo "NODE_PATH=$(npm root --global)" >> "$GITHUB_ENV"
+      # Playwright itself comes from the lockfile (devDependency of @mooring/desktop); only the
+      # browser and its system libraries are installed here.
+      - name: Install Playwright Chromium
+        working-directory: apps/desktop
+        run: pnpm exec playwright install --with-deps chromium
       - name: Type-check the e2e boot module against the mock transport
         working-directory: apps/desktop
         run: pnpm exec tsc -p e2e/tsconfig.json

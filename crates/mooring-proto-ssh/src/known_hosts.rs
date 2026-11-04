@@ -135,7 +135,11 @@ impl KnownHosts {
                 store.truncated = true;
                 break;
             }
-            let raw = raw.strip_suffix(b"\r").unwrap_or(raw);
+            // Strip every trailing CR so the written form is a byte fixed point (QA-F1).
+            let mut raw = raw;
+            while let Some(r) = raw.strip_suffix(b"\r") {
+                raw = r;
+            }
             if raw.len() > MAX_LINE {
                 tracing::warn!(line = idx + 1, "known_hosts: line too long; skipped");
                 store.truncated = true;

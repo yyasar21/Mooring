@@ -68,10 +68,83 @@ pub struct SyslogConfig {
     pub port: u16,
     /// Wire transport.
     pub transport: Transport,
-    /// 0..=23.
+    /// 0..=23. On the wire (IPC, stored JSON) this is the RFC 5424 keyword (`"local4"`);
+    /// a numeric code is accepted on input for compatibility.
+    #[serde(with = "facility_serde")]
     pub facility: u8,
     /// Whether entries are mirrored.
     pub enabled: bool,
+}
+
+/// RFC 5424 facility keywords, in code order (0..=23).
+pub const FACILITY_KEYWORDS: [&str; 24] = [
+    "kern",
+    "user",
+    "mail",
+    "daemon",
+    "auth",
+    "syslog",
+    "lpr",
+    "news",
+    "uucp",
+    "cron",
+    "authpriv",
+    "ftp",
+    "ntp",
+    "security",
+    "console",
+    "solaris-cron",
+    "local0",
+    "local1",
+    "local2",
+    "local3",
+    "local4",
+    "local5",
+    "local6",
+    "local7",
+];
+
+/// Keyword for a facility code (`None` above 23).
+pub fn facility_keyword(code: u8) -> Option<&'static str> {
+    FACILITY_KEYWORDS.get(usize::from(code)).copied()
+}
+
+/// Facility code for a keyword or decimal string (`None` when unknown).
+pub fn facility_from_str(s: &str) -> Option<u8> {
+    FACILITY_KEYWORDS
+        .iter()
+        .position(|k| *k == s)
+        .and_then(|p| u8::try_from(p).ok())
+        .or_else(|| s.parse::<u8>().ok().filter(|c| *c <= MAX_FACILITY))
+}
+
+mod facility_serde {
+    use serde::{de, Deserialize, Deserializer, Serializer};
+
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde `with` signature
+    pub fn serialize<S: Serializer>(code: &u8, s: S) -> Result<S::Ok, S::Error> {
+        match super::facility_keyword(*code) {
+            Some(k) => s.serialize_str(k),
+            None => s.serialize_u8(*code),
+        }
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Code(i64),
+        Keyword(String),
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
+        // Out-of-range values are mapped to `u8::MAX` so `validated()` reports them as a
+        // typed `input.invalid` instead of a deserialisation failure.
+        Ok(match Raw::deserialize(d)? {
+            Raw::Code(c) => u8::try_from(c).unwrap_or(u8::MAX),
+            Raw::Keyword(k) => super::facility_from_str(&k)
+                .ok_or_else(|| de::Error::custom("facility: unknown keyword"))?,
+        })
+    }
 }
 
 /// Mirror errors. Messages are safe to show: they name the failing step, never data.
