@@ -258,19 +258,38 @@ impl Store {
     /// Replace every folder, connection and credential row with `rows` in one transaction
     /// (foreign keys deferred to the commit). Ids, names, protocols, ports and timestamps are
     /// validated; the schema's `CHECK`s cover kinds, roles and the JSON columns.
+    ///
+    /// Credentials are upserted, not deleted and re-inserted: `secret_source.credential_id` is
+    /// `ON DELETE RESTRICT`, which `SQLite` enforces at once even with deferred keys. Secret
+    /// sources are device-local (not synced), so the login credential of one is kept even when
+    /// `rows` lacks it.
     pub fn replace_sync_rows(&self, rows: &SyncRows) -> Result<()> {
         validate(rows)?;
         let tx = self.conn.unchecked_transaction()?;
         tx.execute_batch(
             "PRAGMA defer_foreign_keys = ON;
              DELETE FROM connection_tag; DELETE FROM connection_credential;
-             DELETE FROM credential_secret; DELETE FROM connection;
-             DELETE FROM folder; DELETE FROM credential;",
+             DELETE FROM credential_secret; DELETE FROM connection; DELETE FROM folder;",
         )?;
+        let stale: Vec<String> = {
+            let mut st = tx.prepare(
+                "SELECT id FROM credential WHERE id NOT IN
+                     (SELECT credential_id FROM secret_source WHERE credential_id IS NOT NULL)",
+            )?;
+            let ids = st.query_map([], |r| r.get::<_, String>(0))?;
+            ids.filter(|id| id.as_ref().map_or(true, |id| !rows.credentials.contains_key(id)))
+                .collect::<rusqlite::Result<_>>()?
+        };
+        for id in &stale {
+            tx.execute("DELETE FROM credential WHERE id = ?1", params![id])?;
+        }
         for c in rows.credentials.values() {
             tx.execute(
                 "INSERT INTO credential (id, name, kind, fields_json, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT (id) DO UPDATE SET name = excluded.name, kind = excluded.kind,
+                     fields_json = excluded.fields_json, created_at = excluded.created_at,
+                     updated_at = excluded.updated_at",
                 params![c.id, c.name, c.kind, c.fields_json, c.created_at, c.updated_at],
             )?;
             for (name, sealed) in &c.secrets {

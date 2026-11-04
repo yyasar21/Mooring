@@ -84,3 +84,40 @@ fn sync_settings_are_namespaced() {
     s.set_sync_setting("sync.state", None).expect("delete");
     assert_eq!(s.sync_setting("sync.state").expect("get"), None);
 }
+
+/// E1 × S2: `secret_source.credential_id` is `ON DELETE RESTRICT`, which fires immediately even
+/// with deferred foreign keys. Applying a snapshot must not delete-and-reinsert a credential a
+/// local (unsynced) secret source logs in with, and must keep it when the snapshot lacks it.
+#[test]
+fn replace_keeps_credentials_of_local_secret_sources() {
+    let v = vault();
+    let a = populated(&v);
+    let secrets: crate::Secrets<'_> =
+        [(SecretName::Token, b"test-only-token".as_slice())].into_iter().collect();
+    let token = a
+        .create_credential(
+            &v,
+            "vault token",
+            CredentialKind::ApiToken,
+            &serde_json::json!({}),
+            &secrets,
+        )
+        .expect("token")
+        .id;
+    let input: mooring_core::secret_source::SecretSourceInput = serde_json::from_value(
+        serde_json::json!({"name": "vault", "address": "https://v.example.test",
+                           "authMethod": "token", "credentialId": token}),
+    )
+    .expect("input");
+    a.create_secret_source(&input).expect("source");
+
+    let rows = a.export_sync_rows().expect("export");
+    a.replace_sync_rows(&rows).expect("re-apply the same rows");
+    assert_eq!(a.export_sync_rows().expect("again"), rows);
+
+    let mut without = rows.clone();
+    without.credentials.remove(&token.to_string());
+    a.replace_sync_rows(&without).expect("apply without the source's credential");
+    assert!(a.get_credential(token).is_ok(), "the source's login credential is kept");
+    assert_eq!(a.list_secret_sources().expect("sources").len(), 1);
+}
