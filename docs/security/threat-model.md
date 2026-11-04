@@ -1,9 +1,10 @@
-# Threat model — Mooring (v1, Phase A1)
+# Threat model — Mooring (v1, Phases A1–A3)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
-Last change: A2 (ADR-0011, ADR-0012): RDP (IronRDP) and VNC (own RFB 3.8) sessions, certificate
-TOFU, the Rust framebuffer and MFR1 frame path, the cliprdr/cut-text clipboard and screenshots.
-See review [a2-review-5.md](a2-review-5.md). Earlier: A1 exit (ADR-0010) in
+Last change: A3 (ADR-0014..0017): read-only Kubernetes sessions, vSphere inventory sync, power
+and consoles, external secret sources (Vault / OpenBao, OIDC window), vault sync over S3, and
+the shared `mooring-http` client. See review [a3-review-6.md](a3-review-6.md). Earlier: A2
+(ADR-0011..0013) in [a2-review-5.md](a2-review-5.md); A1 exit (ADR-0010) in
 [a1-review-4.md](a1-review-4.md);
 ADR-0009 typed credentials, the public release pipeline and the public scrub in
 [a1-review-3.md](a1-review-3.md); A1 items 3–5 (SSH core, forwarding, SFTP,
@@ -31,6 +32,11 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Live port forwards | Loopback listeners in our process; remote listeners on the server | Anyone who reaches the bound address uses the tunnel into the target network |
 | User's local files (SFTP) | Anywhere the OS user can read/write; reached through `sftp_upload` / `sftp_download` | Read: exfiltration of keys and tokens outside Mooring (`~/.ssh`, cloud CLIs). Write: code execution through rc files, `authorized_keys`, autostart entries (B-4) |
 | Syslog mirror stream + config | Network to the collector (UDP/TCP/TLS); config plaintext under `app.syslog` in `mooring.db` | Inventory-class audit content on the wire; a silenced or redirected mirror removes the only off-host copy of the chain (R-SYSLOG) |
+| Kubernetes bearer tokens / client keys (A3) | Vault (kubeconfig, `kube_token` credentials); in RAM only for an open cluster session, dropped on lock | API access to the cluster as that identity (read-only through Mooring, unrestricted elsewhere) |
+| vCenter session token, VMRC tickets (A3) | RAM only (`Zeroizing`); the session is logged out on lock; a VMRC ticket lives ≤ 60 s and is handed to the OS URL handler | Inventory and power control as that account; one console on one VM (ticket) |
+| Vault / OpenBao tokens (A3) | RAM only (`TokenCache`, `Zeroizing`); ours revoked on lock and exit | Read of every KV path the token's policy allows |
+| Sync objects (A3) | S3 bucket: MSY1 blobs (AEAD under an HKDF subkey of the DEK), `history/`, and the vault **header** as its own object | Header: offline guessing of the master password (as T1). Blobs: none without the DEK; rollback and fork are detected, withholding is not |
+| Kube / vSphere / Vault / sync certificate pins (A3) | `known_{kube,vsphere,vault,sync}_certs`, same format as the RDP/VNC pins; **synced** to every device of the vault (owner decision 10) | A pin accepted on one device is trusted on all (L-35) |
 
 ## Attackers
 | ID | Attacker | Capability |
@@ -41,6 +47,39 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | T4 | Malicious remote server / hostile file | Sends hostile protocol bytes to our parsers: SSH transport, keyboard-interactive prompts, terminal escape sequences (OSC 8), SFTP replies and `limits`, server-opened channels. Hands the user a crafted export or header |
 | T5 | Compromised WebView (XSS, malicious remote page in A2) | Runs JS inside the app, calls any exposed IPC command |
 | T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
+| T7 | Sync storage operator (S3 provider, bucket admin, anyone with the bucket keys) (A3) | Reads, replays, withholds, deletes or replaces any object, serves an old generation, logs request URLs; cannot forge MSY1 without the DEK |
+
+## Trust boundaries added in A3 (ADR-0014..0017)
+- **App → HTTPS APIs (`mooring-http`).** One client for kube, vCenter, Vault and S3: our
+  rustls (ring) verifier (pin before CA, webpki name check, signatures always verified,
+  resumption off), per-protocol pin stores, anchored mode for an explicit CA, no proxy, no
+  environment, redirects refused, body caps and (buffered calls) a body deadline. `http://` only
+  to a loopback IP literal. Everything after the handshake is T4 input.
+- **App → Kubernetes API.** `kube::Client → ReadOnlyGuard → Bearer → HttpService`. The guard is
+  a closed allow-list of 13 literal routes (reads, three self-reviews, exec and port-forward
+  upgrades) checked before any byte leaves. Exec opens one of five shells (owner decision 3,
+  R-KUBE-EXEC); pod forwards bind loopback only; logs are sanitised. Kubeconfig resolution is
+  ours: exec plugins, auth-providers, proxies and basic auth are refused. Everything ends on
+  lock.
+- **App → vCenter.** REST session from a vault credential; inventory (capped, names cleaned)
+  into a read-only, device-local subtree; power actions behind an opt-in **and** a Rust-native
+  dialog (M-16); VMRC tickets to the OS URL handler (R-VMRC-ARGV); the vSphere Client in a
+  `web-*` window (ADR-0013 rules, vCenter origin only).
+- **App → Vault / OpenBao.** Token, AppRole or OIDC login; root tokens refused; tokens in RAM
+  only and revoked on lock (L-34). `external_ref` credentials resolve at connect time into
+  zeroized buffers; tests return names only.
+- **IdP page → app (`oidc-*` window).** Empty capability, Rust label guard, navigation = IdP
+  origin + `allowedOrigins`; the `http://localhost:8250` redirect is intercepted in
+  `on_navigation`, never loaded, bound to `state`, and useless without the `client_nonce` that
+  never leaves Rust. Per-OS interception is still to be verified (ADR-0016 §4 E2E).
+- **App ↔ sync storage (T7).** MSY1: AAD = the 125-byte header (vault, device, counter,
+  parent hash, header hash), random XChaCha20 nonce, key = HKDF(DEK, vault_id). Rollback and
+  fork are sticky hard stops; the remote header must equal the local one byte for byte. Trust
+  stores are synced (owner decision 10); secret sources, audit log, web stores, keyring wrap and
+  vSphere subtrees are not.
+- **Native confirmations.** Power, VMRC, certificate trust (vSphere, sync) and fork resolution
+  are answered only in Rust-opened dialogs; the WebView has no `dialog:` permission. A T5 still
+  chooses *when* they appear (M-16).
 
 ## Trust boundaries added in A2 (ADR-0011, ADR-0012)
 - **App → RDP server.** TCP → X.224 → our rustls (ring) client with `TofuVerifier` → CredSSP
@@ -397,6 +436,35 @@ until they are garbage-collected. This is inherent to a WebView UI (ADR-0003); t
 wraps each secret at the IPC edge. A T5 that already runs script could read these values as
 the user types them anyway.
 
+### R-KUBE-EXEC — an exec shell is not read-only (accepted, ADR-0014 decision 3)
+The `ReadOnlyGuard` keeps Mooring's own API calls read-only. A shell opened in a pod runs
+whatever the user types with the pod's privileges and service-account token. Only the five
+allow-listed shells can be started, each `kube_exec_opened` is audited, and RBAC
+(`pods/exec`) is the server-side control.
+
+### R-KUBE-CFG — kube's config/auth code is compiled but not executed (accepted, review 6)
+`kube-client`'s `client` feature forces `config`, which pulls `serde-saphyr` (with
+`encoding_rs`/`simdutf8`, SIMD `unsafe`), `jsonpath-rust` → `pest` → `stacker`/`psm` (a
+cc-assembled stack-switching shim). None of it runs: the loaders are banned by clippy
+`disallowed-methods`, and the client is built by hand over `mooring-http`. Revisit when kube-rs
+makes `config` optional.
+
+### R-VMRC-ARGV — VMRC tickets pass through process arguments (accepted, review 6 L-36)
+The `vmrc://clone:<ticket>@…` URL is an argv of the OS URL handler and of VMRC. Other local
+users can read argv on Linux without `hidepid`; same-user processes can on every OS. The ticket
+is single-use, ≤ 60 s, opt-in per vCenter and confirmed natively.
+
+### R-SYNC-OP — the sync storage operator (accepted, ADR-0017)
+A T7 holds the password-wrapped header and can attack the master password offline (same
+strength as T1 with a stolen vault file: Argon2id with the calibrated floor). It can withhold
+updates or serve an old generation to a device that has never synced (first sync / join is
+TOFU on the generation); any later rollback or fork is a hard stop. Presigned request URLs it
+logs are valid for 300 s (N-44).
+
+### R-EXT-STR — external API secrets in third-party buffers (accepted, ADR-0016)
+hyper, rustls, `HeaderValue`, `serde_json` scratch buffers, the rusty-s3 session token and the
+presigned path hold copies of tokens that we cannot zeroize. Our own copies are `Zeroizing`.
+
 ## Accepted risks (revisit)
 - `style-src 'unsafe-inline'` for Tailwind/Vite. No script vector; revisit with nonces.
 - No memory encryption while unlocked: an attacker with ptrace/debug rights on the same user
@@ -410,6 +478,9 @@ the user types them anyway.
 - A2: R-RDP-FFI, R-RDP-STR, R-CLIP, R-VNC-PLAIN and R-IMG (above).
 - A2 R5: R-WEB-ENGINE, R-WEB-COOKIE and R-WEB-UPLOAD (above). R-WEB-UI stays open until the
   L-31 checks.
+- A3: R-KUBE-EXEC, R-KUBE-CFG, R-VMRC-ARGV, R-SYNC-OP and R-EXT-STR (above). Certificate TOFU
+  now also covers kube, vCenter, Vault and the sync endpoint, and pins are synced across the
+  vault's devices.
 - Certificate TOFU (RDP/VNC), as for SSH: the first connection to a self-signed host is
   unauthenticated. A T5 can answer `yes` and can remove a pin first (N-27). Both are audited,
   and a mismatch is never overridable without the removal. CA-validated hosts are not pinned,
@@ -499,5 +570,15 @@ the user types them anyway.
       delete, orphan sweep), L-31 (native dialogs from a page, per-OS check), L-32 (pin Tauri)
       before the A2 tag; QA E2E for the ADR-0013 test plan on each OS; N-30..N-38 as
       scheduled.
-- [ ] A3: LDAP injection review, S3 sync integrity (version counters inside AEAD); revisit
-      R-INV before the DB leaves the device; import `--merge` must re-check `vault_id`.
+- [ ] **A3 (review 6: `APPROVE WITH NITS`):**
+      - [ ] **M-16:** native confirmations default to the confirming button; single-flight and
+        cool-down.
+      - [ ] L-33 (OIDC window storage / frames), L-34 (token cache across a lock), L-35 (synced
+        conflicting pins), L-37 (`vault_join` header write), L-38 (locked-vault matrix); L-36
+        documented (R-VMRC-ARGV).
+      - [ ] Per-OS: OIDC redirect interception (ADR-0016 §4), L-31, the Windows L-29 E2E.
+      - [ ] N-39..N-46 as scheduled; upstream: kube-rs `config` optional (R-KUBE-CFG).
+      - [x] S3 sync integrity: counters, parent hash and header hash inside the AEAD (MSY1).
+- [ ] A3/A4: LDAP injection review; revisit R-INV now that the DB leaves the device (sync:
+      inventory is inside the AEAD, so T7 does not read it); import `--merge` must re-check
+      `vault_id`.

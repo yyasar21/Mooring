@@ -66,6 +66,10 @@ In scope:
 - Release artefacts, signatures, SBOMs and provenance, the release workflows
   (`.github/workflows/release*.yml`, `scripts/release/`) and the update channel (from v0.1.0).
 - Credential import parsers (kubeconfig, PEM, OpenSSH keys and certificates, TOTP seeds).
+- The HTTPS API clients and their trust stores: Kubernetes (the read-only request guard,
+  exec, logs, port-forward), vCenter (inventory sync, power actions, consoles), Vault /
+  OpenBao secret sources (token, AppRole, OIDC sign-in window), and vault sync to
+  S3-compatible storage (the MSY1 blob format, rollback and fork detection).
 
 Out of scope:
 
@@ -73,7 +77,9 @@ Out of scope:
   an unlocked session.
 - Risks documented as accepted in the [threat model](docs/security/threat-model.md)
   (for example plaintext inventory metadata at rest, R-INV), unless you show a new impact.
-- Vulnerabilities in third-party servers you connect to.
+- Vulnerabilities in third-party servers you connect to (Kubernetes, vCenter, Vault, S3). A
+  bypass of Mooring's Kubernetes read-only guard, a power action without the native
+  confirmation, or a sync blob accepted after tampering, rollback or a fork **is** in scope.
 - Findings from automated scanners without a demonstrated impact.
 
 ## What we promise
@@ -172,6 +178,28 @@ Known gaps before the A2 tag are listed in the
 
 Engine bugs in the operating system's WebView are outside Mooring's control: keep the OS
 WebView (WebView2, Safari/WebKit, WebKitGTK) updated.
+
+## Kubernetes, vSphere, secret sources and vault sync
+
+- **Kubernetes is read-only through Mooring.** Every API request passes a local allow-list
+  (namespaces, pods, logs, the self-review APIs, exec and port-forward) before it leaves the
+  process; anything else, including impersonation and `dryRun`, is refused and audited. An exec
+  shell runs what you type inside the pod: that is the one deliberate exception. kubeconfig
+  `exec` plugins, auth-providers and proxies are never run or used.
+- **vSphere power actions** are off by default per vCenter and, when enabled, each one needs a
+  confirmation in a native dialog that names the VM and the vCenter. VMRC hand-off is also
+  opt-in; its single-use ticket is passed to the OS URL handler and is visible to other local
+  users in the process list for a few seconds (R-VMRC-ARGV).
+- **Secret sources (Vault / OpenBao).** Tokens stay in memory, root tokens are refused, and
+  tokens Mooring obtained are revoked when the vault locks or the app exits. OIDC sign-in runs
+  in its own window that cannot call Mooring; the code from the redirect is exchanged by the
+  Rust core.
+- **Vault sync.** The storage sees only encrypted, authenticated blobs and the password-wrapped
+  vault header — with that header, the storage operator can try to guess your master password
+  offline, so use a strong one. Rolled-back or forked data stops sync until you choose. Server
+  certificates you trust on one device are trusted on all devices of the vault.
+
+Known gaps before the A3 tag are listed in [review 6](docs/security/a3-review-6.md#conditions-before-the-a3-tag).
 
 ## Syslog mirror
 
