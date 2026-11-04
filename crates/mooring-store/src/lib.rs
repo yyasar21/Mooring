@@ -10,6 +10,7 @@
 //! * folders, connections + tags, credentials, inheritance — methods on [`Store`]
 //! * [`Store::search`] — FTS5 prefix search over connection name, host and tags
 //! * [`Store::connection_options`] — per-protocol options (`options_json`, migration 0005)
+//! * [`Store::export_sync_rows`] / [`Store::replace_sync_rows`] — raw rows for vault sync
 
 #![forbid(unsafe_code)]
 
@@ -23,6 +24,7 @@ mod options;
 mod roles;
 pub mod schema;
 mod search;
+mod sync_rows;
 #[doc(hidden)]
 pub mod testing;
 mod util;
@@ -37,6 +39,9 @@ pub use error::{Result, StoreError};
 pub use mooring_core::{CredentialKind, Role, SecretName};
 pub use roles::Resolved;
 pub use search::{ConnectionHit, MAX_SEARCH_LIMIT};
+pub use sync_rows::{
+    ConnectionRow, CredentialRow, FolderRow, SyncRows, MAX_SYNC_VALUE, SYNC_PREFIX,
+};
 
 /// Input limits, owned by `mooring_core::model` and re-exported for callers of the store.
 pub use mooring_core::model::{MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS};
