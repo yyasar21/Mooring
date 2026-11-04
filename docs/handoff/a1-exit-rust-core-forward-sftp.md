@@ -190,3 +190,62 @@ sftp_transfers({ "sessionId": "…" })
   waits up to 10 s for it.
 - `sftp.exists` and the UI flow ("Replace *name*?") are for ui-engineer; the pick survives the
   refusal so no second dialog is needed.
+
+## Fix round 5 (M-12, L-19, N-18..N-20)
+
+Input: `docs/security/a1-review-4.md` § "Re-review (fix round 4)". No IPC shape change; no new
+error code (`ipc-codes.json` regenerated with `MOORING_BLESS=1`, unchanged).
+
+### Done
+- **M-12** `2d80d1c` — `crates/mooring-core/src/credential/kubeconfig.rs`: every mapping key
+  anywhere in a kubeconfig must be ASCII, checked on the resolved scalar (so a quoted
+  `"toKenFile"` escape is caught too). Error: `credential.kubeconfig_rejected` "kubeconfig
+  keys must be ASCII (key at line L, column C)" — position only, never the key bytes.
+  Non-ASCII context names and values are still accepted. The ASCII case-insensitive checks
+  stay. Fuzz oracle (`fuzz/entries/kubeconfig.rs`) flags any non-ASCII key in an accepted
+  file; seeds `m12-kelvin-tokenfile` (`to\u{212A}enFile` under `users[]`), `m12-long-s-users`
+  (`u\u{017F}ers:` beside `users:`) and `m12-nonascii-key` (escaped `"client-Key"` outside
+  `users[]`) are force-added and listed in `FORBIDDEN_SEEDS` of
+  `crates/mooring-core/tests/fuzz_corpus.rs` (oracle sees them, parser refuses them with that
+  reason). The review named the seeds `users-kelvin-tokenFile` / `section-long-s-users`; the
+  orchestrator's names were used.
+- **L-19** `a609bce` — `crates/mooring-proto-ssh/src/sftp_upload.rs`: `stat` the target first;
+  the part file is opened with `permissions = 0600`, then `fsetstat 0600` (best effort, for
+  servers that ignore open attributes), and before close/rename `fsetstat` to the target's bits
+  `& 0777` (`0600` for a new file or an unstat-able target; setuid/setgid/sticky never carried).
+  If the server refuses that `fsetstat`, the part file's actual mode is read back and the
+  upload fails (part file removed, target untouched) unless it grants nothing beyond the
+  target's mode. The test SFTP server (`tests/common/sftp_server.rs`) gained `setstat` /
+  `fsetstat` and an `SftpStats::refuse_setstat` switch (the struct is shared with
+  `src-tauri/src/test_ssh_server.rs`).
+- **N-19** `f3c6c27` — `sftp_pick_local` returns `vault.locked` unless the vault is unlocked,
+  before any dialog opens.
+- **N-18** `f3c6c27` — `picks.rs` `MAX_REFUSALS = 3`: the third refused `take_if` check
+  (`sftp.exists`) consumes the pick; foreign-session or wrong-mode attempts do not count.
+- **N-20** `f3c6c27` — `autolock.rs` `DIALOG_EXEMPTION = PICK_TTL` (10 min) from when the
+  oldest open dialog was opened; afterwards focus loss counts again (`BLUR_GRACE` from the last
+  exempt tick), even with the dialog still open. A second overlapping dialog does not extend it.
+
+### For ui-engineer
+- After three "Replace?" refusals with `overwrite: false` on one pick, the next call answers
+  `input.invalid "pick"`: ask the user to pick again. A normal flow (one refusal, then
+  `overwrite: true`) is unaffected.
+- `sftp_pick_local` may now fail with `vault.locked` (already in `FRIENDLY`).
+
+### Left open
+- N-17, N-21, N-22 as scheduled in the review (not rust-core / accepted).
+- R-YAML-DEQ's cargo-fuzz run under ASan is still owed before any Kubernetes consumer.
+
+### Test evidence
+```
+Linux x86_64, 2026-11-04, CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=target (shared)
+cargo fmt --all -- --check                                  clean
+cargo clippy --workspace --all-targets -- -D warnings      clean
+cargo test --workspace                                      492 passed, 0 failed, 3 ignored
+  new: kubeconfig non_ascii_keys_are_rejected_anywhere_with_position_only, fuzz_corpus m12-*
+       seeds + oracle cases; sftp upload_keeps_the_replaced_mode_and_creates_new_files_private
+       (unix); picks refused_checks_are_capped_per_pick; sftp_transfers N-18 probe;
+       sftp_pick a_locked_vault_refuses_the_picker; autolock the_dialog_exemption_is_bounded,
+       overlapping_dialogs_do_not_extend_the_exemption
+MOORING_BLESS=1 cargo test -p mooring-app golden            ipc-codes.json unchanged
+```
