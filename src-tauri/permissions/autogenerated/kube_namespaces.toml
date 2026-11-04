@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-kube-namespaces"
+description = "Enables the kube_namespaces command without any pre-configured scope."
+commands.allow = ["kube_namespaces"]
+
+[[permission]]
+identifier = "deny-kube-namespaces"
+description = "Denies the kube_namespaces command without any pre-configured scope."
+commands.deny = ["kube_namespaces"]

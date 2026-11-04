@@ -22,6 +22,8 @@ mod graphical;
 mod hostile;
 #[path = "e2e_flow/hostile_edges.rs"]
 mod hostile_edges;
+#[path = "e2e_flow/kube.rs"]
+mod kube;
 #[path = "e2e_flow/support.rs"]
 mod support;
 

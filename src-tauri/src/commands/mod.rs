@@ -27,6 +27,13 @@ pub mod forward;
 pub mod sftp;
 pub mod sftp_pick;
 pub mod sftp_transfers;
+// ADR-0014 K4: Kubernetes sessions.
+pub mod kube;
+pub(crate) mod kube_cluster;
+pub mod kube_forward;
+pub mod kube_jwt;
+pub mod kube_logs;
+pub mod kube_wire;
 #[cfg(test)]
 mod test_session;
 // ADR-0010 (A1 exit): auto-lock policy and syslog mirror settings.

@@ -135,6 +135,18 @@ impl SessionFactory for BuiltinFactory {
     }
 }
 
+// --- ADR-0014 K4: Kubernetes exec shells are ordinary terminal sessions ----------------
+/// Open an exec shell through a connected cluster client, boxed like every other session.
+/// Errors come back before a session exists (`KubeError`, mapped by the caller).
+pub async fn kube_exec(
+    client: &mooring_proto_kube::KubeClient,
+    target: mooring_proto_kube::ExecTarget,
+    size: mooring_core::session::Size,
+) -> Result<Box<dyn Session>, mooring_proto_kube::KubeError> {
+    Ok(Box::new(client.exec(target, Some(size)).await?))
+}
+// --- end ADR-0014 K4 ----------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;

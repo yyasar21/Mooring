@@ -134,6 +134,9 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     state.picks.clear();
     // Review 4 M-10: no LAN-exposed listener keeps running behind a locked UI.
     crate::commands::forward::close_external(state);
+    // ADR-0014 K4: Kubernetes tokens live in memory only; every cluster, exec shell, log
+    // stream and pod forward ends with the lock.
+    crate::kube_sessions::close_all(&state.sessions);
     // Unknown or missing reasons from the WebView are recorded as a user lock.
     let reason = reason.and_then(LockReason::parse).unwrap_or(LockReason::User);
     let mut guard = state.vault()?;

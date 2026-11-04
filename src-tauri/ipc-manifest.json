@@ -95,6 +95,33 @@
   "known_certs_remove": [
     "main"
   ],
+  "kube_access": [
+    "main"
+  ],
+  "kube_contexts": [
+    "main"
+  ],
+  "kube_exec_open": [
+    "main"
+  ],
+  "kube_logs_close": [
+    "main"
+  ],
+  "kube_logs_open": [
+    "main"
+  ],
+  "kube_namespaces": [
+    "main"
+  ],
+  "kube_open": [
+    "main"
+  ],
+  "kube_pod": [
+    "main"
+  ],
+  "kube_pods": [
+    "main"
+  ],
   "session_attach": [
     "main",
     "detached-<sessionId>"
