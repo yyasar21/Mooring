@@ -271,6 +271,19 @@ fn confirm_refused_has_a_stable_wire_name() {
 }
 
 #[test]
+fn trust_conflict_has_a_stable_wire_name() {
+    let e = AuditEvent::TrustConflict {
+        file: "known_rdp_certs".to_owned(),
+        host: "rdp.example.test:3389".to_owned(),
+    };
+    let v = serde_json::to_value(&e).expect("json");
+    assert_eq!(
+        (v["event"].clone(), v["file"].clone()),
+        ("trust_conflict".into(), "known_rdp_certs".into())
+    );
+}
+
+#[test]
 fn suppressed_refusal_summaries_have_stable_wire_names() {
     let web = AuditEvent::WebNavigationBlockedSuppressed { connection: "c".to_owned(), count: 40 };
     let v = serde_json::to_value(&web).expect("json");

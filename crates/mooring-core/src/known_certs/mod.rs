@@ -266,6 +266,17 @@ impl KnownCerts {
         first.map_or(CertTrust::Unknown, |expected| CertTrust::Mismatch { expected })
     }
 
+    /// Number of **distinct** fingerprints pinned for `host:port` (review 6 L-35: more than
+    /// one after a sync merge means two devices accepted different certificates).
+    pub fn distinct_pins(&self, host: &str, port: u16) -> usize {
+        let name = host_key(host, port);
+        let mut seen: Vec<[u8; 32]> =
+            self.entries().filter(|e| host_matches(&e.host, &name)).map(|e| e.sha256).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        seen.len()
+    }
+
     /// Whether any pin names `host:port` (VNC downgrade guard, ADR-0012).
     pub fn has_pin(&self, host: &str, port: u16) -> bool {
         let name = host_key(host, port);

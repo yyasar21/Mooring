@@ -444,3 +444,47 @@ async fn vault_join_header_write_failures_never_strand_the_device() {
     assert_eq!(header_on_disk(&st2), boot);
     s3.recorder().assert_no_violations();
 }
+
+/// Review 6 L-35: two devices pin different certificates for the same RDP host; after the
+/// merge both lines are kept and the device audits `trust_conflict { file, host }` (names
+/// only, nothing resolved).
+#[tokio::test]
+async fn conflicting_pins_after_a_sync_are_audited_not_resolved() {
+    use mooring_core::known_certs::{CertProtocol, KnownCerts};
+    use time::OffsetDateTime;
+    let s3 = server().await;
+    let a = dev("device-a");
+    a.configure(&s3).await.expect("configure");
+    let rdp = ConnectionFields { port: Some(3389), ..ConnectionFields::basic(&a.root(), "desk", "rdp", "rdp.example.test") };
+    tree::create_connection(&a.f.state, rdp).expect("rdp");
+    a.now().await.expect("push");
+    let vault_id = a.status().vault_id;
+    let b = dev("device-b");
+    b.join_from(&s3, &vault_id, MASTER).await.expect("join");
+    let file = |d: &Dev| d.f.state.data_dir.join(CertProtocol::Rdp.file_name());
+    let now = OffsetDateTime::now_utc();
+    KnownCerts::add_and_save(&file(&a), "rdp.example.test", 3389, &[1; 32], now).expect("pin a");
+    KnownCerts::add_and_save(&file(&b), "rdp.example.test", 3389, &[2; 32], now).expect("pin b");
+    a.now().await.expect("a push");
+    b.now().await.expect("b merge");
+    let merged = KnownCerts::load(&file(&b)).expect("load");
+    assert_eq!(merged.distinct_pins("rdp.example.test", 3389), 2, "both pins kept, none removed");
+    let conflicts = |d: &Dev| {
+        std::fs::read_to_string(d.f.state.data_dir.join(AppState::AUDIT_FILE))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .filter(|v| v["event"] == "trust_conflict")
+            .map(|v| (v["file"].as_str().unwrap_or_default().to_owned(), v["host"].as_str().unwrap_or_default().to_owned()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(conflicts(&b), [("known_rdp_certs".to_owned(), "rdp.example.test:3389".to_owned())]);
+    assert!(conflicts(&a).is_empty(), "A has not pulled yet");
+    a.now().await.expect("a pull");
+    assert_eq!(conflicts(&a).len(), 1);
+    // The audit names only the file and host: no fingerprint, no hashed line.
+    let raw = std::fs::read_to_string(b.f.state.data_dir.join(AppState::AUDIT_FILE)).expect("log");
+    let row = raw.lines().find(|l| l.contains("trust_conflict")).expect("row");
+    assert!(!row.contains("|2|") && !row.contains("SHA256"), "{row}");
+    s3.recorder().assert_no_violations();
+}

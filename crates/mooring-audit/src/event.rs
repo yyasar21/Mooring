@@ -643,6 +643,15 @@ pub enum AuditEvent {
         /// Console path.
         kind: String,
     },
+    /// A trust file holds more than one fingerprint for one `host:port` after a sync apply
+    /// (review 6 L-35, `trust_conflict`): two devices accepted different certificates. Names
+    /// only; nothing is resolved automatically.
+    TrustConflict {
+        /// Trust file name (`known_rdp_certs`, …).
+        file: String,
+        /// `host:port` of the user's connection.
+        host: String,
+    },
     /// A Rust-native confirmation was refused without a dialog (review 6 M-16,
     /// `confirm_refused`): `busy` (one open at a time) or `cooldown` (the same destructive
     /// action was cancelled less than 10 s ago).

@@ -8,7 +8,9 @@ use crate::model::Protocol;
 /// TLS is never optional, so a "TLS seen" marker ([`super::TLS_MARKER`]) is a downgrade guard
 /// too: a host with a pin or a marker is never contacted in plaintext, even where a loopback
 /// `allow_plaintext` would otherwise permit it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CertProtocol {
     /// `known_rdp_certs`.
