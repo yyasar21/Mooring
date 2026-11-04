@@ -5,6 +5,10 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 
 | Date | Phase | Role | Note |
 | --- | --- | --- | --- |
+| 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |
+| 2026-11-04 | A3 | rust-core | [a3-rust-core-k1.md](a3-rust-core-k1.md) · [k2](a3-rust-core-k2.md) · [k3](a3-rust-core-k3.md) · [k4](a3-rust-core-k4.md) · [v1](a3-rust-core-v1.md) · [v2](a3-rust-core-v2.md) · [e1](a3-rust-core-e1.md) · [e2](a3-rust-core-e2.md) · [s1](a3-rust-core-s1.md) · [s2 + integration](a3-rust-core-s2.md) |
+| 2026-11-04 | A3 | ui-engineer | [a3-ui-u1.md](a3-ui-u1.md) — typed IPC, Kubernetes cluster browser, exec, logs, pod forwards |
+| 2026-11-04 | A3 | qa-engineer | [a3-qa.md](a3-qa.md) — kube/vcenter/vault/s3 mock servers, fuzz scaffolding (Cargo.lock: +httpdate 1.0.3) |
 | 2026-11-04 | A2 | orchestrator | [a2-orchestrator.md](a2-orchestrator.md) — RDP, VNC, frame path, web windows, detach; review 5 BLOCKER B-5 → fixed; re-review APPROVE WITH NITS |
 | 2026-11-04 | A2 | architect | ADR-0011/0012/0013 (accepted with owner decisions) |
 | 2026-11-04 | A2 | rust-core | [a2-rust-core-r1.md](a2-rust-core-r1.md) · [r2](a2-rust-core-r2.md) · [r3](a2-rust-core-r3.md) · [r4](a2-rust-core-r4.md) · [r5](a2-rust-core-r5.md) · [integration + fix round 6](a2-integration.md) |
