@@ -15,7 +15,7 @@ async function browser(opts: MockOptions = {}) {
 }
 
 const list = () => screen.getByRole("listbox", { name: /^Remote files in / });
-const option = (name: string) => within(list()).getByRole("option", { name: new RegExp(`^(DIR|LNK)?\\s*${name.replace(".", "\\.")}`) });
+const option = (name: string) => within(list()).getByRole("option", { name: new RegExp(`^${name.replace(".", "\\.")},`) });
 
 async function openOps() {
   fireEvent.doubleClick(option("ops"));
@@ -31,8 +31,9 @@ describe("SftpPanel · remote pane", () => {
     fireEvent.keyDown(list(), { key: "Enter" });
     await settle();
     expect(list()).toHaveAccessibleName("Remote files in /home/ops");
-    const names = within(list()).getAllByRole("option").map((o) => o.textContent);
-    expect(names.slice(0, 3).join(" ")).toMatch(/empty.*logs.*releases/);
+    const names = within(list()).getAllByRole("option").map((o) => o.getAttribute("aria-label"));
+    expect(names.slice(0, 4)).toEqual(["empty, folder", "logs, folder", "releases, folder", "current, link"]);
+    expect(names).toContain("README.md, 1.3 KiB");
     expect(within(list()).getByText("-rwxr-xr-x")).toBeInTheDocument();
 
     fireEvent.keyDown(list(), { key: "Backspace" });

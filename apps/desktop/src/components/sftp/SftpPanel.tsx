@@ -92,7 +92,7 @@ function Browser({ sessionId }: { sessionId: string }) {
         <aside aria-label="This computer" className="sftp-local">
           <h3 className="m-micro">This computer</h3>
           <dl className="prop-grid mt-3">
-            <dt>Download to</dt>
+            <dt>Save to</dt>
             <dd className="mono" title={downloadDir ? localName(downloadDir) : undefined}>
               {downloadDir ? localName(downloadDir) : <span className="text-text-faint">not chosen</span>}
             </dd>

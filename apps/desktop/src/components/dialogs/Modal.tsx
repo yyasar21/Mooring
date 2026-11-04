@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /** Modal shell: focus moves in on open, Tab is trapped, Escape closes, focus returns on close. */
 export function Modal({
@@ -43,7 +44,8 @@ export function Modal({
     }
   };
 
-  return (
+  // Portalled to <body>: a modal opened from inside a panel must not inherit its stacking context.
+  return createPortal(
     <>
       <div className="scrim" onMouseDown={onClose} />
       <div
@@ -62,7 +64,8 @@ export function Modal({
         </h2>
         {children}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }
 

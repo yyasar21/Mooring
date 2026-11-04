@@ -78,6 +78,7 @@ export function RemotePane({ dir, selected, onSelect, keys }: {
               id={optionId(i)}
               role="option"
               aria-selected={e.name === selected}
+              aria-label={e.kind === "dir" ? `${e.name}, folder` : e.kind === "symlink" ? `${e.name}, link` : `${e.name}, ${formatBytes(e.size)}`}
               className="sftp-row"
               data-kind={e.kind}
               onMouseDown={() => { onSelect(e.name); }}

@@ -67,7 +67,7 @@
 /* ---------- SFTP: local metadata | remote listing, transfers underneath ---------- */
 .sftp-crumbs { display: flex; align-items: center; min-width: 0; overflow-x: auto; font: 400 var(--fs-s)/1 var(--font-mono); }
 .sftp-crumb { padding: 3px 4px; color: var(--text-muted); background: transparent; border: 0; white-space: nowrap; }
-.sftp-crumb + .sftp-crumb::before { content: "/"; margin-right: 6px; color: var(--text-faint); }
+.sftp-crumb:nth-child(n + 3)::before { content: "/"; margin-right: 6px; color: var(--text-faint); }
 .sftp-crumb:first-child { color: var(--text-faint); }
 .sftp-crumb:hover { color: var(--text); }
 .sftp-crumb[aria-current] { color: var(--accent); text-shadow: var(--text-glow); }
