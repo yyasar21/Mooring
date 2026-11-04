@@ -3,6 +3,7 @@ export type SessionTool = "terminal" | "forwards" | "files";
 const TOOLS: { id: SessionTool; label: string }[] = [
   { id: "terminal", label: "Terminal" },
   { id: "forwards", label: "Forwards" },
+  { id: "files", label: "Files" },
 ];
 
 /** Switches an SSH tab between its terminal, port forwards and the SFTP browser. */

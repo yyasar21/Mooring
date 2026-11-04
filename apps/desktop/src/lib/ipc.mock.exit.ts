@@ -16,7 +16,8 @@ import type {
 import { FORWARD_LIMITS } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { T0 } from "./ipc.seed";
-import { MockRemoteFs, baseName, normalizeRemote } from "./ipc.mock.fs";
+import { MockRemoteFs } from "./ipc.mock.fs";
+import { baseName, normalizeRemote } from "./remotePath";
 import { hasErrors, validateForward, validatePolicy, validateSyslog } from "./validate.exit";
 
 export interface MockOptions {

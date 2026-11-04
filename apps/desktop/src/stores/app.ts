@@ -5,6 +5,7 @@ import { useTree } from "./tree";
 import { useCredentials } from "./credentials";
 import { useSessions } from "./sessions";
 import { useUi } from "./ui";
+import { useTransfers } from "./transfers";
 
 interface AppState {
   info: AppInfo | null;
@@ -32,6 +33,7 @@ function wipe(): void {
   useTree.getState().reset();
   useCredentials.getState().reset();
   useUi.getState().reset();
+  useTransfers.getState().reset();
 }
 
 export const useApp = create<AppState>((set, get) => ({

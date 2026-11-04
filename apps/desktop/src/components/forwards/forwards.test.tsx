@@ -115,7 +115,7 @@ describe("ForwardsPanel", () => {
 });
 
 describe("SSH tab tools", () => {
-  it("switches between the terminal and the forwards panel", async () => {
+  it("switches between the terminal, forwards and files", async () => {
     const mock = freshBackend();
     mock.trustedHosts.add("web01.example.test");
     render(<App />);
@@ -128,8 +128,13 @@ describe("SSH tab tools", () => {
     expect(within(bar).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(bar).getByRole("button", { name: "Forwards" }));
     expect(await screen.findByRole("region", { name: "Port forwards" })).toBeInTheDocument();
+    fireEvent.click(within(bar).getByRole("button", { name: "Files" }));
+    expect(await screen.findByRole("region", { name: "Files" })).toBeInTheDocument();
+    await settle();
+    expect(screen.getByRole("listbox", { name: "Remote files in /home" })).toBeInTheDocument();
     fireEvent.click(within(bar).getByRole("button", { name: "Terminal" }));
     expect(screen.queryByRole("region", { name: "Port forwards" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Files" })).toBeNull();
   });
 });
 

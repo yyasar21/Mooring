@@ -2,6 +2,9 @@
 // (rmdir refuses non-empty directories, never recursive; names with `/` or NUL are refused).
 import { IpcError } from "./ipc.error";
 import type { SftpEntry, SftpListing } from "./ipc.types";
+import { baseName, joinRemote, normalizeRemote, parentOf } from "./remotePath";
+
+export { normalizeRemote } from "./remotePath";
 
 interface Node {
   kind: "file" | "dir" | "symlink";
@@ -11,35 +14,6 @@ interface Node {
 }
 
 const BASE_MTIME = Date.parse("2026-11-01T08:00:00Z") / 1000;
-export const MAX_REMOTE_PATH = 4096;
-
-/** Normalise an absolute remote path: collapses `//`, `.` and `..` (never above `/`). */
-export function normalizeRemote(path: string): string {
-  if (path.length === 0 || path.length > MAX_REMOTE_PATH || path.includes("\0")) {
-    throw new IpcError("input.invalid", "remote path must be 1 to 4096 bytes without NUL");
-  }
-  if (!path.startsWith("/")) throw new IpcError("input.invalid", "remote path must be absolute");
-  const out: string[] = [];
-  for (const part of path.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") out.pop();
-    else out.push(part);
-  }
-  return `/${out.join("/")}`;
-}
-
-export function parentOf(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i <= 0 ? "/" : path.slice(0, i);
-}
-
-export function baseName(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
-export function joinRemote(dir: string, name: string): string {
-  return dir === "/" ? `/${name}` : `${dir}/${name}`;
-}
 
 export class MockRemoteFs {
   private nodes = new Map<string, Node>();

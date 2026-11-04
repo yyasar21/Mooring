@@ -6,6 +6,7 @@ import { TabStrip } from "./TabStrip";
 import { PromptModal } from "./terminal/PromptModal";
 import { SessionToolbar, type SessionTool } from "./SessionToolbar";
 import { ForwardsPanel } from "./forwards/ForwardsPanel";
+import { SftpPanel } from "./sftp/SftpPanel";
 
 // xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
 const TerminalView = lazy(() => import("./terminal/TerminalView").then((m) => ({ default: m.TerminalView })));
@@ -61,6 +62,11 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
             {tool === "forwards" && (
               <div className="tool-layer">
                 <ForwardsPanel sessionId={liveSession} />
+              </div>
+            )}
+            {tool === "files" && (
+              <div className="tool-layer">
+                <SftpPanel key={liveSession ?? "offline"} sessionId={liveSession} />
               </div>
             )}
           </div>

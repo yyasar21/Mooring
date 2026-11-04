@@ -8,6 +8,11 @@ vi.mock("./components/terminal/xterm", () => ({
   themeFromCss: () => ({}),
 }));
 
+// jsdom has no layout: scrolling a row into view is a no-op there.
+Element.prototype.scrollIntoView = function scrollIntoView() {
+  /* no layout in jsdom */
+};
+
 afterEach(() => {
   cleanup();
 });
