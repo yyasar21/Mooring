@@ -6,26 +6,22 @@ export function errorText(e: unknown): string {
 }
 
 /**
- * Plain-English text for the IpcError codes the ADR-0010 panels expect. Unknown codes and
- * `input.invalid` fall back to the scrubbed Rust message, which names the offending field.
+ * Plain-English text for the IpcError codes Rust emits (`src-tauri/ipc-codes.json`, N-14). Codes
+ * without an entry (`input.invalid`, `sftp.failed`, `session.failed`, ...) show the scrubbed Rust
+ * message, which is a fixed, path-free sentence naming the field or the server's reason.
  */
-const FRIENDLY: Record<string, string> = {
+export const FRIENDLY: Readonly<Record<string, string>> = {
   "vault.locked": "The vault is locked.",
   "session.not_found": "The session has ended. Reconnect to continue.",
-  "session.failed": "The session is not connected yet.",
-  "session.unsupported": "Only SSH sessions forward ports and transfer files.",
+  "session.not_connected": "The session is not connected yet.",
   "forward.limit": "This session already has 64 forwards. Close one first.",
-  "forward.bind_failed": "The bind address is in use or not permitted. Try another port.",
-  "forward.refused": "The server refused the forward.",
+  "forward.bind": "The bind address is in use or not permitted, or the server refused the forward. Try another port.",
   "forward.not_found": "That forward is already closed.",
   "sftp.not_found": "No such file or folder on the server.",
-  "sftp.permission": "The server denied permission.",
-  "sftp.exists": "Something with that name already exists.",
-  "sftp.not_empty": "The folder is not empty. Only empty folders can be removed.",
-  "sftp.not_a_directory": "That is not a folder.",
-  "sftp.not_a_file": "Only regular files can be transferred.",
-  "sftp.local_path": "The local location was refused. Pick it again in the file dialog.",
-  "sftp.transfer_not_found": "That transfer has already finished.",
+  "sftp.denied": "The server denied permission.",
+  "sftp.exists": "A file with that name already exists.",
+  "transfer.limit": "Too many transfers are running. Wait for one to finish.",
+  "transfer.not_found": "That transfer has already finished.",
   "syslog.not_configured": "Save the syslog settings before sending a test entry.",
 };
 

@@ -61,8 +61,8 @@ export class MockTransport extends MockExitBase implements Ipc {
   protected requireSsh(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s) throw new IpcError("session.not_found", "session not found");
-    if (s.info.protocol !== "ssh") throw new IpcError("session.unsupported", "only SSH sessions forward ports and transfer files");
-    if (s.info.state !== "connected") throw new IpcError("session.failed", "the session is not connected yet");
+    if (s.info.protocol !== "ssh") throw new IpcError("input.invalid", "invalid sessionId: not an SSH session");
+    if (s.info.state !== "connected") throw new IpcError("session.not_connected", "the session is not connected yet");
   }
 
   private folder(id: string): Folder {
@@ -123,17 +123,12 @@ export class MockTransport extends MockExitBase implements Ipc {
     this.record("vault_unlocked", {});
     return Promise.resolve(this.vault);
   };
+  /** Sessions survive a lock (ADR-0006, ADR-0010 M-10); see `lockBackend` for what does not. */
   vaultLock: Ipc["vaultLock"] = (reason) => {
-    this.vault = "locked";
-    this.dropSession(null);
-    this.sessions.clear();
+    this.lockBackend();
     this.record("vault_locked", { reason });
     return Promise.resolve(this.vault);
   };
-  override fireAutoLock(reason: Parameters<MockExitBase["fireAutoLock"]>[0]): void {
-    this.sessions.clear();
-    super.fireAutoLock(reason);
-  }
   vaultChangePassword: Ipc["vaultChangePassword"] = ({ next }) => {
     if (next.length < 12) return Promise.reject(new IpcError("vault.weak_password", "use at least 12 characters"));
     this.record("password_changed", {});

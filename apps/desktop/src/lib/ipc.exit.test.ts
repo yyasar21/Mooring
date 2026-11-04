@@ -3,6 +3,12 @@ import { MockTransport } from "./ipc.mock";
 import { normalizeRemote } from "./ipc.mock.fs";
 import type { TransferProgress } from "./ipc.types";
 import { connectedSsh, until } from "../test/ssh";
+
+const folder = (m: MockTransport, sessionId: string) => m.picks.open(sessionId, "folder")?.pickId ?? "";
+const file = (m: MockTransport, sessionId: string, name = "notes.txt") => {
+  m.picks.queue.push(name);
+  return m.picks.open(sessionId, "file")?.pickId ?? "";
+};
 import { isLoopbackHost, isValidHost, validateForward, validateIdleMinutes, validateSyslog } from "./validate.exit";
 
 describe("ADR-0010 decoders", () => {
@@ -90,7 +96,7 @@ describe("MockTransport · ADR-0010", () => {
     expect(f.bind.port).toBeGreaterThan(0);
     expect(await m.forwardList({ sessionId })).toHaveLength(1);
     await expect(m.forwardOpen({ sessionId, kind: "local", bind: { host: "127.0.0.1", port: f.bind.port }, target: { host: "x.example.test", port: 1 }, exposure: "loopback" }))
-      .rejects.toMatchObject({ code: "forward.bind_failed" });
+      .rejects.toMatchObject({ code: "forward.bind" });
     await m.forwardClose({ sessionId, forwardId: f.id });
     expect(await m.forwardList({ sessionId })).toEqual([]);
     await expect(m.forwardClose({ sessionId, forwardId: f.id })).rejects.toMatchObject({ code: "forward.not_found" });
@@ -98,7 +104,7 @@ describe("MockTransport · ADR-0010", () => {
     expect(audit?.event).toBe("session.forward.close");
 
     const rdp = await m.sessionOpen({ connectionId: "c-dc", size: { width: 80, height: 24 }, onEvent: () => undefined });
-    await expect(m.forwardList({ sessionId: rdp.sessionId })).rejects.toMatchObject({ code: "session.unsupported" });
+    await expect(m.forwardList({ sessionId: rdp.sessionId })).rejects.toMatchObject({ code: "input.invalid" });
   });
 
   it("caps forwards per session and drops them when the session ends", async () => {
@@ -117,10 +123,10 @@ describe("MockTransport · ADR-0010", () => {
     const { entries } = await m.sftpList({ sessionId, path: "/home/ops" });
     expect(entries.map((e) => e.name)).toEqual(expect.arrayContaining(["releases", "README.md", "current"]));
     await m.sftpMkdir({ sessionId, path: "/home/ops/new" });
-    await expect(m.sftpMkdir({ sessionId, path: "/home/ops/new" })).rejects.toMatchObject({ code: "sftp.exists" });
+    await expect(m.sftpMkdir({ sessionId, path: "/home/ops/new" })).rejects.toMatchObject({ code: "sftp.failed", message: "already exists" });
     await m.sftpRename({ sessionId, from: "/home/ops/new", to: "/home/ops/renamed" });
     expect((await m.sftpStat({ sessionId, path: "/home/ops/renamed" })).kind).toBe("dir");
-    await expect(m.sftpRemove({ sessionId, path: "/home/ops/logs" })).rejects.toMatchObject({ code: "sftp.not_empty" });
+    await expect(m.sftpRemove({ sessionId, path: "/home/ops/logs" })).rejects.toMatchObject({ code: "sftp.failed", message: "directory not empty" });
     await m.sftpRemove({ sessionId, path: "/home/ops/renamed" });
     await expect(m.sftpStat({ sessionId, path: "/home/ops/renamed" })).rejects.toMatchObject({ code: "sftp.not_found" });
   });
@@ -128,32 +134,32 @@ describe("MockTransport · ADR-0010", () => {
   it("streams download progress to done and audits the transfer", async () => {
     const { m, sessionId } = await connectedSsh();
     const seen: TransferProgress[] = [];
-    const { transferId } = await m.sftpDownload({ sessionId, remote: "/home/ops/README.md", localDir: "/picked/by/dialog", onProgress: (p) => seen.push(p) });
+    const { transferId } = await m.sftpDownload({ sessionId, remote: "/home/ops/README.md", pick: folder(m, sessionId), onProgress: (p) => seen.push(p) });
     await until(() => seen.at(-1)?.state === "done");
     expect(seen[0]).toMatchObject({ transferId, bytesDone: 0, bytesTotal: 1284, state: "running" });
     expect(seen.at(-1)).toMatchObject({ bytesDone: 1284, state: "done" });
     expect(seen.map((p) => p.bytesDone)).toEqual([...seen.map((p) => p.bytesDone)].sort((a, b) => a - b));
     expect(m.audit.at(-1)).toMatchObject({ event: "session.sftp.transfer", details: { direction: "download", outcome: "done" } });
-    await expect(m.sftpDownload({ sessionId, remote: "/home/ops/logs", localDir: "/x", onProgress: () => undefined }))
-      .rejects.toMatchObject({ code: "sftp.not_a_file" });
+    await expect(m.sftpDownload({ sessionId, remote: "/home/ops/logs", pick: folder(m, sessionId), onProgress: () => undefined }))
+      .rejects.toMatchObject({ code: "sftp.failed" });
   });
 
   it("cancels, fails and lands uploads", async () => {
     const { m, sessionId } = await connectedSsh();
     const seen: TransferProgress[] = [];
-    const { transferId } = await m.sftpUpload({ sessionId, localPath: "/picked/notes.txt", remoteDir: "/tmp", onProgress: (p) => seen.push(p) });
+    const { transferId } = await m.sftpUpload({ sessionId, pick: file(m, sessionId), remoteDir: "/tmp", onProgress: (p) => seen.push(p) });
     await m.sftpCancel({ sessionId, transferId });
     await until(() => seen.at(-1)?.state === "cancelled");
     expect(seen.at(-1)?.state).toBe("cancelled");
 
     const up: TransferProgress[] = [];
-    await m.sftpUpload({ sessionId, localPath: "C:\\picked\\notes.txt", remoteDir: "/tmp", onProgress: (p) => up.push(p) });
+    await m.sftpUpload({ sessionId, pick: file(m, sessionId), remoteDir: "/tmp", onProgress: (p) => up.push(p) });
     await until(() => up.at(-1)?.state === "done");
     expect((await m.sftpList({ sessionId, path: "/tmp" })).entries.map((e) => e.name)).toContain("notes.txt");
 
     m.failTransfers = true;
     const bad: TransferProgress[] = [];
-    await m.sftpDownload({ sessionId, remote: "/home/ops/README.md", localDir: "/x", onProgress: (p) => bad.push(p) });
+    await m.sftpDownload({ sessionId, remote: "/home/ops/README.md", pick: folder(m, sessionId), onProgress: (p) => bad.push(p) });
     await until(() => bad.at(-1)?.state === "failed");
     expect(bad.at(-1)).toMatchObject({ state: "failed", error: "permission denied" });
   });
@@ -179,18 +185,22 @@ describe("MockTransport · ADR-0010", () => {
     await expect(m.syslogSet({ ...cfg, port: 0 })).rejects.toMatchObject({ code: "input.invalid" });
   });
 
-  it("emits vault:locked on auto-lock and kills forwards and transfers", async () => {
-    const { m, sessionId } = await connectedSsh();
+  it("emits vault:locked on auto-lock; external forwards close, the rest survives (M-10)", async () => {
+    const { m, sessionId } = await connectedSsh(new MockTransport({ transferStepMs: 20 }));
     const reasons: string[] = [];
     const off = m.onVaultLocked((e) => reasons.push(e.reason));
-    await m.forwardOpen({ sessionId, kind: "dynamic", bind: { host: "127.0.0.1", port: 1080 }, target: null, exposure: "loopback" });
+    const loop = await m.forwardOpen({ sessionId, kind: "dynamic", bind: { host: "127.0.0.1", port: 1080 }, target: null, exposure: "loopback" });
+    const lan = await m.forwardOpen({ sessionId, kind: "dynamic", bind: { host: "0.0.0.0", port: 1081 }, target: null, exposure: "external" });
     const seen: TransferProgress[] = [];
-    await m.sftpDownload({ sessionId, remote: "/home/ops/README.md", localDir: "/x", onProgress: (p) => seen.push(p) });
+    await m.sftpDownload({ sessionId, remote: "/home/ops/releases/app-2.4.0.tar.gz", pick: folder(m, sessionId), onProgress: (p) => seen.push(p) });
     m.fireAutoLock("idle");
     expect(reasons).toEqual(["idle"]);
-    expect(seen.at(-1)?.state).toBe("failed");
-    expect(m.forwards.size).toBe(0);
+    expect(m.forwards.get(sessionId)?.map((f) => f.id)).toEqual([loop.id]);
+    expect(m.audit.some((e) => e.event === "session.forward.close" && e.details.forward === lan.id)).toBe(true);
+    expect(m.sessions.has(sessionId)).toBe(true);
     await expect(m.forwardList({ sessionId })).rejects.toMatchObject({ code: "vault.locked" });
+    await until(() => seen.at(-1)?.state === "done", 400);
+    expect(seen.at(-1)?.state).toBe("done");
     off();
     m.fireAutoLock("sleep");
     expect(reasons).toEqual(["idle"]);

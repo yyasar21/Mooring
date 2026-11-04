@@ -87,3 +87,37 @@ export function RemoveDialog({ entry, path, onConfirm, onClose }: {
     </Modal>
   );
 }
+
+/** A download would replace a local file (`sftp.exists`): ask before retrying with overwrite. */
+export function ReplaceDialog({ name, folder, onConfirm, onClose }: {
+  name: string;
+  folder: string;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title={`Replace ${name}?`} onClose={onClose}>
+      <div className="px-4 py-3.5">
+        <p className="text-text-muted">
+          <span className="mono text-text">{name}</span> already exists in{" "}
+          <span className="mono text-text">{folder}</span>. Replacing it overwrites the local file.
+        </p>
+      </div>
+      <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
+        <button type="button" className="btn btn-ghost" onClick={onClose}>Keep existing</button>
+        <button
+          type="button"
+          className="btn btn-danger"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void onConfirm().then(() => { onClose(); });
+          }}
+        >
+          Replace
+        </button>
+      </div>
+    </Modal>
+  );
+}

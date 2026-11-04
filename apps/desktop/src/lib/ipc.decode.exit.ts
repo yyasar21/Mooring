@@ -6,6 +6,7 @@ import {
   type ForwardInfo,
   type ForwardKind,
   type HostPort,
+  type LocalPick,
   type LockReason,
   type SftpEntry,
   type SftpListing,
@@ -49,6 +50,15 @@ export function decodeProgress(raw: unknown): TransferProgress {
     state: known ?? "failed",
     error: typeof err === "string" ? err : known ? null : "unrecognised transfer state",
   };
+}
+
+/** `sftp_pick_local` reply: null (cancelled) or `{ pickId, name }`. Anything else is a cancel. */
+export function decodePick(raw: unknown): LocalPick | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const w = rec(raw);
+  const pickId = str(pick(w, "pickId", "pick_id"));
+  if (pickId === "") return null;
+  return { pickId, name: str(w.name) };
 }
 
 export function decodeEntry(raw: unknown): SftpEntry {

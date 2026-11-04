@@ -8,7 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { AuditEntry, Ipc, ProgressHandler, PromptAccount, PromptPurpose, Protocol, SessionEvent, SessionInput } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockTransport } from "./ipc.mock";
-import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodeProgress } from "./ipc.decode.exit";
+import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
 
 export * from "./ipc.types";
 
@@ -203,10 +203,12 @@ export class TauriTransport implements Ipc {
   sftpMkdir: Ipc["sftpMkdir"] = (a) => call("sftp_mkdir", { ...a });
   sftpRename: Ipc["sftpRename"] = (a) => call("sftp_rename", { ...a });
   sftpRemove: Ipc["sftpRemove"] = (a) => call("sftp_remove", { ...a });
+  sftpPickLocal: Ipc["sftpPickLocal"] = async (a) => decodePick(await call<unknown>("sftp_pick_local", { ...a }));
   sftpDownload: Ipc["sftpDownload"] = ({ onProgress, ...a }) =>
     call("sftp_download", { ...a, onProgress: progressChannel(onProgress) });
   sftpUpload: Ipc["sftpUpload"] = ({ onProgress, ...a }) =>
     call("sftp_upload", { ...a, onProgress: progressChannel(onProgress) });
+  sftpTransfers: Ipc["sftpTransfers"] = async (a) => (await call<unknown[]>("sftp_transfers", { ...a })).map(decodeProgress);
   sftpCancel: Ipc["sftpCancel"] = (a) => call("sftp_cancel", { ...a });
 
   autolockGet: Ipc["autolockGet"] = () => call("autolock_get");

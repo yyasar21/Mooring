@@ -46,7 +46,7 @@ export class MockRemoteFs {
   }
 
   private dirNode(path: string): void {
-    if (this.node(path).kind !== "dir") throw new IpcError("sftp.not_a_directory", "not a directory");
+    if (this.node(path).kind !== "dir") throw new IpcError("sftp.failed", "not a directory");
   }
 
   private checkName(name: string): void {
@@ -77,7 +77,7 @@ export class MockRemoteFs {
     const path = normalizeRemote(raw);
     this.checkName(baseName(path));
     this.dirNode(parentOf(path));
-    if (this.nodes.has(path)) throw new IpcError("sftp.exists", "already exists");
+    if (this.nodes.has(path)) throw new IpcError("sftp.failed", "already exists");
     this.nodes.set(path, { kind: "dir", size: 4096, mtime: BASE_MTIME, mode: 0o755 });
   }
 
@@ -87,7 +87,7 @@ export class MockRemoteFs {
     this.node(from);
     this.checkName(baseName(to));
     this.dirNode(parentOf(to));
-    if (this.nodes.has(to)) throw new IpcError("sftp.exists", "already exists");
+    if (this.nodes.has(to)) throw new IpcError("sftp.failed", "already exists");
     if (to.startsWith(`${from}/`)) throw new IpcError("input.invalid", "cannot move a directory into itself");
     for (const [p, n] of [...this.nodes]) {
       if (p === from || p.startsWith(`${from}/`)) {
@@ -99,10 +99,10 @@ export class MockRemoteFs {
 
   remove(raw: string): void {
     const path = normalizeRemote(raw);
-    if (path === "/") throw new IpcError("sftp.permission", "permission denied");
+    if (path === "/") throw new IpcError("sftp.denied", "permission denied");
     const n = this.node(path);
     if (n.kind === "dir" && this.list(path).entries.length > 0) {
-      throw new IpcError("sftp.not_empty", "directory not empty");
+      throw new IpcError("sftp.failed", "directory not empty");
     }
     this.nodes.delete(path);
   }
@@ -110,7 +110,7 @@ export class MockRemoteFs {
   /** Size of a regular file to download; directories and links are refused like the crate does. */
   fileSize(raw: string): number {
     const n = this.node(normalizeRemote(raw));
-    if (n.kind !== "file") throw new IpcError("sftp.not_a_file", "only regular files can be transferred");
+    if (n.kind !== "file") throw new IpcError("sftp.failed", "only regular files can be transferred");
     return n.size;
   }
 

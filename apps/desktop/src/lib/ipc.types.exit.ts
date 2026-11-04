@@ -67,6 +67,18 @@ export interface TransferProgress {
 
 export type ProgressHandler = (p: TransferProgress) => void;
 
+/** What the native dialog opened by Rust should pick (ADR-0010, review 4 B-4). */
+export type PickMode = "folder" | "file";
+
+/**
+ * A local file or folder the user chose in the native dialog. Rust keeps the path; the UI only
+ * ever sees an opaque, single-use, session-bound `pickId` and the display `name`.
+ */
+export interface LocalPick {
+  pickId: string;
+  name: string;
+}
+
 // ---------- auto-lock ----------
 
 export interface AutoLockPolicy {
@@ -120,10 +132,14 @@ export interface ExitIpc {
   sftpMkdir(args: { sessionId: string; path: string }): Promise<void>;
   sftpRename(args: { sessionId: string; from: string; to: string }): Promise<void>;
   sftpRemove(args: { sessionId: string; path: string }): Promise<void>;
-  /** `localDir` must come from the OS folder picker; the UI never types a local path. */
-  sftpDownload(args: { sessionId: string; remote: string; localDir: string; onProgress: ProgressHandler }): Promise<{ transferId: string }>;
-  /** `localPath` must come from the OS file picker. */
-  sftpUpload(args: { sessionId: string; localPath: string; remoteDir: string; onProgress: ProgressHandler }): Promise<{ transferId: string }>;
+  /** Rust opens the native dialog; null = the user cancelled. Local paths never cross IPC. */
+  sftpPickLocal(args: { sessionId: string; mode: PickMode }): Promise<LocalPick | null>;
+  /** `pick` is a folder `pickId`. An existing target is refused with `sftp.exists` unless `overwrite`. */
+  sftpDownload(args: { sessionId: string; remote: string; pick: string; overwrite?: boolean; onProgress: ProgressHandler }): Promise<{ transferId: string }>;
+  /** `pick` is a file `pickId`. */
+  sftpUpload(args: { sessionId: string; pick: string; remoteDir: string; onProgress: ProgressHandler }): Promise<{ transferId: string }>;
+  /** Running transfers of the session, to re-adopt them after an unlock (M-10). */
+  sftpTransfers(args: { sessionId: string }): Promise<TransferProgress[]>;
   sftpCancel(args: { sessionId: string; transferId: string }): Promise<void>;
 
   autolockGet(): Promise<AutoLockPolicy>;

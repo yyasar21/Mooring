@@ -52,16 +52,16 @@ function TransferRow({ t }: { t: Transfer }) {
   const dismiss = useTransfers((s) => s.dismiss);
   const pct = percent(t.bytesDone, t.bytesTotal);
   const done = isFinished(t);
-  const label = `${t.direction === "download" ? "Download" : "Upload"} ${t.name}`;
+  const label = t.direction === null ? t.name : `${t.direction === "download" ? "Download" : "Upload"} ${t.name}`;
 
   return (
     <li className="xfer-row" data-state={t.state} aria-label={label}>
-      <span className="xfer-dir" aria-hidden>{t.direction === "download" ? "DN" : "UP"}</span>
+      <span className="xfer-dir" aria-hidden>{t.direction === null ? "··" : t.direction === "download" ? "DN" : "UP"}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium">{t.name}</span>
           <span className="mono truncate text-[length:var(--fs-xs)] text-text-faint">
-            {t.direction === "download" ? `from ${t.remote}` : `to ${uploadTarget(t)}`}
+            {t.direction === null ? "resumed after unlock" : t.direction === "download" ? `from ${t.remote}` : `to ${uploadTarget(t)}`}
           </span>
         </div>
         <div

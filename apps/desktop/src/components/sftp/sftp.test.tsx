@@ -83,7 +83,7 @@ describe("SftpPanel · remote pane", () => {
     fireEvent.keyDown(list(), { key: "Delete" });
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
     await settle();
-    expect(screen.getByRole("alert")).toHaveTextContent("The folder is not empty.");
+    expect(screen.getByRole("alert")).toHaveTextContent("directory not empty");
   });
 });
 
@@ -135,6 +135,56 @@ describe("SftpPanel · transfers", () => {
     const row = screen.getByRole("listitem", { name: "Download README.md" });
     expect(row).toHaveTextContent("Failed");
     expect(row).toHaveTextContent("permission denied");
+  });
+
+  it("picks through Rust on every download and shows only the picked name (B-4)", async () => {
+    const { mock } = await browser();
+    const asked: unknown[] = [];
+    const real = mock.sftpPickLocal;
+    mock.sftpPickLocal = (a) => { asked.push(a); return real(a); };
+    expect(screen.queryByRole("button", { name: /Choose download folder/ })).toBeNull();
+    await openOps();
+    fireEvent.mouseDown(option("README.md"));
+    mock.picks.queue.push(null); // the user cancels the first dialog
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await settle();
+    expect(useTransfers.getState().items).toHaveLength(0);
+    mock.picks.queue.push("Projects");
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await until(() => useTransfers.getState().items[0]?.state === "done");
+    await settle();
+    expect(asked).toEqual([{ sessionId: expect.any(String) as unknown, mode: "folder" }, { sessionId: expect.any(String) as unknown, mode: "folder" }]);
+    expect(screen.getByRole("complementary", { name: "This computer" })).toHaveTextContent("Projects");
+    expect(mock.picks.size).toBe(0); // consumed
+  });
+
+  it("asks before replacing an existing local file and retries with overwrite", async () => {
+    const { mock } = await browser();
+    mock.picks.localFiles.add("Downloads/README.md");
+    const sent: unknown[] = [];
+    const real = mock.sftpDownload;
+    mock.sftpDownload = (a) => { sent.push({ pick: a.pick, overwrite: a.overwrite }); return real(a); };
+    await openOps();
+    fireEvent.mouseDown(option("README.md"));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await settle();
+    let dialog = screen.getByRole("dialog", { name: "Replace README.md?" });
+    expect(dialog).toHaveTextContent("Downloads");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep existing" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useTransfers.getState().items).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await settle();
+    dialog = screen.getByRole("dialog", { name: "Replace README.md?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Replace" }));
+    await until(() => useTransfers.getState().items[0]?.state === "done");
+    await settle();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(sent).toHaveLength(3);
+    const [, ask, replace] = sent as { pick: string; overwrite?: boolean }[];
+    expect(ask?.overwrite).toBeUndefined();
+    expect(replace).toEqual({ pick: ask?.pick, overwrite: true });
   });
 
   it("disables Download for folders", async () => {
