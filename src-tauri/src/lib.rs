@@ -86,7 +86,11 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;
-            app.manage(AppState::new(data_dir, Settings::production())?);
+            let cache_dir = app.path().app_cache_dir()?;
+            create_private_dir(&cache_dir)?;
+            app.manage(AppState::new(data_dir, Settings::production())?.with_cache_dir(cache_dir));
+            // Review 5 L-29: no ephemeral web profile outlives the window it belonged to.
+            web::sweep::ephemeral_profiles(&app.state::<AppState>());
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
             // the navigation and new-window guard (security review 2, M-4).
             navigation::create_main_window(app)?;
@@ -265,14 +269,17 @@ const CREDSSP_TARGETS: [&str; 3] =
 
 /// `MOORING_LOG` directives (default `info`) with every directive for [`CREDSSP_TARGETS`]
 /// dropped and `<target>=info` appended, so neither a broad `debug` nor a targeted `trace`
-/// can lower them.
+/// can lower them. Span-scoped directives (`[span]=trace`, `target[{field}]=debug`) are
+/// dropped too (review 5 N-38): they enable events of every target inside matching spans,
+/// which the `=info` tail does not override.
 fn log_filter(user: Option<&str>) -> tracing_subscriber::EnvFilter {
     use tracing_subscriber::EnvFilter;
     let protected = |d: &str| CREDSSP_TARGETS.iter().any(|t| d.trim_start().starts_with(t));
+    let span_scoped = |d: &str| d.contains('[');
     let mut spec: Vec<&str> = user
         .unwrap_or("info")
         .split(',')
-        .filter(|d| !d.trim().is_empty() && !protected(d))
+        .filter(|d| !d.trim().is_empty() && !protected(d) && !span_scoped(d))
         .collect();
     if spec.is_empty() {
         spec.push("info");
@@ -318,6 +325,10 @@ mod tests {
             Some("debug"),
             Some("trace,sspi::ntlm=trace,ironrdp_connector::credssp=trace"),
             Some("bogus=["),
+            // N-38: span-scoped directives would enable every target inside the span.
+            Some("[connect]=trace"),
+            Some("info,ironrdp_connector[{step}]=trace,[{step}]=debug"),
+            Some("info,[connect{step=1}]=trace"),
         ] {
             let buf: &'static Mutex<Vec<u8>> = Box::leak(Box::new(Mutex::new(Vec::new())));
             let sub = tracing_subscriber::fmt()
@@ -325,6 +336,9 @@ mod tests {
                 .with_writer(move || Sink(buf))
                 .finish();
             tracing::subscriber::with_default(sub, || {
+                // The IronRDP connector emits the CredSSP lines inside its `connect` span.
+                let span = tracing::info_span!(target: "ironrdp_connector::connection", "connect", step = 1);
+                let _in = span.enter();
                 tracing::debug!(target: "ironrdp_connector::credssp", "secret-ts-request");
                 tracing::trace!(target: "sspi::ntlm", "secret-ntlm");
                 tracing::debug!(target: "ironrdp_connector::connection", "secret-connection");
