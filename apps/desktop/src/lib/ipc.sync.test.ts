@@ -87,6 +87,32 @@ describe("mock · vault sync (ADR-0017, S2)", () => {
     expect(m.audit.some((a) => a.event === "sync.merged" && a.details.conflicts === "1")).toBe(true);
   });
 
+  it("a two-device apply with different pins lists a trust conflict until the pins are removed (6b L-35)", async () => {
+    const m = new MockTransport();
+    const kiosk = { connectionId: "c-kiosk", protocol: "vnc" as const, name: "lobby-kiosk", host: "kiosk.example.test", port: 5900, tags: [], options: undefined };
+    await m.pin(kiosk);
+    await m.syncConfigure(config());
+    await m.syncNow();
+    const seen: SyncStatus[] = [];
+    m.onSyncStatus((s) => seen.push(s));
+    m.remoteTrust = [kiosk];
+    expect(await m.syncNow()).toMatchObject({ type: "merged", counter: 2, conflicts: [] });
+    const trust = { kind: "trust", id: "known_vnc_certs", name: "kiosk.example.test:5900" };
+    expect((await m.syncStatus()).conflicts).toEqual([trust]);
+    expect(m.audit.some((a) => a.event === "trust_conflict" && a.details.file === "known_vnc_certs" && a.details.host === "kiosk.example.test:5900")).toBe(true);
+    expect(JSON.stringify(m.audit.filter((a) => a.event === "trust_conflict"))).not.toMatch(/SHA256/);
+    // both pins are listed, with different fingerprints; the conflict stands across runs
+    const pins = await m.knownCertsList({ protocol: "vnc" });
+    expect(new Set(pins.map((p) => p.fingerprint)).size).toBe(2);
+    expect(await m.syncNow()).toEqual({ type: "noChange", counter: 2 });
+    expect((await m.syncStatus()).conflicts).toEqual([trust]);
+    // removing clears every pin of the host, the conflict and the event follows at once
+    expect(await m.knownCertsRemove({ protocol: "vnc", host: "kiosk.example.test", port: 5900 })).toEqual({ removed: 2 });
+    expect((await m.syncStatus()).conflicts).toEqual([]);
+    expect(seen.at(-1)?.conflicts).toEqual([]);
+    expect(await m.knownCertsList({ protocol: "vnc" })).toEqual([]);
+  });
+
   it("fork and rollback alarms stop runs until resolved through the native confirmation", async () => {
     const m = new MockTransport();
     await m.syncConfigure(config());

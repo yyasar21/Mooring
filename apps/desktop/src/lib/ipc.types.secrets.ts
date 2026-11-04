@@ -155,17 +155,30 @@ export type SyncResolution =
   | { type: "keptBoth"; copyId: string }
   | { type: "keptEdit" }
   | { type: "lastWriterWins" };
-export interface SyncConflict {
+/** A record conflict of the last merge (resolved by the merge rules; listed for the user). */
+export interface SyncMergeConflict {
   kind: SyncConflictKind;
   id: string;
   name: string;
   resolution: SyncResolution;
 }
+/**
+ * Two devices trust different certificates for one host (review 6b, L-35): standing until the
+ * user removes the pins in the known-certificates manager. `id` is the trust file
+ * (`known_rdp_certs`, `known_vnc_certs`, `known_hosts`, …); `name` is `host:port`.
+ */
+export interface SyncTrustConflict {
+  kind: "trust";
+  id: string;
+  name: string;
+}
+/** `sync_status.conflicts` is heterogeneous (serde untagged): merge entries, then trust entries. */
+export type SyncConflict = SyncMergeConflict | SyncTrustConflict;
 
 export type SyncOutcome =
   | { type: "pushed"; counter: number }
   | { type: "pulled"; counter: number }
-  | { type: "merged"; counter: number; conflicts: SyncConflict[] }
+  | { type: "merged"; counter: number; conflicts: SyncMergeConflict[] }
   | { type: "noChange"; counter: number };
 
 export type SyncAlarm = { type: "fork"; remote: number } | { type: "rollback"; remote: number; last: number };

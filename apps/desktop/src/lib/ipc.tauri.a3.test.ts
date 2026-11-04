@@ -107,6 +107,15 @@ describe("TauriTransport · ADR-0014..0017", () => {
     expect(chunks[1]).toEqual({ kind: "end", truncated: true, reason: null });
   });
 
+  it("decodes the heterogeneous sync_status.conflicts (6b L-35) and drops drifted entries", async () => {
+    const t = new TauriTransport();
+    const trust = { kind: "trust", id: "known_rdp_certs", name: "dc01.example.test:3389" };
+    reply = { state: "idle", counter: 2, conflicts: [{ kind: "folder", id: "f", name: "ops", resolution: { type: "lastWriterWins" } }, trust, { kind: "trust" }] };
+    const s = await t.syncStatus();
+    expect(s.counter).toBe(2);
+    expect(s.conflicts).toEqual([{ kind: "folder", id: "f", name: "ops", resolution: { type: "lastWriterWins" } }, trust]);
+  });
+
   it("lists the ADR passive commands as polled", () => {
     for (const c of ["kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status", "secret_source_oidc_status"]) expect(POLLED_COMMANDS).toContain(c);
     for (const c of ["kube_open", "kube_logs", "kube_watch", "vsphere_refresh", "sync_now", "secret_source_oidc_begin", "secret_source_test"]) expect(POLLED_COMMANDS).not.toContain(c);

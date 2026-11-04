@@ -22,7 +22,8 @@ export function Shell() {
   return (
     <div className="deck grid h-full grid-rows-[42px_auto_1fr_var(--status-h)]">
       <TitleBar />
-      <SyncBanner />
+      {/* Always one grid item, so the `auto` row stays the banner's even while there is no alarm (U5). */}
+      <div className="min-h-0" data-slot="sync-banner"><SyncBanner /></div>
       <div
         className="grid min-h-0"
         style={{

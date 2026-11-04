@@ -10,6 +10,7 @@ import { IpcError } from "./ipc.error";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
 import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
+import { decodeSyncStatus } from "./ipc.decode.sync";
 
 export * from "./ipc.types";
 
@@ -217,12 +218,12 @@ export class TauriTransport implements Ipc {
   // ---------- ADR-0017 (vault sync) ----------
 
   syncConfigure: Ipc["syncConfigure"] = (a) => call("sync_configure", { ...a });
-  syncStatus: Ipc["syncStatus"] = () => call("sync_status");
+  syncStatus: Ipc["syncStatus"] = () => call<unknown>("sync_status").then(decodeSyncStatus);
   syncNow: Ipc["syncNow"] = () => call("sync_now");
   syncResolveFork: Ipc["syncResolveFork"] = (a) => call("sync_resolve_fork", { ...a });
   syncDisable: Ipc["syncDisable"] = (a) => call("sync_disable", { ...a });
   vaultJoin: Ipc["vaultJoin"] = (a) => call("vault_join", { ...a });
-  onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(payload as Parameters<typeof handler>[0]); });
+  onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(decodeSyncStatus(payload)); });
 
   onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
 }

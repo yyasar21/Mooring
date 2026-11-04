@@ -29,6 +29,8 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     expect(within(c).queryByRole("button", { name: "Sync now" })).toBeNull();
     fireEvent.click(within(c).getByRole("button", { name: "Set up…" }));
     const dlg = screen.getByRole("dialog", { name: "Set up vault sync" });
+    // 6b B-6: the sync trust prompt is two three-button system dialogs
+    expect(dlg).toHaveTextContent("two system dialogs with three buttons each: “Trust once (this sync only)”, then “Trust and remember”");
     fireEvent.click(within(dlg).getByRole("button", { name: "Save and check" }));
     expect(within(dlg).getByRole("alert")).toHaveTextContent("Fix the highlighted fields.");
     expect(within(dlg).getByLabelText("Endpoint")).toHaveAttribute("aria-invalid", "true");
@@ -86,6 +88,33 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     expect(list).toHaveTextContent("both copies kept");
   });
 
+  it("a trust conflict after a two-device apply is a standing alarm with a link to the known-certificates manager (6b L-35)", async () => {
+    const kiosk = { connectionId: "c-kiosk", protocol: "vnc" as const, name: "lobby-kiosk", host: "kiosk.example.test", port: 5900, tags: [], options: undefined };
+    await mock.pin(kiosk);
+    await mock.syncConfigure(CONFIG);
+    await mock.syncNow();
+    const c = await card();
+    expect(within(c).queryByRole("alert")).toBeNull();
+    mock.remoteTrust = [kiosk];
+    fireEvent.click(within(c).getByRole("button", { name: "Sync now" }));
+    await settle();
+    const alarm = within(c).getByRole("alert", { name: "Certificate trust conflicts" });
+    expect(alarm).toHaveTextContent("Certificate trust conflict");
+    expect(alarm).toHaveTextContent("Two devices trust different certificates for kiosk.example.test:5900. Remove one in Settings → Trust.");
+    expect(alarm).toHaveTextContent("known_vnc_certs");
+    expect(alarm).not.toHaveTextContent("SHA256");
+    expect(within(c).queryByRole("list", { name: "Merge conflicts" })).toBeNull(); // a trust entry is not a merge row
+    // it stands across runs and is not dismissable here
+    fireEvent.click(within(c).getByRole("button", { name: "Sync now" }));
+    await settle();
+    expect(within(c).getByRole("alert", { name: "Certificate trust conflicts" })).toBeInTheDocument();
+    expect(within(alarm).queryByRole("button", { name: /Dismiss/ })).toBeNull();
+    expect(within(alarm).getByRole("button", { name: "Open known certificates" })).toBeInTheDocument();
+    // removing the pins clears it at once (the status event follows the removal)
+    await act(async () => { await mock.knownCertsRemove({ protocol: "vnc", host: "kiosk.example.test", port: 5900 }); });
+    expect(within(c).queryByRole("alert")).toBeNull();
+  });
+
   it("a fork shows the banner; resolving goes through Rust's native confirmation", async () => {
     await mock.syncConfigure(CONFIG);
     await mock.syncNow();
@@ -94,6 +123,7 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     const banner = within(c).getByRole("alert");
     expect(banner).toHaveTextContent("Fork detected");
     expect(banner).toHaveTextContent("Two devices published generation 2 by laptop.");
+    expect(banner).toHaveTextContent("three buttons (Cancel, Discard and resolve, Not now)"); // 6b B-6
     expect(within(c).getByRole("button", { name: "Sync now" })).toBeDisabled();
     mock.confirmResolve = false;
     fireEvent.click(within(banner).getByRole("button", { name: "Resolve: keep remote" }));

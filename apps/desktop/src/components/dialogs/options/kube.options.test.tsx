@@ -80,6 +80,7 @@ describe("connection form · Kubernetes and vCenter options", () => {
     expect(within(section).queryByRole("note")).toBeNull();
     fireEvent.click(within(section).getByRole("switch", { name: /Allow power actions/ }));
     expect(within(section).getByRole("note")).toHaveTextContent(/may lose data/);
+    expect(within(section).getByRole("note")).toHaveTextContent("three buttons (Cancel, the action, Not now)"); // 6b B-6
     fireEvent.click(within(section).getByRole("switch", { name: /VMware Remote Console/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
     await settle();

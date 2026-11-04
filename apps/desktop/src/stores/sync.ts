@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { ipc, type SyncConfig, type SyncOutcome, type SyncStatus } from "../lib/ipc";
+import { ipc, type SyncConfig, type SyncOutcome, type SyncStatus, type SyncTrustConflict } from "../lib/ipc";
+import { isTrustConflict } from "../lib/ipc.decode.sync";
 import { describeError } from "./errors";
 
 /**
@@ -43,13 +44,26 @@ export function describeOutcome(o: SyncOutcome): string {
   }
 }
 
+/** The standing trust conflicts of `sync_status.conflicts` (review 6b L-35), in wire order. */
+export function trustConflicts(s: SyncStatus | null): SyncTrustConflict[] {
+  return s ? s.conflicts.filter(isTrustConflict) : [];
+}
+
+/** The one-line alarm for a trust conflict: the host only, never a fingerprint. */
+export function trustConflictText(c: SyncTrustConflict): string {
+  return `Two devices trust different certificates for ${c.name}. Remove one in Settings → Trust.`;
+}
+
 /**
- * What the shell banner reacts to: a fork/rollback alarm first, else a failed background run.
- * The key changes whenever the situation does, so a dismissal never hides the next one.
+ * What the shell banner reacts to: a fork/rollback alarm first, then a trust conflict (which stands
+ * until the pins are removed), else a failed background run. The key changes whenever the
+ * situation does, so a dismissal never hides the next one.
  */
 export function alarmKey(s: SyncStatus | null): string | null {
   if (!s) return null;
   if (s.alarm) return s.alarm.type === "fork" ? `fork:${s.alarm.remote}` : `rollback:${s.alarm.remote}:${s.alarm.last}`;
+  const trust = trustConflicts(s);
+  if (trust.length > 0) return `trust:${trust.map((c) => `${c.id}/${c.name}`).join(",")}`;
   if (s.lastError) return `error:${s.lastError.code}:${s.lastRunUnix ?? 0}`;
   return null;
 }

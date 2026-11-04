@@ -88,7 +88,7 @@ export function VmPanel({ vm }: { vm: ConnectionSummary }) {
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void console_("client")}>
             Open in vSphere Client
           </button>
-          <button type="button" className="btn" disabled={busy || vmrc !== null} title={vmrc ?? "Hands a one-time ticket to the VMRC app"} onClick={() => void console_("vmrc")}>
+          <button type="button" className="btn" disabled={busy || vmrc !== null} title={vmrc ?? "Hands a one-time ticket to the VMRC app after a system dialog with three buttons (Cancel, Open, Not now); only a click confirms"} onClick={() => void console_("vmrc")}>
             VMRC
           </button>
           <PowerMenu state={state} blocked={powerBlocked(options, vcName)} busy={busy} onAction={(a) => void act(a)} />

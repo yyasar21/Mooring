@@ -116,7 +116,9 @@ describe("RemoteSessionTab", () => {
     expect(securityBadge("tls")?.hot).toBe(true);
     expect(securityBadge("none")).toEqual({ text: "Unencrypted", hot: true });
     expect(securityBadge(null)).toBeNull();
-    expect(Object.keys(CLOSE_TEXT).sort()).toEqual(["auth_failed", "network", "protocol_error", "server_ended", "trust_mismatch", "trust_rejected", "unknown", "user", "vault_locked"]);
+    expect(Object.keys(CLOSE_TEXT).sort()).toEqual(["auth_failed", "network", "protocol_error", "server_ended", "trust_conflict", "trust_mismatch", "trust_rejected", "unknown", "user", "vault_locked"]);
+    expect(CLOSE_TEXT.trust_conflict).toMatchObject({ title: "Conflicting certificates", hot: true });
+    expect(CLOSE_TEXT.trust_conflict.hint).toMatch(/Settings → Trust/);
     expect(formatFingerprint("ab01ff")).toBe("AB:01:FF");
   });
 });

@@ -1,13 +1,14 @@
 import { useEffect } from "react";
 import type { SyncStatus } from "../lib/ipc";
-import { alarmKey, useSync } from "../stores/sync";
+import { alarmKey, trustConflictText, trustConflicts, useSync } from "../stores/sync";
 import { useUi } from "../stores/ui";
 
 /**
  * Global vault-sync alarm (ADR-0017, U3 decision 2). The shell subscribes to `sync:status` once
- * so a fork, a rollback or a failed background run is visible wherever the user is, not only on
- * the settings card. Resolving stays on the card: this banner only names the problem and jumps
- * there. Dismissal is per alarm and per unlocked session (`useSync.dismiss`).
+ * so a fork, a rollback, a trust conflict (review 6b L-35) or a failed background run is visible
+ * wherever the user is, not only on the settings card. Resolving stays on the card (or, for a
+ * trust conflict, in the known-certificates manager): this banner only names the problem and
+ * jumps there. Dismissal is per alarm and per unlocked session (`useSync.dismiss`).
  */
 export function SyncBanner() {
   const status = useSync((s) => s.status);
@@ -23,18 +24,25 @@ export function SyncBanner() {
   const key = alarmKey(status);
   if (!status || key === null || key === dismissed || view === "settings") return null;
   const alarm = status.alarm;
-  const title = alarm ? (alarm.type === "fork" ? "Sync fork detected" : "Sync rollback detected") : "Vault sync failed";
+  const trust = !alarm && trustConflicts(status).length > 0;
+  const title = alarm ? (alarm.type === "fork" ? "Sync fork detected" : "Sync rollback detected") : trust ? "Certificate trust conflict" : "Vault sync failed";
 
   return (
-    <div className="sync-banner" role="alert" data-kind={alarm ? "alarm" : "error"}>
+    <div className="sync-banner" role="alert" data-kind={alarm || trust ? "alarm" : "error"}>
       <span aria-hidden className="state-dot" data-state="closed" />
       <p className="sync-banner-text">
         <strong className="sync-banner-title">{title}</strong>
         <span>{bannerText(status)}</span>
       </p>
-      <button type="button" className="btn btn-primary" onClick={openSyncSettings}>
-        Open Vault sync settings
-      </button>
+      {trust ? (
+        <button type="button" className="btn btn-primary" onClick={() => { openSettingsCard("trust-title"); }}>
+          Open known certificates
+        </button>
+      ) : (
+        <button type="button" className="btn btn-primary" onClick={() => { openSettingsCard("sync-title"); }}>
+          Open Vault sync settings
+        </button>
+      )}
       <button type="button" className="btn btn-ghost" aria-label="Dismiss sync notice" onClick={() => { useSync.getState().dismiss(); }}>
         Dismiss
       </button>
@@ -51,6 +59,11 @@ export function bannerText(s: SyncStatus): string {
   if (s.alarm?.type === "rollback") {
     return `The bucket holds generation ${s.alarm.remote}, older than the ${s.alarm.last} this device has seen${by}. Sync is paused until you resolve it.`;
   }
+  const [first, ...rest] = trustConflicts(s);
+  if (first) {
+    const more = rest.length > 0 ? ` ${String(rest.length)} more host${rest.length > 1 ? "s" : ""} in Settings → Trust.` : "";
+    return `${trustConflictText(first)}${more}`;
+  }
   if (s.lastError) {
     const hint = s.lastError.code === "http.trust_prompt" ? " Run Sync now from the settings to answer the certificate prompt." : "";
     return `The last run failed: ${s.lastError.message}.${hint}`;
@@ -58,11 +71,11 @@ export function bannerText(s: SyncStatus): string {
   return "";
 }
 
-/** Settings view, then the Vault sync card's heading gets focus so the resolve controls are one Tab away. */
-function openSyncSettings(): void {
+/** Settings view, then the named card's heading gets focus so its controls are one Tab away. */
+export function openSettingsCard(headingId: "sync-title" | "trust-title"): void {
   useUi.getState().setView("settings");
   requestAnimationFrame(() => {
-    const h = document.getElementById("sync-title");
+    const h = document.getElementById(headingId);
     if (!h) return;
     h.tabIndex = -1;
     h.scrollIntoView({ block: "start" });

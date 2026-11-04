@@ -79,8 +79,11 @@ function fakeSha256(host: string): string {
 
 export abstract class MockRemoteBase extends MockExitBase {
   remote = new Map<string, MockRemoteSession>();
-  /** `protocol|host:port` → pin. */
-  knownCerts = new Map<string, KnownCert>();
+  /**
+   * `protocol|host:port` → pins. More than one distinct fingerprint for a key is a trust
+   * conflict (review 6b L-35, after a sync merge): connects fail closed until they are removed.
+   */
+  knownCerts = new Map<string, KnownCert[]>();
   /** Frame pump period; tests may set it high and call `pumpOnce`. */
   frameIntervalMs = 33;
   /** Backoff the mock announces per attempt (ADR-0011 schedule, scaled for tests). */
@@ -106,12 +109,32 @@ export abstract class MockRemoteBase extends MockExitBase {
     };
   }
 
-  /** Store a pin for `t` with a salted HMAC host field, like `KnownCerts::add_and_save`. */
-  async pin(t: RemoteTarget, addedAt = new Date().toISOString()): Promise<void> {
+  /**
+   * Store a pin for `t` with a salted HMAC host field, like `KnownCerts::add_and_save`. `label`
+   * varies the fingerprint (a second device's pin of another certificate); a duplicate of an
+   * existing fingerprint is kept once, as Rust does.
+   */
+  async pin(t: RemoteTarget, addedAt = new Date().toISOString(), label = ""): Promise<void> {
     const salt = new Uint8Array(32);
     crypto.getRandomValues(salt);
     const hostHash = await hashHost(t.host, t.port, salt);
-    this.knownCerts.set(this.pinKey(t), { hostHash, fingerprint: `SHA256:${fakeSha256(t.host)}`, addedAt });
+    const fingerprint = `SHA256:${fakeSha256(label + t.host)}`;
+    const pins = this.knownCerts.get(this.pinKey(t)) ?? [];
+    if (pins.some((p) => p.fingerprint === fingerprint)) return;
+    this.knownCerts.set(this.pinKey(t), [...pins, { hostHash, fingerprint, addedAt }]);
+  }
+
+  /** `protocol|host:port` keys with conflicting pins (`KnownCerts::distinct_pins > 1`). */
+  conflictingPins(): string[] {
+    return [...this.knownCerts.entries()].filter(([, pins]) => new Set(pins.map((p) => p.fingerprint)).size > 1).map(([k]) => k);
+  }
+
+  /** `known_certs_remove`: every pin of the host:port goes, so the next connect is a fresh prompt. */
+  protected removePins(protocol: "rdp" | "vnc", host: string, port: number): number {
+    const key = `${protocol}|${host.toLowerCase()}:${String(port)}`;
+    const n = this.knownCerts.get(key)?.length ?? 0;
+    this.knownCerts.delete(key);
+    return n;
   }
 
   /** `session_open` for rdp/vnc (called by MockTransport after the shared checks). */
@@ -140,6 +163,11 @@ export abstract class MockRemoteBase extends MockExitBase {
     };
     this.remote.set(sessionId, s);
     this.later(() => {
+      // Conflicting pins (6b L-35) fail closed before anything is presented: no prompt, no retry.
+      if (this.conflictingPins().includes(this.pinKey(t))) {
+        this.endRemote(s, `the trust store holds conflicting certificates for ${t.host}:${String(t.port)}; remove them in Settings → Trust`, "trust_conflict");
+        return;
+      }
       // The mock RDP host presents a self-signed certificate; the mock VNC host has no TLS.
       if (t.protocol === "rdp" && !this.knownCerts.has(this.pinKey(t))) {
         s.pending = "cert";
@@ -312,17 +340,19 @@ export abstract class MockRemoteBase extends MockExitBase {
     await this.unlocked();
     const candidates = this.connectionHosts(protocol);
     const out: KnownCert[] = [];
-    for (const [k, v] of this.knownCerts.entries()) {
+    for (const [k, pins] of this.knownCerts.entries()) {
       if (!k.startsWith(`${protocol}|`)) continue;
-      const named: KnownCert = { ...v };
-      for (const c of candidates) {
-        if (await hostMatches(v.hostHash, c.host, c.port)) {
-          named.host = c.host;
-          named.port = c.port;
-          break;
+      for (const v of pins) {
+        const named: KnownCert = { ...v };
+        for (const c of candidates) {
+          if (await hostMatches(v.hostHash, c.host, c.port)) {
+            named.host = c.host;
+            named.port = c.port;
+            break;
+          }
         }
+        out.push(named);
       }
-      out.push(named);
     }
     return out;
   };
@@ -331,7 +361,7 @@ export abstract class MockRemoteBase extends MockExitBase {
     await this.unlocked();
     if (host.trim() === "") throw new IpcError("input.invalid", "invalid host");
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new IpcError("input.invalid", "invalid port");
-    const removed = this.knownCerts.delete(`${protocol}|${host.toLowerCase()}:${String(port)}`) ? 1 : 0;
+    const removed = this.removePins(protocol, host, port);
     if (removed) this.record("trust_cert_removed", { protocol, host });
     return { removed };
   };

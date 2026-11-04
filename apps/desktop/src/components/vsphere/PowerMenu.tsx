@@ -31,7 +31,7 @@ export function PowerMenu({ state, blocked, busy, onAction }: { state: VmPowerSt
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={busy || blocked !== null}
-        title={blocked ?? "Each action is confirmed in a dialog Mooring opens itself"}
+        title={blocked ?? "Each action is confirmed in a system dialog with three buttons (Cancel, the action, Not now); only a click on the action confirms"}
         onClick={() => { setOpen(!open); }}
       >
         Power
