@@ -29,11 +29,8 @@ const missingCodes = missing("ipc-codes.json");
 export const PENDING_A3_CODES: Record<string, string> = {
   "kube.forbidden_request": "ADR-0014 §6, K4", "kube.rbac_denied": "ADR-0014 §6, K4", "kube.not_found": "ADR-0014 §6, K4",
   "kube.unsupported_auth": "ADR-0014 §6, K4", "kube.stream_limit": "ASSUMED for the 8-streams cap (ADR-0014 §5), K4",
-  // ADR-0015 (V2), ADR-0016 source.* and ADR-0017 sync.* codes shipped with `a3` and are no longer pending.
-  // E2 ships these at connect (mooring-secrets `SecretsError::code()`), but the generated
-  // `ipc-codes.json` does not list them yet (it is built from src-tauri's own constructors).
-  "credential.external_unavailable": "ADR-0016 §7, E2 (missing from ipc-codes.json)", "credential.external_shape": "ADR-0016 §7, E2 (missing from ipc-codes.json)",
-  "credential.external_not_found": "ADR-0016 §7, E2 (missing from ipc-codes.json)", "credential.external_root_token": "ADR-0016 §7, E2 (missing from ipc-codes.json)",
+  // ADR-0015 (V2), ADR-0016 source.* and credential.external_* (F1), and ADR-0017 sync.* codes
+  // shipped with `a3` and are no longer pending.
 };
 const pending = (c: string) => RUST_CODES !== null && !RUST_CODES.has(c) && c in PENDING_A3_CODES;
 
