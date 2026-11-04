@@ -121,3 +121,72 @@ clean (only the pre-existing `unknown lint: clippy::unused_async_trait_impl` too
 `mooring_app_lib` 72 (new: 5 forward, 3 sftp, 4 transfer, 1 sessions audit), `e2e_flow` 13,
 `mooring_proto_ssh` 56 + integration (forward 10, sftp 8, …), `mooring_audit` 10 (new: wire names).
 The cancel test (multi-thread runtime, holds the first block until cancelled) passed 6/6 reruns.
+
+## Fix round 4 (security review 4)
+
+Branch `worktree-agent-a7094f458976bcad7` on `a1-exit` @ 0077e40, one commit per finding.
+
+### Done
+- **B-4** `ea7974c` — `sftp_pick_local` opens the native dialog from Rust
+  (`tauri-plugin-dialog` Rust API, `pick_folder` / `pick_file` callback + `oneshot`; the
+  `LocalPicker` trait is injectable, `FixedPicker` under `cfg(test)` / `test-util`). Picks live
+  in `AppState::picks` (`src-tauri/src/picks.rs`): random 128-bit lower-case hex id, bound to
+  `sessionId` and mode, single-use, 10 min TTL, at most 64 held, cleared by every
+  `vault::lock` (a dialog open across a lock cannot store its pick: epoch check). Every
+  refusal is `input.invalid "invalid pick: …"`. Download/upload take `pick`; the app-data-dir
+  refusal and `LocalPath` stay as defence in depth. `capabilities/main.json` is
+  `["core:default"]`; a JSON test asserts no `dialog:` / `fs:` in any capability file.
+  The auto-lock `dialog_open` flag is held around the pick (M-9).
+- **M-10** `981fd50` — every lock closes `exposure: external` forwards of every session
+  (`SshControl::close_external_forwards`: listeners stop synchronously, `forward_closed`
+  audited before `vault_locked`; remote `cancel-tcpip-forward` from a background task).
+  Loopback forwards and sessions survive. New passive `sftp_transfers({ sessionId })`.
+- **L-15** `8c44142` — `overwrite?: bool` (default false); existing target → `sftp.exists`
+  and the pick is **not** consumed (the UI retries with `overwrite: true` and the same pick).
+  The crate's `download_to(.., overwrite, ..)` uses `persist_noclobber` unless overwriting.
+  `LocalPath` refuses components ending in `.` or a space.
+- **N-15** `8415909` — the crate removes the temp download path as soon as the transfer
+  future is dropped (`RemoveOnDrop`), and the app writes `sftp_transfer` **before** the final
+  `Progress`; the cancel test asserts once after the final event.
+- **L-16** `c3043d9` — uploads go to `<dir>/.<name>.mooring-part-<8 hex>` (CREATE|EXCLUDE)
+  and are moved into place with `posix-rename@openssh.com` when advertised, else
+  `remove` + `rename`. Failure → part file removed before returning; cancel → a cleanup task
+  owning a client clone closes the handle and removes it. Upload code is in
+  `crates/mooring-proto-ssh/src/sftp_upload.rs`.
+- **N-16** `54f5c2e` — forward `host()` uses `mooring_core::validate_host` and refuses
+  anything it would trim; `is_bidi_or_invisible` now covers all of Unicode 15.1 `Cf`.
+- **N-14 support** `080233d` — `src-tauri/ipc-codes.json` (sorted, checked in) kept equal to
+  the codes in the non-test sources by `golden_ipc_codes_file_is_in_sync`;
+  `MOORING_BLESS=1 cargo test -p mooring-app golden` regenerates it. A new non-code
+  `a.b` literal in `src-tauri/src` must go into `golden.rs` `NOT_CODES`.
+- **QA-F2** `6f66755` — kubeconfig: a top-level `users` / `clusters` / `contexts` key in any
+  other ASCII case is rejected outright (simpler than case-blind lookups), and duplicate keys
+  are detected ASCII case-insensitively at every level. Unit test carries the bytes of
+  `fuzz/regressions/kubeconfig_parse/qa-f2-section-key-case` plus `Users:`, `USERS:`,
+  `Clusters:`, `Contexts:` and a mixed-case duplicate; QA's ignored
+  `kubeconfig_qa_f2_regression` can be un-ignored at merge.
+
+### IPC changes (exact JSON)
+```
+sftp_pick_local({ "sessionId": "…", "mode": "folder" | "file" })
+  -> { "pickId": "<32 lower-case hex>", "name": "<last path segment>" } | null   (null = cancelled)
+sftp_download({ "sessionId": "…", "remote": "/path/file", "pick": "<pickId>",
+                "overwrite": false /* optional, default false */, "onProgress": Channel<Progress> })
+  -> { "transferId": "…" }        errors: input.invalid ("pick"), sftp.exists, session.not_found, …
+sftp_upload({ "sessionId": "…", "pick": "<pickId>", "remoteDir": "/dir", "onProgress": Channel<Progress> })
+  -> { "transferId": "…" }
+sftp_transfers({ "sessionId": "…" })
+  -> [ { "transferId": "…", "bytesDone": 262144, "bytesTotal": 8388608 | null,
+         "state": "running", "error": null } ]                     (start order; passive command)
+```
+
+### Left open
+- The test SFTP server (QA's `tests/common/sftp_server.rs`) does not advertise
+  `posix-rename@openssh.com` and ignores `EXCLUDE`, so integration tests exercise the
+  `remove` + `rename` fallback; the posix-rename payload is unit-tested only.
+- With the fallback, a replace has a short window where the remote file is absent (never
+  truncated). Servers without posix-rename are rare (OpenSSH ≥ 4.9 has it).
+- A cancelled upload's part-file cleanup is asynchronous (it needs SFTP round trips); the test
+  waits up to 10 s for it.
+- `sftp.exists` and the UI flow ("Replace *name*?") are for ui-engineer; the pick survives the
+  refusal so no second dialog is needed.
