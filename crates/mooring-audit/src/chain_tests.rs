@@ -160,6 +160,52 @@ fn deleting_or_editing_a_line_breaks_the_chain() {
     assert_eq!(AuditLog::verify(&p).expect("v").broken_at, Some(2));
 }
 
+#[test]
+fn graphical_session_events_have_stable_wire_names() {
+    let s = |v: &str| v.to_owned();
+    let cases = [
+        (
+            AuditEvent::CertDecision {
+                protocol: s("rdp"),
+                host: s("h.example.test:3389"),
+                fingerprint: s("SHA256:00"),
+                decision: s("ca_valid"),
+                expected: None,
+            },
+            "cert_decision",
+        ),
+        (
+            AuditEvent::CertRemoved { protocol: s("vnc"), host: s("h:5900"), removed: 1 },
+            "cert_removed",
+        ),
+        (
+            AuditEvent::SessionWeakSecurity {
+                connection: s("c"),
+                protocol: s("rdp"),
+                security: s("tls"),
+            },
+            "session_weak_security",
+        ),
+        (
+            AuditEvent::SessionClipboard {
+                connection: s("c"),
+                direction: s("to_remote"),
+                bytes: 3,
+            },
+            "session_clipboard",
+        ),
+        (
+            AuditEvent::SessionScreenshot { connection: s("c"), width: 2, height: 1 },
+            "session_screenshot",
+        ),
+    ];
+    for (e, name) in cases {
+        let v = serde_json::to_value(&e).expect("json");
+        assert_eq!(v["event"], name);
+        assert!(v.get("expected").is_none(), "absent when None: {v}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn file_is_private() {

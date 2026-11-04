@@ -60,7 +60,14 @@ pub fn severity(event: &AuditEvent) -> Severity {
         {
             Severity::Warning
         }
-        AuditEvent::BecomeFailed { .. } => Severity::Warning,
+        AuditEvent::CertDecision { decision, .. }
+            if decision == "rejected" || decision == "changed" =>
+        {
+            Severity::Warning
+        }
+        AuditEvent::BecomeFailed { .. }
+        | AuditEvent::CertRemoved { .. }
+        | AuditEvent::SessionWeakSecurity { .. } => Severity::Warning,
         _ => Severity::Notice,
     }
 }
@@ -176,6 +183,31 @@ mod tests {
             "0".repeat(64)
         );
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn graphical_trust_and_weak_security_are_warnings() {
+        let cert = |decision: &str| AuditEvent::CertDecision {
+            protocol: "rdp".into(),
+            host: "192.0.2.10:3389".into(),
+            fingerprint: "SHA256:00".into(),
+            decision: decision.into(),
+            expected: None,
+        };
+        assert_eq!(severity(&cert("changed")), Severity::Warning);
+        assert_eq!(severity(&cert("rejected")), Severity::Warning);
+        assert_eq!(severity(&cert("ca_valid")), Severity::Notice);
+        let removed =
+            AuditEvent::CertRemoved { protocol: "vnc".into(), host: "h:1".into(), removed: 1 };
+        assert_eq!(severity(&removed), Severity::Warning);
+        let weak = AuditEvent::SessionWeakSecurity {
+            connection: "c".into(),
+            protocol: "vnc".into(),
+            security: "none".into(),
+        };
+        assert_eq!(severity(&weak), Severity::Warning);
+        let shot = AuditEvent::SessionScreenshot { connection: "c".into(), width: 1, height: 1 };
+        assert_eq!(severity(&shot), Severity::Notice);
     }
 
     #[test]

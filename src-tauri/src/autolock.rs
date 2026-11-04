@@ -55,6 +55,10 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "sftp_transfers",
     "autolock_get",
     "syslog_get",
+    // ADR-0011: one ack per frame message (≤ 60/s) is not user activity.
+    "session_frame_ack",
+    // ADR-0013: polled by the web-session list (R5).
+    "web_list",
 ];
 
 /// Payload of [`LOCKED_EVENT`].
