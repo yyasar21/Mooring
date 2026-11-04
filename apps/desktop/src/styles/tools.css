@@ -1,0 +1,65 @@
+/* Session tools (forwards, SFTP) and settings. Bridge-console rules hold: cyan marks live links
+   and selection, magenta marks exposure and destruction. Motion is state-driven only. */
+
+/* ---------- SSH tab: tool switcher above the terminal ---------- */
+.session-toolbar {
+  position: absolute; left: 0; right: 0; top: 0; height: var(--bar-h); display: flex; align-items: center; gap: 2px;
+  padding: 0 8px; border-bottom: 1px solid var(--line); background: var(--bg-sunken);
+}
+.session-body { position: absolute; left: 0; right: 0; bottom: 0; top: var(--bar-h); }
+.tool-layer { position: absolute; inset: 8px; z-index: 2; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; }
+.tool-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.tool-head { display: flex; align-items: center; gap: 10px; height: 48px; flex: none; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.tool-error { flex: none; padding: 6px 14px; background: var(--hot-soft); color: var(--hot); font-size: var(--fs-s); }
+.tool-empty { padding: 32px 16px; text-align: center; color: var(--text-faint); }
+
+/* ---------- forwards ---------- */
+.fw-table { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.fw-row {
+  display: grid; grid-template-columns: 112px minmax(120px, 1fr) minmax(120px, 1fr) 96px 56px 84px; gap: 12px;
+  align-items: center; min-height: 34px; padding: 0 14px; position: relative;
+}
+.fw-row + .fw-row { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.fw-row-head { min-height: 30px; border-bottom: 1px solid var(--line-strong); }
+.fw-row-head > span { font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--text-faint); }
+.fw-row[data-external]::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--hot); box-shadow: 0 0 6px var(--hot-line); }
+.fw-row [data-live] { color: var(--accent); text-shadow: var(--text-glow); }
+.fw-row-empty { padding: 28px 16px; text-align: center; color: var(--text-faint); }
+.fw-kind-tag {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none;
+  font: 600 9.5px/1 var(--font-display); color: var(--accent); border: 1px solid var(--accent-line); background: var(--accent-soft);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
+
+.fw-form { margin: 12px 14px 4px; padding: 12px 14px; background: var(--surface); flex: none; animation: pop-in var(--dur-mid) var(--ease-out); }
+.fw-kinds { display: flex; gap: 6px; border: 0; margin: 0; padding: 0; flex-wrap: wrap; align-items: center; }
+.fw-kinds > legend { float: left; margin: 0 10px 0 0; line-height: 26px; }
+.fw-kind {
+  display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 6px; cursor: default;
+  border: 1px solid var(--line-strong); background: var(--bg-sunken); color: var(--text-muted);
+  font: 500 var(--fs-s)/1 var(--font-sans); transition: border-color var(--dur-fast), color var(--dur-fast);
+}
+.fw-kind input { position: absolute; opacity: 0; pointer-events: none; }
+.fw-kind[data-checked] { border-color: var(--accent); color: var(--text); box-shadow: var(--glow-accent); }
+.fw-kind:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+.fw-kind-help { margin: 6px 0 10px; }
+.fw-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); gap: 10px; }
+.fw-err { margin-top: 4px; font-size: var(--fs-xs); color: var(--hot); }
+.fw-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.fw-confirm-addr { color: var(--hot); font-size: var(--fs-l); }
+
+/* exposure switch: hot when on, the one control that opens this machine to a network */
+.fw-expose { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; cursor: default; }
+.fw-expose input { position: absolute; opacity: 0; pointer-events: none; }
+.fw-expose-track {
+  position: relative; width: 30px; height: 16px; flex: none; margin-top: 1px; border: 1px solid var(--line-strong); background: var(--bg-sunken);
+  transition: border-color var(--dur-fast), background-color var(--dur-fast);
+}
+.fw-expose-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; background: var(--text-faint);
+  transition: transform var(--dur-mid) var(--ease-snap), background-color var(--dur-fast);
+}
+.fw-expose[data-on] .fw-expose-track { border-color: var(--hot-line); background: var(--hot-soft); box-shadow: var(--glow-hot); }
+.fw-expose[data-on] .fw-expose-track::after { transform: translateX(14px); background: var(--hot); }
+.fw-expose:has(input:focus-visible) .fw-expose-track { box-shadow: var(--focus-ring); }
+.fw-expose-title { font-weight: 500; }
