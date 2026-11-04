@@ -169,10 +169,18 @@ pub async fn begin(rt: &Arc<SecretsRuntime>, source: SecretSource) -> IpcResult<
         }
     }
     rt.oidc.close(stale);
+    let cache = Arc::clone(rt.engine().cache());
+    let epoch = cache.epoch();
     let flow = rt.engine().begin_oidc(&source).await.map_err(|e| ipc_error(&e))?;
+    // L-34: the vault locked while Vault was asked for the auth URL: no window over the lock
+    // screen.
+    if cache.epoch() != epoch {
+        rt.refused(Some(source.id.to_string()), "oidc", "locked");
+        return Err(IpcError::locked());
+    }
     let url = Zeroizing::new(flow.auth_url.clone());
     let session = uuid::Uuid::new_v4().to_string();
-    let started = rt.engine().cache().clock().now();
+    let started = cache.clock().now();
     {
         let mut map = lock(&rt.oidc.map);
         if map.len() >= MAX_FINISHED {
@@ -186,6 +194,18 @@ pub async fn begin(rt: &Arc<SecretsRuntime>, source: SecretSource) -> IpcResult<
         lock(&rt.oidc.map).remove(&session);
         rt.refused(Some(source.id.to_string()), "oidc", "window.failed");
         return Err(IpcError::new("window.failed", "the sign-in window could not be opened"));
+    }
+    // L-34: a lock that raced the open: `fail_all` may have run before the session existed.
+    if cache.epoch() != epoch {
+        if let Some(s) = lock(&rt.oidc.map).get_mut(&session) {
+            if s.phase == Phase::Pending {
+                s.phase = Phase::Failed("locked".into());
+                s.flow = None;
+                rt.refused(Some(source.id.to_string()), "oidc", "locked");
+            }
+        }
+        windows.close(&label);
+        return Err(IpcError::locked());
     }
     let weak = Arc::downgrade(rt);
     let id = session.clone();

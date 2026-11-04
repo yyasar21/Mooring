@@ -272,3 +272,58 @@ async fn a_token_revoked_server_side_is_replaced_once() {
     assert_eq!(err.category(), Category::Forbidden);
     assert_eq!(e.mock.hits("/v1/auth/token/lookup-self"), 2, "one fresh login, no loop");
 }
+
+/// Review 6 L-34: a lock while a login is in flight (the provider runs after the epoch was
+/// captured, so it stands in for the lock) leaves nothing in the cache, revokes the fresh
+/// token and fails `locked`; an OIDC flow begun before a lock cannot complete.
+#[tokio::test]
+async fn a_lock_during_a_login_refuses_and_revokes_the_token() {
+    let mut st = state_with_db();
+    st.approle = Some(("role-test".into(), "secret-test".into()));
+    let e = env(st).await;
+    let src = source(
+        &e.mock,
+        SecretSourceAuth::AppRole { mount: "approle".into(), credential_id: CredentialId::new() },
+        None,
+    );
+    let f = ext(&src, "secret/db", CredentialKind::UserPassword);
+    let cache = Arc::clone(e.engine.cache());
+    assert_eq!(cache.epoch(), 0);
+    let racing = move |_: &SecretSource| {
+        let drained = cache.drain_for_lock();
+        assert!(drained.is_empty());
+        Ok(LoginMaterial::AppRole {
+            role_id: Zeroizing::new("role-test".to_owned()),
+            secret_id: Zeroizing::new("secret-test".to_owned()),
+        })
+    };
+    let err = e.engine.resolve(&src, CredentialId::new(), &f, &racing).await.expect_err("locked");
+    assert_eq!(err.category(), Category::Locked);
+    assert_eq!(e.engine.cache().epoch(), 1);
+    assert!(e.engine.cache().is_empty(), "the post-lock token is not cached");
+    assert_eq!(e.mock.hits("/v1/auth/approle/login"), 1, "the login did complete");
+    assert_eq!(e.mock.with(|s| s.revoked.len()), 1, "and its token was revoked");
+    assert!(e.audit.take().iter().any(|ev| matches!(ev, SecretEvent::Revoked { .. })));
+    // The next login, started in the new epoch, is cached as usual.
+    let good = approle_login("role-test", "secret-test");
+    e.engine.resolve(&src, CredentialId::new(), &f, &good).await.expect("login");
+    assert_eq!(e.engine.cache().len(), 1);
+
+    let oidc = source(
+        &e.mock,
+        SecretSourceAuth::Oidc { mount: "oidc".into(), role: "mooring".into() },
+        None,
+    );
+    let flow = e.engine.begin_oidc(&oidc).await.expect("auth_url");
+    assert_eq!(flow.epoch, 1);
+    assert_eq!(e.engine.cache().drain_for_lock().len(), 1, "lock: the AppRole token goes");
+    let ok = format!(
+        "http://localhost:8250/oidc/callback?code={}&state={}",
+        crate::mock::GOOD_CODE,
+        crate::mock::IDP_STATE
+    );
+    let err = e.engine.complete_oidc(&oidc, flow, &ok).await.expect_err("stale flow");
+    assert_eq!(err.category(), Category::Locked);
+    assert_eq!(e.mock.hits("/v1/auth/oidc/oidc/callback"), 0, "the code is never exchanged");
+    assert!(e.engine.cache().is_empty());
+}

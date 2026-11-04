@@ -93,6 +93,11 @@ impl std::fmt::Debug for SecretsEngine {
     }
 }
 
+/// The vault locked while a login or an OIDC flow was in flight (L-34).
+fn locked_during_login() -> SecretsError {
+    SecretsError::unavailable(Category::Locked, "the Mooring vault locked during the sign-in")
+}
+
 impl SecretsEngine {
     /// An engine over `cache` (which owns the clock).
     pub fn new(cache: Arc<TokenCache>, audit: Arc<dyn SecretsAudit>, cfg: ClientConfig) -> Self {
@@ -117,6 +122,7 @@ impl SecretsEngine {
         if matches!(source.auth, SecretSourceAuth::Oidc { .. }) {
             return Err(SecretsError::unavailable(Category::AuthFailed, "OIDC sign-in required"));
         }
+        let epoch = self.cache.epoch();
         let client = VaultClient::new(source, &self.cfg)?;
         let material = provider.login_material(source)?;
         let (token, ours): (VaultToken, bool) = match (&source.auth, material) {
@@ -129,25 +135,32 @@ impl SecretsEngine {
             ) => (client.login_approle(mount, &role_id, &secret_id).await?, true),
             _ => return Err(SecretsError::Invalid("login material does not match the method")),
         };
-        Ok(self.remember(source, client, token, ours))
+        self.remember(source, client, token, ours, epoch).await
     }
 
-    fn remember(
+    /// Cache `token` unless the vault locked since `epoch` (L-34): then it is revoked (when
+    /// ours), wiped and the login fails `locked`.
+    async fn remember(
         &self,
         source: &SecretSource,
         client: VaultClient,
         token: VaultToken,
         ours: bool,
-    ) -> (VaultClient, Zeroizing<String>) {
+        epoch: u64,
+    ) -> Result<(VaultClient, Zeroizing<String>), SecretsError> {
         let secret = token.token.clone();
-        self.cache.put(source.id, client.clone(), token, ours);
+        if let Err(rejected) = self.cache.put(source.id, client.clone(), token, ours, epoch) {
+            drop(secret);
+            rejected.retire().await;
+            return self.failed(source.id, locked_during_login());
+        }
         let ttl = self.cache.remaining(source.id).map_or(0, |d| d.as_secs());
         self.audit.record(SecretEvent::Login {
             source: source.id,
             method: source.auth.method(),
             ttl,
         });
-        (client, secret)
+        Ok((client, secret))
     }
 
     /// A token for `source`: cached, or a fresh login. `bool` = it came from the cache.
@@ -298,6 +311,7 @@ impl SecretsEngine {
             state,
             nonce,
             started: self.cache.clock().now(),
+            epoch: self.cache.epoch(),
         })
     }
 
@@ -316,16 +330,16 @@ impl SecretsEngine {
         if flow.expired(self.cache.clock().now()) {
             return self.failed(source.id, refused("OIDC sign-in timed out"));
         }
+        if flow.epoch != self.cache.epoch() {
+            return self.failed(source.id, locked_during_login());
+        }
         let Navigation::Callback { code } = flow.navigation(redirect_url) else {
             return self
                 .failed(source.id, refused("OIDC redirect refused (state mismatch or error)"));
         };
         let client = VaultClient::new(source, &self.cfg)?;
         match client.oidc_callback(&flow.mount, &code, flow.state(), &flow.nonce).await {
-            Ok(t) => {
-                self.remember(source, client, t, true);
-                Ok(())
-            }
+            Ok(t) => self.remember(source, client, t, true, flow.epoch).await.map(drop),
             Err(e) => self.failed(source.id, e),
         }
     }

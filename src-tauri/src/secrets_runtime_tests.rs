@@ -234,3 +234,43 @@ fn every_secrets_error_code_is_in_the_golden_list() {
         ]
     );
 }
+
+/// Review 6 L-34: the vault locks while the mock Vault is still answering a login — the fresh
+/// token is never cached and `revoke-self` is sent; a lock while `oidc_begin` waits for the
+/// auth URL opens no window.
+#[tokio::test]
+async fn a_lock_during_a_login_or_an_oidc_begin_leaves_nothing_behind() {
+    use mooring_testsrv::http::HttpKnobs;
+    let v = fx::start_default().await;
+    let f = unlocked();
+    let st = &f.state;
+    let w = fx::windows(st);
+    let a = fx::approle_source(st, &v);
+    let o = fx::oidc_source(st, &v);
+    let cache = Arc::clone(st.secrets.engine().cache());
+    v.srv.set_http_knobs(HttpKnobs { response_delay: Some(Duration::from_millis(400)), ..HttpKnobs::default() });
+
+    let lock_soon = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        vault::lock(st, Some("user")).expect("lock");
+        assert!(cache.is_empty(), "on_lock drains synchronously");
+    };
+    let (r, ()) = tokio::join!(cmd::test(st, &a.id), lock_soon);
+    let r = r.expect("test reports, never errors");
+    assert_eq!(r.category, Some("locked"), "{r:?}");
+    st.secrets.flush().await;
+    assert!(cache.is_empty(), "the post-lock token is not cached");
+    assert_eq!(v.srv.live_issued_tokens(), 0, "revoke-self was sent for it");
+    assert!(v.srv.token_events().iter().any(|e| e.kind == "revoke"));
+
+    vault::unlock(st, secrecy::SecretString::from(crate::state::testing::MASTER.to_owned())).expect("unlock");
+    let lock_soon = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        vault::lock(st, Some("user")).expect("lock");
+    };
+    let (r, ()) = tokio::join!(oidc_cmd::begin(st, &o.id), lock_soon);
+    assert_eq!(r.expect_err("no window over the lock screen").code, "vault.locked");
+    assert!(w.opened.lock().expect("m").is_empty(), "no OIDC window was opened");
+    assert_eq!(st.secrets.oidc.pending(), 0);
+    assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "locked"));
+}

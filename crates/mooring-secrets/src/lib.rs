@@ -32,8 +32,8 @@ mod tests_kv;
 
 pub use audit::{MemoryAudit, NoAudit, SecretEvent, SecretsAudit};
 pub use cache::{
-    refresh_due, Clock, FakeClock, Maintenance, SystemClock, TokenCache, MAX_CACHE, REFRESH_FLOOR,
-    REVOKE_TIMEOUT,
+    refresh_due, Clock, Drained, FakeClock, Maintenance, Rejected, SystemClock, TokenCache,
+    MAX_CACHE, REFRESH_FLOOR, REVOKE_TIMEOUT,
 };
 pub use client::{pct_encode, ClientConfig, KvSecret, VaultClient, VaultToken, MAX_RESPONSE};
 pub use engine::{LoginMaterial, LoginProvider, RefTest, SecretsEngine, SourceTest};
