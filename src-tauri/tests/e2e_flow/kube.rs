@@ -19,7 +19,7 @@ use crate::commands::sessions as sess;
 use crate::commands::tree::{self, ConnectionFields};
 use crate::commands::{conn_options, forward, vault};
 use crate::state::testing::{self, MASTER};
-use crate::support::{b64, next, read_until, sink, wait_until_empty, Events};
+use crate::support::{self, b64, next, read_until, sink, wait_until_empty, Events};
 
 async fn cluster_open(st: &crate::state::AppState, conn: &str) -> (String, Events) {
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -115,6 +115,11 @@ async fn kube_cluster_exec_forward_lock_unlock() {
         }
     }
     wait_until_empty(st).await;
+    // Review 6 L-38: the cluster id used after the lock gets `session.not_found` for each of
+    // the session-bound kube commands (close_all ended the cluster).
+    for (name, code) in support::kube_session_bound_codes(st, &cid).await {
+        assert_eq!(code, "session.not_found", "{name} with the ended cluster id");
+    }
     let (tx, _rx2) = mpsc::unbounded_channel::<serde_json::Value>();
     let locked = kube::open(
         st,

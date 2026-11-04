@@ -8,19 +8,26 @@ use mooring_core::session::Size;
 use secrecy::SecretString;
 use tokio::sync::mpsc;
 
-use crate::commands::credential_copy;
+use mooring_core::known_certs::CertProtocol;
+
 use crate::commands::credentials::{self, NewCredential, WireSecrets};
+use crate::commands::kube::{self, ExecRequest};
+use crate::commands::kube_logs::{self, LogsRequest};
 use crate::commands::sessions::{self as sess, WireInput};
 use crate::commands::sync::{self, ConfigureInput};
 use crate::commands::sync_config::BackendInput;
 use crate::commands::sync_join::{self, JoinInput};
 use crate::commands::tree::{self, ConnectionFields};
 use crate::commands::vsphere_confirm::{FixedConfirm, Prompt};
-use crate::commands::{audit, secret_sources, secret_sources_oidc, vault, vsphere, vsphere_vm};
+use crate::commands::{
+    audit, conn_options, credential_copy, detach, known_certs, secret_sources, secret_sources_oidc,
+    session_graphics, syslog, vault, vsphere, vsphere_vm, web,
+};
 use crate::error::IpcResult;
 use crate::sessions::EventSink;
 use crate::state::AppState;
 use crate::sync_runner::SyncHub;
+use mooring_app_lib::vsphere_sync::VsCtx;
 
 pub type Events = mpsc::UnboundedReceiver<serde_json::Value>;
 
@@ -116,9 +123,80 @@ pub async fn vault_gated_codes(
         ("session_open", code(sess::open(st, conn, size, s).await)),
         ("audit_tail", code(audit::tail(st, 10, None))),
         ("audit_verify", code(audit::verify(st))),
+        ("connection_options_get", code(conn_options::get(st, conn))),
+        ("connection_options_set", code(conn_options::set(st, conn, serde_json::json!({})))),
+        ("known_certs_list", code(known_certs::list(st, CertProtocol::Rdp))),
+        (
+            "known_certs_remove",
+            code(known_certs::remove(st, CertProtocol::Rdp, "h.example.test", 3389)),
+        ),
+        ("syslog_get", code(syslog::get(st))),
+        ("syslog_test", code(syslog::test_target(st))),
+        // L-26: the graphical session commands check the vault before the session lookup.
+        ("session_screenshot", code(session_graphics::screenshot(st, conn))),
+        ("session_set_view_only", code(session_graphics::set_view_only(st, conn, true))),
+        ("window_detach", code(detach::plan_detach(st, conn))),
+        ("web_clear_data", code(web::check_clear(st, conn))),
     ];
     out.extend(vault_gated_codes_a3(st, folder, cred, conn).await);
     out
+}
+
+/// Review 6 L-38: the A3 commands that are gated *indirectly*. `kube_open` goes through
+/// `state.ready()` in `connect_plan::kube`, `kube_contexts` through `with_ready`, and
+/// `vsphere_console` through `vsphere_vm::vm_target` (its Tauri wrapper needs an `AppHandle`,
+/// so the gate function is called directly here). The six session-bound kube commands are in
+/// [`kube_session_bound_codes`].
+fn vault_gated_codes_indirect(
+    st: &AppState,
+    cred: &str,
+    conn: &str,
+) -> Vec<(&'static str, &'static str)> {
+    let (tx, _rx) = mpsc::unbounded_channel::<serde_json::Value>();
+    let cluster_sink = Arc::new(move |e: crate::commands::kube_wire::ClusterEvent| {
+        tx.send(serde_json::to_value(&e).expect("json")).is_ok()
+    });
+    vec![
+        ("kube_open", code(kube::open(st, conn, cluster_sink))),
+        ("kube_contexts", code(kube::contexts(st, cred))),
+        ("vsphere_console", code(vsphere_vm::vm_target(&VsCtx::of(st), conn))),
+    ]
+}
+
+/// Review 6 L-38: the session-bound kube commands are gated because `kube_sessions::close_all`
+/// ends every cluster on lock, so a cluster session id used after the lock must fail with
+/// `session.not_found` for each of them. Returns (command, code) with `session_id`.
+pub async fn kube_session_bound_codes(
+    st: &AppState,
+    session_id: &str,
+) -> Vec<(&'static str, &'static str)> {
+    let (s, _rx) = sink();
+    let exec = ExecRequest {
+        namespace: "default".into(),
+        pod: "db-0".into(),
+        container: None,
+        command: None,
+        size: Size { width: 80, height: 24 },
+    };
+    let logs = LogsRequest {
+        namespace: "default".into(),
+        pod: "db-0".into(),
+        container: None,
+        follow: false,
+        tail_lines: Some(10),
+        since_seconds: None,
+        timestamps: false,
+    };
+    let chunks: kube_logs::ChunkSink = Arc::new(|_| true);
+    vec![
+        ("kube_access", code(kube::access(st, session_id, "default").await)),
+        ("kube_namespaces", code(kube::namespaces(st, session_id).await)),
+        ("kube_pods", code(kube::pods(st, session_id, "default", None).await)),
+        ("kube_pod", code(kube::pod(st, session_id, "default", "db-0").await)),
+        ("kube_exec_open", code(kube::exec_open(st, session_id, exec, s).await)),
+        ("kube_logs_open", code(kube_logs::open(st, session_id, logs, chunks).await)),
+        ("kube_logs_close", code(kube_logs::close(st, session_id, "stream"))),
+    ]
 }
 
 /// The A3 commands (ADR-0016 secret sources, ADR-0017 vault sync, ADR-0015 vSphere) with
@@ -183,6 +261,9 @@ async fn vault_gated_codes_a3(
         ("vsphere_vm_action", code(vsphere_vm::action(st, p(), conn, "start").await)),
         ("vsphere_vm_identity", code(vsphere_vm::identity(st, p(), conn).await)),
     ]
+    .into_iter()
+    .chain(vault_gated_codes_indirect(st, cred, conn))
+    .collect()
 }
 
 /// `vault_change_password` is not gated on unlock: it re-proves the current password.
