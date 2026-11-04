@@ -260,6 +260,21 @@ pub enum AuditEvent {
         /// Height in pixels.
         height: u32,
     },
+    /// `connection_options_set` changed stored options (review 5 L-22). Field **names** only;
+    /// no values except the SHA-256 fingerprints of a new `caPem`.
+    ConnectionOptionsChanged {
+        /// Connection id.
+        connection: String,
+        /// `rdp` | `vnc` | `web` | ...
+        protocol: String,
+        /// camelCase option names whose value changed.
+        changed: Vec<String>,
+        /// `SHA256:<hex>` of every certificate in a new or changed `caPem`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ca_pem: Vec<String>,
+        /// Whether the change weakens security (warning severity).
+        weakened: bool,
+    },
 }
 
 /// One line of the log.

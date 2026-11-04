@@ -68,6 +68,7 @@ pub fn severity(event: &AuditEvent) -> Severity {
         AuditEvent::BecomeFailed { .. }
         | AuditEvent::CertRemoved { .. }
         | AuditEvent::SessionWeakSecurity { .. } => Severity::Warning,
+        AuditEvent::ConnectionOptionsChanged { weakened: true, .. } => Severity::Warning,
         _ => Severity::Notice,
     }
 }
@@ -208,6 +209,15 @@ mod tests {
         assert_eq!(severity(&weak), Severity::Warning);
         let shot = AuditEvent::SessionScreenshot { connection: "c".into(), width: 1, height: 1 };
         assert_eq!(severity(&shot), Severity::Notice);
+        let opts = |weakened| AuditEvent::ConnectionOptionsChanged {
+            connection: "c".into(),
+            protocol: "rdp".into(),
+            changed: vec!["caPem".into()],
+            ca_pem: vec!["SHA256:00".into()],
+            weakened,
+        };
+        assert_eq!(severity(&opts(true)), Severity::Warning);
+        assert_eq!(severity(&opts(false)), Severity::Notice);
     }
 
     #[test]
