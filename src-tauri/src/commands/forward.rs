@@ -157,11 +157,13 @@ fn port(field: &str, raw: u32, allow_zero: bool) -> IpcResult<u16> {
     }
 }
 
+/// A host as typed: the `mooring-core` host validator (no whitespace, control, bidi or other
+/// Unicode `Cf` format characters, review 4 N-16), and nothing it would have trimmed.
 fn host(field: &str, raw: &str) -> IpcResult<String> {
-    if raw.is_empty() || raw.len() > MAX_HOST || raw.chars().any(|c| c.is_control() || c == ' ') {
-        return Err(IpcError::invalid(field, "not a host name or address"));
+    match mooring_core::validate_host(raw) {
+        Ok(h) if h == raw && h.len() <= MAX_HOST => Ok(h),
+        _ => Err(IpcError::invalid(field, "not a host name or address")),
     }
-    Ok(raw.to_owned())
 }
 
 /// A socket address on this machine: an IP literal or `localhost`.

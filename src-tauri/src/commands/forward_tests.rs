@@ -180,6 +180,14 @@ async fn hostile_inputs_are_refused() {
         req("remote", ep("127.0.0.1", 0), Some(ep("example.test", 80)), None),
         req("remote", ep("127.0.0.1", 0), Some(ep("127.0.0.1", 0)), None),
         req("remote", ep("0.0.0.0", 0), Some(ep("127.0.0.1", 80)), None),
+        // N-16: format characters that spoof the displayed target
+        req("local", ep("127.0.0.1", 0), Some(ep("db\u{202e}tset.elpmaxe", 22)), None),
+        req("local", ep("127.0.0.1", 0), Some(ep("db\u{200b}.example.test", 22)), None),
+        req("local", ep("127.0.0.1", 0), Some(ep("db.example.test\u{e0001}", 22)), None),
+        req("local", ep("127.0.0.1", 0), Some(ep("db\u{2066}.example.test", 22)), None),
+        req("local", ep("127.0.0.1", 0), Some(ep(" db.example.test", 22)), None),
+        req("local", ep("127.0.0.1", 0), Some(ep("db.example.test\t", 22)), None),
+        req("remote", ep("db\u{00ad}.example.test", 0), Some(ep("127.0.0.1", 80)), None),
     ];
     for (i, c) in cases.into_iter().enumerate() {
         let e = open(st, sid, c).await.expect_err("refused");

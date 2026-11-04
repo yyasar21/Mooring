@@ -164,19 +164,35 @@ fn invalid(field: &'static str, reason: String) -> MooringError {
     MooringError::Invalid { field, reason }
 }
 
-/// Unicode bidi controls (Trojan Source class, CVE-2021-42574) and invisible format
-/// characters: they make a stored value render differently from what it is.
+/// Unicode bidi controls (Trojan Source class, CVE-2021-42574) and every other format
+/// character (general category `Cf`, Unicode 15.1: zero-width, soft hyphen, interlinear
+/// annotation, tag characters, ...): they make a stored value render differently from what it
+/// is (review 4, N-16).
 #[must_use]
 pub const fn is_bidi_or_invisible(c: char) -> bool {
     matches!(
         c,
         '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
             | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
             | '\u{200B}'..='\u{200F}'
             | '\u{202A}'..='\u{202E}'
             | '\u{2060}'..='\u{2064}'
-            | '\u{2066}'..='\u{2069}'
+            | '\u{2066}'..='\u{206F}'
             | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
     )
 }
 
@@ -311,10 +327,50 @@ mod tests {
     #[test]
     fn bidi_and_invisible_format_characters_are_refused() {
         let bad = [
-            '\u{00AD}', '\u{061C}', '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}',
-            '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}', '\u{2060}', '\u{2061}',
-            '\u{2062}', '\u{2063}', '\u{2064}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+            '\u{00AD}',
+            '\u{061C}',
+            '\u{200B}',
+            '\u{200C}',
+            '\u{200D}',
+            '\u{200E}',
+            '\u{200F}',
+            '\u{202A}',
+            '\u{202B}',
+            '\u{202C}',
+            '\u{202D}',
+            '\u{202E}',
+            '\u{2060}',
+            '\u{2061}',
+            '\u{2062}',
+            '\u{2063}',
+            '\u{2064}',
+            '\u{2066}',
+            '\u{2067}',
+            '\u{2068}',
+            '\u{2069}',
             '\u{FEFF}',
+            // the rest of Unicode `Cf` (N-16)
+            '\u{0600}',
+            '\u{0605}',
+            '\u{06DD}',
+            '\u{070F}',
+            '\u{0890}',
+            '\u{08E2}',
+            '\u{180E}',
+            '\u{206A}',
+            '\u{206F}',
+            '\u{FFF9}',
+            '\u{FFFB}',
+            '\u{110BD}',
+            '\u{110CD}',
+            '\u{13430}',
+            '\u{1343F}',
+            '\u{1BCA0}',
+            '\u{1D173}',
+            '\u{1D17A}',
+            '\u{E0001}',
+            '\u{E0020}',
+            '\u{E007F}',
         ];
         for c in bad {
             let v = format!("db{c}x");
