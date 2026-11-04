@@ -56,6 +56,7 @@ macro_rules! id_type {
 id_type!(FolderId, "folder");
 id_type!(ConnectionId, "connection");
 id_type!(CredentialId, "credential");
+id_type!(SecretSourceId, "secret source");
 
 /// Which protocol a connection speaks. Each variant maps to one `mooring-proto-*` crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

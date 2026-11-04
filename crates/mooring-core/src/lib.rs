@@ -11,6 +11,7 @@
 //! * [`options`] — per-protocol connection options (`connection.options_json`)
 //! * [`audit`] — security events a session reports to the audit log
 //! * [`clipboard`] — the text clipboard bridge graphical sessions use
+//! * [`secret_source`] — Vault / `OpenBao` secret sources (ADR-0016)
 //!
 //! Secret material lives only in `mooring-vault`; here a credential is an opaque [`model::CredentialId`].
 
@@ -26,6 +27,7 @@ pub mod frame;
 pub mod known_certs;
 pub mod model;
 pub mod options;
+pub mod secret_source;
 pub mod session;
 pub mod tree;
 
@@ -35,7 +37,8 @@ pub use error::MooringError;
 pub use frame::FrameSink;
 pub use model::{
     is_bidi_or_invisible, validate_host, validate_name, validate_tag, Connection, ConnectionId,
-    CredentialId, Folder, FolderId, Protocol, MAX_HOST, MAX_NAME, MAX_TAG, MAX_TAGS,
+    CredentialId, Folder, FolderId, Protocol, SecretSourceId, MAX_HOST, MAX_NAME, MAX_TAG,
+    MAX_TAGS,
 };
 pub use options::ProtocolOptions;
 pub use session::{CloseCode, PromptPurpose, Session, SessionEvent, SessionInput};

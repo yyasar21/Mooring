@@ -6,7 +6,7 @@ use super::fingerprint::{
     is_sha256_fingerprint, x509_pem, MAX_PEM, MAX_PUBLIC_KEY, X509_MIGRATION_PLACEHOLDER,
 };
 use super::kubeconfig::MAX_CONTEXT_NAME;
-use super::structs::KubeconfigFields;
+use super::structs::{KubeconfigFields, S3AccessKeyFields};
 use super::text::{line, multiline, opt_line};
 use super::{parse_account, Account, AccountForm, CredentialError, CredentialFields};
 
@@ -18,6 +18,8 @@ const MAX_URL: usize = 2048;
 const MAX_SHORT: usize = 256;
 /// Longest scope / external reference.
 const MAX_REFERENCE: usize = 1024;
+/// Longest S3 access key id.
+const MAX_ACCESS_KEY: usize = 128;
 /// Longest UPN (user 256 + `@` + domain 253).
 const MAX_UPN: usize = MAX_USER + 1 + MAX_DNS;
 
@@ -148,7 +150,7 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
                 _ => return Err(CredentialError::invalid("upn", "must be user@domain")),
             }
         }
-        CredentialFields::VncPassword(_) => {}
+        CredentialFields::VncPassword(_) | CredentialFields::VaultApprole(_) => {}
         CredentialFields::VncUserPassword(f) => set(&mut f.username, "username", MAX_USER)?,
         CredentialFields::Prompt(f) => {
             set_opt(&mut f.username, "username", MAX_USER)?;
@@ -162,13 +164,29 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
                     "cannot be resolved from a reference",
                 ));
             }
+            super::external::normalise(f)?;
         }
+        CredentialFields::S3AccessKey(f) => s3_access_key(f)?,
         CredentialFields::SudoBecome(f) => {
             if f.become_user.trim().is_empty() {
                 "root".clone_into(&mut f.become_user);
             }
             set(&mut f.become_user, "become_user", MAX_SHORT)?;
         }
+    }
+    Ok(())
+}
+
+fn s3_access_key(f: &mut S3AccessKeyFields) -> Result<(), CredentialError> {
+    set(&mut f.access_key_id, "access_key_id", MAX_ACCESS_KEY)?;
+    if !f.access_key_id.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(CredentialError::invalid("access_key_id", "must be visible ASCII"));
+    }
+    set_opt(&mut f.region, "region", 64)?;
+    if f.region.as_deref().is_some_and(|r| {
+        !r.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    }) {
+        return Err(CredentialError::invalid("region", "must be like us-east-1"));
     }
     Ok(())
 }
