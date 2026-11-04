@@ -206,6 +206,60 @@ pub enum AuditEvent {
         /// Heartbeat number since this process started the mirror loop (1, 2, ...).
         seq: u64,
     },
+    // ---- ADR-0011 / ADR-0012 (A2): graphical sessions ----------------------------------
+    /// A TLS certificate trust decision for RDP / VNC (`trust.cert.*`).
+    CertDecision {
+        /// `rdp` | `vnc`.
+        protocol: String,
+        /// `host:port`.
+        host: String,
+        /// `SHA256:<hex>` presented.
+        fingerprint: String,
+        /// `accepted` | `accepted_session_only` | `rejected` | `changed` | `ca_valid`.
+        decision: String,
+        /// For `changed`: the pinned fingerprint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected: Option<String>,
+    },
+    /// Pins for `host:port` were removed from a certificate store (`known_certs_remove`,
+    /// ADR-0011 `trust.cert.removed`).
+    CertRemoved {
+        /// `rdp` | `vnc`.
+        protocol: String,
+        /// `host:port`.
+        host: String,
+        /// Pins removed (0 when none matched).
+        removed: u64,
+    },
+    /// A session negotiated weaker transport security than the default (RDP TLS without
+    /// NLA, VNC without TLS): audited on every connect.
+    SessionWeakSecurity {
+        /// Connection id.
+        connection: String,
+        /// `rdp` | `vnc`.
+        protocol: String,
+        /// Security in effect (`tls`, `vnc-auth`, `none`, ...).
+        security: String,
+    },
+    /// Clipboard text crossed a session boundary (coalesced, ≤ 1/s per direction). Never the
+    /// text itself.
+    SessionClipboard {
+        /// Connection id.
+        connection: String,
+        /// `to_remote` | `from_remote`.
+        direction: String,
+        /// UTF-8 bytes transferred.
+        bytes: u64,
+    },
+    /// The framebuffer of a session was copied to the OS clipboard as an image.
+    SessionScreenshot {
+        /// Connection id.
+        connection: String,
+        /// Width in pixels.
+        width: u32,
+        /// Height in pixels.
+        height: u32,
+    },
 }
 
 /// One line of the log.
