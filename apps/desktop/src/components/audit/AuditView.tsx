@@ -20,6 +20,12 @@ const EVENT_LABEL: Record<string, string> = {
   session_closed: "Session closed",
   vault_exported: "Vault exported",
   trust_decision: "Host trust decision",
+  "vault.lock": "Vault locked",
+  "vault.policy_changed": "Auto-lock policy changed",
+  "session.forward.open": "Forward opened",
+  "session.forward.close": "Forward closed",
+  "session.sftp.transfer": "File transfer",
+  "audit.syslog_changed": "Syslog mirror changed",
 };
 
 /** Audit log viewer: newest first, paged with `before`, client-side filter, chain verification. */

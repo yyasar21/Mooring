@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { Protocol } from "../lib/ipc.types";
 
 export type Theme = "dark" | "light";
-export type View = "workspace" | "audit" | "credentials";
+export type View = "workspace" | "audit" | "credentials" | "settings";
 
 /** Which editor dialog is open. `id` absent = create. */
 export type Dialog =

@@ -7,6 +7,7 @@ import { Inspector } from "./inspector/Inspector";
 import { CommandPalette } from "./CommandPalette";
 import { AuditView } from "./audit/AuditView";
 import { CredentialsView } from "./credentials/CredentialsView";
+import { SettingsView } from "./settings/SettingsView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
 import { Telemetry } from "./Telemetry";
@@ -41,6 +42,11 @@ export function Shell() {
           {ui.view === "credentials" && (
             <div className="absolute inset-0">
               <CredentialsView />
+            </div>
+          )}
+          {ui.view === "settings" && (
+            <div className="absolute inset-0">
+              <SettingsView />
             </div>
           )}
         </div>
@@ -93,6 +99,14 @@ function TitleBar() {
           onClick={() => { setView(view === "audit" ? "workspace" : "audit"); }}
         >
           Audit log
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "settings"}
+          className="btn btn-ghost"
+          onClick={() => { setView(view === "settings" ? "workspace" : "settings"); }}
+        >
+          Settings
         </button>
         <button
           type="button"
