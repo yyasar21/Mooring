@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { MooringLine, ProtocolPip } from "@mooring/ui";
-import { useSessions, type Tab } from "../stores/sessions";
+import { lineState, useSessions, type Tab } from "../stores/sessions";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";
 
@@ -158,7 +158,7 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
           <path d="M2 2l6 6M8 2 2 8" stroke="currentColor" strokeWidth="1.3" />
         </svg>
       </button>
-      <MooringLine state={tab.state} />
+      <MooringLine state={lineState(tab.state)} />
     </div>
   );
 }

@@ -9,7 +9,8 @@ export function useShortcuts(): void {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const target = e.target instanceof HTMLElement ? e.target : null;
-      const inTerminal = target?.closest(".term-host") !== null && target !== null;
+      // A remote desktop owns Ctrl+K/W/I like a terminal does.
+      const inTerminal = target?.closest(".term-host, .remote-host") !== null && target !== null;
       const cmd = appCommandFor(e, inTerminal);
       if (!cmd) return;
       const ui = useUi.getState();

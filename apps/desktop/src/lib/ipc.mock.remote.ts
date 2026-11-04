@@ -1,0 +1,311 @@
+// Mock RDP/VNC sessions (ADR-0011/0012) for `vite dev` and vitest: certificate TOFU prompt,
+// synthetic MFR1 frames at ~30 fps with the 2-credit flow control, input accounting, view-only,
+// clipboard offers, screenshots, the known-certs store and simulated reconnects.
+// Methods stay `async` to mirror the IPC signature even when they do not await.
+/* eslint-disable @typescript-eslint/require-await */
+import type {
+  CertificateInfo,
+  CloseCode,
+  FrameHandler,
+  KnownCert,
+  Protocol,
+  ProtocolOptions,
+  RemoteIpc,
+  SessionEventHandler,
+  SessionInfo,
+  SessionInput,
+  Size,
+  VncConnOptions,
+} from "./ipc.types";
+import { INPUT_LIMITS } from "./ipc.types.remote";
+import { IpcError } from "./ipc.error";
+import { T0 } from "./ipc.seed";
+import { MockExitBase } from "./ipc.mock.exit";
+import { SyntheticDesktop } from "./frame/synthetic";
+
+/** What the remote mock needs to know about a connection. */
+export interface RemoteTarget {
+  connectionId: string;
+  protocol: Protocol;
+  name: string;
+  host: string;
+  port: number;
+  tags: string[];
+  options: ProtocolOptions | undefined;
+}
+
+export interface MockRemoteSession {
+  info: SessionInfo;
+  target: RemoteTarget;
+  emit: SessionEventHandler;
+  onFrame: FrameHandler;
+  desktop: SyntheticDesktop;
+  pending: "cert" | null;
+  viewOnly: boolean;
+  seq: number;
+  acked: number;
+  inFlight: number;
+  pump: ReturnType<typeof setInterval> | null;
+  timers: ReturnType<typeof setTimeout>[];
+  /** Every input Rust would forward to the server (view-only drops are not here). */
+  inputs: SessionInput[];
+  dropped: number;
+  /** The `flaky` demo drops the link only once per session. */
+  flapped: boolean;
+}
+
+/** Credits per session (ADR-0011: at most 2 messages in flight). */
+export const FRAME_CREDITS = 2;
+/** The mock desktop is capped so frame generation stays cheap in the browser. */
+const MOCK_MAX = { width: 1920, height: 1200 };
+
+export function clampDesktop(size: Size): Size {
+  const c = (v: number) => Math.max(INPUT_LIMITS.minDesktop, Math.min(INPUT_LIMITS.maxDesktop, Math.round(v)));
+  const width = c(size.width) & ~1;
+  return { width, height: c(size.height) };
+}
+
+/** A fake but stable fingerprint per host (hex SHA-256 shaped). */
+function fakeSha256(host: string): string {
+  let h = 0x811c9dc5;
+  let out = "";
+  for (let i = 0; out.length < 64; i++) {
+    h = Math.imul(h ^ (host.charCodeAt(i % Math.max(1, host.length)) + i), 0x01000193) >>> 0;
+    out += h.toString(16).padStart(8, "0");
+  }
+  return out.slice(0, 64);
+}
+
+export abstract class MockRemoteBase extends MockExitBase {
+  remote = new Map<string, MockRemoteSession>();
+  /** `protocol|host:port` → pin. */
+  knownCerts = new Map<string, KnownCert>();
+  /** Frame pump period; tests may set it high and call `pumpOnce`. */
+  frameIntervalMs = 33;
+  /** Backoff the mock announces per attempt (ADR-0011 schedule, scaled for tests). */
+  reconnectDelaysMs: number[] = [1000, 2000];
+  private remoteIds = 0;
+
+  protected pinKey(t: RemoteTarget): string {
+    return `${t.protocol}|${t.host}:${t.port}`;
+  }
+
+  certificateFor(t: RemoteTarget): CertificateInfo {
+    return {
+      subject: `CN=${t.host}`,
+      issuer: `CN=${t.host}`,
+      notBefore: T0,
+      notAfter: "2027-11-01T08:00:00Z",
+      sha256: fakeSha256(t.host),
+      problems: ["self_signed"],
+    };
+  }
+
+  /** `session_open` for rdp/vnc (called by MockTransport after the shared checks). */
+  protected openRemote(t: RemoteTarget, size: Size, onEvent: SessionEventHandler, onFrame: FrameHandler | undefined): { sessionId: string } {
+    if (!onFrame) throw new IpcError("input.invalid", "invalid onFrame: required for rdp and vnc sessions");
+    this.remoteIds += 1;
+    const sessionId = `r-${this.remoteIds.toString(16).padStart(4, "0")}`;
+    const d = clampDesktop(size);
+    const vnc = t.protocol === "vnc" ? (t.options as Partial<VncConnOptions> | undefined) : undefined;
+    const s: MockRemoteSession = {
+      info: { sessionId, connectionId: t.connectionId, protocol: t.protocol, state: "connecting", openedAt: new Date().toISOString() },
+      target: t,
+      emit: onEvent,
+      onFrame,
+      desktop: new SyntheticDesktop(Math.min(d.width, MOCK_MAX.width), Math.min(d.height, MOCK_MAX.height)),
+      pending: null,
+      viewOnly: vnc?.viewOnly === true,
+      seq: 0,
+      acked: 0,
+      inFlight: 0,
+      pump: null,
+      timers: [],
+      inputs: [],
+      dropped: 0,
+      flapped: false,
+    };
+    this.remote.set(sessionId, s);
+    this.later(() => {
+      // The mock RDP host presents a self-signed certificate; the mock VNC host has no TLS.
+      if (t.protocol === "rdp" && !this.knownCerts.has(this.pinKey(t))) {
+        s.pending = "cert";
+        onEvent({
+          kind: "prompt",
+          id: 1,
+          message: `The certificate of ${t.host}:${t.port} is not trusted.`,
+          secret: false,
+          purpose: "certificate_trust",
+          account: null,
+          certificate: this.certificateFor(t),
+        });
+      } else this.remoteConnected(s);
+    });
+    return { sessionId };
+  }
+
+  private remoteConnected(s: MockRemoteSession): void {
+    if (!this.remote.has(s.info.sessionId)) return;
+    s.pending = null;
+    s.info.state = "connected";
+    const t = s.target;
+    const rdp = t.protocol === "rdp";
+    this.record("session_opened", { connection: t.connectionId, protocol: t.protocol });
+    s.emit({
+      kind: "connected",
+      protocol: t.protocol,
+      peerIdentity: rdp ? `x509 SHA256:${fakeSha256(t.host)}` : null,
+      security: rdp ? "nla" : "vnc-auth",
+    });
+    s.emit({ kind: "desktop_resized", width: s.desktop.width, height: s.desktop.height });
+    this.startPump(s);
+    if (t.tags.includes("flaky") && !s.flapped) {
+      s.flapped = true;
+      s.timers.push(setTimeout(() => { this.dropLink(s.info.sessionId); }, 4000));
+    }
+  }
+
+  private startPump(s: MockRemoteSession): void {
+    this.stopPump(s);
+    s.pump = setInterval(() => { this.pumpOnce(s.info.sessionId); }, this.frameIntervalMs);
+    this.pumpOnce(s.info.sessionId);
+  }
+
+  private stopPump(s: MockRemoteSession): void {
+    if (s.pump !== null) clearInterval(s.pump);
+    s.pump = null;
+  }
+
+  /** Emit one frame if a credit is free. Returns whether a frame went out. */
+  pumpOnce(sessionId: string): boolean {
+    const s = this.remote.get(sessionId);
+    if (!s || s.info.state !== "connected" || s.inFlight >= FRAME_CREDITS) return false;
+    s.seq += 1;
+    s.inFlight += 1;
+    s.onFrame(s.desktop.next(s.seq, Date.now()));
+    return true;
+  }
+
+  /** Simulate a network drop after `Connected`: backoff events, then a fresh connect. */
+  dropLink(sessionId: string, attempts = this.reconnectDelaysMs.length): void {
+    const s = this.remote.get(sessionId);
+    if (!s || s.info.state !== "connected") return;
+    this.stopPump(s);
+    s.info.state = "connecting";
+    s.inFlight = 0;
+    let wait = 0;
+    for (let a = 1; a <= attempts; a++) {
+      const delayMs = this.reconnectDelaysMs[a - 1] ?? 30_000;
+      s.timers.push(setTimeout(() => { if (this.remote.has(sessionId)) s.emit({ kind: "reconnecting", attempt: a, delayMs }); }, wait));
+      wait += delayMs;
+    }
+    s.timers.push(setTimeout(() => {
+      s.desktop.resize(s.desktop.width, s.desktop.height);
+      this.remoteConnected(s);
+    }, wait));
+  }
+
+  protected endRemote(s: MockRemoteSession, reason: string, code: CloseCode): void {
+    this.stopPump(s);
+    for (const t of s.timers) clearTimeout(t);
+    s.info.state = "closed";
+    this.remote.delete(s.info.sessionId);
+    this.record("session_closed", { connection: s.info.connectionId, reason });
+    s.emit({ kind: "closed", reason, code });
+  }
+
+  private remoteLive(sessionId: string): MockRemoteSession {
+    const s = this.remote.get(sessionId);
+    if (!s) throw new IpcError("session.not_found", "session not found");
+    return s;
+  }
+
+  private connected(sessionId: string): MockRemoteSession {
+    const s = this.remoteLive(sessionId);
+    if (s.info.state !== "connected") throw new IpcError("session.not_connected", "the session is not connected yet");
+    return s;
+  }
+
+  /** `session_send` for a remote session. */
+  protected sendRemote(s: MockRemoteSession, input: SessionInput): void {
+    switch (input.kind) {
+      case "answer": {
+        if (s.pending !== "cert" || input.id !== 1) throw new IpcError("input.invalid", "invalid id: no such prompt");
+        const yes = /^(y|yes|accept)$/i.test(input.text.trim());
+        const t = s.target;
+        this.record("trust_decision", { host: t.host, fingerprint: `SHA256:${fakeSha256(t.host)}`, decision: yes ? "accepted" : "rejected" });
+        if (yes) {
+          this.knownCerts.set(this.pinKey(t), { hostHash: `|2|bW9jaw==|${btoa(this.pinKey(t))}`, fingerprint: `SHA256:${fakeSha256(t.host)}`, addedAt: new Date().toISOString() });
+          // ADR-0011: the pin is written and the session reconnects on a new TCP connection.
+          this.later(() => { this.remoteConnected(s); });
+        } else this.later(() => { this.endRemote(s, "certificate rejected", "trust_rejected"); });
+        return;
+      }
+      case "resize": {
+        const d = clampDesktop(input.size);
+        s.desktop.resize(Math.min(d.width, MOCK_MAX.width), Math.min(d.height, MOCK_MAX.height));
+        this.later(() => { if (this.remote.has(s.info.sessionId)) s.emit({ kind: "desktop_resized", width: s.desktop.width, height: s.desktop.height }); });
+        return;
+      }
+      case "key":
+        if (input.code.length > INPUT_LIMITS.codeChars || !/^[\x20-\x7e]*$/.test(input.code)) throw new IpcError("input.invalid", "invalid code");
+        break;
+      case "unicode":
+        if (Array.from(input.text).length > INPUT_LIMITS.unicodeChars) throw new IpcError("input.invalid", "invalid text: more than 64 characters");
+        break;
+      case "bytes":
+      case "credential_answer":
+        throw new IpcError("input.invalid", `invalid input: ${input.kind} is not accepted by ${s.target.protocol} sessions`);
+      default:
+        break;
+    }
+    if (s.info.state !== "connected") return;
+    const drops = input.kind !== "release_all";
+    if (s.viewOnly && drops) {
+      s.dropped += 1;
+      return;
+    }
+    s.inputs.push(input);
+    if (input.kind === "clipboard_offer") this.record("session_clipboard", { connection: s.info.connectionId, direction: "to_remote" });
+  }
+
+  protected remoteInfos(): SessionInfo[] {
+    return [...this.remote.values()].map((s) => ({ ...s.info }));
+  }
+
+  // ---------- ADR-0011 / ADR-0012 commands ----------
+
+  sessionFrameAck: RemoteIpc["sessionFrameAck"] = async ({ sessionId, seq }) => {
+    const s = this.remoteLive(sessionId);
+    if (!Number.isInteger(seq) || seq < 1 || seq > s.seq) throw new IpcError("input.invalid", "invalid seq: no such frame");
+    s.acked = Math.max(s.acked, seq);
+    s.inFlight = Math.max(0, s.inFlight - 1);
+  };
+
+  sessionScreenshot: RemoteIpc["sessionScreenshot"] = async ({ sessionId }) => {
+    const s = this.connected(sessionId);
+    this.record("session_screenshot", { connection: s.info.connectionId });
+    return { width: s.desktop.width, height: s.desktop.height };
+  };
+
+  sessionSetViewOnly: RemoteIpc["sessionSetViewOnly"] = async ({ sessionId, viewOnly }) => {
+    const s = this.remoteLive(sessionId);
+    if (s.target.protocol !== "vnc") throw new IpcError("input.invalid", "invalid sessionId: not a VNC session");
+    s.viewOnly = viewOnly;
+    this.record("session_view_only", { connection: s.info.connectionId, view_only: String(viewOnly) });
+  };
+
+  knownCertsList: RemoteIpc["knownCertsList"] = async ({ protocol }) => {
+    await this.unlocked();
+    return [...this.knownCerts.entries()].filter(([k]) => k.startsWith(`${protocol}|`)).map(([, v]) => ({ ...v }));
+  };
+
+  knownCertsRemove: RemoteIpc["knownCertsRemove"] = async ({ protocol, host, port }) => {
+    await this.unlocked();
+    if (host.trim() === "") throw new IpcError("input.invalid", "invalid host");
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new IpcError("input.invalid", "invalid port");
+    const removed = this.knownCerts.delete(`${protocol}|${host}:${port}`) ? 1 : 0;
+    if (removed) this.record("trust_cert_removed", { protocol, host });
+    return { removed };
+  };
+}

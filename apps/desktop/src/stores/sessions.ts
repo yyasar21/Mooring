@@ -1,8 +1,24 @@
 import { create } from "zustand";
-import { ipc, type PromptAccount, type PromptPurpose, type SessionEvent, type SessionInfo, type SessionInput, type Size } from "../lib/ipc";
+import {
+  ipc,
+  type CertificateInfo,
+  type CloseCode,
+  type PromptAccount,
+  type PromptPurpose,
+  type Protocol,
+  type SessionEvent,
+  type SessionInfo,
+  type SessionInput,
+  type Size,
+  type VncConnOptions,
+} from "../lib/ipc";
+import type { LineState } from "@mooring/ui";
 import { errorText } from "./errors";
+import { drainFrames, dropFrames, pushFrame } from "./frames";
+import { peekSeq } from "../lib/frame/mfr1";
+import { useTree } from "./tree";
 
-export type TabState = "connecting" | "connected" | "closed";
+export type TabState = "connecting" | "connected" | "reconnecting" | "detached" | "closed";
 
 export interface PendingPrompt {
   id: number;
@@ -11,6 +27,8 @@ export interface PendingPrompt {
   purpose: PromptPurpose;
   /** Only for `purpose: "credential"`: what to ask and the pre-fills. */
   account?: PromptAccount | null;
+  /** Only for `purpose: "certificate_trust"`: the leaf to decide on. */
+  certificate?: CertificateInfo | null;
 }
 
 export interface CredentialAnswer {
@@ -19,16 +37,44 @@ export interface CredentialAnswer {
   password: string;
 }
 
+export interface Reconnect {
+  attempt: number;
+  delayMs: number;
+  /** `Date.now()` when the event arrived; the countdown runs from here. */
+  since: number;
+}
+
 export interface Tab {
   /** Local tab id (exists before the backend hands out a session id). */
   id: string;
   connectionId: string;
+  protocol: Protocol | null;
   sessionId: string | null;
   state: TabState;
   peerIdentity: string | null;
+  /** `Connected.security`: "nla", "tls", "vnc-auth", "none", ... */
+  security: string | null;
   prompt: PendingPrompt | null;
   reason: string | null;
+  closeCode: CloseCode | "unknown" | null;
+  reconnect: Reconnect | null;
+  /** Remote desktop size after `desktop_resized` (rdp/vnc). */
+  desktop: Size | null;
+  /** VNC view-only (advisory in the UI; Rust drops the input). */
+  viewOnly: boolean;
 }
+
+/** The three-state rail and dot of the design system: a reconnect reads as connecting. */
+export function lineState(s: TabState): LineState {
+  if (s === "reconnecting") return "connecting";
+  if (s === "detached") return "connected";
+  return s;
+}
+
+/** rdp/vnc sessions draw MFR1 frames on a canvas instead of a terminal. */
+export const isGraphical = (p: Protocol | null | undefined): boolean => p === "rdp" || p === "vnc";
+/** Initial desktop request before the canvas has measured itself. */
+export const DEFAULT_DESKTOP: Size = { width: 1280, height: 800 };
 
 type OutputListener = (data: Uint8Array) => void;
 
@@ -73,6 +119,8 @@ export function subscribeOutput(tabId: string, listener: OutputListener): () => 
  * channel opened by `session_open` drives that tab again (M-10).
  */
 const tabOfSession = new Map<string, string>();
+/** Sink generation per tab: events from a channel replaced by `session_attach` are ignored. */
+const sinkGen = new Map<string, number>();
 
 function forgetTab(tabId: string): void {
   for (const [sid, tid] of tabOfSession) if (tid === tabId) tabOfSession.delete(sid);
@@ -80,6 +128,33 @@ function forgetTab(tabId: string): void {
 
 function adoptedState(state: string): TabState | null {
   return state === "connected" || state === "connecting" ? state : null;
+}
+
+function protocolOf(connectionId: string): Protocol | null {
+  return useTree.getState().connections.find((c) => c.id === connectionId)?.protocol ?? null;
+}
+
+function viewOnlyOf(connectionId: string): boolean {
+  const c = useTree.getState().connections.find((x) => x.id === connectionId);
+  return c?.protocol === "vnc" && (c.options as Partial<VncConnOptions> | undefined)?.viewOnly === true;
+}
+
+function blankTab(id: string, connectionId: string, protocol: Protocol | null, p: Partial<Tab> = {}): Tab {
+  return {
+    id, connectionId, protocol, sessionId: null, state: "connecting", peerIdentity: null, security: null, prompt: null,
+    reason: null, closeCode: null, reconnect: null, desktop: null, viewOnly: viewOnlyOf(connectionId), ...p,
+  };
+}
+
+/** Return one frame credit (ADR-0011). Passive on the backend; failures are harmless. */
+export function ackFrame(tabId: string, seq: number): void {
+  const sid = useSessions.getState().tabs.find((t) => t.id === tabId)?.sessionId;
+  if (sid) ackSession(sid, seq);
+}
+
+/** The same by session id: still valid while the tab is being torn down (lock). */
+export function ackSession(sessionId: string, seq: number): void {
+  ipc.sessionFrameAck({ sessionId, seq }).catch(() => undefined);
 }
 
 interface SessionState {
@@ -93,11 +168,16 @@ interface SessionState {
   move: (tabId: string, toIndex: number) => void;
   detach: (tabId: string) => Promise<boolean>;
   send: (tabId: string, data: Uint8Array) => Promise<void>;
+  /** Any input (pointer, key, wheel, clipboard offer...). Errors are dropped: input races a close. */
+  input: (tabId: string, input: SessionInput) => Promise<void>;
   resize: (tabId: string, size: Size) => Promise<void>;
   answer: (tabId: string, text: string) => Promise<boolean>;
   /** Answer a `credential` prompt. The caller drops its copy of the password once this settles. */
   answerCredential: (tabId: string, a: CredentialAnswer) => Promise<boolean>;
   reconnect: (tabId: string) => Promise<void>;
+  setViewOnly: (tabId: string, viewOnly: boolean) => Promise<boolean>;
+  /** Rust copies the framebuffer to the OS clipboard; returns its size, or null on failure. */
+  screenshot: (tabId: string) => Promise<Size | null>;
   /** After an unlock: show the backend's live sessions (`session_list`) as tabs again. */
   adopt: (live: SessionInfo[]) => void;
   /** Drop every tab and buffered output (lock). Live backend sessions are re-adopted on unlock. */
@@ -111,37 +191,64 @@ export const useSessions = create<SessionState>((set, get) => {
   const patch = (tabId: string, p: Partial<Tab>) => {
     set({ tabs: get().tabs.map((t) => (t.id === tabId ? { ...t, ...p } : t)) });
   };
+  const tabOf = (tabId: string) => get().tabs.find((t) => t.id === tabId);
+  const nextGen = (tabId: string) => {
+    const g = (sinkGen.get(tabId) ?? 0) + 1;
+    sinkGen.set(tabId, g);
+    return g;
+  };
 
-  const onEvent = (tabId: string) => (ev: SessionEvent) => {
+  const onEvent = (tabId: string, gen: number) => (ev: SessionEvent) => {
+    if (sinkGen.get(tabId) !== gen) return;
     // While the vault is locked the tab is gone: nothing that arrives then is kept.
-    if (!get().tabs.some((t) => t.id === tabId)) {
+    if (!tabOf(tabId)) {
       if (ev.kind === "closed") forgetTab(tabId);
       return;
     }
     switch (ev.kind) {
       case "connected":
-        patch(tabId, { state: "connected", peerIdentity: ev.peerIdentity, prompt: null });
+        patch(tabId, { state: "connected", peerIdentity: ev.peerIdentity, security: ev.security, prompt: null, reconnect: null });
         break;
       case "bytes":
         pushOutput(tabId, ev.data);
         break;
       case "prompt":
-        patch(tabId, { prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account } });
+        patch(tabId, {
+          prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account, certificate: ev.certificate },
+        });
+        break;
+      case "desktop_resized":
+        patch(tabId, { desktop: { width: ev.width, height: ev.height } });
+        break;
+      case "reconnecting":
+        patch(tabId, { state: "reconnecting", reconnect: { attempt: ev.attempt, delayMs: ev.delayMs, since: Date.now() }, prompt: null });
+        break;
+      case "detached":
+        patch(tabId, { state: "detached", prompt: null });
         break;
       case "closed":
         forgetTab(tabId);
-        patch(tabId, { state: "closed", reason: ev.reason, prompt: null, sessionId: null });
-        pushOutput(tabId, enc.encode(`\r\n\x1b[2m[session closed: ${ev.reason}]\x1b[0m\r\n`));
+        patch(tabId, { state: "closed", reason: ev.reason, closeCode: ev.code, prompt: null, sessionId: null, reconnect: null });
+        if (!isGraphical(tabOf(tabId)?.protocol)) pushOutput(tabId, enc.encode(`\r\n\x1b[2m[session closed: ${ev.reason}]\x1b[0m\r\n`));
         break;
-      case "frame":
-        // Graphical protocols render frames in A2; nothing to draw for terminal tabs.
-        break;
+    }
+  };
+
+  /** MFR1 messages for a tab; while the tab is gone (locked) they are acked and dropped. */
+  const onFrame = (tabId: string, gen: number) => (message: ArrayBuffer) => {
+    if (sinkGen.get(tabId) !== gen) return;
+    const ack = (seq: number) => { ackFrame(tabId, seq); };
+    if (tabOf(tabId)) pushFrame(tabId, message, ack);
+    else {
+      const sid = [...tabOfSession].find(([, t]) => t === tabId)?.[0];
+      const seq = peekSeq(message);
+      if (sid && seq !== null) ackSession(sid, seq);
     }
   };
 
   /** Send an answer to the pending prompt; the prompt is dropped first so it cannot be sent twice. */
   const reply = async (tabId: string, build: (id: number) => SessionInput): Promise<boolean> => {
-    const tab = get().tabs.find((t) => t.id === tabId);
+    const tab = tabOf(tabId);
     if (!tab?.sessionId || !tab.prompt) return false;
     const input = build(tab.prompt.id);
     patch(tabId, { prompt: null });
@@ -155,9 +262,17 @@ export const useSessions = create<SessionState>((set, get) => {
   };
 
   const start = async (tabId: string, connectionId: string, size: Size) => {
+    const gen = nextGen(tabId);
+    const graphical = isGraphical(tabOf(tabId)?.protocol);
+    dropFrames(tabId);
     try {
-      const { sessionId } = await ipc.sessionOpen({ connectionId, size, onEvent: onEvent(tabId) });
-      if (get().tabs.some((t) => t.id === tabId)) {
+      const { sessionId } = await ipc.sessionOpen({
+        connectionId,
+        size,
+        onEvent: onEvent(tabId, gen),
+        ...(graphical ? { onFrame: onFrame(tabId, gen) } : {}),
+      });
+      if (tabOf(tabId)) {
         tabOfSession.set(sessionId, tabId);
         patch(tabId, { sessionId });
       } else {
@@ -167,6 +282,13 @@ export const useSessions = create<SessionState>((set, get) => {
       patch(tabId, { state: "closed", reason: errorText(e) });
     }
   };
+
+  const sendTo = async (tabId: string, input: SessionInput) => {
+    const sid = tabOf(tabId)?.sessionId;
+    if (sid) await ipc.sessionSend({ sessionId: sid, input });
+  };
+
+  const initialSize = (p: Protocol | null, size?: Size): Size => size ?? (isGraphical(p) ? DEFAULT_DESKTOP : { width: 80, height: 24 });
 
   return {
     tabs: [],
@@ -181,9 +303,9 @@ export const useSessions = create<SessionState>((set, get) => {
       }
       tabSeq += 1;
       const id = `tab-${tabSeq}`;
-      const tab: Tab = { id, connectionId, sessionId: null, state: "connecting", peerIdentity: null, prompt: null, reason: null };
-      set({ tabs: [...get().tabs, tab], activeTab: id });
-      await start(id, connectionId, opts.size ?? { width: 80, height: 24 });
+      const protocol = protocolOf(connectionId);
+      set({ tabs: [...get().tabs, blankTab(id, connectionId, protocol)], activeTab: id });
+      await start(id, connectionId, initialSize(protocol, opts.size));
       return id;
     },
 
@@ -198,6 +320,7 @@ export const useSessions = create<SessionState>((set, get) => {
       const nextActive = activeTab === tabId ? (rest[Math.min(idx, rest.length - 1)]?.id ?? null) : activeTab;
       set({ tabs: rest, activeTab: nextActive });
       outputs.delete(tabId);
+      dropFrames(tabId);
       forgetTab(tabId);
       if (tab.sessionId) {
         try {
@@ -218,7 +341,7 @@ export const useSessions = create<SessionState>((set, get) => {
     },
 
     detach: async (tabId) => {
-      const tab = get().tabs.find((t) => t.id === tabId);
+      const tab = tabOf(tabId);
       if (!tab?.sessionId) return false;
       try {
         await ipc.windowDetach({ sessionId: tab.sessionId });
@@ -230,24 +353,29 @@ export const useSessions = create<SessionState>((set, get) => {
       const rest = get().tabs.filter((t) => t.id !== tabId);
       set({ tabs: rest, activeTab: get().activeTab === tabId ? (rest.at(-1)?.id ?? null) : get().activeTab });
       outputs.delete(tabId);
+      dropFrames(tabId);
       return true;
     },
 
     send: async (tabId, data) => {
-      const sid = get().tabs.find((t) => t.id === tabId)?.sessionId;
-      if (!sid) return;
       try {
-        await ipc.sessionSend({ sessionId: sid, input: { kind: "bytes", data } });
+        await sendTo(tabId, { kind: "bytes", data });
       } catch (e: unknown) {
         set({ error: errorText(e) });
       }
     },
 
-    resize: async (tabId, size) => {
-      const sid = get().tabs.find((t) => t.id === tabId)?.sessionId;
-      if (!sid) return;
+    input: async (tabId, input) => {
       try {
-        await ipc.sessionSend({ sessionId: sid, input: { kind: "resize", size } });
+        await sendTo(tabId, input);
+      } catch {
+        // pointer and key input racing a close or a reconnect is harmless
+      }
+    },
+
+    resize: async (tabId, size) => {
+      try {
+        await sendTo(tabId, { kind: "resize", size });
       } catch {
         // a resize racing a close is harmless
       }
@@ -259,10 +387,34 @@ export const useSessions = create<SessionState>((set, get) => {
       reply(tabId, (id) => ({ kind: "credential_answer", id, username: a.username, domain: a.domain, password: a.password })),
 
     reconnect: async (tabId) => {
-      const tab = get().tabs.find((t) => t.id === tabId);
+      const tab = tabOf(tabId);
       if (!tab || tab.state !== "closed") return;
-      patch(tabId, { state: "connecting", reason: null, peerIdentity: null });
-      await start(tabId, tab.connectionId, { width: 80, height: 24 });
+      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null });
+      await start(tabId, tab.connectionId, tab.desktop ?? initialSize(tab.protocol));
+    },
+
+    setViewOnly: async (tabId, viewOnly) => {
+      const sid = tabOf(tabId)?.sessionId;
+      if (!sid) return false;
+      try {
+        await ipc.sessionSetViewOnly({ sessionId: sid, viewOnly });
+        patch(tabId, { viewOnly });
+        return true;
+      } catch (e: unknown) {
+        set({ error: errorText(e) });
+        return false;
+      }
+    },
+
+    screenshot: async (tabId) => {
+      const sid = tabOf(tabId)?.sessionId;
+      if (!sid) return null;
+      try {
+        return await ipc.sessionScreenshot({ sessionId: sid });
+      } catch (e: unknown) {
+        set({ error: errorText(e) });
+        return null;
+      }
     },
 
     adopt: (live) => {
@@ -277,18 +429,37 @@ export const useSessions = create<SessionState>((set, get) => {
           tabSeq += 1;
           id = `tab-${tabSeq}`;
         }
-        adopted.push({ id, connectionId: info.connectionId, sessionId: info.sessionId, state, peerIdentity: null, prompt: null, reason: null });
-        // Output from before the lock was wiped with it; say so instead of showing a blank screen.
-        pushOutput(id, enc.encode(known
-          ? "\x1b[2m[vault unlocked: earlier output was cleared when it locked]\x1b[0m\r\n"
-          : "\x1b[2m[this window cannot show the output of this session]\x1b[0m\r\n"));
+        tabOfSession.set(info.sessionId, id);
+        adopted.push(blankTab(id, info.connectionId, info.protocol, { sessionId: info.sessionId, state }));
+        if (!isGraphical(info.protocol)) {
+          // Output from before the lock was wiped with it; say so instead of showing a blank screen.
+          pushOutput(id, enc.encode(known
+            ? "\x1b[2m[vault unlocked: earlier output was cleared when it locked]\x1b[0m\r\n"
+            : "\x1b[2m[this window cannot show the output of this session]\x1b[0m\r\n"));
+        }
       }
       if (adopted.length === 0) return;
       set({ tabs: [...get().tabs, ...adopted], activeTab: get().activeTab ?? adopted[0]?.id ?? null });
+      // A canvas lost its pixels with the lock: re-attaching this view makes Rust resend a full frame.
+      for (const t of adopted) {
+        if (!isGraphical(t.protocol) || !t.sessionId) continue;
+        const gen = nextGen(t.id);
+        ipc.sessionAttach({ sessionId: t.sessionId, onEvent: onEvent(t.id, gen), onFrame: onFrame(t.id, gen) })
+          .then((a) => { if (tabOf(t.id)) patch(t.id, { desktop: a.size }); })
+          .catch(() => undefined);
+      }
     },
 
     reset: () => {
       outputs.clear();
+      // Sessions outlive a lock: give back the credits of frames no canvas will draw now.
+      for (const t of get().tabs) {
+        for (const m of drainFrames(t.id)) {
+          const seq = peekSeq(m);
+          if (t.sessionId && seq !== null) ackSession(t.sessionId, seq);
+        }
+      }
+      dropFrames();
       set({ tabs: [], activeTab: null, error: null });
     },
   };

@@ -103,7 +103,7 @@ describe("MockTransport · ADR-0010", () => {
     const [audit] = await m.auditTail({ limit: 1, before: null });
     expect(audit?.event).toBe("session.forward.close");
 
-    const rdp = await m.sessionOpen({ connectionId: "c-dc", size: { width: 80, height: 24 }, onEvent: () => undefined });
+    const rdp = await m.sessionOpen({ connectionId: "c-dc", size: { width: 800, height: 600 }, onEvent: () => undefined, onFrame: () => undefined });
     await expect(m.forwardList({ sessionId: rdp.sessionId })).rejects.toMatchObject({ code: "input.invalid" });
   });
 

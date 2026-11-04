@@ -1,13 +1,15 @@
 import { freshBackend, settle } from "../test/harness";
 import type { MockTransport } from "../lib/ipc.mock";
 import { subscribeOutput, useSessions } from "./sessions";
+import { useTree } from "./tree";
 
 const text = (chunks: Uint8Array[]) => chunks.map((c) => new TextDecoder().decode(c)).join("");
 
 describe("sessions store", () => {
   let mock: MockTransport;
-  beforeEach(() => {
+  beforeEach(async () => {
     mock = freshBackend();
+    await useTree.getState().load();
   });
 
   it("opens a tab, shows the TOFU prompt, connects after the answer and echoes input", async () => {
@@ -50,7 +52,7 @@ describe("sessions store", () => {
     useSessions.getState().activate(a);
     await useSessions.getState().close(a);
     expect(useSessions.getState().activeTab).toBe(b);
-    expect(mock.sessions.size).toBe(2);
+    expect(mock.sessions.size + mock.remote.size).toBe(2);
   });
 
   it("detach hands the session id to window_detach and drops the tab", async () => {

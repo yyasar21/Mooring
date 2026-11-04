@@ -8,6 +8,10 @@ vi.mock("./components/terminal/xterm", () => ({
   themeFromCss: () => ({}),
 }));
 
+// jsdom has no canvas: without a stub every RemoteCanvas logs "not implemented". Tests that draw
+// install a recording context (test/fakeGl.ts).
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { configurable: true, value: () => null });
+
 // jsdom has no layout: scrolling a row into view is a no-op there.
 Element.prototype.scrollIntoView = function scrollIntoView() {
   /* no layout in jsdom */

@@ -1,5 +1,6 @@
 // Seed data for MockTransport. Fake hosts only (*.example.test, RFC 6761); credentials are metadata.
 import type { ConnectionSummary, CredentialMeta, Folder } from "./ipc.types";
+import { DEFAULT_RDP_OPTIONS, DEFAULT_VNC_OPTIONS } from "./ipc.types.remote";
 
 export const T0 = "2026-11-01T08:00:00Z";
 
@@ -55,12 +56,15 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-pg", "f-db", "pg-primary", "ssh", "pg01.example.test", 2222, "cr-deploy", ["postgres", "otp"]),
     c("c-stg", "f-staging", "stage-app", "ssh", "app.stage.example.test", null, "cr-deploy", []),
     c("c-dc", "f-desk", "dc01", "rdp", "dc01.example.test", 3389, null, ["ad"]),
-    c("c-kiosk", "f-desk", "lobby-kiosk", "vnc", "kiosk.example.test", 5900, "cr-vnc", []),
+    // `flaky`: the mock drops the link once, 4 s after connecting, to show the reconnect banner.
+    c("c-kiosk", "f-desk", "lobby-kiosk", "vnc", "kiosk.example.test", 5900, "cr-vnc", ["flaky"]),
     c("c-k8s", "f-staging", "stage-cluster", "kubernetes", "https://k8s.stage.example.test:6443", null, "cr-kube", []),
     c("c-jump", "f-staging", "ask-me", "ssh", "jump.stage.example.test", 22, "cr-prompt", ["prompt"]),
   ].map((x) => {
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
-    if (x.id === "c-dc") return { ...x, usernameOverride: "dc-admin", gatewayCredentialId: "cr-ad" };
+    if (x.id === "c-dc") return { ...x, usernameOverride: "dc-admin", gatewayCredentialId: "cr-ad", options: { ...DEFAULT_RDP_OPTIONS } };
+    if (x.id === "c-kiosk") return { ...x, options: { ...DEFAULT_VNC_OPTIONS, viewOnly: true } };
+    if (x.id === "c-lb") return { ...x, options: { url: "https://lb.example.test", allowedOrigins: [], persistent: false, allowHttp: false } };
     return x;
   });
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import type { TreeRow } from "../../stores/tree";
-import type { TabState } from "../../stores/sessions";
+import { lineState, type TabState } from "../../stores/sessions";
 
 interface Props {
   row: TreeRow;
@@ -98,7 +98,7 @@ export function TreeRowView(p: Props) {
         <span className="tree-name">{name}</span>
       )}
       {!p.renaming && <span aria-hidden className="tree-link" data-state={p.sessionState ?? undefined} />}
-      {p.sessionState && <StateDot state={p.sessionState} label={`session ${p.sessionState}`} />}
+      {p.sessionState && <StateDot state={lineState(p.sessionState)} label={`session ${p.sessionState}`} />}
       {isFolder && p.folder?.defaultCredentialId && (
         <span title="Folder supplies a default credential" aria-label="has default credential" className="flex-none text-text-faint">
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>

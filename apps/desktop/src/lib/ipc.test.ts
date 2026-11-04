@@ -15,6 +15,7 @@ describe("ipc wire codec", () => {
       kind: "connected",
       protocol: "ssh",
       peerIdentity: "SHA256:x",
+      security: null,
     });
     const ev = decodeSessionEvent({ kind: "bytes", data: btoa("hi") });
     expect(ev.kind === "bytes" && new TextDecoder().decode(ev.data)).toBe("hi");

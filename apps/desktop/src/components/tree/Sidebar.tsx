@@ -34,7 +34,7 @@ export function Sidebar() {
   const sessionState = (connectionId: string): TabState | null => {
     const ts = tabs.filter((t) => t.connectionId === connectionId);
     if (ts.some((t) => t.state === "connected")) return "connected";
-    if (ts.some((t) => t.state === "connecting")) return "connecting";
+    if (ts.some((t) => t.state === "connecting" || t.state === "reconnecting")) return "connecting";
     return null;
   };
 
