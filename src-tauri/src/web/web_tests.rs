@@ -252,7 +252,7 @@ fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
         refusals: Arc::default(),
     };
     f.state.web.lock().expect("m").insert("a".into(), entry);
-    assert!(refusal_audited(&f.state.web, "nope"), "an unknown window is always audited");
+    assert!(!refusal_audited(&f.state.web, "nope"), "6b N-43: a window without an entry is not audited");
     let audited = (0..40).filter(|_| refusal_audited(&f.state.web, "a")).count();
     assert_eq!(audited, 16);
     assert!(crate::commands::web::closed(&f.state, "a"));
@@ -264,6 +264,7 @@ fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
         .collect();
     assert_eq!(rows.len(), 1);
     assert_eq!((rows[0]["connection"].as_str(), rows[0]["count"].as_u64()), (Some("a"), Some(24)));
+    assert!(!refusal_audited(&f.state.web, "a"), "closed: refusals until Destroyed write nothing");
     // A window that never exceeded the budget writes no summary.
     let entry = WebEntry {
         label: "web-b".into(),

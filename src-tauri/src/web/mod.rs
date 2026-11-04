@@ -209,9 +209,10 @@ impl Storage {
 }
 
 /// Count one refused navigation of `connection_id`'s window; `true` while it still gets a
-/// row of its own (N-43). An unregistered window (none yet) is always audited.
+/// row of its own (N-43). A window without an entry (closed, between `closed_entry` and
+/// `Destroyed`) is neither audited nor reported to the UI (6b N-43 b).
 pub fn refusal_audited(registry: &WebRegistry, connection_id: &str) -> bool {
-    registry.lock().ok().and_then(|m| m.get(connection_id).map(|e| e.refusals.refused())).unwrap_or(true)
+    registry.lock().ok().and_then(|m| m.get(connection_id).map(|e| e.refusals.refused())).unwrap_or(false)
 }
 
 /// Directory of the persistent store of `connection_id` (a canonical UUID string).

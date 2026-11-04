@@ -307,8 +307,12 @@ pub fn navigate(rt: &Arc<SecretsRuntime>, session: &str, url: &str) -> bool {
                 }
                 false
             }
+            // 6b N-43 (a): refusals outside `Pending` (exchanging, failed, after a flood until
+            // the window is destroyed) go through the same budget.
             _ => {
-                rt.refused(Some(source), "oidc_navigation", &origin_of(url));
+                if s.refusals.refused() {
+                    rt.refused(Some(source), "oidc_navigation", &origin_of(url));
+                }
                 false
             }
         }

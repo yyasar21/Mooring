@@ -363,6 +363,13 @@ async fn an_oidc_navigation_flood_closes_the_window_after_sixteen_audited_refusa
     assert_eq!(refused_rows(), 16);
     let summary = audit_rows(st, "secret_refused_suppressed");
     assert_eq!(summary.len(), 1);
+    // 6b N-43 (a): refusals after the flood (phase `failed`, window not yet destroyed) stay
+    // within the budget: no new row.
+    for i in 0..20 {
+        assert!(!navigate(rt, &b.session_id, &format!("https://late{i}.example.test/")));
+    }
+    assert_eq!(refused_rows(), 16);
+    assert_eq!(audit_rows(st, "secret_refused_suppressed").len(), 1);
     assert_eq!((summary[0]["count"].as_u64(), summary[0]["action"].as_str()), (Some(48), Some("oidc_navigation")));
     assert!(audit_rows(st, "secret_refused").iter().any(|r| r["detail"] == "navigation_flood"));
     assert!(!navigate(rt, &b.session_id, "https://idp.example.test/"), "a failed flow loads nothing");
