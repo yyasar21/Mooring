@@ -179,6 +179,15 @@ async fn power_needs_opt_in_and_the_native_dialog() {
     let sent = vc.srv.power_actions();
     assert_eq!((sent.len(), sent[0].action.as_str(), sent[0].vm.as_str()), (1, "stop", "vm-2"));
     assert!(!yes.asked()[0].text.is_empty());
+    // Review 6b: a cancelled power-on does not cool down; a cancelled guest shutdown cools the
+    // VM down for guest reboot too.
+    let vm3 = vm_row(&vc, "vm-3").expect("vm").id;
+    let no3 = FixedConfirm::new(false);
+    assert_eq!(vsphere_vm::action(&vc.f.state, Prompt::new(&no3), &vm3, "start").await.expect("cancel").outcome, "cancelled");
+    assert_eq!(vsphere_vm::action(&vc.f.state, Prompt::new(&no3), &vm3, "shutdown").await.expect("asked").outcome, "cancelled");
+    assert_eq!(no3.asked().len(), 2, "power-on cancel: no cool-down, the shutdown dialog opened");
+    let e = vsphere_vm::action(&vc.f.state, Prompt::new(&yes), &vm3, "reboot").await.expect_err("cool-down");
+    assert_eq!(e.code, "confirm.cooldown");
     let p = vsphere_vm::power_state(&vc.f.state, &vm2).await.expect("state");
     assert_eq!(p.state, PowerState::PoweredOff);
     assert!(count(&vc, "vsphere_power") >= 4, "disabled, cancelled, requested, done");

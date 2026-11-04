@@ -175,7 +175,9 @@ pub async fn action(state: &AppState, prompt: Prompt<'_>, connection_id: &str, a
         return Err(map_error(&mooring_vsphere::VsphereError::PowerDisabled));
     }
     let target = format!("{}/{}", t.source, t.vm);
-    let scope = Scope { kind: "vsphere_power", target: &target, destructive: a.is_destructive() };
+    // Review 6b: every action but power-on cools down after a cancel (guest shutdown and reboot
+    // disrupt a production VM too); `is_destructive` keeps the "may lose data" wording.
+    let scope = Scope { kind: "vsphere_power", target: &target, destructive: a != PowerAction::On };
     let yes = prompt.ask(&ctx.confirm, scope, power_question(&t, a)).await?;
     if !yes {
         hook.record(t.vm.as_str(), a, "cancelled");
