@@ -1,1 +1,1 @@
-[{"host": "host-1", "name": "esx-1.example.test", "connection_state": "CONNECTED", "power_state": "POWERED_ON"}]
+[{"host":"host-10","name":"esx-1.example.test","connection_state":"CONNECTED","power_state":"POWERED_ON"}]

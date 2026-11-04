@@ -79,44 +79,60 @@ Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test 
 Still Q1: `framebuffer_ops`, `rfb_handshake`, `raw_copyrect_bounds`, `vencrypt_negotiation`,
 `cut_text` as separate targets, and the pinned upstream IronRDP targets.
 
-## A3 targets (scaffolding, ADR-0014..0017)
+## A3 targets (ADR-0014..0017)
 
-The parsers of A3 are still being written (K2, K3, V1, E1, S1). Each target below is already in
-`fuzz/Cargo.toml`, in the nightly matrix, and has seeds plus an empty regression directory. Each
-entry is gated behind a fuzz-crate feature, as the A2 targets were before R1–R4 landed. Without
-the feature, `run` is a compiling no-op, and the wrapper's `PENDING` marker makes the nightly
-"Stub notice" step print a warning. The gated branch names the function that the ADR and the
-task split imply. Nobody has compiled it against a real signature yet.
+The A3 gates are gone for every parser the crates expose (Q2). Each target below fuzzes the
+real code, has a seed corpus in `fuzz/corpus/<target>/` and an (empty) regression directory,
+and is replayed on stable by the owning crate's `tests/fuzz_corpus.rs`, which also pins that
+the accepting seeds keep being accepted (so the fuzzer never loses its path past the refusal
+branch).
 
-| Target | Gate | Expected parser | ADR |
-| --- | --- | --- | --- |
-| `kubeconfig_resolve` | `k2` | `mooring_core::credential::kubeconfig::resolve` | 0014 §3 |
-| `jwt_exp_peek` | `k2` | `mooring_core::credential::kubeconfig::jwt_exp_peek` | 0014 §3 |
-| `kube_pod_list_json` | `k3` | `mooring_proto_kube::fuzz::pod_list_json` | 0014 §5 |
-| `kube_exec_frames` | `k3` | `mooring_proto_kube::fuzz::exec_frames` (channel demux + status JSON) | 0014 §5 |
-| `kube_log_sanitize` | `k3` | `mooring_proto_kube::fuzz::log_sanitize` | 0014 §5 |
-| `vsphere_inventory_json` | `v1` | `mooring_vsphere::fuzz::inventory_json` | 0015 §1–2 |
-| `vsphere_session_token` | `v1` | `mooring_vsphere::fuzz::session_token` | 0015 §1 |
-| `vsphere_ticket_url` | `v1` | `mooring_vsphere::fuzz::ticket_url` | 0015 §4 |
-| `vault_kv_response` | `e1` | `mooring_secrets::fuzz::kv_response` | 0016 §3 |
-| `vault_login_response` | `e1` | `mooring_secrets::fuzz::login_response` | 0016 §3 |
-| `external_ref_parse` | `e1` | `mooring_core::credential::fuzz::external_ref` | 0016 §2 |
-| `oidc_callback_url` | `e1` | `mooring_secrets::fuzz::oidc_callback_url` | 0016 §4 |
-| `sync_blob_parse` | `s1` | `mooring_sync::fuzz::blob_parse` (`MSY1`) | 0017 §2 |
-| `sync_snapshot_json` | `s1` | `mooring_sync::fuzz::snapshot_json` | 0017 §1 |
-| `s3_error_xml` | `s1` | `mooring_sync::fuzz::s3_error_xml` (`quick-xml` path) | 0017 §4 |
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `kubeconfig_resolve` | `kubeconfig_resolve.rs` | `mooring_core::credential::kubeconfig::resolve` | 0014 §3 | mooring-core |
+| `external_ref_parse` | `external_ref_parse.rs` | `mooring_core::credential::{fuzz_external_ref, parse_vault_reference}` | 0016 §2 | mooring-core |
+| `kube_exec_frames` | `kube_exec_frames.rs` | `mooring_proto_kube::{decode_exec, fuzz::fuzz_exec_frame}` | 0014 §5 | mooring-proto-kube |
+| `kube_log_sanitize` | `kube_log_sanitize.rs` | `mooring_proto_kube::{sanitize_line, fuzz::fuzz_log_line}` | 0014 §5 | mooring-proto-kube |
+| `kube_portforward_frames` | `kube_portforward_frames.rs` | `mooring_proto_kube::{PfDecoder, fuzz::fuzz_portforward_frame}` | 0014 §5 | mooring-proto-kube |
+| `kube_guard_path` | `kube_guard_path.rs` | `mooring_proto_kube::fuzz::fuzz_guard_path` (request guard) | 0014 §4 | mooring-proto-kube |
+| `vsphere_inventory_json` | `vsphere_inventory_json.rs` | `mooring_vsphere::fuzz::fuzz_inventory_json` (`[selector, body]`) | 0015 §1–2 | mooring-vsphere |
+| `vsphere_session_token` | `vsphere_session_token.rs` | `mooring_vsphere::parse_session_token` | 0015 §1 | mooring-vsphere |
+| `vsphere_ticket_url` | `vsphere_ticket_url.rs` | `mooring_vsphere::fuzz::fuzz_ticket_url` (`parse_vmrc_ticket`) | 0015 §4 | mooring-vsphere |
+| `vault_kv_response` | `vault_kv_response.rs` | `mooring_secrets::fuzz::fuzz_kv_response` | 0016 §3 | mooring-secrets |
+| `vault_login_response` | `vault_login_response.rs` | `mooring_secrets::fuzz::fuzz_login_response` | 0016 §3 | mooring-secrets |
+| `oidc_callback_url` | `oidc_callback_url.rs` | `mooring_secrets::{parse_callback, fuzz::fuzz_oidc_callback_url}` | 0016 §4 | mooring-secrets |
+| `sync_blob_parse` | `sync_blob_parse.rs` | `mooring_sync::{decode_msy1, fuzz::fuzz_msy1}` | 0017 §2 | mooring-sync |
+| `sync_snapshot_json` | `sync_snapshot_json.rs` | `mooring_sync::fuzz::fuzz_snapshot_json` (`Snapshot::decode`) | 0017 §1 | mooring-sync |
+| `http_certificate_info` | `http_certificate_info.rs` | `mooring_http::fuzz::fuzz_certificate_info` | 0011 / 0014 §3 | mooring-http |
+| `http_response_headers` | `http_response_headers.rs` | `mooring_http::fuzz::fuzz_response_headers` (`[selector, value]`) | 0014 §4 | mooring-http |
+| `http_json_body` | `http_json_body.rs` | `mooring_http::fuzz::fuzz_json_body` (`decode_json`) | 0014 §4 | mooring-http |
 
-To activate a gate when its crate lands:
+Selector-prefixed targets take the first byte as the model / header selector and the rest as
+the body (see the crate's `fuzz.rs`); their seeds carry that byte. `sync_blob_parse` seeds
+include the committed `test-vectors/blob-v1.hex` blob so the fuzzer starts past the header
+checks. The seed under `http_certificate_info` is a throwaway self-signed EC certificate for
+`k.example.test` (no key is committed; kubeconfig seeds use token auth for the same reason).
 
-1. Add the crate to `fuzz/Cargo.toml` `[dependencies]` (path dependency).
-2. Run `cargo check --bins --features <gate>` and fix the call to the real signature.
-3. Turn the invariants in the entry's doc comment into assertions.
-4. Add the stable replay to the owning crate's `tests/fuzz_corpus.rs`.
-5. Delete the gate and the `PENDING` marker.
+### Still gated (no-op stubs)
+
+Three targets remain a compiling no-op behind a fuzz-crate feature because the parser is not
+reachable from `fuzz/`; the nightly "Stub notice" step flags them. Each needs a one-line change
+from rust-core (Q2 handoff, "Decision needed"):
+
+| Target | Gate | Blocker |
+| --- | --- | --- |
+| `jwt_exp_peek` | `k2` | `peek_exp` lives in `src-tauri/src/commands/kube_jwt.rs` (`mooring-app`, needs the WebView toolchain). Move it to `mooring_core::credential::kubeconfig::peek_exp`. |
+| `kube_pod_list_json` | `k3` | `browse::PodIn` / `List<T>` are `pub(crate)`. Add `pub fn fuzz_pod_list_json(&[u8])` to `mooring-proto-kube/src/fuzz.rs`. |
+| `s3_error_xml` | `s1` | `mooring-sync` parses no XML (presigned PUT/GET/HEAD/DELETE only, errors from status + `ETag`). Keep gated until a listing / error-body parser exists, or drop the target in the ADR. |
+
+To activate one: run `cargo check --bins --features <gate>` in `fuzz/`, fix the call, add the
+stable replay to the owning crate's `tests/fuzz_corpus.rs`, delete the gate and the `PENDING`
+marker in the wrapper.
 
 The nightly job runs these families with `-malloc_limit_mb=1024`, as it does the RDP/VNC
 targets: an API body, frame or blob parser must not allocate before it checks the size.
-`ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is Q2.
+`ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is not run: the hostile
+kubeconfig cases are plain `cargo test`s in `crates/mooring-core/tests/hostile_kubeconfig.rs`.
 
 ## Layout
 
@@ -164,7 +180,9 @@ readable files. `fuzz/.gitattributes` keeps every input byte-exact (no CRLF norm
 Without nightly, the stable side still works and is what CI runs on every push:
 
 ```sh
-cargo test -p mooring-proto-ssh -p mooring-core -p mooring-vault --test fuzz_corpus
+cargo test -p mooring-proto-ssh -p mooring-core -p mooring-vault -p mooring-proto-rdp \
+  -p mooring-proto-vnc -p mooring-http -p mooring-proto-kube -p mooring-vsphere \
+  -p mooring-secrets -p mooring-sync --test fuzz_corpus
 cd fuzz && cargo check --bins     # the targets compile on stable; only running them needs nightly
 ```
 

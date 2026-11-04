@@ -1,0 +1,1 @@
+{"name":"web-01","power_state":"POWERED_ON","guest_OS":"RHEL_9_64","identity":{"name":"web-01"},"cpu":{"count":2},"memory":{"size_MiB":4096}}
