@@ -69,13 +69,29 @@ describe("TauriTransport · ADR-0010", () => {
     const t = new TauriTransport();
     reply = { transferId: "t-9" };
     const seen: TransferProgress[] = [];
-    const r = await t.sftpDownload({ sessionId: "s", remote: "/r", localDir: "/picked", onProgress: (p) => seen.push(p) });
+    const r = await t.sftpDownload({ sessionId: "s", remote: "/r", pick: "p-1", overwrite: true, onProgress: (p) => seen.push(p) });
     expect(r).toEqual({ transferId: "t-9" });
     const args = calls[0]?.args ?? {};
-    expect(Object.keys(args).sort()).toEqual(["localDir", "onProgress", "remote", "sessionId"]);
+    expect(Object.keys(args).sort()).toEqual(["onProgress", "overwrite", "pick", "remote", "sessionId"]);
+    expect(args).toMatchObject({ pick: "p-1", overwrite: true });
     const channel = args.onProgress as { onmessage: (m: unknown) => void };
     channel.onmessage({ transferId: "t-9", bytesDone: 10, bytesTotal: 20, state: "running", error: null });
     expect(seen).toEqual([{ transferId: "t-9", bytesDone: 10, bytesTotal: 20, state: "running", error: null }]);
+  });
+
+  it("asks Rust for local picks and never sends a local path (B-4)", async () => {
+    const t = new TauriTransport();
+    reply = { pickId: "0f".repeat(16), name: "Downloads" };
+    expect(await t.sftpPickLocal({ sessionId: "s", mode: "folder" })).toEqual({ pickId: "0f".repeat(16), name: "Downloads" });
+    reply = null;
+    expect(await t.sftpPickLocal({ sessionId: "s", mode: "file" })).toBeNull();
+    reply = { transferId: "t-2" };
+    await t.sftpUpload({ sessionId: "s", pick: "p-2", remoteDir: "/tmp", onProgress: () => undefined });
+    reply = [{ transferId: "t-2", bytesDone: 1, bytesTotal: 4, state: "running", error: null }];
+    expect(await t.sftpTransfers({ sessionId: "s" })).toEqual([{ transferId: "t-2", bytesDone: 1, bytesTotal: 4, state: "running", error: null }]);
+    expect(calls.map((c) => c.cmd)).toEqual(["sftp_pick_local", "sftp_pick_local", "sftp_upload", "sftp_transfers"]);
+    expect(calls[0]?.args).toEqual({ sessionId: "s", mode: "folder" });
+    expect(Object.keys(calls[2]?.args ?? {}).sort()).toEqual(["onProgress", "pick", "remoteDir", "sessionId"]);
   });
 
   it("maps wire errors to IpcError", async () => {

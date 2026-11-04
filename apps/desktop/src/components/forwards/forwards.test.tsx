@@ -98,7 +98,7 @@ describe("ForwardsPanel", () => {
     fill("Target port", "80");
     fireEvent.click(screen.getByRole("button", { name: "Open forward" }));
     await settle();
-    expect(screen.getByRole("alert")).toHaveTextContent("The bind address is in use or not permitted.");
+    expect(screen.getByRole("alert")).toHaveTextContent("The bind address is in use or not permitted");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Close forward 127.0.0.1:8080" }));

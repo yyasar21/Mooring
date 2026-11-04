@@ -17,6 +17,7 @@ import { FORWARD_LIMITS } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { T0 } from "./ipc.seed";
 import { MockRemoteFs } from "./ipc.mock.fs";
+import { MockPicks } from "./ipc.mock.picks";
 import { baseName, normalizeRemote } from "./remotePath";
 import { hasErrors, validateForward, validatePolicy, validateSyslog } from "./validate.exit";
 
@@ -30,6 +31,8 @@ export interface MockOptions {
 
 interface MockTransfer {
   sessionId: string;
+  /** Latest progress, for `sftp_transfers`. */
+  state: "running";
   timer: ReturnType<typeof setTimeout> | null;
   emit: ProgressHandler;
   done: number;
@@ -45,6 +48,8 @@ export abstract class MockExitBase implements ExitIpc {
   forwards = new Map<string, ForwardInfo[]>();
   fs = new Map<string, MockRemoteFs>();
   transfers = new Map<string, MockTransfer>();
+  /** Local picks made through the Rust-side dialog (B-4). */
+  picks = new MockPicks();
   policy: AutoLockPolicy = { idleMinutes: 15, onScreenLock: true, onSleep: true, onWindowHidden: true };
   syslog: SyslogConfig | null = null;
   /** Set to make every new transfer fail half way (tests). */
@@ -87,26 +92,35 @@ export abstract class MockExitBase implements ExitIpc {
   }
 
   /** Forwards and transfers die with their session (ADR-0010). */
-  protected dropSession(sessionId: string | null): void {
+  protected dropSession(sessionId: string): void {
     for (const [id, t] of this.transfers) {
-      if (sessionId !== null && t.sessionId !== sessionId) continue;
+      if (t.sessionId !== sessionId) continue;
       if (t.timer) clearTimeout(t.timer);
       this.transfers.delete(id);
       t.emit({ transferId: id, bytesDone: t.done, bytesTotal: t.total, state: "failed", error: "session closed" });
     }
-    if (sessionId === null) {
-      this.forwards.clear();
-      this.fs.clear();
-    } else {
-      this.forwards.delete(sessionId);
-      this.fs.delete(sessionId);
+    this.forwards.delete(sessionId);
+    this.fs.delete(sessionId);
+  }
+
+  /**
+   * What every lock does on the backend (ADR-0010, M-10): picks are forgotten and forwards with
+   * external exposure are closed and audited. Sessions, loopback forwards and transfers survive.
+   */
+  protected lockBackend(): void {
+    this.vault = "locked";
+    this.picks.clear();
+    for (const [sessionId, list] of this.forwards) {
+      for (const f of list.filter((x) => x.exposure === "external")) {
+        this.record("session.forward.close", { session: sessionId, forward: f.id, reason: "vault locked" });
+      }
+      this.forwards.set(sessionId, list.filter((x) => x.exposure !== "external"));
     }
   }
 
   /** Test/dev hook: the backend locks on its own and emits `vault:locked`. */
   fireAutoLock(reason: LockReason): void {
-    this.vault = "locked";
-    this.dropSession(null);
+    this.lockBackend();
     this.record("vault.lock", { reason });
     for (const h of [...this.lockHandlers]) h({ reason });
   }
@@ -137,7 +151,7 @@ export abstract class MockExitBase implements ExitIpc {
     let port = f.bind.port;
     if (port === 0) port = 40_000 + this.exitIds;
     if (list.some((x) => x.bind.port === port && x.kind !== "remote" && f.kind !== "remote")) {
-      throw new IpcError("forward.bind_failed", "address already in use");
+      throw new IpcError("forward.bind", "bind failed: address already in use");
     }
     const info: ForwardInfo = {
       id: this.exitId("fw"),
@@ -203,7 +217,7 @@ export abstract class MockExitBase implements ExitIpc {
   private startTransfer(sessionId: string, total: number, direction: string, emit: ProgressHandler, land: () => void): string {
     const id = this.exitId("tx");
     const fail = this.failTransfers;
-    const t: MockTransfer = { sessionId, timer: null, emit, done: 0, total };
+    const t: MockTransfer = { sessionId, state: "running", timer: null, emit, done: 0, total };
     const outcome = (state: "done" | "failed", error: string | null) => {
       this.transfers.delete(id);
       this.record("session.sftp.transfer", { session: sessionId, direction, bytes: String(t.done), outcome: state });
@@ -232,17 +246,34 @@ export abstract class MockExitBase implements ExitIpc {
     return id;
   }
 
-  sftpDownload: ExitIpc["sftpDownload"] = async ({ sessionId, remote, localDir, onProgress }) => {
+  sftpPickLocal: ExitIpc["sftpPickLocal"] = async ({ sessionId, mode }) => {
     await this.unlocked();
-    if (localDir.trim() === "") throw new IpcError("sftp.local_path", "choose a folder with the file dialog");
-    const total = this.sftp(sessionId).fileSize(remote);
-    return { transferId: this.startTransfer(sessionId, total, "download", onProgress, () => undefined) };
+    this.requireSsh(sessionId);
+    return this.picks.open(sessionId, mode);
   };
 
-  sftpUpload: ExitIpc["sftpUpload"] = async ({ sessionId, localPath, remoteDir, onProgress }) => {
+  sftpDownload: ExitIpc["sftpDownload"] = async ({ sessionId, remote, pick, overwrite, onProgress }) => {
     await this.unlocked();
-    const name = localPath.split(/[\\/]/).pop() ?? "";
-    if (name === "") throw new IpcError("sftp.local_path", "choose a file with the file dialog");
+    const folder = this.picks.peek(pick, sessionId, "folder");
+    const fs = this.sftp(sessionId);
+    const target = `${folder}/${baseName(normalizeRemote(remote))}`;
+    let total: number;
+    try {
+      total = fs.fileSize(remote);
+    } catch (e: unknown) {
+      this.picks.consume(pick);
+      throw e;
+    }
+    // Refused before the pick is used, so the overwrite retry can present the same pick.
+    if (this.picks.localFiles.has(target) && overwrite !== true) throw new IpcError("sftp.exists", "the local file already exists");
+    this.picks.consume(pick);
+    return { transferId: this.startTransfer(sessionId, total, "download", onProgress, () => { this.picks.localFiles.add(target); }) };
+  };
+
+  sftpUpload: ExitIpc["sftpUpload"] = async ({ sessionId, pick, remoteDir, onProgress }) => {
+    await this.unlocked();
+    const name = this.picks.peek(pick, sessionId, "file");
+    this.picks.consume(pick);
     const fs = this.sftp(sessionId);
     const dir = normalizeRemote(remoteDir);
     fs.list(dir);
@@ -250,9 +281,17 @@ export abstract class MockExitBase implements ExitIpc {
     return { transferId: this.startTransfer(sessionId, total, "upload", onProgress, () => { fs.put(dir, baseName(`/${name}`), total); }) };
   };
 
+  sftpTransfers: ExitIpc["sftpTransfers"] = async ({ sessionId }) => {
+    await this.unlocked();
+    this.requireSsh(sessionId);
+    return [...this.transfers]
+      .filter(([, t]) => t.sessionId === sessionId)
+      .map(([transferId, t]) => ({ transferId, bytesDone: t.done, bytesTotal: t.total, state: t.state, error: null }));
+  };
+
   sftpCancel: ExitIpc["sftpCancel"] = async ({ sessionId, transferId }) => {
     const t = this.transfers.get(transferId);
-    if (!t || t.sessionId !== sessionId) throw new IpcError("sftp.transfer_not_found", "transfer not found");
+    if (!t || t.sessionId !== sessionId) throw new IpcError("transfer.not_found", "transfer not found");
     if (t.timer) clearTimeout(t.timer);
     this.transfers.delete(transferId);
     this.record("session.sftp.transfer", { session: sessionId, bytes: String(t.done), outcome: "cancelled" });

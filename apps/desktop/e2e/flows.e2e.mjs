@@ -84,7 +84,9 @@ test("happy path: create vault, add connection, trust host, echo shell, lock", (
     await lockFromTitleBar(page);
     const locked = await probe(page);
     assert.equal(locked.vault, "locked");
-    assert.equal(locked.sessions, 0, "lock must drop every session");
+    // The backend keeps the session through a lock (ADR-0006, review 4 M-10); the UI shows none of
+    // it until unlock, when it re-adopts the session from session_list.
+    assert.equal(locked.sessions, 1, "the backend session survives the lock");
     assert.equal(await page.getByRole("tab").count(), 0, "no session tab survives the lock");
     assert.equal(await page.locator(".xterm").count(), 0, "no terminal survives the lock");
   }));
@@ -120,6 +122,9 @@ test("lock then unlock: the shell reloads with the saved connection and the host
     await page.getByLabel("Master password").fill(MASTER);
     await unlock.click();
     await page.getByRole("tree", { name: "Connections" }).waitFor();
+    // The session outlived the lock on the backend and is a tab again (M-10).
+    await page.getByRole("tab", { name: "keep-me, connected" }).waitFor();
+    assert.equal(await page.getByRole("tab").count(), 1);
 
     const again = page.getByRole("treeitem", { name: "keep-me, keep-me.example.test" });
     await again.dblclick();
@@ -145,5 +150,6 @@ test("lock shortcut (mod+Shift+L) locks from the workspace", (t) =>
     await page.getByRole("tree", { name: "Connections" }).focus();
     await page.keyboard.press("ControlOrMeta+Shift+L");
     await page.getByRole("heading", { name: "Unlock Mooring" }).waitFor();
-    assert.equal((await probe(page)).sessions, 0);
+    assert.equal(await page.getByRole("tab").count(), 0, "no session tab while locked");
+    assert.equal((await probe(page)).sessions, 1, "the backend session survives the lock (M-10)");
   }));

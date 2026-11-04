@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipc, type PromptAccount, type PromptPurpose, type SessionEvent, type SessionInput, type Size } from "../lib/ipc";
+import { ipc, type PromptAccount, type PromptPurpose, type SessionEvent, type SessionInfo, type SessionInput, type Size } from "../lib/ipc";
 import { errorText } from "./errors";
 
 export type TabState = "connecting" | "connected" | "closed";
@@ -67,6 +67,21 @@ export function subscribeOutput(tabId: string, listener: OutputListener): () => 
   };
 }
 
+/**
+ * Which local tab a backend session's event channel feeds. Ids only, no vault data, so it is kept
+ * across a lock: after unlock `adopt` gives a surviving session its old tab id back and the
+ * channel opened by `session_open` drives that tab again (M-10).
+ */
+const tabOfSession = new Map<string, string>();
+
+function forgetTab(tabId: string): void {
+  for (const [sid, tid] of tabOfSession) if (tid === tabId) tabOfSession.delete(sid);
+}
+
+function adoptedState(state: string): TabState | null {
+  return state === "connected" || state === "connecting" ? state : null;
+}
+
 interface SessionState {
   tabs: Tab[];
   activeTab: string | null;
@@ -83,6 +98,9 @@ interface SessionState {
   /** Answer a `credential` prompt. The caller drops its copy of the password once this settles. */
   answerCredential: (tabId: string, a: CredentialAnswer) => Promise<boolean>;
   reconnect: (tabId: string) => Promise<void>;
+  /** After an unlock: show the backend's live sessions (`session_list`) as tabs again. */
+  adopt: (live: SessionInfo[]) => void;
+  /** Drop every tab and buffered output (lock). Live backend sessions are re-adopted on unlock. */
   reset: () => void;
 }
 
@@ -95,6 +113,11 @@ export const useSessions = create<SessionState>((set, get) => {
   };
 
   const onEvent = (tabId: string) => (ev: SessionEvent) => {
+    // While the vault is locked the tab is gone: nothing that arrives then is kept.
+    if (!get().tabs.some((t) => t.id === tabId)) {
+      if (ev.kind === "closed") forgetTab(tabId);
+      return;
+    }
     switch (ev.kind) {
       case "connected":
         patch(tabId, { state: "connected", peerIdentity: ev.peerIdentity, prompt: null });
@@ -106,6 +129,7 @@ export const useSessions = create<SessionState>((set, get) => {
         patch(tabId, { prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account } });
         break;
       case "closed":
+        forgetTab(tabId);
         patch(tabId, { state: "closed", reason: ev.reason, prompt: null, sessionId: null });
         pushOutput(tabId, enc.encode(`\r\n\x1b[2m[session closed: ${ev.reason}]\x1b[0m\r\n`));
         break;
@@ -133,8 +157,12 @@ export const useSessions = create<SessionState>((set, get) => {
   const start = async (tabId: string, connectionId: string, size: Size) => {
     try {
       const { sessionId } = await ipc.sessionOpen({ connectionId, size, onEvent: onEvent(tabId) });
-      if (get().tabs.some((t) => t.id === tabId)) patch(tabId, { sessionId });
-      else await ipc.sessionClose({ sessionId }); // tab closed while connecting
+      if (get().tabs.some((t) => t.id === tabId)) {
+        tabOfSession.set(sessionId, tabId);
+        patch(tabId, { sessionId });
+      } else {
+        await ipc.sessionClose({ sessionId }); // tab closed while connecting
+      }
     } catch (e: unknown) {
       patch(tabId, { state: "closed", reason: errorText(e) });
     }
@@ -170,6 +198,7 @@ export const useSessions = create<SessionState>((set, get) => {
       const nextActive = activeTab === tabId ? (rest[Math.min(idx, rest.length - 1)]?.id ?? null) : activeTab;
       set({ tabs: rest, activeTab: nextActive });
       outputs.delete(tabId);
+      forgetTab(tabId);
       if (tab.sessionId) {
         try {
           await ipc.sessionClose({ sessionId: tab.sessionId });
@@ -234,6 +263,28 @@ export const useSessions = create<SessionState>((set, get) => {
       if (!tab || tab.state !== "closed") return;
       patch(tabId, { state: "connecting", reason: null, peerIdentity: null });
       await start(tabId, tab.connectionId, { width: 80, height: 24 });
+    },
+
+    adopt: (live) => {
+      const have = new Set(get().tabs.map((t) => t.sessionId));
+      const adopted: Tab[] = [];
+      for (const info of live) {
+        const state = adoptedState(info.state);
+        if (!state || have.has(info.sessionId)) continue;
+        const known = tabOfSession.get(info.sessionId);
+        let id = known;
+        if (!id) {
+          tabSeq += 1;
+          id = `tab-${tabSeq}`;
+        }
+        adopted.push({ id, connectionId: info.connectionId, sessionId: info.sessionId, state, peerIdentity: null, prompt: null, reason: null });
+        // Output from before the lock was wiped with it; say so instead of showing a blank screen.
+        pushOutput(id, enc.encode(known
+          ? "\x1b[2m[vault unlocked: earlier output was cleared when it locked]\x1b[0m\r\n"
+          : "\x1b[2m[this window cannot show the output of this session]\x1b[0m\r\n"));
+      }
+      if (adopted.length === 0) return;
+      set({ tabs: [...get().tabs, ...adopted], activeTab: get().activeTab ?? adopted[0]?.id ?? null });
     },
 
     reset: () => {

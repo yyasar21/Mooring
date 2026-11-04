@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../App";
 import { useApp } from "../stores/app";
 import { useSessions } from "../stores/sessions";
@@ -6,7 +6,7 @@ import { freshBackend, settle } from "../test/harness";
 import { lockReasonText } from "./VaultGate";
 
 describe("vault:locked (ADR-0010)", () => {
-  it("returns to the unlock screen with the reason and drops every tab", async () => {
+  it("returns to the unlock screen with the reason, drops every tab and re-adopts live sessions", async () => {
     const mock = freshBackend();
     render(<App />);
     await screen.findByText("Nothing open yet");
@@ -23,7 +23,9 @@ describe("vault:locked (ADR-0010)", () => {
     fireEvent.change(screen.getByLabelText("Master password"), { target: { value: "correct horse" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
     await settle();
-    expect(await screen.findByText("Nothing open yet")).toBeInTheDocument();
+    // The backend kept the session through the lock (ADR-0006, M-10): it is a tab again.
+    await waitFor(() => { expect(useSessions.getState().tabs).toHaveLength(1); });
+    expect(screen.queryByText("Nothing open yet")).toBeNull();
     expect(useApp.getState().lockReason).toBeNull();
   });
 

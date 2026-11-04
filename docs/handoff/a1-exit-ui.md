@@ -83,3 +83,39 @@ Demo local picks outside Tauri are `/home/demo/...`. No private names.
 - Screenshots: Playwright (`playwright-core` from `/opt/node-tools`, not added to the project) driving Chrome against
   `vite preview`, 1440×860, dark and light, in `docs/handoff/img/a1-exit-ui/`: `01-forwards`, `02-forward-expose-confirm`,
   `03-sftp` (done, cancelled, running download and running upload), `04-settings`.
+
+## Fix round 4 (security review 4)
+
+Branch `worktree-agent-ab74608f5d49766d7`, on top of `a1-exit` @ `0077e40` (ADR-0010 amended).
+Built against the mock transport; the Rust side lands in parallel (rust-core). This section
+supersedes the `localDir` / `localPath` args and the UI error-code list in "Contract assumptions".
+
+| Commit | Finding | What |
+| --- | --- | --- |
+| `af4ab07` | **B-4** | `@tauri-apps/plugin-dialog` and `lib/dialog.ts` removed. `sftpPickLocal({ sessionId, mode })` → `{ pickId, name } \| null`; `sftp_download({ …, pick, overwrite? })` and `sftp_upload({ …, pick })`. Every download/upload asks Rust for a pick; the panel shows only `name`. `sftp.exists` opens "Replace <name>?" (shared `Modal`) and retries with `overwrite: true` and the same pick. Mock picks (`lib/ipc.mock.picks.ts`) are single-use, session- and mode-bound, expire after 10 min, are cleared on lock; a bad pick is `input.invalid` naming "pick" (`ipc.picks.test.ts`). |
+| `b471489` | **M-10** | After unlock (and on boot into an unlocked vault) the app calls `session_list` and adopts connected/connecting sessions as tabs; a session that had a tab keeps its tab id, so its `session_open` channel drives it again. The Forwards panel lists via `forward_list`; running transfers are re-listed with `sftp_transfers` and re-keyed by `transferId`. `LockSurvival.test.tsx`: lock → unlock shows the surviving session, its loopback forward (the external one is gone) and its running transfer. |
+| `0a72786` | **M-8** | `POLLED_COMMANDS = ["audit_verify", "forward_list"]` exported from `lib/ipc.ts`. `polled.test.ts` parses the app sources with the TypeScript compiler, traces every `setInterval` callback through same-file helpers to the `ipc.*` methods it reaches, and asserts they map to `POLLED_COMMANDS`; plus `POLLED_COMMANDS ⊆ src-tauri/ipc-passive.json`. |
+| `a19d1e8` | **N-11** | ESLint `no-alert: error` and `no-restricted-globals` for `confirm`/`alert`/`prompt`; `lint.n11.test.ts` runs ESLint with the app config on each pattern. |
+| `71e997b` | **N-14** | `FRIENDLY` uses Rust's codes (done in `af4ab07`). `errors.codes.test.ts`: `FRIENDLY ⊆ ipc-codes.json` and every code the mock throws ⊆ `ipc-codes.json`; the old UI-only codes are refused unconditionally. |
+| `557c4b4` | M-10 | E2E flows updated: the backend session survives a lock (no tab while locked) and is a tab again after unlock. |
+| `3f4982c` | B-4 | Screenshots `03-sftp-*` refreshed, new `05-sftp-replace-confirm-*`; "Last saved to" → "Last saved". |
+
+### Left open
+- `src-tauri/ipc-passive.json` and `src-tauri/ipc-codes.json` are not in this branch. The three
+  guard tests that need them (`polled.test.ts`, `errors.codes.test.ts` ×2) are **skipped** with a
+  message naming the missing file and run as soon as rust-core checks them in. Accepted shapes: a
+  string array, objects with `code`/`command`/`name`, or a map of such arrays.
+- `ipc-codes.json` must list **every** code, not only the ADR-0010 ones: the mock also throws
+  `vault.*`, `tree.*`, `credential.*`, `session.not_found` and `input.invalid`. Verified locally
+  with a temporary file holding the codes grepped from `src-tauri/src` (passes; an exit-only list fails).
+- An adopted transfer has no direction or file name (`sftp_transfers` returns progress only), so
+  its row reads "Transfer <id>". If Rust adds `direction` and `name` to the list, the row can show them.
+- A session adopted without a known tab (e.g. after a window reload) shows a note instead of
+  output: its event channel belongs to the old page.
+- `apps/desktop/e2e/flows.e2e.mjs` is qa-engineer's file; two assertions encoded the old
+  "lock drops every session" behaviour and were changed to the M-10 contract. QA should confirm.
+
+### Test evidence
+- `pnpm lint && pnpm typecheck && pnpm test && pnpm build` green from the worktree root.
+- Vitest: **26 files, 182 passed, 3 skipped** (the Rust-list guards). Before this round: 22 files, 165 tests.
+- E2E: `flows.e2e.mjs` 5/5 pass.

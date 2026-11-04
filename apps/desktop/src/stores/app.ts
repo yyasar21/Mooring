@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipc, type AppInfo, type LockReason, type VaultStatus } from "../lib/ipc";
+import { ipc, type AppInfo, type LockReason, type SessionInfo, type VaultStatus } from "../lib/ipc";
 import { errorText } from "./errors";
 import { useTree } from "./tree";
 import { useCredentials } from "./credentials";
@@ -25,6 +25,24 @@ interface AppState {
 /** Load everything the unlocked shell shows. */
 async function loadVaultData(): Promise<void> {
   await Promise.all([useTree.getState().load(), useCredentials.getState().load()]);
+  await adoptLiveSessions();
+}
+
+/**
+ * Sessions, loopback forwards and transfers outlive a lock on the backend (ADR-0010, M-10): show
+ * them again so nothing keeps running without a UI to see or stop it. Forwards are listed by the
+ * Forwards panel itself (`forward_list`); transfers are re-keyed by `transferId`.
+ */
+async function adoptLiveSessions(): Promise<void> {
+  let live: SessionInfo[];
+  try {
+    live = await ipc.sessionList();
+  } catch {
+    return;
+  }
+  useSessions.getState().adopt(live);
+  const ssh = live.filter((s) => s.protocol === "ssh" && s.state === "connected");
+  await Promise.all(ssh.map((s) => useTransfers.getState().adopt(s.sessionId)));
 }
 
 /** Forget every piece of vault-derived state held in this window. */

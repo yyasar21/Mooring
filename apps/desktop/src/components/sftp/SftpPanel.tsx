@@ -1,15 +1,19 @@
 import { useState } from "react";
-import type { SftpEntry } from "../../lib/ipc";
-import { localName, pickDownloadDir, pickUploadFile } from "../../lib/dialog";
-import { crumbs, joinRemote } from "../../lib/remotePath";
+import { ipc, type LocalPick, type PickMode, type SftpEntry } from "../../lib/ipc";
+import { baseName, crumbs, joinRemote } from "../../lib/remotePath";
 import { describeError } from "../../stores/errors";
 import { useTransfers } from "../../stores/transfers";
-import { NameDialog, RemoveDialog } from "./EntryDialogs";
+import { NameDialog, RemoveDialog, ReplaceDialog } from "./EntryDialogs";
 import { RemotePane } from "./RemotePane";
 import { TransfersDrawer } from "./TransfersDrawer";
 import { useRemoteDir } from "./useRemoteDir";
 
-type Pending = { kind: "mkdir" } | { kind: "rename"; entry: SftpEntry } | { kind: "remove"; entry: SftpEntry } | null;
+type Pending =
+  | { kind: "mkdir" }
+  | { kind: "rename"; entry: SftpEntry }
+  | { kind: "remove"; entry: SftpEntry }
+  | { kind: "replace"; remote: string; folder: LocalPick }
+  | null;
 
 /** Two-pane SFTP browser of one SSH session, with the transfers drawer underneath. */
 export function SftpPanel({ sessionId }: { sessionId: string | null }) {
@@ -29,18 +33,18 @@ function Browser({ sessionId }: { sessionId: string }) {
   const upload = useTransfers((s) => s.upload);
   const [selected, setSelected] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
-  /** Chosen in the OS dialog; kept in memory for this panel only, shown by name. */
-  const [downloadDir, setDownloadDir] = useState<string | null>(null);
+  /** Display names of the last picks. Rust keeps the paths; a pick is single-use (B-4). */
+  const [lastFolder, setLastFolder] = useState<string | null>(null);
   const [lastUpload, setLastUpload] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
   const entry = dir.entries.find((e) => e.name === selected) ?? null;
 
   const go = (path: string) => { setSelected(null); dir.navigate(path); };
 
-  const chooseDir = async (): Promise<string | null> => {
+  /** Rust opens the native dialog; null = cancelled or refused (the error is shown). */
+  const pickLocal = async (mode: PickMode): Promise<LocalPick | null> => {
     try {
-      const picked = await pickDownloadDir();
-      if (picked) setDownloadDir(picked);
+      const picked = await ipc.sftpPickLocal({ sessionId, mode });
       setPickError(null);
       return picked;
     } catch (e: unknown) {
@@ -51,20 +55,18 @@ function Browser({ sessionId }: { sessionId: string }) {
 
   const startDownload = async (e: SftpEntry) => {
     if (e.kind !== "file") return;
-    const target = downloadDir ?? (await chooseDir());
-    if (target) await download(sessionId, joinRemote(dir.path, e.name), target);
+    const folder = await pickLocal("folder");
+    if (!folder) return;
+    setLastFolder(folder.name);
+    const remote = joinRemote(dir.path, e.name);
+    if ((await download(sessionId, remote, folder)) === "exists") setPending({ kind: "replace", remote, folder });
   };
 
   const startUpload = async () => {
-    try {
-      const file = await pickUploadFile();
-      setPickError(null);
-      if (!file) return;
-      setLastUpload(localName(file));
-      await upload(sessionId, file, dir.path);
-    } catch (e: unknown) {
-      setPickError(describeError(e));
-    }
+    const file = await pickLocal("file");
+    if (!file) return;
+    setLastUpload(file.name);
+    await upload(sessionId, file, dir.path);
   };
 
   const open = (e: SftpEntry) => {
@@ -92,19 +94,19 @@ function Browser({ sessionId }: { sessionId: string }) {
         <aside aria-label="This computer" className="sftp-local">
           <h3 className="m-micro">This computer</h3>
           <dl className="prop-grid mt-3">
-            <dt>Save to</dt>
-            <dd className="mono" title={downloadDir ? localName(downloadDir) : undefined}>
-              {downloadDir ? localName(downloadDir) : <span className="text-text-faint">not chosen</span>}
+            <dt>Last saved</dt>
+            <dd className="mono" title={lastFolder ?? undefined}>
+              {lastFolder ?? <span className="text-text-faint">none</span>}
             </dd>
             <dt>Last upload</dt>
             <dd className="mono">{lastUpload ?? <span className="text-text-faint">none</span>}</dd>
           </dl>
           <div className="mt-3 flex flex-col gap-2">
-            <button type="button" className="btn" onClick={() => void chooseDir()}>Choose download folder…</button>
             <button type="button" className="btn btn-primary" onClick={() => void startUpload()}>Upload a file…</button>
           </div>
           <p className="field-hint mt-3">
-            Local files and folders are chosen in the system dialog only. Mooring never browses or types local paths.
+            Every download asks for a folder and every upload for a file, in the system dialog. This window
+            only learns the name you picked, never the path.
           </p>
         </aside>
 
@@ -144,6 +146,11 @@ function Browser({ sessionId }: { sessionId: string }) {
             if (ok) setSelected(name);
             return ok;
           }}
+          onClose={() => { setPending(null); }} />
+      )}
+      {pending?.kind === "replace" && (
+        <ReplaceDialog name={baseName(pending.remote)} folder={pending.folder.name}
+          onConfirm={async () => { await download(sessionId, pending.remote, pending.folder, true); }}
           onClose={() => { setPending(null); }} />
       )}
       {pending?.kind === "remove" && (
