@@ -7,6 +7,7 @@
 @import "./airlock.css" layer(components);
 @import "./credentials.css" layer(components);
 @import "./tools.css" layer(components);
+@import "./remote.css" layer(components);
 
 @theme {
   --color-bg: var(--bg);

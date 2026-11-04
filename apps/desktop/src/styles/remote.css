@@ -1,0 +1,15 @@
+/* ---------- remote desktop (RDP / VNC) ---------- */
+.remote-host { position: absolute; inset: 0; overflow: hidden; background: var(--term-bg); }
+.remote-canvas { position: absolute; display: block; touch-action: none; outline: none; }
+.remote-host:focus-within .remote-canvas { box-shadow: 0 0 0 1px var(--accent-line), 0 0 18px -6px rgba(41, 230, 242, 0.45); }
+.remote-sink {
+  position: absolute; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0;
+  resize: none; overflow: hidden; pointer-events: none; caret-color: transparent;
+}
+.remote-stats {
+  position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 12px; padding: 6px 10px; pointer-events: none;
+  font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+  background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--accent-line); box-shadow: var(--glow-accent);
+}
+.remote-stats [data-tone="hot"] { color: var(--hot); }
