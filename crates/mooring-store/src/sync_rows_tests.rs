@@ -167,3 +167,24 @@ fn vsphere_synced_subtrees_stay_local_across_export_and_apply() {
     s.replace_sync_rows(&crate::SyncRows::default()).expect("remote deleted everything");
     assert!(s.sync_sources().expect("sources").is_empty(), "the subtree goes with its vCenter");
 }
+
+/// Two devices each start with their own root; the merged snapshot moves one below the other.
+/// The upsert must demote the local root before the remote one is inserted.
+#[test]
+fn replace_moves_the_local_root_below_the_remote_root() {
+    let a = Store::open_in_memory().expect("a");
+    let a_root = a.create_folder(None, "Root").expect("root a");
+    let b = Store::open_in_memory().expect("b");
+    b.create_folder(None, "Root").expect("root b");
+    let mut rows = b.export_sync_rows().expect("export b");
+    let mut mine = a
+        .export_sync_rows()
+        .expect("export a")
+        .folders
+        .remove(&a_root.id.to_string())
+        .expect("row");
+    mine.parent_id = rows.folders.keys().next().cloned();
+    rows.folders.insert(mine.id.clone(), mine);
+    a.replace_sync_rows(&rows).expect("apply");
+    assert_eq!(a.export_sync_rows().expect("again").folders, rows.folders);
+}

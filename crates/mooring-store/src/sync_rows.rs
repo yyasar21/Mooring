@@ -314,7 +314,11 @@ impl Store {
                 )?;
             }
         }
-        for f in rows.folders.values() {
+        // Non-root folders first: a local root that the snapshot moves below another root must
+        // stop being a root before the new one lands (`folder_single_root_idx`).
+        let (roots, rest): (Vec<&FolderRow>, Vec<&FolderRow>) =
+            rows.folders.values().partition(|f| f.parent_id.is_none());
+        for f in rest.into_iter().chain(roots) {
             tx.execute(
                 "INSERT INTO folder (id, parent_id, name, default_credential_id, sort, created_at,
                                      updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
