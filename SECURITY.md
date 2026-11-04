@@ -125,8 +125,53 @@ keys: trust on first use.
   VNC authentication, the password response can then be recorded and cracked offline. Use
   `require_tls` wherever the server supports it.
 
+- For VNC, a host that has once used VeNCrypt with a certificate that validated against the
+  system roots or `caPem` is also marked as TLS-required (a host-only marker, no
+  fingerprint), so stripping TLS later is refused the same way.
+- "Trust once" accepts the certificate for the next connect only, without pinning it. It is
+  recorded in the audit log.
+
 Open hardening items for these protocols are tracked in
 [review 5](docs/security/a2-review-5.md).
+
+## Web sessions and detached windows
+
+Web consoles (vCenter, Grafana, firewalls and the like) never load inside the main Mooring
+window.
+- **Own window, no bridge rights.** Each web connection opens in its own window
+  (`web-<connectionId>`). That window's capability is empty and has no remote grant. Tauri's
+  app ACL manifest requires an explicit grant for every Mooring command, and the Rust core
+  refuses every command from a web window again before it runs. A malicious or compromised
+  page therefore cannot call any Mooring command, read the vault or reach other sessions, even
+  though Tauri injects its IPC script into every window.
+- **Navigation.** A web window navigates only to its start origin and the origins you list
+  for the connection (exact `scheme://host:port`, IDN shown as punycode). The Mooring app
+  origin, `file:`, `data:`, `javascript:`, `blob:`, `about:` and URLs with `user:pass@` are
+  always refused, and refusals are audited.
+- **Denied natively.** New windows, downloads and camera, microphone, location, notification
+  and clipboard-read requests are denied. Developer tools are off. The window title always
+  shows the real origin.
+- **Storage.** It is ephemeral by default. "Keep me signed in" (`persistent`) is a
+  per-connection opt-in: it stores that connection's cookies in its own folder, in plain text
+  and outside the vault. It is audited, and it is wiped by "Clear site data" and when the
+  connection is deleted.
+- **TLS and credentials.** TLS uses the operating system's trust store. Mooring adds no
+  certificate and offers no "proceed anyway". Credentials are never auto-filled into a
+  page: copy them from the connection, and the clipboard is cleared after 30 s.
+- **Locked vault.** While the vault is locked, every web and detached window is hidden.
+- **Detached windows.** A session tab detached to its own window runs the bundled Mooring UI.
+  It may call only the six commands one session view needs, and only for its own session.
+
+Known gaps before the A2 tag are listed in the
+[review 5 re-review](docs/security/a2-review-5.md#re-review-fix-round-6--r5u2u3):
+- on Windows, ephemeral web windows that are open at the same time share one private session
+  (L-29);
+- deleting a folder does not yet wipe the persistent web stores of its connections (L-30);
+- whether page-raised dialogs (`alert`, HTTP authentication, print) appear while the vault is
+  locked has not been verified (L-31).
+
+Engine bugs in the operating system's WebView are outside Mooring's control: keep the OS
+WebView (WebView2, Safari/WebKit, WebKitGTK) updated.
 
 ## Syslog mirror
 

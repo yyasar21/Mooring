@@ -252,3 +252,231 @@ CSP (tauri.conf.json) and capabilities/   unchanged in the range
 ```
 Not run: cargo-audit (advisory DB fetch failed), cargo-geiger, gitleaks, semgrep, pnpm audit,
 cargo-fuzz, the `mooring-app` suite, vitest/E2E, and the macOS and Windows builds.
+
+---
+
+## Re-review (fix round 6) + R5/U2/U3
+
+Reviewer: security-reviewer · 2026-11-04 · Range `git diff c5565c6..HEAD` (`fbc6463`, 271
+files): fix round 6 (B-5, M-13..M-15, L-20..L-28, N-23..N-29), and the merges of U2
+(options, certificate dialog, known certs), **R5** (web windows, `AppManifest` ACL, detach;
+ADR-0013, capability change) and U3 (web tab, detach, detached route).
+
+Inputs: the "Fix round 6" section of `docs/handoff/a2-integration.md` and its closure table,
+`a2-rust-core-r5.md`, `a2-ui-u2.md`, `a2-ui-u3.md`, [ADR-0013](../adr/0013-web-sessions.md).
+Sources read from the registry: `tauri` 2.12.5 (`webview/mod.rs` `on_message` ACL path,
+`ipc/channel.rs`), `tauri-runtime-wry` 2.12.3, `wry` 0.57.1 (`webkitgtk`, `wkwebview`,
+`webview2` storage and incognito), `ironrdp-svc` 0.10.0 `dechunkify`, `russh` 0.65.0
+`negotiation.rs`, `miniz_oxide` 0.9.1.
+
+### Verdict: `APPROVE WITH NITS`
+
+**B-5 is fixed** and the blocker is lifted. M-13, M-14 (interim) and M-15 are fixed as
+prescribed, and L-20..L-27 are fixed. L-28 and N-28 stay partial, and N-27 stays accepted.
+**N-26 is closed** by R5: the guard sits in the dispatcher and covers every command, which is
+stronger than a per-command `require_main`.
+
+**The R5 capability change is approved.**
+- `AppManifest` turns the ACL into "denied unless granted" for every window.
+- `web-*` gets an empty capability with no `remote` block. `detached-*` gets exactly the six
+  session commands, and the Rust guard adds the own-`sessionId` rule on top.
+- Tauri's own `on_message` refuses any app command that has no resolved ACL once an app
+  manifest exists (`webview/mod.rs:2080-2109`). The one exception is the channel `fetch`
+  command, and its queue is per webview.
+- So even a web window that reached a local origin (an app-origin iframe, which the Linux
+  caveat allows) resolves to the `web` capability by label and gets nothing.
+
+There is no new Medium. The new Lows (L-29..L-32) are storage-isolation and lifecycle gaps.
+They do not give a remote page any reach into the app. They land before the A2 tag.
+
+### Closure of review 5
+| ID | Status | Evidence |
+| --- | --- | --- |
+| **B-5** | **fixed** | `crates/mooring-proto-rdp/src/active.rs:87` `check_desktop` (1..=8192), called from `driver.rs:112` before `Connected`, `Active::new` `:150` and `resized` `:187`. `sink.resize` (`:151`, `:188`) runs before `DecodedImage::new` (`:174`, `:193`). Tests: `hostile_tests.rs:70-74` (0, 8193, 65535 refused) and `:82` testsrv `advertised_desktop: (65535, 65535)` → `protocol_error` before `Connected`, peak RSS < 512 MiB. The abort itself cannot be reproduced on an overcommitting host; the ordering is the control |
+| **M-13** | **fixed** | The marker is written only by the Gate: `src-tauri/src/graphical_task.rs:174` `mark_tls_seen`, called at `:221` on `Connected { security: "vencrypt-x509" }` for VNC only. No writer in `crates/mooring-proto-vnc` (grep: `tls_expected` / `tls_marked` are read-only there, `connect.rs:106`, `:119`). `known_certs/marker.rs`: host-only, salted HMAC, no fingerprint (so a CA reissue never trips it), not listed as a pin, removed by `known_certs_remove`. Tests: `mooring-proto-vnc/src/trust_tests.rs:70` (stripped VeNCrypt → hard stop, no security type chosen, so no DES), `src-tauri/src/graphical_tests.rs:353` |
+| **M-14** | **fixed (interim)** | `crates/mooring-proto-rdp/src/reassembly.rs:29` `MAX_REASSEMBLY` = 8 MiB, checked at `active.rs:305` before `ActiveStage::process`. Covered: SVC `FLAG_FIRST` declared length, chunk sum (`:93-127`); `drdynvc` `DataFirst`/compressed (`:132-150`); fast-path runs (`:62-90`). `ironrdp-svc` 0.10.0 already refuses uncompressed overruns and orphan continuations; our counter is what bounds `PACKET_COMPRESSED`. Unparsable PDUs pass through to IronRDP, which refuses them. Testsrv `svc_flood`, fuzz `rdp_reassembly`. Upstream issue text is in the handoff, so the upstream half stays open |
+| **M-15** | **fixed** | `crates/mooring-proto-vnc/src/decode/zlib.rs:7-80`: `miniz_oxide` 0.9.1 `InflateState`, `MZFlush::Sync`, output cap +1. `flate2` is a dev-dependency only (`Cargo.toml:37`). Evidence: `cargo tree -p mooring-app -e features -i libz-sys \| grep -c mooring-proto-vnc` gives **0**; `cargo tree -p mooring-proto-vnc -e normal,features -i libz-sys` prints nothing. **Ruling on russh:** `russh` (`Cargo.toml:46`, feature `flate2`) links into the C-zlib flate2, but it is **not executed**. `algos.rs:68` prefers `[compression::NONE]` only, and russh picks the client's first match (`negotiation.rs:414-430`), so a server that offers only zlib fails the KEX. Accepted under R-RDP-FFI; N-35 drops the feature |
+| L-20 | fixed | `mooring-proto-vnc/src/connect.rs:60-64`: an unreadable store → `protocol_error` before any byte |
+| L-21 | fixed | `mooring-core/src/driver_task.rs:18` `next_driver_event`: a driver that ends without `Closed` → one `protocol_error`, not retried, payload-free `tracing::error!` |
+| L-22 | fixed | `src-tauri/src/commands/conn_options.rs:44-81`: field names only, SHA-256 per new `caPem` certificate, and `weakened` for `caPem`, `allowTlsWithoutNla`, `allowHttp`, `persistent`, **`allowNoAuth`** and `allow_plaintext`. An unchanged re-save writes nothing |
+| L-23 | fixed | `src-tauri/src/clipboard.rs:49` `clear_screenshot_unless_text`: no `get_image`, and `current_image` is gone from the trait |
+| L-24 | fixed (docs owed) | `src-tauri/src/lib.rs:206` `log_filter`: user directives for the three targets are dropped and `=info` is appended; the test covers `debug`, a targeted `trace` and a bogus spec. The user-guide note is still owed. Check also N-38 |
+| L-25 | fixed | `clipboard.rs:119-140`: remote writes are refused while locked, with one `session_clipboard_blocked` per locked period. `:148-165`: no offer while locked; `session_clipboard_offer { bytes }`; `credential_sent_to_remote` when the offer matches the `credential_copy_*` digest. Offers are triggered only by the UI's `ClipboardOffer`, not by the server, so a hostile server cannot flood the audit log this way |
+| L-26 | fixed | `commands/session_graphics.rs:74`, `:97`: `vault.locked` first; `:100` `session_view_only` audited |
+| L-27 | fixed | `mooring-proto-vnc/src/security.rs:145-148`: a password credential with a None-only offer → `unsupported_security`, unless `allowNoAuth` (default false, audited as weakening, and `session_weak_security none_with_password` per connect) |
+| L-28 | **partial** | New targets `rfb_handshake`, `vencrypt_negotiation` and `rdp_reassembly` with seeds; `fuzz-nightly.yml:77` sets `-malloc_limit_mb=1024` for `rdp_/rfb_/vnc_/vencrypt_`. Still owed (QA): `cut_text`, `framebuffer_ops`, `rdp_reactivation`, the pinned upstream IronRDP targets, and one green nightly run. **Before the A2 tag** |
+| N-23 | fixed | Both loopback tests assert a signature failure |
+| N-24 | fixed | The RDP verifier adds `NameMismatch` next to webpki's first error |
+| N-25 | fixed | Pin + `BadSignature` → `trust_mismatch`, `presented = signature` |
+| **N-26** | **fixed (R5)** | `src-tauri/src/guard/mod.rs:56` `check`, `:77` `with_guard` wrapping `generate_handler!` (`lib.rs`). `web-*`/unknown labels → `ipc.forbidden` for every command; `detached-<id>` → the six `Scope::Session` rows with `sessionId == <id>` only. `guard/tests.rs` covers the matrix, and the table is checked equal to `generate_handler!` |
+| N-27 | accepted | Unchanged (A3: a Rust-opened confirmation) |
+| N-28 | partial | (a) fixed (cap re-checked under the registry lock); (b) documented; (c) **open**: `apps/desktop/src/lib/ipc.ts:10-11` still imports `MockTransport` and now `detachedDemoTransport` statically into the production bundle |
+| N-29 | fixed | `des/zeroize`, `Zeroizing<[u8; 16]>` response, `x509-parser` `default-features = false` |
+
+### R5 — rulings
+1. **Capabilities and `AppManifest` (ADR-0003 review): approved.**
+   - `build.rs` builds the manifest from `src/guard/table.rs` through `include!`, so the
+     Rust guard and the Tauri ACL read one table.
+   - `capabilities/main.json`: `core:default` plus `mooring-main` (`permissions/mooring-main.toml`,
+     checked equal to the table).
+   - `detached.json`: the six permissions and no `core:` permission. Channel delivery still
+     works there, because `plugin:__TAURI_CHANNEL__|fetch` is the only command exempt from the
+     ACL (`webview/mod.rs:2082`) and its queue is per webview.
+   - `web.json`: `[]`, with no `remote`, `webviews`, `local` or `platforms` key (tested).
+   - `tauri-plugin-dialog` commands stay ACL-denied, because no `dialog:` permission exists
+     anywhere (tested).
+2. **`with_guard` and activity accounting: holds.**
+   - The guard runs first. A refused call is rejected **before** `autolock::on_invoke`
+     (`guard/mod.rs:80-88`), so a web page spamming `invoke` cannot keep the vault open.
+   - `PASSIVE_COMMANDS` is intact (`autolock.rs:49-61`, plus `web_list`) and equals
+     `ipc-passive.json`.
+   - `session_send` from a detached window is activity, as it should be.
+   - `sessionId` is read from the same JSON `Value` that the command deserialises. A `Raw`
+     body yields `None` and fails closed.
+3. **Detached window: approved.** Its six commands are `session_attach`, `session_send`,
+   `session_close`, `session_frame_ack`, `session_screenshot` and `window_attach`, for its own
+   session only.
+   - The label suffix is the exact session-map key, and `find` checks that it is a UUID, so
+     the route `index.html#/detached/<id>` cannot be injected.
+   - The window has the same CSP, the `is_app_url` navigation guard, new windows denied and
+     `devtools(false)` (`navigation.rs:69-92`).
+   - It loads the bundled UI, so it is the **same trust level as `main`**. The narrow ACL is
+     defence in depth: it may answer its own session's prompts through `session_send`, as
+     `main` may.
+   - `session_set_view_only` stays main-only.
+4. **Navigation guard: approved** (`web/policy.rs:46-99`). The WHATWG tuple origin is checked
+   for an exact match: lowercase, punycode, default port dropped, other ports distinct. Always
+   refused:
+   - the app origin (`tauri://localhost`, `http(s)://tauri.localhost`, the dev URL);
+   - every non-http(s) scheme, including `about:` and `blob:`;
+   - userinfo, even towards an allowed origin.
+
+   The tests cover look-alikes, a trailing dot, `@` tricks and Cyrillic/Greek IDN. The start
+   URL goes through the same `decide`, and the blocked origin never carries a path. Server
+   redirects reach `on_navigation` on all three engines. Subframes are the page's business
+   (ADR), and an app-origin iframe gains nothing (see the verdict). See N-31 for `*.localhost`.
+5. **Downloads, new windows, permissions: approved as built, runtime-unverified per OS**
+   (`web/window.rs:122-143`).
+   - Download: `false` plus an audit entry.
+   - New window: `Deny`, and an allowed URL is loaded in the same window.
+   - Permission requests: `Deny`. On macOS, WKWebView exposes only media capture; geolocation
+     and notifications need entitlements the app does not have.
+   - QA E2E (ADR test plan) is the evidence and is still owed.
+   - Page-initiated native UI is a separate gap: L-31.
+6. **`INIT_SCRIPT`: keep** (`web/window.rs:24-34`). It is a constant with no interpolation, no
+   IPC, no secret and no listener that reports back. It is explicitly **not** a boundary
+   (R-WEB-UPLOAD). See N-32 for two cheap additions.
+7. **Persistent storage path: injection-safe.**
+   - `web::plan` (`web/mod.rs:181`) parses `connectionId` to a `ConnectionId` and uses the
+     **canonical** UUID string. `remove_store_dir` (`:265`) re-canonicalises.
+   - `store_dir` (`:175`) is therefore always `$APP_DATA/web/<uuid>`, created 0700
+     (`commands/web.rs:164`).
+   - The macOS identifier is the UUID bytes.
+   - macOS 11–13 falls back to ephemeral. `persistent: false` is then audited and listed.
+8. **Hide on lock: approved** (`window_lock.rs:47-60`, `commands/vault.rs` `lock`/`unlock`
+   notify). Every lock path goes through `vault::lock`, and a failed unlock shows nothing
+   (tested). `web_focus`, `web_print`, `web_open` and `window_detach` refuse while locked.
+   `web_reload`, `web_zoom` and `web_close` are harmless while locked: they never show the
+   window. Race: N-30.
+9. **`connection_delete` wipes the data: partial.**
+   - The directory is removed (`commands/tree.rs:208`) and the window closed (`:395`).
+   - But the directory goes **before** the window is destroyed (WebView2 holds its profile
+     open, so on Windows the removal fails and is only logged).
+   - `folder_delete` cascades connections in SQL (`0001_init.sql:39`) and wipes nothing.
+   - See L-30.
+10. **Web and detached windows count as focus for auto-lock: approved.**
+    - Moving between Mooring windows is blur then focus inside the grace.
+    - A page cannot raise a hidden window, and a hidden window cannot take focus.
+    - The idle timer still runs, because web windows send no IPC. So working only in a web
+      console locks the vault after the idle timeout and hides the window, which is the
+      fail-safe direction.
+11. **`web_focus` / `web_print` while locked: refused (correct).** `web_clear_data` clears an
+    open window's data before it checks the lock (N-37).
+12. **Web storage isolation per OS:** macOS (`nonPersistentDataStore()` per webview) and Linux
+    (`WebContext::new_ephemeral()` per webview) isolate ephemeral windows. **Windows does not**
+    (L-29).
+
+### U2 / U3 — rulings
+13. **Local HMAC of hosts in the UI (ADR-0011 "hosts stored hashed"): acceptable, but now
+    redundant.**
+    - The UI hashes only hosts it already holds, with salts from the pin file, and nothing new
+      leaves the WebView. An unmatched pin stays anonymous.
+    - Fix round 6 returns `host`/`port` from Rust (`commands/known_certs.rs:28-48`,
+      `known_certs/named.rs:10`). `entries()` and `list()` iterate in the same order, so the
+      `zip` is aligned and markers are excluded.
+    - The UI path is **not dead code**: `ipc.decode.session.ts:149` drops `host`/`port`, and
+      `useKnownCerts.ts:37-41` still runs `hostHash.ts`. N-33.
+14. **Detached route isolation: approved.**
+    - `lib/route.ts`: the hash is read once at boot (`bootRoute`). `Root.tsx` mounts
+      `DetachedApp`, so the main boot (`vault_status`, `listen`) never runs there.
+    - The command set ⊆ manifest test exists (`DetachedApp.test.tsx`), but it
+      **skips** when `ipc-manifest.json` is not found (N-36).
+    - The UI is not the control: Rust and the ACL are.
+15. **`attached` / `detached` decoding: approved** (strict kinds; anything else → `closed`).
+16. **Web tab `web_open` after unlock: approved.** `web_open` needs an unlocked vault and moves
+    events to the new channel. Unlock shows the windows anyway.
+17. **`once`: approved** (`graphical_task.rs:146-155`, `:200-202`).
+    - The answer is trimmed and lowercased. `yes` pins, `once` gives `trusted_once` without a
+      pin and audits `cert_decision trusted_once` once, and anything else rejects.
+    - A prompt exists only for an unknown certificate, so `once` can never override a
+      mismatch. VNC adds the once-fingerprint in memory only when no pin exists
+      (`connect.rs:66-70`).
+    - The U2 UI still sends only `yes`/`no`.
+18. **`allowNoAuth`: approved in Rust** (default false, weakening audit, per-connect audit).
+    The UI does not know the field (N-34).
+
+### IPC codes, golden files, dependencies
+- **Error codes.** `ipc-codes.json` gains `web.origin_refused`, `web.clear_failed`,
+  `web.store_failed` and `window.failed`, and drops `ipc.unknown`. `ipc.unknown` is a UI-only
+  transport fallback (`apps/desktop/src/lib/ipc.ts:72`); no Rust command emits it.
+- **`ipc-manifest.json`.** The golden test (`guard/tests.rs`) checks it, and `MOORING_BLESS`
+  rewrites it, as for `ipc-codes.json` and `ipc-passive.json`.
+- **`miniz_oxide` 0.9.1 (direct, VNC): approved.** It is already in the tree through flate2,
+  `#![forbid(unsafe_code)]` (`lib.rs:25`), MIT OR Zlib OR Apache-2.0, and uses only
+  `with-alloc`.
+- **`flate2` is now a VNC dev-dependency**, for test vectors only: approved.
+- **No other new crate.**
+- **Tauri pin: L-32.**
+
+### New findings
+Numbering continues from review 5 (last used: B-5, M-15, L-28, N-29).
+
+| ID | Sev | Where | Finding | Exact fix |
+| --- | --- | --- | --- | --- |
+| L-29 | Low | `src-tauri/src/web/window.rs:103` (`incognito(true)`); `wry` 0.57.1 `webview2/mod.rs:423` (`SetIsInPrivateModeEnabled` on the shared default environment, no profile name) | On **Windows**, every ephemeral web window is an InPrivate controller in the main window's WebView2 environment. WebView2 keeps one InPrivate session per environment and profile, so concurrently open ephemeral connections **share one cookie jar and cache**. Two connections to the same console with different accounts log each other in or out. A hostile page gets ambient cookies for any other open ephemeral console in cross-site requests (SameSite permitting). This contradicts ADR-0013 "cannot read other connections' cookies". macOS and Linux create a fresh non-persistent store per webview and are fine | **rust-core.** On Windows, ephemeral → `incognito(true)` **plus** `data_directory(<app cache>/web-ephemeral/<connectionId>)`, so each connection gets its own environment, removed on `Destroyed` and swept at start. Test: the Windows plan gives a per-connection directory for ephemeral. **QA:** an E2E on Windows (two ephemeral connections to one `127.0.0.1` test page: a cookie set in one is absent in the other) |
+| L-30 | Low | `src-tauri/src/commands/tree.rs:162-165` (`delete_folder`), `:204-211`, `:395`; `crates/mooring-store/migrations/0001_init.sql:39` (`ON DELETE CASCADE`) | `folder_delete` deletes every connection below it in SQL, but leaves their persistent web stores (plaintext cookies, R-WEB-COOKIE) on disk. Their open windows also stay open with registry entries for deleted connections. `connection_delete` removes the directory **before** it destroys the window, so on Windows the locked profile survives (only logged). ADR-0013: "the store is wiped … by `connection_delete`" | **rust-core.** 1. `delete_folder` collects the descendant web connection ids first (one query), then closes their windows and removes their stores, as `connection_delete` does. 2. In `connection_delete`, destroy the window first, then remove the directory. 3. At start (after unlock), sweep `$APP_DATA/web/*`: remove any directory that is not a canonical UUID of an existing web connection with `persistent: true`. On macOS, the same for known identifiers where `WKWebsiteDataStore.remove(forIdentifier:)` becomes reachable. Tests: folder delete → store gone and the window closed; an orphan directory is swept |
+| L-31 | Low | `src-tauri/src/web/window.rs` (no handler for script dialogs, HTTP auth or `window.print`); `window_lock.rs:47-60` | A page can raise **native** UI without any IPC: `alert`/`confirm`/`prompt`, `beforeunload`, HTTP Basic/NTLM auth dialogs (WebView2), `window.print()` (WebView2 print preview, the GTK print dialog). Whether these appear while the window is **hidden for a lock** is not verified on any OS. A `prompt()` or auth dialog over the desktop is also a credential-phishing surface: it does not show the origin as clearly as the native title does | **QA first:** E2E per OS with the vault locked and the test page calling each API on a timer; the result goes in the threat model. **rust-core:** where an engine shows them while hidden, stop the page on lock (for example destroy the web windows on lock and let `adoptWeb` reopen them after unlock, which an ephemeral store makes a re-login), and report upstream. **architect:** ADR-0013 lists these under "it can" |
+| L-32 | Low | `src-tauri/Cargo.toml:23` (`tauri = "2"`), ADR-0013 §Capabilities ("Pin `tauri = "=2.12.5"`, or ≥ it with a test") | The ACL boundary depends on 2.12.5 behaviour (remote and app-manifest ACL in `on_message`, the `fetch` exemption, the per-webview channel queue). Only `Cargo.lock` pins it. A `cargo update` can move to a later 2.x with different semantics, and no test notices | **orchestrator.** `tauri = "=2.12.5"` (and `tauri-build`, `tauri-runtime-wry` through it), or a test that reads `Cargo.lock` and fails on any other version until this review is repeated. Same for `wry` (storage semantics, L-29) |
+| N-30 | Nit | `src-tauri/src/commands/web.rs:148-185`, `commands/detach.rs:128-150` | `web_open` and `window_detach` are `async`. A lock that lands between the unlocked check and `build()` leaves a new window visible over the lock screen | After `build()`, `if !ready.unlocked() { window.hide() }`, or take the lock observer's mutex across the build |
+| N-31 | Nit | `src-tauri/src/navigation.rs:17-25` (`is_app_url`) | On Windows, every Tauri custom protocol is served at `http(s)://<scheme>.localhost` (`ipc.localhost` is in the CSP). The guard refuses only `tauri.localhost`, so a user-listed `https://ipc.localhost` origin would be loaded. It is harmless today (empty capability, label guard), but it is app surface | Refuse every host equal to or ending in `.localhost` (RFC 6761) in `NavPolicy::decide` and in options validation. Plain `localhost` stays allowed |
+| N-32 | Nit | `src-tauri/src/web/window.rs:24-34` | `INIT_SCRIPT` misses `HTMLInputElement.prototype.showPicker()` on file inputs and file drops onto inputs. It runs in the top frame only (`initialization_script`), so iframes are not covered | Override `showPicker` for `type=file`, cancel `drop` on file inputs, and use `initialization_script_for_all_frames`. It stays best effort |
+| N-33 | Nit | `apps/desktop/src/lib/ipc.decode.session.ts:149`; `components/settings/useKnownCerts.ts:3`, `:37-41`; `lib/hostHash.ts` | The Rust `host`/`port` of `known_certs_list` is decoded away, and the UI still recomputes salted HMACs | **ui-engineer.** Decode `host?`/`port?`, label from them, and keep `hostHash.ts` for the mock only (or delete it). One crypto path, in Rust |
+| N-34 | Nit | `apps/desktop/src/lib/validate.options.ts:173`, `:203-210` | The UI mirror has no `allowNoAuth`. `normalizeOptions` drops it, so any UI save resets it to false (fail-safe, and audited as a change). `unknownField` may flag it on load | **ui-engineer.** Add `allowNoAuth` with a warning, like the plaintext warning ("a server that offers no authentication is accepted although a password is set") |
+| N-35 | Nit | `Cargo.toml:46` (`russh` feature `flate2`) | SSH compression is `none` only (`mooring-proto-ssh/src/algos.rs:68`), so russh's zlib path cannot be negotiated, yet the feature links it | **orchestrator.** Drop the `flate2` feature from `russh`. **rust-core:** a test that `algos::preferred().compression == [NONE]` |
+| N-36 | Nit | `apps/desktop/src/components/detached/DetachedApp.test.tsx:61` (`it.skipIf(RUST_DETACHED_COMMANDS === null)`) | The detached ⊆ manifest check silently skips when the manifest path does not resolve (for example a moved test or a sparse checkout in CI) | Fail when the file is absent; the file is committed |
+| N-37 | Nit | `src-tauri/src/commands/web.rs:259-275` | `web_clear_data` runs `clear_all_browsing_data` before `clear_data`'s lock and web-connection checks | Run the `with_ready` / protocol check first |
+| N-38 | Nit | `src-tauri/src/lib.rs:206-221` (`log_filter`) | Only directives that start with a protected target are dropped. Span-scoped dynamic directives (`[span]=trace`, `[{field}]=debug`) enable events of **every** target inside matching spans. If IronRDP or sspi emits the `TsRequest` lines inside such a span, the `=info` tail may not hold | Drop any user directive that contains `[`, or verify with a test that `[connect]=trace` (and the real IronRDP span names) leaves `ironrdp_connector::credssp` at info |
+
+### Conditions
+1. **Before the A2 tag:** L-28 remainder and one green nightly run; L-29, L-30, L-32; QA E2E
+   for the ADR-0013 test plan, with the L-31 checks on macOS, Windows and Linux; the L-24
+   user-guide note.
+2. Nits as scheduled; N-28 (c) and N-33/N-34 with the next UI round.
+3. Unchanged: `security.yml` green (cargo-deny, cargo-audit, gitleaks, semgrep, pnpm audit),
+   and `mooring-app` built and tested on macOS and Windows.
+
+### Test evidence (re-review)
+```
+Linux x86_64, 2026-11-04, CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/claude/nexus/target, HEAD fbc6463
+cargo test -p mooring-app                                    EXIT 0
+  lib 201 passed, 1 ignored (frame_bench); main 0; e2e_flow 15 passed
+cargo tree -p mooring-app -e features -i libz-sys | grep -c mooring-proto-vnc        0
+cargo tree -p mooring-proto-vnc -e normal,features -i libz-sys                        (nothing)
+cargo tree -p mooring-app -i libz-sys     <- flate2 <- winscard <- sspi (R-RDP-FFI) ; flate2 also <- russh (not negotiated)
+cargo tree -p mooring-app -e normal -i miniz_oxide@0.9.1    ... <- mooring-proto-vnc (direct)
+Cargo.lock                                tauri 2.12.5, wry 0.57.1, tauri-runtime-wry 2.12.3
+grep mark_tls / add_and_save in crates/mooring-proto-{rdp,vnc}/src (non-test)          none (Gate only)
+```
+Not run: `cargo deny` and `cargo audit` (not re-run on this range; no new crate except the
+already-present `miniz_oxide`), vitest/pnpm, cargo-fuzz, the QA E2E of ADR-0013, and the
+macOS and Windows builds.
