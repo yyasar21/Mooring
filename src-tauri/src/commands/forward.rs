@@ -98,9 +98,9 @@ pub(crate) fn control_of(state: &AppState, session_id: &str) -> IpcResult<(SshCo
         return Err(IpcError::invalid("sessionId", "not a session id"));
     }
     let map = state.sessions.lock().map_err(|_| IpcError::poisoned())?;
-    map.get(session_id)
-        .map(|h| (h.control.clone(), h.connection_id.clone()))
-        .ok_or_else(|| IpcError::new("session.not_found", "session not found"))
+    let h = map.get(session_id).ok_or_else(|| IpcError::new("session.not_found", "session not found"))?;
+    let control = h.ssh().ok_or_else(|| IpcError::invalid("sessionId", "not an SSH session"))?;
+    Ok((control.clone(), h.connection_id.clone()))
 }
 
 /// Errors shared by the forward and SFTP commands.
@@ -254,7 +254,10 @@ pub fn list(state: &AppState, session_id: &str) -> IpcResult<Vec<ForwardDto>> {
 /// many were closed.
 pub fn close_external(state: &AppState) -> usize {
     let live: Vec<(SshControl, String)> = match state.sessions.lock() {
-        Ok(map) => map.values().map(|h| (h.control.clone(), h.connection_id.clone())).collect(),
+        Ok(map) => map
+            .values()
+            .filter_map(|h| h.ssh().map(|c| (c.clone(), h.connection_id.clone())))
+            .collect(),
         Err(_) => return 0,
     };
     let mut closed = 0;

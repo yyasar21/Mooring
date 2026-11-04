@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use base64::Engine as _;
 use secrecy::SecretString;
 use tokio::sync::mpsc;
 
@@ -206,8 +207,8 @@ async fn open_validation_and_protocol_gate() {
     let (f, conn) = ssh_fixture(9, "rdp");
     let (s, _rx) = sink();
     let e = open(&f.state, &conn, SIZE, s.clone()).await.expect_err("rdp");
-    assert_eq!(e.code, "session.failed");
-    assert!(e.message.contains("not available in this version"), "{}", e.message);
+    assert_eq!(e.code, "input.invalid", "rdp needs onFrame");
+    assert!(e.message.contains("onFrame"), "{}", e.message);
     let e = open(&f.state, "nope", SIZE, s.clone()).await.expect_err("id");
     assert_eq!(e.code, "input.invalid");
     let e =
@@ -279,6 +280,6 @@ fn sink_type_is_shareable() {
         *s2.lock().expect("lock") += 1;
         true
     });
-    assert!(sink(WireEvent::Closed { reason: "x".into() }));
+    assert!(sink(WireEvent::Closed { reason: "x".into(), code: mooring_core::CloseCode::User }));
     assert_eq!(*seen.lock().expect("lock"), 1);
 }

@@ -18,6 +18,7 @@ use mooring_vault::{Header, KdfParams, Uuid, Vault, VaultError, VaultState};
 use crate::clipboard::{self, Clipboard, SystemClipboard, ValueDigest};
 use crate::error::{IpcError, IpcResult};
 use crate::picks::Picks;
+use crate::session_factory::{BuiltinFactory, SessionFactory};
 use crate::sessions::SessionHandle;
 
 /// How the vault's KDF cost is chosen at creation and password change (ADR-0006).
@@ -57,6 +58,11 @@ pub struct Settings {
     pub clipboard: Arc<dyn Clipboard>,
     /// How long a copied password stays on the clipboard.
     pub clipboard_clear_after: Duration,
+    /// RDP / VNC constructors (ADR-0011): the merge of R3/R4 swaps the stubs in
+    /// [`crate::session_factory::BuiltinFactory`]; tests inject fakes.
+    pub graphical: Arc<dyn SessionFactory>,
+    /// Unit of the reconnect backoff (1 s in production: 1, 2, 4, 8, 16, 30 units).
+    pub reconnect_unit: Duration,
 }
 
 impl std::fmt::Debug for Settings {
@@ -65,6 +71,7 @@ impl std::fmt::Debug for Settings {
             .field("kdf", &self.kdf)
             .field("ssh_allow_agent", &self.ssh_allow_agent)
             .field("clipboard_clear_after", &self.clipboard_clear_after)
+            .field("reconnect_unit", &self.reconnect_unit)
             .finish_non_exhaustive()
     }
 }
@@ -77,6 +84,8 @@ impl Settings {
             ssh_allow_agent: true,
             clipboard: Arc::new(SystemClipboard::default()),
             clipboard_clear_after: Duration::from_secs(30),
+            graphical: Arc::new(BuiltinFactory),
+            reconnect_unit: Duration::from_secs(1),
         }
     }
 }
@@ -92,15 +101,45 @@ pub struct StoreSlot {
 /// Live sessions by id.
 pub type SessionRegistry = Arc<Mutex<HashMap<String, SessionHandle>>>;
 
+/// The vault and the store as a cheap, `'static` handle, so a session task can resolve the
+/// credential again on every reconnect attempt (ADR-0011) without borrowing [`AppState`].
+#[derive(Debug, Clone)]
+pub struct Ready {
+    vault: Arc<Mutex<Option<Vault>>>,
+    store: Arc<Mutex<StoreSlot>>,
+}
+
+impl Ready {
+    /// Run `f` with an unlocked vault and the store bound to that vault. Binding happens on
+    /// first use after unlock: a v1 header reports a nil id until its first password unlock
+    /// upgrades it, so binding earlier would pin the store to nil (A1-QA-2).
+    pub fn with_ready<T>(&self, f: impl FnOnce(&Vault, &Store) -> IpcResult<T>) -> IpcResult<T> {
+        let vault = self.vault.lock().map_err(|_| IpcError::poisoned())?;
+        let vault = vault.as_ref().ok_or_else(|| IpcError::new("vault.missing", "no vault yet"))?;
+        if vault.state() != VaultState::Unlocked {
+            return Err(IpcError::locked());
+        }
+        let mut slot = self.store.lock().map_err(|_| IpcError::poisoned())?;
+        let id = vault.vault_id();
+        let slot = &mut *slot;
+        let store = slot.store.as_ref().ok_or_else(closed_store)?;
+        if slot.bound_to != Some(id) {
+            store.set_vault_id(&id.to_string())?;
+            slot.bound_to = Some(id);
+        }
+        f(vault, store)
+    }
+}
+
 /// Shared application state managed by Tauri.
 #[derive(Debug)]
 pub struct AppState {
     /// `$APP_DATA`: vault header, audit log, `mooring.db`, `known_hosts`.
     pub data_dir: PathBuf,
     /// `None` until a vault is created or its header loaded.
-    pub vault: Mutex<Option<Vault>>,
+    pub vault: Arc<Mutex<Option<Vault>>>,
     /// Connection tree and sealed credentials (ADR-0005).
-    pub store: Mutex<StoreSlot>,
+    pub store: Arc<Mutex<StoreSlot>>,
     /// Hash-chained audit log; shared with session tasks.
     pub audit: Arc<Mutex<AuditLog>>,
     /// Live sessions; shared with session tasks (they remove themselves).
@@ -114,6 +153,9 @@ pub struct AppState {
     /// Local paths chosen in the Rust-side file dialog, by `pickId` (review 4, B-4). Cleared
     /// by `vault_lock`.
     pub picks: Picks,
+    /// Digest of the text a remote session last wrote to the OS clipboard (ADR-0011
+    /// clipboard): cleared on vault lock and on exit when still unchanged.
+    pub remote_clipboard: Arc<Mutex<Option<ValueDigest>>>,
 }
 
 /// Errors while loading state at startup.
@@ -164,13 +206,14 @@ impl AppState {
         }
         Ok(Self {
             data_dir,
-            vault: Mutex::new(vault),
-            store: Mutex::new(StoreSlot { store: Some(store), bound_to: None }),
+            vault: Arc::new(Mutex::new(vault)),
+            store: Arc::new(Mutex::new(StoreSlot { store: Some(store), bound_to: None })),
             audit: Arc::new(Mutex::new(audit)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             settings,
             pending_clipboard: Arc::new(Mutex::new(None)),
             picks: Picks::default(),
+            remote_clipboard: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -186,22 +229,14 @@ impl AppState {
 
     /// Run `f` with an unlocked vault and the store bound to that vault. Binding happens on
     /// first use after unlock: a v1 header reports a nil id until its first password unlock
-    /// upgrades it, so binding earlier would pin the store to nil (A1-QA-2).
+    /// upgrades it, so binding earlier would pin the store to nil (A1-QA-2). See [`Ready`].
     pub fn with_ready<T>(&self, f: impl FnOnce(&Vault, &Store) -> IpcResult<T>) -> IpcResult<T> {
-        let vault = self.vault()?;
-        let vault = vault.as_ref().ok_or_else(|| IpcError::new("vault.missing", "no vault yet"))?;
-        if vault.state() != VaultState::Unlocked {
-            return Err(IpcError::locked());
-        }
-        let mut slot = self.store.lock().map_err(|_| IpcError::poisoned())?;
-        let id = vault.vault_id();
-        let slot = &mut *slot;
-        let store = slot.store.as_ref().ok_or_else(closed_store)?;
-        if slot.bound_to != Some(id) {
-            store.set_vault_id(&id.to_string())?;
-            slot.bound_to = Some(id);
-        }
-        f(vault, store)
+        self.ready().with_ready(f)
+    }
+
+    /// A `'static` handle on the vault and the store (session tasks).
+    pub fn ready(&self) -> Ready {
+        Ready { vault: Arc::clone(&self.vault), store: Arc::clone(&self.store) }
     }
 
     /// Persist the current vault header (contains no secret material).
@@ -248,6 +283,13 @@ impl AppState {
     /// Synchronously clear a copied password that is still pending, if the clipboard still
     /// holds it (a value the user copied since is left alone). Returns whether it cleared.
     pub fn clear_pending_clipboard(&self) -> bool {
+        let remote = self.remote_clipboard.lock().ok().and_then(|mut p| p.take());
+        if let Some(expected) = remote {
+            // ADR-0011: remote-originated text does not outlive a lock or the process.
+            if clipboard::clear_if_unchanged(&*self.settings.clipboard, &expected) == Ok(true) {
+                tracing::info!("remote clipboard text cleared");
+            }
+        }
         let pending = self.pending_clipboard.lock().ok().and_then(|mut p| p.take());
         let Some(expected) = pending else {
             return false;
@@ -347,6 +389,8 @@ pub mod testing {
             ssh_allow_agent: false,
             clipboard,
             clipboard_clear_after: Duration::from_millis(200),
+            graphical: Arc::new(crate::session_factory::BuiltinFactory),
+            reconnect_unit: Duration::from_millis(1),
         }
     }
 
@@ -379,70 +423,5 @@ pub mod testing {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::testing::*;
-    use super::*;
-
-    #[test]
-    fn new_state_creates_root_and_private_db() {
-        let f = empty();
-        let slot = f.state.store.lock().expect("lock");
-        let root = slot.store.as_ref().expect("store").root_folder().expect("q").expect("root");
-        assert_eq!(root.name, ROOT_FOLDER_NAME);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(f.dir.path().join(AppState::DB_FILE))
-                .expect("db")
-                .permissions()
-                .mode();
-            assert_eq!(mode & 0o777, 0o600);
-        }
-    }
-
-    #[test]
-    fn header_write_is_private_keeps_backup_and_backup_can_be_dropped() {
-        let f = unlocked();
-        let header = f.dir.path().join(AppState::HEADER_FILE);
-        let bak = f.dir.path().join(AppState::HEADER_BACKUP);
-        assert!(header.exists());
-        assert!(!bak.exists(), "first write has nothing to back up");
-        let before = std::fs::read(&header).expect("read");
-        {
-            let vault = f.state.vault().expect("vault");
-            f.state.save_header(vault.as_ref().expect("v")).expect("second write");
-        }
-        assert_eq!(std::fs::read(&bak).expect("backup"), before);
-        assert!(!f.dir.path().join("vault.header.json.tmp").exists(), "temp renamed away");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&header).expect("meta").permissions().mode();
-            assert_eq!(mode & 0o777, 0o600);
-        }
-        f.state.drop_header_backup();
-        assert!(!bak.exists());
-    }
-
-    #[test]
-    fn with_ready_requires_unlock_and_binds_vault_id() {
-        let f = empty();
-        assert_eq!(f.state.with_ready(|_, _| Ok(())).expect_err("missing").code, "vault.missing");
-        crate::commands::vault::create(&f.state, secrecy::SecretString::from(MASTER.to_owned()))
-            .expect("create");
-        let id = f.state.vault().expect("v").as_ref().expect("v").vault_id();
-        let bound = f.state.with_ready(|_, s| Ok(s.vault_id()?)).expect("ok");
-        assert_eq!(bound, Some(id.to_string()));
-        crate::commands::vault::lock(&f.state, None).expect("lock");
-        assert_eq!(f.state.with_ready(|_, _| Ok(())).expect_err("locked").code, "vault.locked");
-    }
-
-    #[test]
-    fn shutdown_closes_the_store() {
-        let f = unlocked();
-        f.state.shutdown();
-        assert!(f.state.store.lock().expect("lock").store.is_none());
-        let e = f.state.with_ready(|_, _| Ok(())).expect_err("closed");
-        assert_eq!(e.code, "store.io");
-    }
-}
+#[path = "state_tests.rs"]
+mod tests;

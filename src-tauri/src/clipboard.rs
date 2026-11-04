@@ -31,6 +31,63 @@ pub trait Clipboard: Send + Sync {
     fn current(&self) -> Result<Option<ValueDigest>, ClipboardError>;
     /// Empty the clipboard.
     fn clear(&self) -> Result<(), ClipboardError>;
+    /// Current text, for `ClipboardOffer` (ADR-0011: read in Rust, never sent over IPC).
+    fn text(&self) -> Result<Option<Zeroizing<String>>, ClipboardError> {
+        Err(ClipboardError)
+    }
+    /// Put an RGBA image on the clipboard (`session_screenshot`).
+    fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
+        let _ = (width, height, rgba);
+        Err(ClipboardError)
+    }
+}
+
+/// The clipboard a remote session writes to: every value it sets is remembered (by digest) in
+/// `last`, so a vault lock or exit can clear remote text that is still there (ADR-0011).
+#[derive(Clone)]
+pub struct RemoteClipboard {
+    inner: std::sync::Arc<dyn Clipboard>,
+    last: std::sync::Arc<Mutex<Option<ValueDigest>>>,
+}
+
+impl std::fmt::Debug for RemoteClipboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteClipboard").finish_non_exhaustive()
+    }
+}
+
+impl RemoteClipboard {
+    /// Wrap `inner`, recording remote writes in `last`.
+    pub fn new(
+        inner: std::sync::Arc<dyn Clipboard>,
+        last: std::sync::Arc<Mutex<Option<ValueDigest>>>,
+    ) -> Self {
+        Self { inner, last }
+    }
+}
+
+impl Clipboard for RemoteClipboard {
+    fn set(&self, text: &str) -> Result<(), ClipboardError> {
+        self.inner.set(text)?;
+        *self.last.lock().map_err(|_| ClipboardError)? = Some(digest(text));
+        Ok(())
+    }
+
+    fn current(&self) -> Result<Option<ValueDigest>, ClipboardError> {
+        self.inner.current()
+    }
+
+    fn clear(&self) -> Result<(), ClipboardError> {
+        self.inner.clear()
+    }
+
+    fn text(&self) -> Result<Option<Zeroizing<String>>, ClipboardError> {
+        self.inner.text()
+    }
+
+    fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
+        self.inner.set_image(width, height, rgba)
+    }
 }
 
 /// Clear the clipboard if it still holds the value with digest `expected`. Returns whether it
@@ -109,6 +166,18 @@ impl Clipboard for SystemClipboard {
     fn clear(&self) -> Result<(), ClipboardError> {
         self.with(|cb| cb.clear().map_err(|e| sys_err(&e)))
     }
+
+    fn text(&self) -> Result<Option<Zeroizing<String>>, ClipboardError> {
+        self.with(|cb| match cb.get_text() {
+            Ok(text) => Ok(Some(Zeroizing::new(text))),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(e) => Err(sys_err(&e)),
+        })
+    }
+
+    // `set_image` keeps the default (unavailable): arboard is built with
+    // `default-features = false`, and images need its `image-data` feature, which pulls the
+    // `image` crate (PNG encoding on Linux). Decision needed, see a2-rust-core-r2 handoff.
 }
 
 /// In-memory clipboard for tests.
@@ -116,6 +185,7 @@ impl Clipboard for SystemClipboard {
 #[derive(Debug, Default)]
 pub struct MemoryClipboard {
     value: Mutex<Option<Zeroizing<String>>>,
+    image: Mutex<Option<(u32, u32, ValueDigest)>>,
 }
 
 #[cfg(any(test, feature = "test-util"))]
@@ -123,6 +193,11 @@ impl MemoryClipboard {
     /// What is on the clipboard (tests only).
     pub fn peek(&self) -> Option<String> {
         self.value.lock().ok().and_then(|v| v.as_ref().map(|s| s.to_string()))
+    }
+
+    /// Size and SHA-256 of the image on the clipboard (tests only).
+    pub fn peek_image(&self) -> Option<(u32, u32, ValueDigest)> {
+        self.image.lock().ok().and_then(|v| *v)
     }
 }
 
@@ -139,6 +214,16 @@ impl Clipboard for MemoryClipboard {
 
     fn clear(&self) -> Result<(), ClipboardError> {
         *self.value.lock().map_err(|_| ClipboardError)? = None;
+        Ok(())
+    }
+
+    fn text(&self) -> Result<Option<Zeroizing<String>>, ClipboardError> {
+        Ok(self.value.lock().map_err(|_| ClipboardError)?.clone())
+    }
+
+    fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
+        let d: ValueDigest = Sha256::digest(rgba).into();
+        *self.image.lock().map_err(|_| ClipboardError)? = Some((width, height, d));
         Ok(())
     }
 }
@@ -159,5 +244,18 @@ mod tests {
         cb.set("something the user copied").expect("set");
         assert!(!clear_if_unchanged(&cb, &d).expect("ok"));
         assert_eq!(cb.peek().as_deref(), Some("something the user copied"));
+    }
+
+    #[test]
+    fn remote_writes_are_tracked_for_the_lock_clear() {
+        let inner = std::sync::Arc::new(MemoryClipboard::default());
+        let last = std::sync::Arc::new(Mutex::new(None));
+        let remote = RemoteClipboard::new(inner.clone(), std::sync::Arc::clone(&last));
+        remote.set("from the remote desktop").expect("set");
+        assert_eq!(*last.lock().expect("l"), Some(digest("from the remote desktop")));
+        assert_eq!(remote.text().expect("t").as_deref().map(String::as_str), Some("from the remote desktop"));
+        let d = last.lock().expect("l").expect("d");
+        assert!(clear_if_unchanged(&*inner, &d).expect("clear"));
+        assert!(SystemClipboard::default().set_image(1, 1, &[0; 4]).is_err(), "no image-data");
     }
 }

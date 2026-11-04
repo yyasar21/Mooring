@@ -173,7 +173,7 @@ async fn hostile_input_on_a_live_ssh_session() {
     // Graphical input on an SSH session, answers with no open prompt, garbage payloads.
     for input in [
         WireInput::Pointer { x: u32::MAX, y: u32::MAX, buttons: u8::MAX },
-        WireInput::Key { scancode: u32::MAX, pressed: true },
+        WireInput::Key { code: "KeyA".into(), key: "a".into(), pressed: true },
         WireInput::Answer { id: u32::MAX, text: SecretString::from("yes".to_owned()) },
         WireInput::Answer { id: 0, text: SecretString::from(format!("{MARK}\0")) },
         WireInput::Bytes { data: "not base64!".into() },

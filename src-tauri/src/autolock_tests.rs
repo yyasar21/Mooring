@@ -272,6 +272,11 @@ fn passive_commands_are_not_activity() {
     for cmd in ["vault_unlock", "session_send", "tree_list", "autolock_set", "syslog_set", ""] {
         assert!(is_activity(cmd), "{cmd}");
     }
+    assert!(!is_activity("session_frame_ack"), "one ack per frame (ADR-0011, U1 contract)");
+    for cmd in ["session_attach", "session_screenshot", "known_certs_remove", "connection_options_set"]
+    {
+        assert!(is_activity(cmd), "{cmd}");
+    }
     for cmd in ["forward_open", "forward_close", "sftp_download", "sftp_pick_local"] {
         assert!(is_activity(cmd), "{cmd}");
     }

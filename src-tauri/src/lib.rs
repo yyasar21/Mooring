@@ -22,6 +22,8 @@ test_util_pub!(clipboard, commands, dto, error, sessions, state);
 test_util_pub!(picks);
 // ADR-0010: auto-lock wiring (clock, 5 s tick, focus, invoke hook).
 test_util_pub!(autolock);
+// ADR-0011 (A2 R2): generic session task, frame pump, reconnect, RDP/VNC factory hook.
+test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_factory, session_task);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -29,6 +31,9 @@ mod golden;
 #[allow(dead_code)]
 mod keyring_store;
 mod navigation;
+/// Scripted RDP/VNC session and factory for the graphical tests.
+#[cfg(test)]
+mod test_graphical;
 /// In-process russh server for the session tests (loopback only).
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_ssh_server;
@@ -39,6 +44,8 @@ use crate::commands::{audit, credential_copy, credentials, sessions as session_c
 // ADR-0010 §Port forwarding / §SFTP
 use crate::commands::{autolock as autolock_cmds, syslog as syslog_cmds};
 use crate::commands::{forward, sftp, sftp_pick, sftp_transfers};
+// ADR-0011 §IPC
+use crate::commands::{conn_options, known_certs, session_graphics};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -102,6 +109,15 @@ pub fn run() {
             session_cmds::session_close,
             session_cmds::session_list,
             session_cmds::window_detach,
+            // ADR-0011 §IPC (A2 R2)
+            session_graphics::session_frame_ack,
+            session_graphics::session_attach,
+            session_graphics::session_screenshot,
+            session_graphics::session_set_view_only,
+            known_certs::known_certs_list,
+            known_certs::known_certs_remove,
+            conn_options::connection_options_get,
+            conn_options::connection_options_set,
             audit::audit_tail,
             audit::audit_verify,
             // ADR-0010 §Port forwarding / §SFTP
