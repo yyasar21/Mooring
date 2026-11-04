@@ -226,6 +226,51 @@ fn graphical_session_events_have_stable_wire_names() {
     }
 }
 
+#[test]
+fn secret_events_have_stable_wire_names() {
+    let s = |v: &str| v.to_owned();
+    let cases = [
+        (AuditEvent::SecretLogin { source: s("s"), method: s("approle"), ttl: 60 }, "secret_login"),
+        (
+            AuditEvent::SecretResolved {
+                connection: Some(s("c")),
+                credential: s("r"),
+                source: s("s"),
+                reference: s("secret/servers/web"),
+                version: 2,
+                target_kind: s("user_password"),
+                fields: vec![s("password"), s("username")],
+            },
+            "secret_resolved",
+        ),
+        (
+            AuditEvent::SecretFailed { connection: None, source: s("s"), category: s("tls") },
+            "secret_failed",
+        ),
+        (AuditEvent::SecretRevoked { source: s("s") }, "secret_revoked"),
+        (
+            AuditEvent::SecretSourceChanged {
+                source: s("s"),
+                changed: vec![s("caPem")],
+                warning: true,
+            },
+            "secret_source_changed",
+        ),
+        (
+            AuditEvent::SecretRefused {
+                source: None,
+                action: s("oidc_navigation"),
+                detail: s("https://evil.example.test"),
+            },
+            "secret_refused",
+        ),
+    ];
+    for (e, name) in cases {
+        let v = serde_json::to_value(&e).expect("json");
+        assert_eq!(v["event"], name, "{v}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn file_is_private() {
