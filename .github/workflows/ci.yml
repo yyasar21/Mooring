@@ -48,11 +48,23 @@ jobs:
         run: |
           set -o pipefail
           cargo test --workspace --color never 2>&1 | tee test.log || {
-            { grep -E "^(test .* FAILED|---- .* stdout ----|error(\[E[0-9]+\])?:|thread '.*' panicked)" test.log | head -60 | sed 's/^/::error::/'; } || true
+            { grep -E "^(test .* FAILED|error(\[E[0-9]+\])?:)" test.log | head -40 | sed 's/^/::error::/'; } || true
+            # Each failing test's captured stdout (panic message, assertion, up to 25 lines).
+            { awk '/^---- .* stdout ----$/{n=25} n>0{print "::error::" $0; n--}' test.log | head -200; } || true
             tail -n 30 test.log | sed 's/^/::error::tail: /'
             exit 1
           }
-      - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
+      - run: pnpm lint && pnpm typecheck
+      - name: pnpm test
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test 2>&1 | tee vitest.log || {
+            { grep -E "^ (FAIL|×)|AssertionError|Error:|expected|received|Test Files|Tests " vitest.log | head -80 | sed 's/^/::error::/'; } || true
+            tail -n 30 vitest.log | sed 's/^/::error::tail: /'
+            exit 1
+          }
+      - run: pnpm build
       - name: invoke() only in lib/ipc.ts (ADR-0003)
         shell: bash
         run: '! grep -rn "invoke(" apps/desktop/src --include=*.ts --include=*.tsx | grep -v "src/lib/ipc.ts"'

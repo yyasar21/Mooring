@@ -22,6 +22,21 @@ async fn connect(srv: &rdp::RdpHandle, o: ClientOptions) -> Result<RdpClient, St
     within(RdpClient::connect(srv.addr(), o, srv.cert().public_key_raw().to_vec())).await
 }
 
+/// Polls `cond` while pumping the client: the server is still streaming the initial
+/// framebuffer, and on macOS (small socket buffers) it blocks on that write until the client
+/// reads, so a client that only waits deadlocks the server's input loop (CI, 2026-11-04).
+async fn eventually_pumping(c: &mut RdpClient, mut cond: impl FnMut() -> bool) {
+    within(async {
+        while !cond() {
+            // A closed socket (after a shutdown request) just keeps polling.
+            if c.pump(20).await.is_err() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }
+    })
+    .await;
+}
+
 async fn screen_matches(c: &mut RdpClient, srv: &rdp::RdpHandle) {
     let fb = srv.framebuffer().rgba;
     within(c.until(|c| rgb_eq(c.rgba(), &fb))).await.expect("framebuffer reached the client");
@@ -109,7 +124,7 @@ async fn fast_path_input_is_recorded() {
     ])
     .await
     .expect("input");
-    eventually(|| srv.stats().inputs.len() >= 4).await;
+    eventually_pumping(&mut c, || srv.stats().inputs.len() >= 4).await;
     let inputs = srv.stats().inputs;
     assert!(inputs.contains(&InputRecord::Key { code: 0x1E, extended: false, release: false }));
     assert!(inputs.contains(&InputRecord::Key { code: 0x48, extended: true, release: true }));
@@ -162,7 +177,7 @@ async fn graceful_shutdown_is_recorded() {
     let srv = rdp::start(RdpConfig::default(), 0).expect("start");
     let mut c = connect(&srv, ClientOptions::default()).await.expect("connect");
     c.shutdown().await.expect("send shutdown");
-    eventually(|| srv.stats().shutdown_requests == 1).await;
+    eventually_pumping(&mut c, || srv.stats().shutdown_requests == 1).await;
 }
 
 #[tokio::test]
