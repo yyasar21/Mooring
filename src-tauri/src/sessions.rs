@@ -77,6 +77,12 @@ pub enum WireEvent {
         /// Delay before the attempt, in milliseconds.
         delay_ms: u64,
     },
+    /// Another view took the session over (ADR-0013 `session_attach`); this view shows a
+    /// placeholder. Nothing else arrives on this channel until it attaches again.
+    Detached,
+    /// The detached view went away or `window_attach` ran: this (`main`) view has the session
+    /// again. It should call `session_attach` with fresh channels (a full frame follows).
+    Attached,
     /// Session ended (always last).
     Closed {
         /// Safe reason.
@@ -219,6 +225,8 @@ pub struct SessionHandle {
     pub protocol: Protocol,
     /// RFC 3339 open time.
     pub opened_at: String,
+    /// Which view gets events and frames (ADR-0013 detach).
+    pub route: Arc<crate::route::Route>,
     phase: PhaseCell,
     task: Option<tokio::task::AbortHandle>,
 }
@@ -262,8 +270,10 @@ pub struct TaskContext {
     pub session_id: String,
     /// For audit entries.
     pub connection_id: String,
-    /// UI channel.
+    /// UI channel ([`crate::route::Route::event_sink`] in the app).
     pub sink: EventSink,
+    /// The session's view routing.
+    pub route: Arc<crate::route::Route>,
     /// Audit log.
     pub audit: Arc<Mutex<AuditLog>>,
     /// Registry to remove ourselves from.
@@ -284,14 +294,14 @@ impl std::fmt::Debug for TaskContext {
 fn register<F>(
     ctx_registry: &SessionRegistry,
     id: String,
-    handle: (Control, String, Protocol, String),
+    handle: (Control, String, Protocol, String, Arc<crate::route::Route>),
     task: impl FnOnce(mpsc::Receiver<SessionCommand>, PhaseCell, Transfers) -> F,
 ) -> IpcResult<()>
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
     let (tx, rx) = mpsc::channel(COMMAND_CAPACITY);
-    let (control, connection_id, protocol, opened_at) = handle;
+    let (control, connection_id, protocol, opened_at, route) = handle;
     let phase = PhaseCell::default();
     let transfers = Transfers::default();
     let mut handle = SessionHandle {
@@ -301,6 +311,7 @@ where
         connection_id,
         protocol,
         opened_at,
+        route,
         phase: phase.clone(),
         task: None,
     };
@@ -315,7 +326,9 @@ where
 pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcResult<()> {
     let registry = Arc::clone(&ctx.registry);
     let id = ctx.session_id.clone();
-    let meta = (Control::Ssh(session.control()), ctx.connection_id.clone(), Protocol::Ssh, opened_at);
+    let route = Arc::clone(&ctx.route);
+    let meta =
+        (Control::Ssh(session.control()), ctx.connection_id.clone(), Protocol::Ssh, opened_at, route);
     register(&registry, id, meta, move |rx, phase, transfers| {
         crate::session_task::run_ssh(session, rx, ctx, phase, transfers)
     })
@@ -331,7 +344,7 @@ pub fn spawn_graphical(
     let registry = Arc::clone(&ctx.registry);
     let id = ctx.session_id.clone();
     let control = Control::Graphical(task.control());
-    let meta = (control, ctx.connection_id.clone(), task.protocol(), opened_at);
+    let meta = (control, ctx.connection_id.clone(), task.protocol(), opened_at, Arc::clone(&ctx.route));
     register(&registry, id, meta, move |rx, phase, _transfers| task.run(rx, ctx, phase))
 }
 

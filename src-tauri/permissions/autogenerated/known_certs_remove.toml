@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-known-certs-remove"
+description = "Enables the known_certs_remove command without any pre-configured scope."
+commands.allow = ["known_certs_remove"]
+
+[[permission]]
+identifier = "deny-known-certs-remove"
+description = "Denies the known_certs_remove command without any pre-configured scope."
+commands.deny = ["known_certs_remove"]

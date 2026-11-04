@@ -26,6 +26,24 @@ pub fn check_sorted_list(file: &str, items: &[&str]) {
     );
 }
 
+/// Assert that `file` (relative to `src-tauri/`) holds `value` as pretty JSON. With
+/// `MOORING_BLESS=1` the file is rewritten instead.
+pub fn check_json(file: &str, value: &impl serde::Serialize) {
+    let mut text = serde_json::to_string_pretty(value).expect("json");
+    text.push('\n');
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+    if std::env::var_os("MOORING_BLESS").is_some() {
+        std::fs::write(&path, &text).expect("write golden file");
+        return;
+    }
+    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        have.replace("\r\n", "\n"),
+        text,
+        "{file} is out of date; run `MOORING_BLESS=1 cargo test -p mooring-app golden`"
+    );
+}
+
 /// String literals in `src/` that look like `area.reason` but are not error codes.
 const NOT_CODES: &[&str] =
     &["app.autolock", "app.syslog", "audit.jsonl", "mooring.db", "tauri.localhost"];

@@ -1,0 +1,87 @@
+// ADR-0013 `AppManifest`: every app command and the windows that may call it. This file is
+// plain data shared with `build.rs` through `include!` (so no inner attributes or `//!` docs):
+// the build script turns the names into `allow-<command>` permissions, and `guard::check`
+// enforces the same scopes again in Rust at dispatch.
+
+/// Which windows may call a command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // build.rs only reads the names
+pub enum Scope {
+    /// Only the `main` window.
+    Main,
+    /// `main`, and `detached-<sessionId>` for its own `sessionId` only (ADR-0013 detach).
+    Session,
+}
+
+/// `(command, scope)` for every command in `generate_handler!`, in registration order.
+pub const COMMANDS: &[(&str, Scope)] = &[
+    ("app_info", Scope::Main),
+    ("vault_status", Scope::Main),
+    ("vault_create", Scope::Main),
+    ("vault_unlock", Scope::Main),
+    ("vault_lock", Scope::Main),
+    ("vault_change_password", Scope::Main),
+    ("tree_list", Scope::Main),
+    ("folder_create", Scope::Main),
+    ("folder_rename", Scope::Main),
+    ("folder_move", Scope::Main),
+    ("folder_set_default_credential", Scope::Main),
+    ("folder_delete", Scope::Main),
+    ("connection_create", Scope::Main),
+    ("connection_update", Scope::Main),
+    ("connection_move", Scope::Main),
+    ("connection_delete", Scope::Main),
+    ("connection_search", Scope::Main),
+    ("connection_set_role_credential", Scope::Main),
+    ("credential_kinds", Scope::Main),
+    ("credential_list", Scope::Main),
+    ("credential_create", Scope::Main),
+    ("credential_update_fields", Scope::Main),
+    ("credential_replace_secrets", Scope::Main),
+    ("credential_delete", Scope::Main),
+    ("credential_parse_account", Scope::Main),
+    ("credential_copy_secret", Scope::Main),
+    ("credential_copy_otp", Scope::Main),
+    ("session_open", Scope::Main),
+    ("session_send", Scope::Session),
+    ("session_close", Scope::Session),
+    ("session_list", Scope::Main),
+    ("window_detach", Scope::Main),
+    ("session_frame_ack", Scope::Session),
+    ("session_attach", Scope::Session),
+    ("session_screenshot", Scope::Session),
+    ("session_set_view_only", Scope::Main),
+    ("known_certs_list", Scope::Main),
+    ("known_certs_remove", Scope::Main),
+    ("connection_options_get", Scope::Main),
+    ("connection_options_set", Scope::Main),
+    ("audit_tail", Scope::Main),
+    ("audit_verify", Scope::Main),
+    ("forward_open", Scope::Main),
+    ("forward_close", Scope::Main),
+    ("forward_list", Scope::Main),
+    ("sftp_list", Scope::Main),
+    ("sftp_stat", Scope::Main),
+    ("sftp_mkdir", Scope::Main),
+    ("sftp_rename", Scope::Main),
+    ("sftp_remove", Scope::Main),
+    ("sftp_pick_local", Scope::Main),
+    ("sftp_download", Scope::Main),
+    ("sftp_upload", Scope::Main),
+    ("sftp_transfers", Scope::Main),
+    ("sftp_cancel", Scope::Main),
+    ("autolock_get", Scope::Main),
+    ("autolock_set", Scope::Main),
+    ("syslog_get", Scope::Main),
+    ("syslog_set", Scope::Main),
+    ("syslog_test", Scope::Main),
+    ("web_open", Scope::Main),
+    ("web_close", Scope::Main),
+    ("web_focus", Scope::Main),
+    ("web_reload", Scope::Main),
+    ("web_print", Scope::Main),
+    ("web_clear_data", Scope::Main),
+    ("web_zoom", Scope::Main),
+    ("web_list", Scope::Main),
+    ("window_attach", Scope::Session),
+];

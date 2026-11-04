@@ -198,6 +198,26 @@ fn graphical_session_events_have_stable_wire_names() {
             AuditEvent::SessionScreenshot { connection: s("c"), width: 2, height: 1 },
             "session_screenshot",
         ),
+        (
+            AuditEvent::WebOpened {
+                connection: s("c"),
+                origin: s("https://a.test"),
+                persistent: false,
+            },
+            "web_opened",
+        ),
+        (AuditEvent::WebClosed { connection: s("c") }, "web_closed"),
+        (
+            AuditEvent::WebNavigationBlocked { connection: s("c"), origin: s("https://b.test") },
+            "web_navigation_blocked",
+        ),
+        (
+            AuditEvent::WebDownloadBlocked { connection: s("c"), origin: s("https://a.test") },
+            "web_download_blocked",
+        ),
+        (AuditEvent::WebDataCleared { connection: s("c") }, "web_data_cleared"),
+        (AuditEvent::SessionDetached { connection: s("c"), session: s("s") }, "session_detached"),
+        (AuditEvent::SessionAttached { connection: s("c"), session: s("s") }, "session_attached"),
     ];
     for (e, name) in cases {
         let v = serde_json::to_value(&e).expect("json");

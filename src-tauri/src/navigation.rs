@@ -1,4 +1,4 @@
-//! Navigation guard for the main window (security review 2, M-4).
+//! Navigation guard for the main and detached windows (security review 2, M-4; ADR-0013).
 //!
 //! The main `WebView` holds the IPC bridge, so it may only ever show the app's own origin.
 //! Remote content (an OSC 8 link in terminal output, a stray `location.href`, `window.open`)
@@ -6,7 +6,7 @@
 //! labelled window with their own capability (ADR-0003).
 
 use tauri::webview::NewWindowResponse;
-use tauri::{App, Runtime, Url, WebviewWindowBuilder};
+use tauri::{App, AppHandle, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// Label of the main window in `tauri.conf.json`.
 pub const MAIN_WINDOW: &str = "main";
@@ -57,6 +57,38 @@ pub fn create_main_window<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         })
         .build()?;
     Ok(())
+}
+
+/// The bundled-UI route of a detached session window (ADR-0013): `#/detached/<sessionId>`.
+pub fn detached_route(session_id: &str) -> String {
+    format!("index.html#/detached/{session_id}")
+}
+
+/// Build `detached-<sessionId>` on the bundled UI with the same guard as `main` (app origin
+/// only, no new windows), the same CSP (it applies to every app page) and no devtools.
+pub fn create_detached_window<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    session_id: &str,
+) -> tauri::Result<WebviewWindow<R>> {
+    let dev_url = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App(detached_route(session_id).into()))
+        .title("Mooring \u{b7} session")
+        .inner_size(1100.0, 720.0)
+        .min_inner_size(480.0, 320.0)
+        .devtools(false)
+        .on_navigation(move |url| {
+            let allowed = is_app_url(url, dev_url.as_ref());
+            if !allowed {
+                tracing::warn!(scheme = url.scheme(), "detached window navigation blocked");
+            }
+            allowed
+        })
+        .on_new_window(|url, _| {
+            tracing::warn!(scheme = url.scheme(), "detached window new-window request denied");
+            NewWindowResponse::Deny
+        })
+        .build()
 }
 
 #[cfg(test)]

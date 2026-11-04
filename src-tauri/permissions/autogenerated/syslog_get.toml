@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-syslog-get"
+description = "Enables the syslog_get command without any pre-configured scope."
+commands.allow = ["syslog_get"]
+
+[[permission]]
+identifier = "deny-syslog-get"
+description = "Denies the syslog_get command without any pre-configured scope."
+commands.deny = ["syslog_get"]

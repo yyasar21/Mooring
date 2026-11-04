@@ -203,7 +203,12 @@ pub fn move_connection(state: &AppState, id: &str, folder_id: &str) -> IpcResult
 /// `connection_delete({ id })`.
 pub fn delete_connection(state: &AppState, id: &str) -> IpcResult<()> {
     let id = dto::connection_id("id", id)?;
-    state.with_ready(|_, store| Ok(store.delete_connection(id)?))
+    state.with_ready(|_, store| Ok(store.delete_connection(id)?))?;
+    // ADR-0013: a persistent web store does not outlive its connection.
+    if let Err(e) = crate::web::remove_store_dir(state, &id.to_string()) {
+        tracing::warn!(code = e.code, "web store of a deleted connection kept");
+    }
+    Ok(())
 }
 
 /// `connection_set_role_credential({ id, role, credentialId })`: `role` is `gateway` or
@@ -379,10 +384,16 @@ pub fn connection_move(
     move_connection(&state, &id, &folder_id)
 }
 
-/// `connection_delete({ id })`.
+/// `connection_delete({ id })`: also closes the connection's web window (ADR-0013).
 #[tauri::command]
-pub fn connection_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
-    delete_connection(&state, &id)
+pub fn connection_delete<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    id: String,
+) -> IpcResult<()> {
+    delete_connection(&state, &id)?;
+    crate::commands::web::close_for_deleted(&app, &state, &id);
+    Ok(())
 }
 
 /// `connection_search({ query, limit })`.

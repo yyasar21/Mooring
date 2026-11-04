@@ -169,7 +169,8 @@ fn main_capability_grants_no_dialog_or_fs_permission() {
         .iter()
         .map(|p| p.as_str().or_else(|| p["identifier"].as_str()).expect("permission id"))
         .collect();
-    assert_eq!(perms, ["core:default"]);
+    // ADR-0013: the app commands come as the `mooring-main` set (guard::capability_tests).
+    assert_eq!(perms, ["core:default", "mooring-main"]);
     for banned in ["dialog:", "fs:"] {
         assert!(!text.contains(banned), "{banned} in main.json");
     }
