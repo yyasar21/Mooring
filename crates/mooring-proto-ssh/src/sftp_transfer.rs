@@ -95,12 +95,18 @@ impl SftpClient {
         path: &str,
         flags: OpenFlags,
     ) -> Result<RemoteFile<'_>, MooringError> {
-        let handle = self
-            .raw
-            .open(path, flags, FileAttributes::empty())
-            .await
-            .map_err(|e| sftp_err(&e, path))?
-            .handle;
+        self.open_remote_with(path, flags, FileAttributes::empty()).await
+    }
+
+    /// `open_remote` with explicit create attributes (L-19: the upload part file's mode).
+    pub(crate) async fn open_remote_with(
+        &self,
+        path: &str,
+        flags: OpenFlags,
+        attrs: FileAttributes,
+    ) -> Result<RemoteFile<'_>, MooringError> {
+        let handle =
+            self.raw.open(path, flags, attrs).await.map_err(|e| sftp_err(&e, path))?.handle;
         Ok(RemoteFile { client: self, handle })
     }
 

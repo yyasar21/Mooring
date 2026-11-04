@@ -225,3 +225,59 @@ async fn one_byte_server_limits_keep_requests_in_flight_bounded() {
     assert_eq!(max, (1, 1), "server limits honoured");
     s.close().await.expect("close");
 }
+
+/// Security review 4, L-19: an upload keeps the replaced file's permission bits, a new file is
+/// `0600`, and a server that refuses `fsetstat` fails the upload rather than widen the mode.
+#[cfg(unix)]
+#[tokio::test]
+async fn upload_keeps_the_replaced_mode_and_creates_new_files_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let remote = tempfile::tempdir().expect("remote root");
+    let local = tempfile::tempdir().expect("local base");
+    let mut spec = ServerSpec::new(&[MethodKind::Password]);
+    spec.sftp_root = Some(remote.path().to_path_buf());
+    let stats = std::sync::Arc::clone(&spec.sftp_stats);
+    let (mut s, _srv, _kh) = connected(spec).await;
+    let sftp = s.sftp().await.expect("sftp");
+    let mode = |name: &str| {
+        let meta = std::fs::metadata(remote.path().join(name)).expect("remote meta");
+        meta.permissions().mode() & 0o7777
+    };
+    let set = |name: &str, m: u32| {
+        let perms = std::fs::Permissions::from_mode(m);
+        std::fs::set_permissions(remote.path().join(name), perms).expect("chmod");
+    };
+    std::fs::write(local.path().join("up"), b"new data").expect("write local");
+    let src = LocalPath::new(local.path(), "up").expect("path");
+
+    sftp.upload(&src, "/fresh", |_, _| {}).await.expect("new file");
+    assert_eq!(mode("fresh"), 0o600, "a new file is private");
+
+    for (name, m) in [("secret", 0o600), ("shared", 0o644), ("script", 0o755), ("ro", 0o400)] {
+        std::fs::write(remote.path().join(name), b"old").expect("write remote");
+        set(name, m);
+        sftp.upload(&src, &format!("/{name}"), |_, _| {}).await.expect("replace");
+        assert_eq!(mode(name), m, "{name}: mode kept");
+        assert_eq!(std::fs::read(remote.path().join(name)).expect("read"), b"new data");
+    }
+    std::fs::write(remote.path().join("suid"), b"old").expect("write remote");
+    set("suid", 0o4755);
+    sftp.upload(&src, "/suid", |_, _| {}).await.expect("replace suid");
+    assert_eq!(mode("suid"), 0o755, "setuid is never carried over");
+
+    // fsetstat refused: the part file keeps the server default, which is wider than 0400
+    stats.lock().expect("stats").refuse_setstat = true;
+    std::fs::write(remote.path().join("locked"), b"old").expect("write remote");
+    set("locked", 0o400);
+    let err = sftp.upload(&src, "/locked", |_, _| {}).await.expect_err("would widen the mode");
+    assert!(matches!(err, MooringError::Protocol { .. }), "{err:?}");
+    assert_eq!(std::fs::read(remote.path().join("locked")).expect("read"), b"old", "untouched");
+    assert_eq!(mode("locked"), 0o400);
+    let left: Vec<_> = std::fs::read_dir(remote.path())
+        .expect("ls")
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.contains(".mooring-part-"))
+        .collect();
+    assert!(left.is_empty(), "part file removed: {left:?}");
+    s.close().await.expect("close");
+}

@@ -7,11 +7,19 @@
 //! cancelled one (the future dropped) closes the handle and removes the part file from a
 //! background task that owns a clone of the client. The existing remote file is never opened
 //! for writing, so a cancel or failure leaves it intact.
+//!
+//! Mode (review 4, L-19): the part file is created with `0600` and set to `0600` again right
+//! after the open (for servers that ignore open attributes), so the data is private while it
+//! is in flight. Before the rename it gets the permission bits of the file it replaces (`stat`
+//! before the upload; `0600` for a new file or when the target cannot be stat'ed), limited to
+//! `0777` (no setuid/setgid/sticky). If the server refuses that `fsetstat`, the part file's
+//! actual mode is checked and the upload fails rather than leave a file more permissive than
+//! the one it replaces.
 
 use mooring_core::MooringError;
 use rand_core::{OsRng, RngCore};
 use russh_sftp::client::error::Error as SftpError;
-use russh_sftp::protocol::{OpenFlags, StatusCode};
+use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 
 use crate::local_path::LocalPath;
 use crate::sftp::{check_remote, sftp_err, SftpClient};
@@ -21,6 +29,21 @@ use crate::sftp_transfer::blocking;
 pub(crate) const POSIX_RENAME: &str = "posix-rename@openssh.com";
 /// Marker in part file names.
 pub const PART_MARKER: &str = ".mooring-part-";
+/// Mode of a new remote file, and of every part file while data is written (L-19).
+pub const NEW_FILE_MODE: u32 = 0o600;
+/// Permission bits carried over from a replaced file (no setuid/setgid/sticky).
+const MODE_BITS: u32 = 0o777;
+
+fn mode_attrs(mode: u32) -> FileAttributes {
+    let mut a = FileAttributes::empty();
+    a.permissions = Some(mode);
+    a
+}
+
+/// Whether a file with `actual` permission bits grants nothing that `allowed` does not.
+pub(crate) fn within(actual: u32, allowed: u32) -> bool {
+    actual & MODE_BITS & !allowed == 0
+}
 
 /// `<dir>/.<name>.mooring-part-<suffix>` for `remote` = `<dir>/<name>`.
 pub(crate) fn part_path(remote: &str, suffix: &str) -> String {
@@ -91,15 +114,24 @@ impl SftpClient {
             Ok((f, len))
         })
         .await?;
+        let mode = self.target_mode(remote).await;
         let flags = OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE;
-        let file = self.open_remote(&part, flags).await?;
+        let attrs = mode_attrs(NEW_FILE_MODE);
+        let file = self.open_remote_with(&part, flags, attrs).await?;
         let mut guard = PartGuard {
             client: self.clone(),
             path: part.clone(),
             handle: Some(file.handle.clone()),
             armed: true,
         };
-        let result = self.upload_from(&file.handle, remote, src, total, &mut progress).await;
+        // best effort: a server that ignored the open attributes still gets a private part file
+        let _ = self.raw.fsetstat(file.handle.as_str(), mode_attrs(NEW_FILE_MODE)).await;
+        let mut result = self.upload_from(&file.handle, remote, src, total, &mut progress).await;
+        if result.is_ok() {
+            if let Err(e) = self.set_final_mode(&file.handle, mode, remote).await {
+                result = Err(e);
+            }
+        }
         let closed = file.close().await;
         guard.handle = None;
         let done = match (result, closed) {
@@ -119,6 +151,33 @@ impl SftpClient {
         }
         guard.armed = false;
         Ok(done)
+    }
+
+    /// Permission bits for the uploaded file: those of the file it replaces, else `0600`.
+    async fn target_mode(&self, remote: &str) -> u32 {
+        match self.raw.stat(remote).await {
+            Ok(a) => a.attrs.permissions.map_or(NEW_FILE_MODE, |p| p & MODE_BITS),
+            // NoSuchFile (a new file) or anything else: the private default
+            Err(_) => NEW_FILE_MODE,
+        }
+    }
+
+    /// Give the part file `mode`. If the server refuses, accept the part file only when its
+    /// actual mode grants nothing beyond `mode`.
+    async fn set_final_mode(
+        &self,
+        handle: &str,
+        mode: u32,
+        remote: &str,
+    ) -> Result<(), MooringError> {
+        let Err(e) = self.raw.fsetstat(handle, mode_attrs(mode)).await else {
+            return Ok(());
+        };
+        let actual = self.raw.fstat(handle).await.ok().and_then(|a| a.attrs.permissions);
+        match actual {
+            Some(p) if within(p, mode) => Ok(()),
+            _ => Err(sftp_err(&e, remote)),
+        }
     }
 
     /// Move the finished part file onto `remote`.
@@ -169,6 +228,16 @@ mod tests {
         let s = random_suffix();
         assert_eq!(s.len(), 8);
         assert!(s.bytes().all(|b| b.is_ascii_hexdigit()), "{s}");
+    }
+
+    #[test]
+    fn within_compares_permission_bits_only() {
+        assert!(within(0o100_600, 0o600));
+        assert!(within(0o400, 0o600));
+        assert!(!within(0o644, 0o600));
+        assert!(!within(0o100_660, 0o640));
+        assert!(within(0o4755, 0o755), "setuid is ignored, never carried");
+        assert_eq!(mode_attrs(0o600).permissions, Some(0o600));
     }
 
     #[test]

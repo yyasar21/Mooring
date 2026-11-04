@@ -1,5 +1,7 @@
 //! Minimal SFTP server for the tests: `russh_sftp::server` over a tempdir root.
-//! Paths are confined to the root (no `..`); handles live in a map.
+//! Paths are confined to the root (no `..`); handles live in a map. Like a server that ignores
+//! open attributes, `open` creates files with the process umask; `fsetstat` / `setstat` apply
+//! permission bits (Unix) unless `SftpStats::refuse_setstat` is set.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -20,13 +22,15 @@ enum Open {
     Dir(Vec<File>),
 }
 
-/// What the SFTP server saw (read/write request counts and largest lengths).
+/// What the SFTP server saw (read/write request counts and largest lengths), plus switches.
 #[derive(Debug, Default)]
 pub struct SftpStats {
     pub reads: usize,
     pub writes: usize,
     pub max_read_len: u32,
     pub max_write_len: usize,
+    /// Answer `fsetstat` / `setstat` with `OpUnsupported` (L-19 fallback).
+    pub refuse_setstat: bool,
 }
 
 pub struct SftpFs {
@@ -78,6 +82,19 @@ fn io(e: &std::io::Error) -> StatusCode {
         std::io::ErrorKind::PermissionDenied => StatusCode::PermissionDenied,
         _ => StatusCode::Failure,
     }
+}
+
+/// Apply the permission bits of `attrs`, if any, to the file `f`.
+fn set_mode(f: &std::fs::File, attrs: &FileAttributes) -> Result<(), StatusCode> {
+    #[cfg(unix)]
+    if let Some(mode) = attrs.permissions {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(mode & 0o7777);
+        f.set_permissions(perms).map_err(|e| io(&e))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (f, attrs);
+    Ok(())
 }
 
 fn attrs(meta: &std::fs::Metadata) -> FileAttributes {
@@ -190,6 +207,34 @@ impl russh_sftp::server::Handler for SftpFs {
         f.seek(SeekFrom::Start(offset)).map_err(|e| io(&e))?;
         f.write_all(&data).map_err(|e| io(&e))?;
         Ok(ok(id))
+    }
+
+    async fn setstat(
+        &mut self,
+        id: u32,
+        path: String,
+        attrs: FileAttributes,
+    ) -> Result<Status, Self::Error> {
+        if self.stats.lock().is_ok_and(|s| s.refuse_setstat) {
+            return Err(StatusCode::OpUnsupported);
+        }
+        let f = std::fs::File::open(self.map(&path)?).map_err(|e| io(&e))?;
+        set_mode(&f, &attrs).map(|()| ok(id))
+    }
+
+    async fn fsetstat(
+        &mut self,
+        id: u32,
+        handle: String,
+        attrs: FileAttributes,
+    ) -> Result<Status, Self::Error> {
+        if self.stats.lock().is_ok_and(|s| s.refuse_setstat) {
+            return Err(StatusCode::OpUnsupported);
+        }
+        let Some(Open::File(f)) = self.handles.get(&handle) else {
+            return Err(StatusCode::Failure);
+        };
+        set_mode(f, &attrs).map(|()| ok(id))
     }
 
     async fn fstat(&mut self, id: u32, handle: String) -> Result<Attrs, Self::Error> {
