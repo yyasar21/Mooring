@@ -40,20 +40,14 @@ pub trait Clipboard: Send + Sync {
         let _ = (width, height, rgba);
         Err(ClipboardError)
     }
-    /// Size of the image on the clipboard, `None` when there is none.
-    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
-        Ok(None)
-    }
 }
 
-/// Clear the clipboard if it still holds an image of `size` (the screenshot Mooring put
-/// there; image bytes are not compared because the OS may convert them, e.g. to BMP or PNG).
-/// Returns whether it cleared; text or another-sized image the user copied is left alone.
-pub fn clear_image_if_unchanged(
-    clipboard: &dyn Clipboard,
-    size: (u32, u32),
-) -> Result<bool, ClipboardError> {
-    if clipboard.current()?.is_none() && clipboard.current_image()? == Some(size) {
+/// After a screenshot: clear the clipboard unless it now holds text (review 5 L-23). Foreign
+/// clipboard images are never decoded (any same-user process can put a hostile PNG, BMP or
+/// TIFF there, and the decoders run in the process that holds the DEK), so an image the user
+/// copied after the screenshot is cleared too: the fail-safe direction. Text is left alone.
+pub fn clear_screenshot_unless_text(clipboard: &dyn Clipboard) -> Result<bool, ClipboardError> {
+    if clipboard.current()?.is_none() {
         clipboard.clear()?;
         Ok(true)
     } else {
@@ -106,10 +100,6 @@ impl Clipboard for RemoteClipboard {
 
     fn set_image(&self, width: u32, height: u32, rgba: &[u8]) -> Result<(), ClipboardError> {
         self.inner.set_image(width, height, rgba)
-    }
-
-    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
-        self.inner.current_image()
     }
 }
 
@@ -223,17 +213,6 @@ impl Clipboard for SystemClipboard {
             set.image(image).map_err(|e| sys_err(&e))
         })
     }
-
-    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
-        self.with(|cb| match cb.get_image() {
-            Ok(img) => Ok(Some((
-                u32::try_from(img.width).map_err(|_| ClipboardError)?,
-                u32::try_from(img.height).map_err(|_| ClipboardError)?,
-            ))),
-            Err(arboard::Error::ContentNotAvailable) => Ok(None),
-            Err(e) => Err(sys_err(&e)),
-        })
-    }
 }
 
 /// In-memory clipboard for tests.
@@ -285,10 +264,6 @@ impl Clipboard for MemoryClipboard {
         *self.value.lock().map_err(|_| ClipboardError)? = None;
         Ok(())
     }
-
-    fn current_image(&self) -> Result<Option<(u32, u32)>, ClipboardError> {
-        Ok(self.image.lock().map_err(|_| ClipboardError)?.map(|(w, h, _)| (w, h)))
-    }
 }
 
 #[cfg(test)]
@@ -323,15 +298,17 @@ mod tests {
     }
 
     #[test]
-    fn screenshot_is_cleared_only_while_it_is_still_there() {
+    fn screenshot_clear_never_reads_images_and_keeps_text() {
         let cb = MemoryClipboard::default();
         cb.set_image(4, 2, &[7; 32]).expect("image");
-        assert!(clear_image_if_unchanged(&cb, (4, 2)).expect("ok"));
+        assert!(clear_screenshot_unless_text(&cb).expect("ok"));
         assert_eq!(cb.peek_image(), None);
-        cb.set_image(4, 2, &[7; 32]).expect("image");
-        assert!(!clear_image_if_unchanged(&cb, (8, 2)).expect("ok"), "another image");
+        // A foreign image copied after the screenshot is cleared too (it is never decoded).
+        cb.set_image(8, 2, &[1; 64]).expect("image");
+        assert!(clear_screenshot_unless_text(&cb).expect("ok"), "fail-safe");
+        assert_eq!(cb.peek_image(), None);
         cb.set("the user copied text").expect("set");
-        assert!(!clear_image_if_unchanged(&cb, (4, 2)).expect("ok"), "text is left alone");
+        assert!(!clear_screenshot_unless_text(&cb).expect("ok"), "text is left alone");
         assert_eq!(cb.peek().as_deref(), Some("the user copied text"));
     }
 }

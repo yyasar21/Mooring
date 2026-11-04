@@ -295,8 +295,9 @@ impl AppState {
             }
         }
         let shot = self.screenshot_clipboard.lock().ok().and_then(|mut p| p.take());
-        if let Some(size) = shot {
-            if clipboard::clear_image_if_unchanged(&*self.settings.clipboard, size) == Ok(true) {
+        if shot.is_some() {
+            // L-23: never decode a foreign clipboard image; clear unless the user copied text.
+            if clipboard::clear_screenshot_unless_text(&*self.settings.clipboard) == Ok(true) {
                 tracing::info!("session screenshot cleared from the clipboard");
             }
         }
