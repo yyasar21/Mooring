@@ -12,24 +12,24 @@ Cargo workspace and crates, Tauri 2 shell with strict CSP and minimal capabiliti
 shell, vault cryptography, hash-chained audit log, `make check`, CI on three operating systems,
 security workflow, ADR-0001 to ADR-0004, threat model v0.
 
-## A1 — Vault, connection tree and SSH 🚧
+## A1 — Vault, connection tree and SSH ✅ (exit 2026-11-04)
 
 | Item | Status |
 | --- | --- |
 | Vault: create, unlock, lock, change password, Argon2id calibration | ✅ |
-| Vault: auto-lock wired to idle and OS signals | 🚧 policy done |
+| Vault: auto-lock wired to idle, sleep, screen lock, hidden window ([ADR-0010](adr/0010-a1-exit-ipc.md)) | ✅ |
 | Vault: opt-in Touch ID / Windows Hello unlock | 🚧 held until each platform has a biometric ACL |
 | Vault: `age` export and import in the app | 🚧 library done, vectors verified with the `age` CLI |
 | Data model: folders, connections, tags, credentials, inheritance, overrides, search | ✅ |
-| Typed credential model, 15 kinds ([ADR-0009](adr/0009-credential-model.md)) | 🗓 next |
+| Typed credential model, 15 kinds ([ADR-0009](adr/0009-credential-model.md)) | ✅ |
 | SSH: TOFU + `known_hosts`, password, key, keyboard-interactive, agent, strict algorithms | ✅ |
 | SSH: terminal with WebGL, streaming | ✅ |
-| SSH: port forwarding (L/R/D) in the app | 🚧 core done and reviewed |
-| SSH: SFTP panel with progress and drag-and-drop | 🚧 core done and reviewed |
+| SSH: port forwarding (L/R/D) in the app, audited exposure, closed on lock | ✅ |
+| SSH: SFTP panel with progress; Rust-side file picker (review 4, B-4) | ✅ (drag-and-drop 🗓) |
 | UI: three panes, palette, tabs, inspector, copy password, themes, keyboard-first | ✅ |
 | Audit log viewer | ✅ |
-| Syslog mirror | 🗓 |
-| Fuzz targets with a nightly job; Playwright E2E through `tauri-driver` | 🗓 |
+| Syslog mirror (RFC 5424 udp/tcp/tls, heartbeat) | ✅ |
+| Fuzz targets with a nightly job; Playwright E2E against the dev server with the mock transport | ✅ |
 
 ## A2 — RDP, VNC and web sessions 🗓
 

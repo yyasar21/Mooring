@@ -14,10 +14,11 @@ administer. Open source, cross-platform, built in Rust.**
 
 ![Mooring with two SSH sessions open: connection tree on the left, terminal in the middle, host details and the linked credential on the right](docs/assets/hero.png)
 
-> **Project status: pre-release (Phase A1).** The encrypted vault, connection tree, credential
-> inheritance, SSH terminal with host-key verification, and the audit log work today. RDP, VNC,
-> web, Kubernetes and vSphere sessions are on the [roadmap](docs/roadmap.md). There are no
-> signed binaries yet; the first release is v0.1.0. Build from source to try it.
+> **Project status: pre-release (Phase A1 complete).** The encrypted vault, connection tree,
+> typed credentials, SSH terminal with host-key verification, port forwarding, SFTP, auto-lock,
+> the audit log and its syslog mirror work today. RDP, VNC, web, Kubernetes and vSphere sessions
+> are on the [roadmap](docs/roadmap.md). Pre-release builds are on the
+> [releases page](https://github.com/yyasar21/Mooring/releases); the first stable release is v0.1.0.
 
 ## Contents
 
@@ -69,22 +70,22 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | --- | --- | --- |
 | Vault | Create, unlock, lock, change master password | ✅ |
 | Vault | Argon2id cost calibrated to the host, parameters authenticated in the header | ✅ |
-| Vault | Auto-lock on idle, screen lock, sleep (policy done, OS signals being wired) | 🚧 |
+| Vault | Auto-lock on idle, sleep, screen lock and hidden window; external forwards closed on lock | ✅ |
 | Vault | Unlock with Touch ID / Windows Hello (opt-in) | 🚧 |
 | Vault | Portable backup readable with the `age` CLI (library done, command pending) | 🚧 |
 | Organise | Folder tree with drag-and-drop, tags, full-text search | ✅ |
 | Organise | Credential inheritance down the folder tree, per-connection override | ✅ |
 | Organise | Command palette to open any connection by name, host or tag | ✅ |
 | Credentials | Password, SSH key (+ passphrase), certificate | ✅ |
-| Credentials | Typed model with 15 kinds (domain users, agent, kubeconfig, tokens, TOTP…) | 🗓 [ADR-0009](docs/adr/0009-credential-model.md) |
+| Credentials | Typed model with 15 kinds (domain users, agent, kubeconfig, tokens, TOTP…) | ✅ [ADR-0009](docs/adr/0009-credential-model.md) |
 | Credentials | Copy password to clipboard, cleared after 30 s and on lock, audited | ✅ |
 | SSH | Terminal (xterm.js + WebGL), resize, streaming | ✅ |
 | SSH | Password, public key, keyboard-interactive, ssh-agent authentication | ✅ |
 | SSH | Host-key TOFU, OpenSSH `known_hosts` compatible, mismatch hard stop | ✅ |
-| SSH | Local, remote and dynamic (SOCKS5) port forwarding (core done, UI pending) | 🚧 |
-| SSH | SFTP browser with upload/download progress (core done, UI pending) | 🚧 |
+| SSH | Local, remote and dynamic (SOCKS5) port forwarding with audited exposure | ✅ |
+| SSH | SFTP browser with streaming transfers; local paths picked in Rust, never by the WebView | ✅ |
 | Audit | Hash-chained audit log with in-app viewer and chain verification | ✅ |
-| Audit | Syslog mirror | 🗓 |
+| Audit | RFC 5424 syslog mirror (UDP/TCP/TLS) with chain hash, heartbeat and redirect audit | ✅ |
 | UI | Three-pane layout, tabs, dark and light themes, keyboard-first | ✅ |
 | UI | Detach a tab into its own window | 🗓 A2 |
 | RDP | IronRDP with NLA/CredSSP, certificate TOFU, dynamic resolution, clipboard | 🗓 A2 |
@@ -94,7 +95,9 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | Kubernetes | Contexts from kubeconfig, pod `exec` shells, logs, port-forward (read-only) | 🗓 A3 |
 | Integrations | External secret references (HashiCorp Vault / OpenBao), encrypted vault sync | 🗓 A3 |
 | Import | Royal TS, Termius, mRemoteNG, PuTTY sessions | 🗓 A4 |
-| Release | Signed installers, SBOM, provenance, auto-update | 🗓 A4 |
+| Release | dmg/pkg, exe/msi, deb with cosign-signed checksums, SBOM and provenance | ✅ pre-release |
+| Release | Code-signed installers, Homebrew tap, auto-update | 🗓 A4 |
+| QA | cargo-fuzz targets (known_hosts, kubeconfig, vault header, age import, SOCKS5) + nightly | ✅ |
 
 ## How Mooring compares
 
