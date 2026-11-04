@@ -22,7 +22,7 @@ use crate::guard::WEB_PREFIX;
 use crate::state::AppState;
 use crate::vsphere_sync::VsCtx;
 use crate::web::policy::NavPolicy;
-use crate::web::{self, Storage, WebPlan, WebSink};
+use crate::web::{self, Storage, StorageOs, WebPlan, WebSink};
 
 /// `{ windowLabel }` (`null` for VMRC or a cancelled confirmation).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -32,8 +32,9 @@ pub struct ConsoleOpened {
     pub window_label: Option<String>,
 }
 
-/// The web window plan of the vSphere Client for `t`.
-pub fn client_plan(t: &VmTarget, dev_url: Option<tauri::Url>) -> IpcResult<WebPlan> {
+/// The web window plan of the vSphere Client for `t`. `storage` is
+/// [`web::ephemeral_storage`] of the vCenter id (review 5 L-29: own profile on Windows).
+pub fn client_plan(t: &VmTarget, dev_url: Option<tauri::Url>, storage: Storage) -> IpcResult<WebPlan> {
     let url = mooring_vsphere::vsphere_client_url(&t.target.base, &t.vm, None)
         .map_err(|e| crate::commands::vsphere_login::map_error(&e))?;
     let opts = WebConnOptions { url: url.to_string(), allowed_origins: Vec::new(), persistent: false, allow_http: false };
@@ -45,7 +46,7 @@ pub fn client_plan(t: &VmTarget, dev_url: Option<tauri::Url>) -> IpcResult<WebPl
         name: t.target.name.clone(),
         url,
         policy,
-        storage: Storage::Ephemeral,
+        storage,
         persistent_refused: false,
     })
 }
@@ -69,7 +70,7 @@ fn open_client<R: Runtime>(app: &AppHandle<R>, state: &AppState, plan: &WebPlan)
     window.on_window_event(move |event| {
         if let WindowEvent::Destroyed = event {
             if let Some(state) = handle.try_state::<AppState>() {
-                web_cmds::closed(&state, &connection);
+                web_cmds::destroyed(&state, &connection);
             }
         }
     });
@@ -129,7 +130,8 @@ pub async fn vsphere_console<R: Runtime>(
     let t = vsphere_vm::vm_target(&ctx, &connection_id)?;
     match kind {
         ConsoleKind::Client => {
-            let plan = client_plan(&t, dev_url(&app))?;
+            let storage = web::ephemeral_storage(&state, &t.source.to_string(), StorageOs::current());
+            let plan = client_plan(&t, dev_url(&app), storage)?;
             let label = open_client(&app, &state, &plan)?;
             ctx.audit(AuditEvent::VsphereConsole {
                 connection: t.source.to_string(),

@@ -158,10 +158,28 @@ pub fn set_default_credential(
     })
 }
 
-/// `folder_delete({ id })`: cascades; the root is refused with `tree.root`.
-pub fn delete_folder(state: &AppState, id: &str) -> IpcResult<()> {
+/// `folder_delete({ id })`: cascades; the root is refused with `tree.root`. The web
+/// connections below it are collected first (one query); after the delete their windows are
+/// closed (`destroy` takes the label) and their stores removed, as `connection_delete` does
+/// (review 5 L-30). Returns the ids of those web connections.
+pub fn delete_folder_with(
+    state: &AppState,
+    id: &str,
+    destroy: &dyn Fn(&str),
+) -> IpcResult<Vec<String>> {
     let id = dto::folder_id("id", id)?;
-    state.with_ready(|_, store| Ok(store.delete_folder(id)?))
+    let web: Vec<String> = state.with_ready(|_, store| {
+        let web = store.connection_ids_under(id, mooring_core::Protocol::Web)?;
+        store.delete_folder(id)?;
+        Ok(web.iter().map(ToString::to_string).collect())
+    })?;
+    crate::commands::web::purge_deleted(state, &web, destroy);
+    Ok(web)
+}
+
+/// [`delete_folder_with`] without an OS window to destroy (registry, stores and audit only).
+pub fn delete_folder(state: &AppState, id: &str) -> IpcResult<Vec<String>> {
+    delete_folder_with(state, id, &|_| {})
 }
 
 /// `connection_create(fields)`.
@@ -211,15 +229,19 @@ pub fn move_connection(state: &AppState, id: &str, folder_id: &str) -> IpcResult
     })
 }
 
-/// `connection_delete({ id })`.
-pub fn delete_connection(state: &AppState, id: &str) -> IpcResult<()> {
+/// `connection_delete({ id })`: the row, then its web window (`destroy` takes the label),
+/// then its store directory (ADR-0013: a persistent web store does not outlive its
+/// connection; review 5 L-30: the window goes first so `WebView2` releases the profile).
+pub fn delete_connection_with(state: &AppState, id: &str, destroy: &dyn Fn(&str)) -> IpcResult<()> {
     let id = dto::connection_id("id", id)?;
     state.with_ready(|_, store| Ok(store.delete_connection(id)?))?;
-    // ADR-0013: a persistent web store does not outlive its connection.
-    if let Err(e) = crate::web::remove_store_dir(state, &id.to_string()) {
-        tracing::warn!(code = e.code, "web store of a deleted connection kept");
-    }
+    crate::commands::web::purge_deleted(state, &[id.to_string()], destroy);
     Ok(())
+}
+
+/// [`delete_connection_with`] without an OS window to destroy.
+pub fn delete_connection(state: &AppState, id: &str) -> IpcResult<()> {
+    delete_connection_with(state, id, &|_| {})
 }
 
 /// `connection_set_role_credential({ id, role, credentialId })`: `role` is `gateway` or
@@ -300,10 +322,14 @@ pub fn folder_set_default_credential(
     set_default_credential(&state, &id, credential_id.as_deref())
 }
 
-/// `folder_delete({ id })`.
+/// `folder_delete({ id })`: also closes the web windows below it (ADR-0013).
 #[tauri::command]
-pub fn folder_delete(state: State<'_, AppState>, id: String) -> IpcResult<()> {
-    delete_folder(&state, &id)
+pub fn folder_delete<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    id: String,
+) -> IpcResult<()> {
+    delete_folder_with(&state, &id, &crate::commands::web::destroyer(&app)).map(|_| ())
 }
 
 /// `connection_create({ folderId, name, protocol, host, port, credentialId, usernameOverride,
@@ -402,9 +428,7 @@ pub fn connection_delete<R: tauri::Runtime>(
     state: State<'_, AppState>,
     id: String,
 ) -> IpcResult<()> {
-    delete_connection(&state, &id)?;
-    crate::commands::web::close_for_deleted(&app, &state, &id);
-    Ok(())
+    delete_connection_with(&state, &id, &crate::commands::web::destroyer(&app))
 }
 
 /// `connection_search({ query, limit })`.

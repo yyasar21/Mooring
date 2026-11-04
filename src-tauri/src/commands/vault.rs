@@ -100,6 +100,8 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
     }
     state.audit(AuditEvent::VaultUnlocked);
     reseal_legacy(state);
+    // Review 5 L-30: persistent web stores without a persistent web connection go.
+    crate::web::sweep::orphan_stores(state);
     // ADR-0013: web and detached windows come back.
     state.lock_observer.notify(false);
     // ADR-0015: scheduled vCenter refreshes run only while unlocked.
