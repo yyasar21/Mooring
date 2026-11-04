@@ -123,3 +123,89 @@ Branch `a2`, from 8504553 (R2 merge). Single writer, no worktree. Seven commits:
 - `NODE_PATH=/opt/node-tools/node_modules node --test --test-concurrency=1 apps/desktop/e2e/flows.e2e.mjs`: **5 passed, 0 failed.**
 - `cargo metadata --locked`: ok. `cargo deny check`: ok.
 - `cd fuzz && cargo check --bins`: ok on stable.
+
+## Fix round 6 (rust-core, review 5)
+
+Branch `worktree-agent-abad2b984b727cb76`, base `a2` @ c5565c6, `a2` (U2, R5, U3) merged in
+at the end (conflicts were additive; `AuditEvent` moved to `mooring-audit/src/event.rs` to keep
+`chain.rs` under 500 lines). One commit per finding, Claude-Session trailer, no
+Co-Authored-By.
+
+### Done
+
+| ID | Status | What |
+| --- | --- | --- |
+| B-5 | fixed | `active::check_desktop` (1..=8192 per side) before `Connected` and in `Active::new` / `resized`; `sink.resize` before `DecodedImage::new`. Tests: guard unit test, testsrv `advertised_desktop` 65535² → `protocol_error` before `Connected`, peak RSS < 512 MiB |
+| M-13 | fixed | `known_vnc_certs` marker `\|2\|salt\|hmac tls-required - <RFC 3339>` (`KnownCerts::mark_tls`, `tls_expected`; removed by `known_certs_remove`). The Gate writes it on `Connected { security: vencrypt-x509 }` (single writer). `SecPolicy.pinned` = pin or marker. Test: CA-issued cert → marker → stripped VeNCrypt → `trust_mismatch`, `expected tls-required`, no security type chosen (no DES) |
+| M-14 | fixed (interim) | `mooring-proto-rdp/src/reassembly.rs` before `ActiveStage::process`: SVC `FLAG_FIRST` declaring > 8 MiB or > 8 MiB of chunks, drdynvc `DataFirst(Compressed)` > 8 MiB (IronRDP's `CompleteData` refuses blocks past the declared total), fast-path fragment runs > 8 MiB → `protocol_error`. Testsrv knob `svc_flood`; fuzz target `rdp_reassembly` |
+| M-15 | fixed | VNC inflates with `miniz_oxide` 0.9 directly (`decode::ZStream`); `flate2` is a dev-dependency only. `cargo tree -p mooring-app -e features -i libz-sys` has no path from `mooring-proto-vnc` |
+| L-20 | fixed | unreadable `known_vnc_certs` → `protocol_error` "the certificate trust store could not be read" before any byte (as RDP); audited by `session_closed` |
+| L-21 | fixed | `mooring_core::driver_task::next_driver_event`: a driver that ends without `Closed` (panic) → `Closed { protocol_error, "internal error in the RDP/VNC decoder" }`, not retried, `tracing::error!` without payload. Before, a panic left `next_event` hanging (the session holds an event sender) |
+| L-22 | fixed | `connection_options_changed { connection, protocol, changed, ca_pem, weakened }`: field names only, SHA-256 of each new `caPem` certificate, `weakened` → syslog warning; unchanged re-save → no entry |
+| L-23 | fixed | lock clears the screenshot when the clipboard holds no text, without reading the image; `current_image` removed from the trait |
+| L-24 | fixed | `log_filter`: user directives for `ironrdp_connector::credssp`, `ironrdp_connector::connection`, `sspi` are dropped and `=info` appended (separate block in `lib.rs`). User guide note still owed (docs) |
+| L-25 | fixed | `RemoteGuard` on the session clipboard: remote writes refused while locked (`session_clipboard_blocked`, once per locked period), no offer while locked, `session_clipboard_offer { bytes }` per offer, `credential_sent_to_remote { credential }` (warning) when the offer is the `credential_copy_*` secret |
+| L-26 | fixed | `session_screenshot` / `session_set_view_only` → `vault.locked` first; `session_view_only { view_only }` audited |
+| L-27 | fixed | password credential + None-only offer → `unsupported_security` unless VNC option `allowNoAuth` (default false); taking it is audited `session_weak_security` `none_with_password` |
+| L-28 | partial | new targets `rfb_handshake`, `vencrypt_negotiation`, `rdp_reassembly` with seeds and stable replay; nightly matrix + `-malloc_limit_mb=1024` for `rdp_/rfb_/vnc_/vencrypt_` targets. **Open (QA):** `cut_text`, `framebuffer_ops`, `rdp_reactivation`, the pinned upstream IronRDP targets, first green nightly run |
+| N-23 | fixed | RDP test asserts a signature failure (not unknown issuer); same loopback test added to VNC |
+| N-24 | fixed | RDP verifier adds `NameMismatch` via `verify_server_name` next to webpki's first error |
+| N-25 | fixed | pinned cert + `BadSignature` → `trust_mismatch`, audited mismatch `presented = signature` |
+| N-26 | open | `require_main` for session/trust/options commands: R5 owns the guard (merged `guard/`); not touched here |
+| N-27 | accepted | A3 item, no change |
+| N-28 | partial | (a) cap re-checked under the registry lock; (b) no change; (c) UI mock import → ui-engineer |
+| N-29 | fixed | `des/zeroize`, `vnc_auth_response` → `Zeroizing<[u8; 16]>`, VNC `x509-parser` `default-features = false` |
+
+Coordinator additions:
+- **U2 `once`**: a `certificate_trust` answer `yes` pins, `once` trusts for the next connect
+  only (`trusted_once`, no pin, audited `cert_decision` with decision `trusted_once`),
+  anything else rejects.
+- **U2 named pins**: `known_certs_list` entries gain optional `host` / `port` when a pin
+  matches one of the user's own connections of that protocol (Rust-side join; default ports
+  3389 / 5900). Hash-only otherwise. The UI may drop its local HMAC.
+- **U3**: `session_attach` ignores `onFrame` for SSH; a detached view re-attaching to its own
+  session sends `detached` to its previous channel only.
+
+New IPC-visible shapes for ui-engineer: VNC option `allowNoAuth` (bool, default false);
+`KnownCert.host?` / `port?`; audit events `connection_options_changed`, `session_view_only`,
+`session_clipboard_offer`, `session_clipboard_blocked`, `credential_sent_to_remote`. No new
+`IpcError` codes (`ipc-codes.json` unchanged).
+
+Testsrv knobs for QA: RDP `advertised_desktop` (`--desktop WxH`), `svc_flood`
+(`--svc-flood`); `TestCert::generate_ca_issued(names) -> (leaf, ca_pem)`. QA-owned files
+touched minimally: `crates/mooring-proto-vnc/tests/fuzz_corpus.rs` (ZStream, new replays),
+`crates/mooring-proto-rdp/tests/fuzz_corpus.rs`, `fuzz/**`, `fuzz-nightly.yml`.
+
+Upstream issue text (M-14, file with the `scard` PR, R-RDP-FFI):
+> ironrdp-svc `dechunkify`, ironrdp-dvc `CompleteData` and the ironrdp-session fast-path
+> assembler grow their buffers up to a server-declared `u32` (or, for fast-path, without
+> any limit) before any consumer sees the data. A hostile server can stream fragments until
+> allocation fails, which aborts the client process. Please add a configurable
+> `max_reassembly` to `StaticVirtualChannel` / `dechunkify`, to `CompleteData`
+> (`DataFirst.length`), and bound the fast-path assembler by the negotiated
+> `MultifragMaxRequestSize`, returning an error instead of growing.
+
+### Left open
+- L-28 remainder (above), N-26 (R5 guard), N-28 (c) (UI).
+- `russh` still links C zlib through flate2 unification for SSH compression (same class as
+  M-15, SSH side): security-reviewer to rule.
+- The B-5 abort is not observable on this host (heuristic overcommit let the 17 GiB
+  `calloc` succeed); the test discriminates by `Connected` ordering and peak RSS instead.
+
+### Decision needed
+- Disk: the 3.8 GB free on this host could not hold a fresh per-worktree target; the round
+  built in the shared `/home/claude/nexus/target` (and deleted its stale test executables
+  older than 30 min, ~12 GB, which cargo relinks on demand).
+
+### Test evidence
+```
+Linux x86_64, CARGO_INCREMENTAL=0, CARGO_TARGET_DIR=/home/claude/nexus/target, after the a2 merge
+cargo fmt --all --check                                         ok
+cargo clippy --workspace --all-targets -- -D warnings            ok
+cargo test --workspace                                           842 passed, 0 failed, 6 ignored
+  mooring-app lib 201 (+1 ignored), e2e_flow 15 · mooring-core 119, fuzz_corpus 9
+  mooring-proto-rdp lib 62, loopback 7, fuzz_corpus 6 · mooring-proto-vnc lib 74, fuzz_corpus 7
+  mooring-audit 30 · mooring-testsrv 9 + 44 · ssh, store, vault unchanged
+cargo check --manifest-path fuzz/Cargo.toml (3 new bins)         ok
+cargo tree -p mooring-app -e features -i libz-sys | grep mooring-proto-vnc   (none)
+```
