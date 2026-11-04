@@ -8,7 +8,7 @@ use serde_json::json;
 use super::*;
 use crate::commands::credentials::{self, NewCredential, WireSecrets};
 use crate::commands::sync_gate::{ScriptedPrompter, TrustAnswer};
-use crate::commands::sync_join::{join, JoinInput};
+use crate::commands::sync_join::{self, join, JoinInput};
 use crate::commands::tree::{self, ConnectionFields};
 use crate::commands::vault;
 use crate::state::testing::{self, audit_events, Fixture, MASTER};
@@ -357,4 +357,90 @@ fn engine_errors_map_to_listed_codes_without_detail() {
         assert!(ipc.code == "vault.locked" || SYNC_CODES.contains(&ipc.code), "{e:?}");
         assert!(!ipc.message.contains("detail from the peer"));
     }
+}
+
+/// A header writer that fails at one of its two steps (review 6 L-37).
+struct FailingWriter {
+    stage: bool,
+    commit: bool,
+}
+
+impl sync_join::HeaderWriter for FailingWriter {
+    fn stage(&self, state: &AppState, header: &mooring_vault::Header) -> IpcResult<()> {
+        if self.stage {
+            return Err(IpcError::new("state.io", "injected"));
+        }
+        sync_join::FsHeaderWriter.stage(state, header)
+    }
+    fn commit(&self, state: &AppState) -> IpcResult<()> {
+        if self.commit {
+            return Err(IpcError::new("state.io", "injected"));
+        }
+        sync_join::FsHeaderWriter.commit(state)
+    }
+}
+
+fn header_on_disk(state: &AppState) -> String {
+    let bytes = std::fs::read(state.data_dir.join(AppState::HEADER_FILE)).expect("header");
+    mooring_vault::Vault::from_header_bytes(&bytes).expect("parse").vault_id().to_string()
+}
+
+/// Review 6 L-37: a header write failure never strands the device. Staging fails → nothing
+/// changed (bootstrap header, store, no settings). The rename fails → the joined vault is live
+/// and the staged header is installed at the next start.
+#[tokio::test]
+async fn vault_join_header_write_failures_never_strand_the_device() {
+    let s3 = server().await;
+    let a = dev("device-a");
+    a.add("shared", "192.0.2.70");
+    a.configure(&s3).await.expect("configure");
+    a.now().await.expect("push");
+    let vault_id = a.status().vault_id;
+    let input = |st: &AppState| JoinInput {
+        backend: backend(&s3),
+        credential_id: add_key(st, &s3),
+        vault_id: vault_id.clone(),
+        password: MASTER.into(),
+        interval_minutes: None,
+    };
+    let tmp = |st: &AppState| st.data_dir.join(sync_join::JOIN_TMP);
+
+    let dd = dev("device-d");
+    let boot = dd.status().vault_id;
+    let writer = FailingWriter { stage: true, commit: false };
+    let e = sync_join::join_with(&dd.f.state, &dd.hub, Some(&dd.p), None, input(&dd.f.state), &writer).await.expect_err("stage");
+    assert_eq!(e.code, "state.io");
+    assert_eq!((dd.status().vault_id, header_on_disk(&dd.f.state)), (boot.clone(), boot.clone()));
+    assert!(dd.status().config.is_none() && dd.names().is_empty() && !tmp(&dd.f.state).exists());
+    vault::lock(&dd.f.state, None).expect("lock");
+    vault::unlock(&dd.f.state, secrecy::SecretString::from(MASTER.to_owned())).expect("bootstrap still opens");
+    assert_eq!(dd.join_from(&s3, &vault_id, MASTER).await.expect("retry"), vault::VaultStatus::Unlocked);
+    assert_eq!(dd.names(), a.names());
+
+    let e2 = dev("device-e");
+    let boot = e2.status().vault_id;
+    let writer = FailingWriter { stage: false, commit: true };
+    let r = sync_join::join_with(&e2.f.state, &e2.hub, Some(&e2.p), None, input(&e2.f.state), &writer).await;
+    assert_eq!(r.expect("the join completes"), vault::VaultStatus::Unlocked);
+    assert_eq!((e2.status().vault_id, e2.names()), (vault_id.clone(), a.names()));
+    assert!(tmp(&e2.f.state).exists(), "the staged header waits for the next start");
+    assert_eq!(header_on_disk(&e2.f.state), boot, "the bootstrap header is untouched");
+    // Restart: the store is bound to the staged header's vault, so the rename completes.
+    let Dev { f: Fixture { dir, state, clipboard }, .. } = e2;
+    drop(state);
+    let st = AppState::new(dir.path().to_path_buf(), testing::settings(clipboard)).expect("restart");
+    assert!(!tmp(&st).exists());
+    assert_eq!(header_on_disk(&st), vault_id);
+    vault::unlock(&st, secrecy::SecretString::from(MASTER.to_owned())).expect("the joined vault opens");
+    assert_eq!(st.with_ready(|v, _| Ok(v.vault_id().to_string())).expect("bound"), vault_id);
+    // A stale staged header (store bound elsewhere) is removed at start, not installed.
+    let other = dev("device-f");
+    let Dev { f: Fixture { dir, state, clipboard }, .. } = other;
+    let boot = state.with_ready(|v, _| Ok(v.vault_id().to_string())).expect("id");
+    std::fs::copy(st.data_dir.join(AppState::HEADER_FILE), dir.path().join(sync_join::JOIN_TMP)).expect("stale");
+    drop(state);
+    let st2 = AppState::new(dir.path().to_path_buf(), testing::settings(clipboard)).expect("restart");
+    assert!(!tmp(&st2).exists());
+    assert_eq!(header_on_disk(&st2), boot);
+    s3.recorder().assert_no_violations();
 }

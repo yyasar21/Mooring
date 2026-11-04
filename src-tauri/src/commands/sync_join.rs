@@ -13,6 +13,13 @@
 //! 3. the joined header replaces the bootstrap header on disk and in memory, the access key is
 //!    re-created under the joined vault (or the synced copy with the same key id is reused),
 //!    and the sync settings are stored. Audited `sync.pulled` + `sync.joined`.
+//!
+//! Review 6 L-37 — the header write cannot strand the device: the joined header is **staged**
+//! to [`JOIN_TMP`] (0600, fsync) before the apply and renamed over the bootstrap header right
+//! after it. A staging failure stops the join before any row changes; an apply failure binds
+//! the store back and discards the staged file; a rename failure keeps the staged file and the
+//! joined binding, and [`recover_staged_header`] completes the rename at the next start when
+//! the store is bound to the staged header's vault (otherwise the leftover is removed).
 
 use std::sync::Arc;
 
@@ -21,7 +28,7 @@ use mooring_core::credential::{CredentialFields, CredentialKind, SecretName};
 use mooring_core::CredentialId;
 use mooring_store::Store;
 use mooring_sync::{Outcome, SyncEngine};
-use mooring_vault::{Uuid, Vault};
+use mooring_vault::{Header, Uuid, Vault};
 use tauri::{AppHandle, Manager, Runtime, State};
 use zeroize::Zeroizing;
 
@@ -33,6 +40,85 @@ use crate::autolock::AutoLock;
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
 use crate::sync_runner::{emit_status, SyncHub};
+
+/// The staged joined header, next to `vault.header.json` (L-37).
+pub const JOIN_TMP: &str = "vault.header.json.join-tmp";
+
+/// Writes the joined header in two steps (tests inject failures).
+pub trait HeaderWriter: Send + Sync {
+    /// Write `header` to [`JOIN_TMP`] (0600, fsync).
+    fn stage(&self, state: &AppState, header: &Header) -> IpcResult<()>;
+    /// Rename the staged file over the vault header (durable).
+    fn commit(&self, state: &AppState) -> IpcResult<()>;
+}
+
+fn io(what: &'static str) -> IpcError {
+    IpcError::new("state.io", what)
+}
+
+/// The production writer.
+#[derive(Debug, Default)]
+pub struct FsHeaderWriter;
+
+impl HeaderWriter for FsHeaderWriter {
+    fn stage(&self, state: &AppState, header: &Header) -> IpcResult<()> {
+        use std::io::Write;
+        let bytes = header.to_bytes().map_err(|_| io("the joined header could not be encoded"))?;
+        let path = state.data_dir.join(JOIN_TMP);
+        let written = crate::state::create_private(&path).and_then(|mut f| {
+            f.write_all(&bytes)?;
+            f.sync_all()
+        });
+        if let Err(e) = written {
+            tracing::warn!(kind = ?e.kind(), "join: the joined header could not be staged");
+            discard_staged(state);
+            return Err(io("the joined vault header could not be written"));
+        }
+        Ok(())
+    }
+
+    fn commit(&self, state: &AppState) -> IpcResult<()> {
+        let header = state.data_dir.join(AppState::HEADER_FILE);
+        if header.exists() {
+            if let Err(e) = std::fs::copy(&header, state.data_dir.join(AppState::HEADER_BACKUP)) {
+                tracing::debug!(kind = ?e.kind(), "join: header backup skipped");
+            }
+        }
+        std::fs::rename(state.data_dir.join(JOIN_TMP), &header)
+            .map_err(|_| io("the joined vault header could not be installed"))?;
+        crate::state::sync_dir(&state.data_dir);
+        Ok(())
+    }
+}
+
+/// Remove a staged header (a join that failed before the rename).
+pub fn discard_staged(state: &AppState) {
+    if let Err(e) = std::fs::remove_file(state.data_dir.join(JOIN_TMP)) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(kind = ?e.kind(), "join: staged header not removed");
+        }
+    }
+}
+
+/// Start-up (L-37): complete the rename of a staged joined header when `store` is already
+/// bound to its vault (the apply succeeded, the rename did not); otherwise remove the
+/// leftover. Returns the vault to start with.
+pub fn recover_staged_header(data_dir: &std::path::Path, store: &Store, current: Option<Vault>) -> Option<Vault> {
+    let tmp = data_dir.join(JOIN_TMP);
+    let Ok(bytes) = std::fs::read(&tmp) else { return current };
+    let staged = Vault::from_header_bytes(&bytes).ok();
+    let bound = store.vault_id().ok().flatten();
+    let completes = staged.as_ref().is_some_and(|v| bound.as_deref() == Some(v.vault_id().to_string().as_str()));
+    if completes && std::fs::rename(&tmp, data_dir.join(AppState::HEADER_FILE)).is_ok() {
+        crate::state::sync_dir(data_dir);
+        tracing::warn!("join: staged vault header installed at start");
+        return staged;
+    }
+    if let Err(e) = std::fs::remove_file(&tmp) {
+        tracing::warn!(kind = ?e.kind(), "join: stale staged header not removed");
+    }
+    current
+}
 
 /// `vault_join` input (no `Debug`: it carries the master password).
 pub struct JoinInput {
@@ -99,13 +185,25 @@ fn install_credential(vault: &Vault, store: &Store, m: &Material) -> IpcResult<C
     Ok(store.create_credential(vault, &m.0, CredentialKind::S3AccessKey, &m.1, &secrets)?.id)
 }
 
-/// `vault_join`.
+/// `vault_join` with the production header writer.
 pub async fn join(
     state: &AppState,
     hub: &SyncHub,
     prompter: Option<&dyn SyncPrompter>,
     autolock: Option<&AutoLock>,
     input: JoinInput,
+) -> IpcResult<VaultStatus> {
+    join_with(state, hub, prompter, autolock, input, &FsHeaderWriter).await
+}
+
+/// `vault_join` over `writer` (tests inject a failing one).
+pub async fn join_with(
+    state: &AppState,
+    hub: &SyncHub,
+    prompter: Option<&dyn SyncPrompter>,
+    autolock: Option<&AutoLock>,
+    input: JoinInput,
+    writer: &dyn HeaderWriter,
 ) -> IpcResult<VaultStatus> {
     let backend = config::check_backend(&input.backend)?;
     let interval_minutes = config::check_interval(input.interval_minutes)?;
@@ -136,6 +234,8 @@ pub async fn join(
         return Err(IpcError::new("sync.wrong_vault", "the stored header belongs to another vault"));
     }
     joined.unlock(&password)?;
+    // L-37: the joined header is on disk (staged) before any row changes.
+    writer.stage(state, joined.header())?;
     let local = JoinLocal {
         vault: joined,
         store: Arc::clone(&state.store),
@@ -154,12 +254,19 @@ pub async fn join(
     let outcome = match outcome {
         Ok(o) => o,
         Err(e) => {
+            // The store is bound back to the bootstrap vault (`JoinLocal::apply`).
+            discard_staged(state);
             hub.finish(&Err(e.clone()));
             return Err(e);
         }
     };
     let JoinLocal { vault: joined, .. } = local;
-    state.save_header(&joined)?;
+    // The rows are in and the store is bound to the joined vault: install the header. A
+    // failed rename leaves the staged file for `recover_staged_header` at the next start;
+    // this process goes on with the joined vault in memory.
+    if let Err(e) = writer.commit(state) {
+        tracing::error!(code = e.code, "join: the joined header stays staged until the next start");
+    }
     *state.vault()? = Some(joined);
     state.drop_header_backup();
     let id = state.with_ready(|v, s| install_credential(v, s, &boot))?;

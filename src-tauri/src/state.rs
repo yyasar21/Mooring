@@ -232,6 +232,8 @@ impl AppState {
         if store.root_folder()?.is_none() {
             store.create_folder(None, ROOT_FOLDER_NAME)?;
         }
+        // L-37: a join that crashed between the apply and the header rename.
+        let vault = crate::commands::sync_join::recover_staged_header(&data_dir, &store, vault);
         let audit = Arc::new(Mutex::new(audit));
         let secrets =
             Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
@@ -398,7 +400,7 @@ pub fn record_audit(log: &Mutex<AuditLog>, event: AuditEvent) {
     }
 }
 
-fn create_private(path: &Path) -> std::io::Result<File> {
+pub(crate) fn create_private(path: &Path) -> std::io::Result<File> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -410,7 +412,7 @@ fn create_private(path: &Path) -> std::io::Result<File> {
 }
 
 /// Make the rename durable (unix). Best effort: some filesystems refuse a directory fsync.
-fn sync_dir(dir: &Path) {
+pub(crate) fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     if let Err(e) = File::open(dir).and_then(|d| d.sync_all()) {
         tracing::debug!(kind = ?e.kind(), "directory sync skipped");
