@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClipboardPolicy, ConnectionSummary, RdpConnOptions, SessionInput, Size, VncConnOptions } from "../../lib/ipc";
 import { ackSession, useSessions, type Tab } from "../../stores/sessions";
 import { ConnectionBanner } from "./ConnectionBanner";
@@ -58,14 +58,24 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
   const onInput = useCallback((i: SessionInput) => { void input(tab.id, i); }, [input, tab.id]);
   const sid = tab.sessionId;
   const onAck = useCallback((seq: number) => { if (sid) ackSession(sid, seq); }, [sid]);
+  // The size the canvas wants; sent when connected, and again once a (re)connect completes.
+  const wanted = useRef<Size | null>(null);
+  const requestDesktop = useCallback(() => {
+    const d = useSessions.getState().tabs.find((t) => t.id === tab.id);
+    const size = wanted.current;
+    if (!size || d?.state !== "connected" || (d.desktop?.width === size.width && d.desktop.height === size.height)) return;
+    void resize(tab.id, size);
+  }, [resize, tab.id]);
   const onDesktopRequest = useCallback(
     (size: Size) => {
-      const d = useSessions.getState().tabs.find((t) => t.id === tab.id);
-      if (d?.state !== "connected" || (d.desktop?.width === size.width && d.desktop.height === size.height)) return;
-      void resize(tab.id, size);
+      wanted.current = size;
+      requestDesktop();
     },
-    [resize, tab.id],
+    [requestDesktop],
   );
+  useEffect(() => {
+    if (connected) requestDesktop();
+  }, [connected, requestDesktop]);
 
   return (
     <>
