@@ -12,7 +12,7 @@ use mooring_core::session::{SessionInput, Size};
 use mooring_core::{Protocol, ProtocolOptions};
 use mooring_proto_ssh::{SshOptions, SshSession};
 use serde::Serialize;
-use tauri::ipc::{Channel, InvokeResponseBody, JavaScriptChannelId};
+use tauri::ipc::{Channel, JavaScriptChannelId};
 use tauri::{Runtime, State, Webview};
 use time::OffsetDateTime;
 use tokio::sync::oneshot;
@@ -23,6 +23,7 @@ use crate::dto;
 use crate::error::{IpcError, IpcResult};
 use crate::frame_pump::{FrameFlow, FrameOut};
 use crate::graphical_task::{GraphicalTask, Launcher};
+use crate::route::{Route, Sinks};
 use crate::sessions::{self, EventSink, SessionCommand, TaskContext, WireEvent};
 use crate::state::AppState;
 
@@ -95,17 +96,28 @@ pub async fn open_with(
     let protocol = state.with_ready(|_, store| Ok(store.get_connection(id)?.protocol))?;
     let connection = id.to_string();
     let session_id = uuid::Uuid::new_v4().to_string();
+    // ADR-0013: the task writes through the route, so a detached view can take it over.
+    let route = Route::new(Sinks { events: sink, frames: frames.clone() });
     let ctx = TaskContext {
         session_id: session_id.clone(),
         connection_id: connection.clone(),
-        sink,
+        sink: route.event_sink(),
+        route: Arc::clone(&route),
         audit: Arc::clone(&state.audit),
         registry: Arc::clone(&state.sessions),
     };
     let opened_at = dto::ts(OffsetDateTime::now_utc());
     if is_graphical(protocol) {
-        let out = frames.ok_or_else(|| IpcError::invalid("onFrame", "required for rdp and vnc"))?;
-        let task = graphical(state, connection, check_desktop(size)?, protocol, out).await?;
+        if frames.is_none() {
+            return Err(IpcError::invalid("onFrame", "required for rdp and vnc"));
+        }
+        let task = graphical(state, connection, check_desktop(size)?, protocol, route.frame_out())
+            .await?;
+        let control = task.control();
+        route.set_on_switch(Arc::new(move || {
+            control.flow.reset();
+            control.frames.invalidate();
+        }));
         sessions::spawn_graphical(task, ctx, opened_at)?;
         return Ok(Opened { session_id });
     }
@@ -253,11 +265,7 @@ pub async fn session_open<R: Runtime>(
     if webview.label() != crate::navigation::MAIN_WINDOW {
         return Err(IpcError::new("ipc.forbidden", "this window cannot open sessions"));
     }
-    let frames = on_frame.map(|id| {
-        let channel: Channel<InvokeResponseBody> = id.channel_on(webview.clone());
-        let out: FrameOut = Arc::new(move |bytes| channel.send(InvokeResponseBody::Raw(bytes)).is_ok());
-        out
-    });
+    let frames = on_frame.map(|id| crate::commands::detach::frame_channel(&webview, id));
     let sink: EventSink = Arc::new(move |e| on_event.send(e).is_ok());
     open_with(&state, &connection_id, size, sink, frames).await
 }
@@ -282,13 +290,6 @@ pub async fn session_close(state: State<'_, AppState>, session_id: String) -> Ip
 #[tauri::command]
 pub fn session_list(state: State<'_, AppState>) -> IpcResult<Vec<SessionInfo>> {
     list(&state)
-}
-
-/// `window_detach({ sessionId })`: reserved for A2 (ADR-0008); always `ipc.unknown`.
-#[tauri::command]
-pub fn window_detach(session_id: String) -> IpcResult<()> {
-    let _ = session_id;
-    Err(IpcError::new("ipc.unknown", "detaching a session is not available in this version"))
 }
 
 #[cfg(test)]

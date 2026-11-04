@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sftp-pick-local"
+description = "Enables the sftp_pick_local command without any pre-configured scope."
+commands.allow = ["sftp_pick_local"]
+
+[[permission]]
+identifier = "deny-sftp-pick-local"
+description = "Denies the sftp_pick_local command without any pre-configured scope."
+commands.deny = ["sftp_pick_local"]

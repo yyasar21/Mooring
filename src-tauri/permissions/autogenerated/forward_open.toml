@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-forward-open"
+description = "Enables the forward_open command without any pre-configured scope."
+commands.allow = ["forward_open"]
+
+[[permission]]
+identifier = "deny-forward-open"
+description = "Denies the forward_open command without any pre-configured scope."
+commands.deny = ["forward_open"]

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "web",
+  "description": "Remote web content (ADR-0013). Grants nothing and has no remote block: a web-* window can call no Mooring command, core command or plugin. It exists so a test can assert it stays empty.",
+  "windows": ["web-*"],
+  "permissions": []
+}

@@ -16,6 +16,9 @@ pub mod session_graphics;
 pub mod session_input;
 pub mod credential_copy;
 pub mod credentials;
+// ADR-0013 §IPC: detach / attach, web windows.
+pub mod detach;
+pub mod web;
 pub mod sessions;
 pub mod tree;
 pub mod vault;

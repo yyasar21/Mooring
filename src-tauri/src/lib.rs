@@ -24,13 +24,15 @@ test_util_pub!(picks);
 test_util_pub!(autolock);
 // ADR-0011 (A2 R2): generic session task, frame pump, reconnect, RDP/VNC factory hook.
 test_util_pub!(frame_pump, graphical_task, reconnect, session_audit, session_factory, session_task);
+// ADR-0013 (A2 R5): command ACL, web windows, detach routing, lock hiding.
+test_util_pub!(guard, route, web, window_lock);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
 mod golden;
 #[allow(dead_code)]
 mod keyring_store;
-mod navigation;
+pub(crate) mod navigation;
 /// Scripted RDP/VNC session and factory for the graphical tests.
 #[cfg(test)]
 mod test_graphical;
@@ -46,6 +48,8 @@ use crate::commands::{autolock as autolock_cmds, syslog as syslog_cmds};
 use crate::commands::{forward, sftp, sftp_pick, sftp_transfers};
 // ADR-0011 §IPC
 use crate::commands::{conn_options, known_certs, session_graphics};
+// ADR-0013 §IPC
+use crate::commands::{detach, web as web_cmds};
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -70,13 +74,16 @@ pub fn run() {
             // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
             commands::syslog::install_heartbeat(app);
             autolock::install(app);
+            // ADR-0013: web and detached windows hide while the vault is locked.
+            window_lock::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
         // ADR-0010: focus → window_hidden.
         .on_window_event(autolock::on_window_event)
-        // ADR-0010: one hook touches the auto-lock clock before every command.
-        .invoke_handler(with_activity(tauri::generate_handler![
+        // ADR-0013: the label guard (guard/table.rs, also the AppManifest of build.rs), then
+        // the ADR-0010 auto-lock activity hook, before every command.
+        .invoke_handler(guard::with_guard(tauri::generate_handler![
             vault::app_info,
             vault::vault_status,
             vault::vault_create,
@@ -108,10 +115,10 @@ pub fn run() {
             session_cmds::session_send,
             session_cmds::session_close,
             session_cmds::session_list,
-            session_cmds::window_detach,
+            detach::window_detach,
             // ADR-0011 §IPC (A2 R2)
             session_graphics::session_frame_ack,
-            session_graphics::session_attach,
+            detach::session_attach,
             session_graphics::session_screenshot,
             session_graphics::session_set_view_only,
             known_certs::known_certs_list,
@@ -140,6 +147,16 @@ pub fn run() {
             syslog_cmds::syslog_get,
             syslog_cmds::syslog_set,
             syslog_cmds::syslog_test,
+            // ADR-0013 §IPC (A2 R5)
+            web_cmds::web_open,
+            web_cmds::web_close,
+            web_cmds::web_focus,
+            web_cmds::web_reload,
+            web_cmds::web_print,
+            web_cmds::web_clear_data,
+            web_cmds::web_zoom,
+            web_cmds::web_list,
+            detach::window_attach,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");
@@ -153,21 +170,11 @@ pub fn run() {
     });
 }
 
-/// Wrap the generated command dispatcher so every invoke first touches the auto-lock clock.
-fn with_activity<R: tauri::Runtime>(
-    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
-) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
-    move |invoke| {
-        autolock::on_invoke(&invoke);
-        handler(invoke)
-    }
-}
-
 /// Create the app data dir owner-only on unix (review M2): it holds the vault header, the audit
 /// log, `known_hosts` and `mooring.db` (whose own mode is set to 0600 by
 /// `mooring_store::Store::open`). An existing directory is tightened too. Windows relies on the
 /// per-user `AppData` ACL.
-fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};

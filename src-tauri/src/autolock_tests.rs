@@ -288,6 +288,16 @@ fn golden_passive_commands_file_is_in_sync() {
 }
 
 #[test]
+fn focus_of_web_and_detached_windows_counts() {
+    for yes in ["main", "web-0b1e4a77", "detached-7f9c2ba4"] {
+        assert!(tracks_focus(yes), "{yes}");
+    }
+    for no in ["other", "", "Main"] {
+        assert!(!tracks_focus(no), "{no}");
+    }
+}
+
+#[test]
 fn locked_payload_wire_shape() {
     let p = LockedPayload { reason: LockReason::WindowHidden.as_str() };
     assert_eq!(serde_json::to_string(&p).expect("json"), r#"{"reason":"window_hidden"}"#);

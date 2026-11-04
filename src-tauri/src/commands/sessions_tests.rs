@@ -252,7 +252,6 @@ async fn unknown_sessions_and_input_caps() {
     assert_eq!(decode_input(long).expect_err("answer").code, "input.invalid");
     let huge = WireInput::Resize { size: Size { width: 100_000, height: 10 } };
     assert_eq!(decode_input(huge).expect_err("resize").code, "input.invalid");
-    assert_eq!(window_detach("s".into()).expect_err("a2").code, "ipc.unknown");
 }
 
 #[test]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-autolock-set"
+description = "Enables the autolock_set command without any pre-configured scope."
+commands.allow = ["autolock_set"]
+
+[[permission]]
+identifier = "deny-autolock-set"
+description = "Denies the autolock_set command without any pre-configured scope."
+commands.deny = ["autolock_set"]

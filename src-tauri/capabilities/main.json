@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Main window: core IPC only. No file dialog, file system, shell, http or opener permission: the SFTP file pickers are opened from Rust (ADR-0010, security review 4 B-4), so no local path crosses the IPC boundary. Remote web content gets its own window label and capability in Phase A2.",
+  "description": "Main window: core IPC plus every app command (ADR-0013 AppManifest, permission set mooring-main). No file dialog, file system, shell, http or opener permission: the SFTP file pickers are opened from Rust (ADR-0010, security review 4 B-4), so no local path crosses the IPC boundary. Remote web content runs in web-* windows with the empty web capability.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "mooring-main"]
 }

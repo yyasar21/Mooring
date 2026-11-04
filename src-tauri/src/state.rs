@@ -159,6 +159,10 @@ pub struct AppState {
     /// Size of the last `session_screenshot` image put on the OS clipboard: cleared on vault
     /// lock and on exit when still there (remote screen content does not outlive a lock).
     pub screenshot_clipboard: Arc<Mutex<Option<(u32, u32)>>>,
+    /// Open web windows (ADR-0013).
+    pub web: crate::web::WebRegistry,
+    /// Hides / shows the web and detached windows on lock / unlock (ADR-0013).
+    pub lock_observer: crate::window_lock::LockObserver,
 }
 
 /// Errors while loading state at startup.
@@ -218,6 +222,8 @@ impl AppState {
             picks: Picks::default(),
             remote_clipboard: Arc::new(Mutex::new(None)),
             screenshot_clipboard: Arc::new(Mutex::new(None)),
+            web: crate::web::WebRegistry::default(),
+            lock_observer: crate::window_lock::LockObserver::default(),
         })
     }
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-session-set-view-only"
+description = "Enables the session_set_view_only command without any pre-configured scope."
+commands.allow = ["session_set_view_only"]
+
+[[permission]]
+identifier = "deny-session-set-view-only"
+description = "Denies the session_set_view_only command without any pre-configured scope."
+commands.deny = ["session_set_view_only"]

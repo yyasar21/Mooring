@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-web-clear-data"
+description = "Enables the web_clear_data command without any pre-configured scope."
+commands.allow = ["web_clear_data"]
+
+[[permission]]
+identifier = "deny-web-clear-data"
+description = "Denies the web_clear_data command without any pre-configured scope."
+commands.deny = ["web_clear_data"]

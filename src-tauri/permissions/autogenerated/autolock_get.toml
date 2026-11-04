@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-autolock-get"
+description = "Enables the autolock_get command without any pre-configured scope."
+commands.allow = ["autolock_get"]
+
+[[permission]]
+identifier = "deny-autolock-get"
+description = "Denies the autolock_get command without any pre-configured scope."
+commands.deny = ["autolock_get"]
