@@ -40,6 +40,29 @@ impl TestCert {
         })
     }
 
+    /// A leaf for `names` (non-empty) signed by a fresh test CA; returns the leaf and the CA
+    /// certificate as PEM (a connection's `caPem`), for the CA-valid trust row (review 5 M-13).
+    pub fn generate_ca_issued(names: &[&str]) -> Result<(Self, String), rcgen::Error> {
+        use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, DnType, IsCa, KeyPair};
+        let mut ca_params = CertificateParams::new(Vec::<String>::new())?;
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca_params.distinguished_name.push(DnType::CommonName, "Mooring Test CA");
+        let ca = CertifiedIssuer::self_signed(ca_params, KeyPair::generate()?)?;
+        let key = KeyPair::generate()?;
+        let sans: Vec<String> = names.iter().map(|n| (*n).to_owned()).collect();
+        let mut params = CertificateParams::new(sans)?;
+        params
+            .distinguished_name
+            .push(DnType::CommonName, names.first().copied().unwrap_or("leaf"));
+        let leaf = params.signed_by(&key, &ca)?;
+        let cert = Self {
+            cert_der: leaf.der().clone(),
+            key_der: key.serialize_der(),
+            public_key: key.public_key_raw().to_vec(),
+        };
+        Ok((cert, ca.pem()))
+    }
+
     /// DER of the leaf certificate (what a client pins).
     pub fn cert_der(&self) -> &CertificateDer<'static> {
         &self.cert_der

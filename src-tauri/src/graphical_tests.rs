@@ -314,3 +314,30 @@ fn connect_errors_map_to_close_codes() {
         assert_eq!(close_code_of(&IpcError::new(code, "x")), want, "{code}");
     }
 }
+
+fn vnc_connected(conn: &FakeConn, security: &str) {
+    conn.send(SessionEvent::Connected {
+        protocol: Protocol::Vnc,
+        peer_identity: None,
+        security: Some(security.to_owned()),
+    });
+}
+
+#[tokio::test]
+async fn vnc_tls_connect_records_the_tls_seen_marker() {
+    let mut b = bench("vnc");
+    let (mut ui, conn) = open(&mut b).await;
+    let path = b.f.dir.path().join("known_vnc_certs");
+    vnc_connected(&conn, "vnc-auth");
+    expect_kind(&mut ui, "connected").await;
+    assert!(!path.exists(), "plaintext connects record nothing");
+    conn.closed(CloseCode::Network);
+    expect_kind(&mut ui, "reconnecting").await;
+    let second = next_conn(&mut b).await;
+    vnc_connected(&second, "vencrypt-x509");
+    expect_kind(&mut ui, "connected").await;
+    let text = std::fs::read_to_string(&path).expect("marker written");
+    assert_eq!(text.matches(" tls-required - ").count(), 1, "{text}");
+    assert!(KnownCerts::load(&path).expect("load").is_empty(), "a marker, not a pin");
+    sess::close(&b.f.state, &ui.session_id).await.expect("close");
+}

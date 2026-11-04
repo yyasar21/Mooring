@@ -102,13 +102,17 @@ pub(crate) async fn establish(
 }
 
 fn policy(t: &Target, known: &KnownCerts, skip_vencrypt: bool) -> SecPolicy {
-    SecPolicy { security: t.conn.security, pinned: known.has_pin(&t.host, t.port), skip_vencrypt }
+    // M-13: a pin or a "TLS seen" marker (written by the Tauri layer after a CA-valid
+    // VeNCrypt connect) makes TLS mandatory for this host.
+    let pinned = known.tls_expected(&t.host, t.port);
+    SecPolicy { security: t.conn.security, pinned, skip_vencrypt }
 }
 
 fn stripped(t: &Target, known: &KnownCerts, shared: &Shared) -> VncError {
     // `check` with a fingerprint that cannot be pinned returns the stored pin.
     let expected = match known.check(&t.host, t.port, &[0u8; 32]) {
         CertTrust::Mismatch { expected } => display_fingerprint(&expected),
+        _ if known.tls_marked(&t.host, t.port) => "tls-required".to_owned(),
         _ => "pinned".to_owned(),
     };
     shared.audit.push(SessionAudit::CertMismatch {

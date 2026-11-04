@@ -150,6 +150,17 @@ struct Gate {
 }
 
 impl Gate {
+    /// M-13: record that this VNC host negotiated `VeNCrypt` X509, so a later offer without
+    /// it is a `trust_mismatch` even when the certificate was CA-valid (never pinned). The
+    /// Gate stays the single writer of `known_vnc_certs`.
+    fn mark_tls_seen(&self) {
+        match KnownCerts::mark_tls_and_save(&self.path, &self.host, self.port, OffsetDateTime::now_utc()) {
+            Ok(true) => tracing::info!("vnc host marked as TLS-required"),
+            Ok(false) => {}
+            Err(e) => tracing::warn!(error = %e, "TLS-required marker not stored"),
+        }
+    }
+
     fn answer(&self, yes: bool, info: &CertificateInfo) -> End {
         let host = mooring_core::known_certs::host_key(&self.host, self.port);
         let fp = info.display_fingerprint();
@@ -182,6 +193,11 @@ impl Gate {
 
 impl Interceptor for Gate {
     fn on_event(&mut self, event: &SessionEvent) {
+        if let SessionEvent::Connected { security: Some(s), .. } = event {
+            if self.protocol == Protocol::Vnc && s == "vencrypt-x509" {
+                self.mark_tls_seen();
+            }
+        }
         if let SessionEvent::Prompt {
             id,
             purpose: PromptPurpose::CertificateTrust,

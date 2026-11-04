@@ -20,6 +20,7 @@
 //!   `known_certs_parse`).
 
 mod info;
+mod marker;
 
 use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
@@ -36,6 +37,7 @@ pub use info::{
     display_fingerprint, fingerprint, hex, peer_identity, CertProblem, CertificateInfo, MAX_DN,
     MAX_SAN, MAX_SAN_LEN,
 };
+pub use marker::TLS_MARKER;
 
 type HmacSha256 = hmac::Hmac<sha2_next::Sha256>;
 
@@ -154,6 +156,8 @@ struct Entry {
 struct Line {
     text: String,
     entry: Option<Entry>,
+    /// A "TLS seen" marker for this host (M-13, [`marker`]).
+    marker: Option<HostField>,
 }
 
 /// A parsed `known_*_certs` file.
@@ -202,15 +206,16 @@ impl KnownCerts {
                 store.truncated = true;
                 continue;
             };
-            let entry = match parse_line(text) {
-                Parsed::Entry(e) => Some(*e),
-                Parsed::Ignored => None,
+            let (entry, marker) = match parse_line(text) {
+                Parsed::Entry(e) => (Some(*e), None),
+                Parsed::Marker(m) => (None, Some(m)),
+                Parsed::Ignored => (None, None),
                 Parsed::Malformed => {
                     tracing::warn!(line = idx + 1, "known_certs: malformed line; skipped");
-                    None
+                    (None, None)
                 }
             };
-            store.lines.push(Line { text: text.to_owned(), entry });
+            store.lines.push(Line { text: text.to_owned(), entry, marker });
         }
         while store.lines.last().is_some_and(|l| l.text.is_empty()) {
             store.lines.pop();
@@ -287,15 +292,25 @@ impl KnownCerts {
         let text = format!("{raw_host} {KEY_TYPE} {} {added}", BASE64.encode(sha256));
         let entry =
             Entry { host: HostField::Hashed { salt, hash }, raw_host, sha256: *sha256, added };
-        self.lines.push(Line { text, entry: Some(entry) });
+        self.lines.push(Line { text, entry: Some(entry), marker: None });
     }
 
-    /// Remove every pin for `host:port`; returns how many. Comments and other lines stay.
+    /// Remove every pin and "TLS seen" marker for `host:port`; returns how many pins.
+    /// Comments and other lines stay.
     pub fn remove(&mut self, host: &str, port: u16) -> usize {
+        self.remove_lines(host, port).0
+    }
+
+    /// `(pins, markers)` removed.
+    fn remove_lines(&mut self, host: &str, port: u16) -> (usize, usize) {
         let name = host_key(host, port);
+        let pins = self.entries().filter(|e| host_matches(&e.host, &name)).count();
         let before = self.lines.len();
-        self.lines.retain(|l| !l.entry.as_ref().is_some_and(|e| host_matches(&e.host, &name)));
-        before - self.lines.len()
+        self.lines.retain(|l| {
+            !l.entry.as_ref().is_some_and(|e| host_matches(&e.host, &name))
+                && !l.marker.as_ref().is_some_and(|m| host_matches(m, &name))
+        });
+        (pins, before - self.lines.len() - pins)
     }
 
     /// Usable pins in file order.
@@ -359,8 +374,8 @@ impl KnownCerts {
         let lock = path_lock(path);
         let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let mut store = Self::load(path)?;
-        let removed = store.remove(host, port);
-        if removed > 0 {
+        let (removed, markers) = store.remove_lines(host, port);
+        if removed + markers > 0 {
             store.save(path)?;
         }
         Ok(removed)
@@ -375,6 +390,7 @@ fn path_lock(path: &Path) -> Arc<Mutex<()>> {
 
 enum Parsed {
     Entry(Box<Entry>),
+    Marker(HostField),
     Ignored,
     Malformed,
 }
@@ -393,6 +409,10 @@ fn parse_line(line: &str) -> Parsed {
     let Some(host_field) = parse_host(host) else {
         return Parsed::Malformed;
     };
+    if kind == TLS_MARKER {
+        let dated = added.len() <= 64 && OffsetDateTime::parse(added, &Rfc3339).is_ok();
+        return if fp == "-" && dated { Parsed::Marker(host_field) } else { Parsed::Malformed };
+    }
     if kind != KEY_TYPE {
         // A future pin type: kept verbatim, not used.
         return Parsed::Ignored;

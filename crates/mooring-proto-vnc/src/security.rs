@@ -96,7 +96,8 @@ impl SecChoice {
 pub struct SecPolicy {
     /// `options.security`.
     pub security: VncSecurity,
-    /// `known_vnc_certs` holds a pin for this `host:port` (behaves as `require_tls`).
+    /// `known_vnc_certs` holds a pin or a "TLS seen" marker for this `host:port` (behaves as
+    /// `require_tls`, and a missing `VeNCrypt` is a `trust_mismatch`).
     pub pinned: bool,
     /// A previous attempt found no usable `VeNCrypt` subtype (anonymous TLS only); offered
     /// `VeNCrypt` is skipped on the fallback attempt. Never set when TLS is required.
