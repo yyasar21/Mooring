@@ -128,7 +128,12 @@ fn same_rgb(sink: &FrameSink, srv: &RdpHandle) -> bool {
     let fb = srv.framebuffer();
     let (w, h, px) = sink.snapshot();
     (w, h) == (fb.width, fb.height)
-        && px.chunks_exact(4).zip(fb.rgba.chunks_exact(4)).all(|(a, b)| a[..3] == b[..3])
+        && px
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(fb.rgba.as_chunks::<4>().0.iter())
+            .all(|(a, b)| a[..3] == b[..3])
 }
 
 #[tokio::test]

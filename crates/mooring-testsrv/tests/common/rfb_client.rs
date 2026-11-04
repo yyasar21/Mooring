@@ -271,7 +271,7 @@ impl Client {
             0 => {
                 let mut raw = vec![0u8; n * 4];
                 self.io.read_exact(&mut raw).await.map_err(err)?;
-                raw.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+                raw.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p[3] = 255);
                 raw
             }
             1 => {

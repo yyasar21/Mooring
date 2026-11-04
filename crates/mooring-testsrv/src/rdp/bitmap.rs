@@ -64,7 +64,8 @@ fn bitmap_update(fb: &Framebuffer, r: Rect, mode: BitmapMode) -> Result<(Vec<u8>
     let mut buf = vec![0u8; usize::from(r.w) * usize::from(r.h) * 4 * 2 + 1024];
     let (flags, header, len) = if mode == BitmapMode::Planar && r.w.is_multiple_of(4) {
         let mut enc = BitmapStreamEncoder::new(usize::from(r.w), usize::from(r.h));
-        let pixels = rows_up().flat_map(|row| row.chunks_exact(4));
+        let pixels =
+            rows_up().flat_map(|row| row.as_chunks::<4>().0.iter().map(<[u8; 4]>::as_slice));
         let len = enc
             .encode_pixels_stream::<_, RgbAChannels>(pixels, &mut buf, true)
             .map_err(|e| e.to_string())?;
@@ -77,7 +78,7 @@ fn bitmap_update(fb: &Framebuffer, r: Rect, mode: BitmapMode) -> Result<(Vec<u8>
     } else {
         let mut n = 0;
         for line in rows_up() {
-            for px in line.chunks_exact(4) {
+            for px in line.as_chunks::<4>().0 {
                 buf[n..n + 4].copy_from_slice(&[px[2], px[1], px[0], 0xFF]); // BGRX
                 n += 4;
             }

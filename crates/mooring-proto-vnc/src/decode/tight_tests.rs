@@ -112,7 +112,7 @@ fn gradient_filter() {
     let raw = [10, 0, 0, 10, 0, 0, 10, 0, 0, 10, 0, 0];
     let m = basic(&mut Compress::new(Compression::default(), true), 0x40, &[2], &raw);
     let TightOutput::Pixels(px) = decode(&m, 2, 2).expect("d") else { panic!() };
-    let reds: Vec<u8> = px.chunks_exact(4).map(|p| p[0]).collect();
+    let reds: Vec<u8> = px.as_chunks::<4>().0.iter().map(|p| p[0]).collect();
     assert_eq!(reds, vec![10, 20, 20, 40]);
 }
 
