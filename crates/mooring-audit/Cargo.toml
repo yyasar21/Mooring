@@ -19,6 +19,9 @@ time = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+rcgen = { workspace = true }

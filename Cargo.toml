@@ -61,6 +61,10 @@ saphyr-parser = "0.3"                                      # pure-Rust event-lev
 hmac = "0.13"                                              # RFC 6238 TOTP (RustCrypto, already in the tree via russh/proto-ssh)
 sha1 = "0.11"                                              # RFC 6238 TOTP HMAC-SHA1 (the RFC default; already in the tree)
 sha2-next = { package = "sha2", version = "0.11" }         # TOTP HMAC-SHA256/512 + cert fingerprints on digest 0.11 (matches hmac 0.13; already in the tree via ssh-key)
+# audit syslog mirror (ADR-0010 item 5): TLS transport, pure Rust, ring provider only
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] } # RFC 5425 syslog over TLS; rustls is the only allowed TLS stack (ADR-0001)
+rustls-native-certs = "0.8"                                # OS trust store for syslog TLS (enterprise CAs honoured); no C build, platform APIs only
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] } # tests only: self-signed cert for the loopback TLS collector
 # errors / logging
 thiserror = "2"
 tracing = "0.1"
