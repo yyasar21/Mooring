@@ -70,7 +70,7 @@ fn vnc_auth_vectors() {
     // (password -> 0e86ceceeef64e26, abc -> 8646c60000000000).
     let challenge: [u8; 16] = std::array::from_fn(|i| u8::try_from(i).expect("i"));
     assert_eq!(
-        vnc_auth_response(b"password", &challenge),
+        *vnc_auth_response(b"password", &challenge),
         [
             0xb8, 0x66, 0x92, 0x41, 0x25, 0xc8, 0xee, 0xbb, 0x9d, 0xeb, 0xc1, 0xdb, 0x61, 0xc5,
             0x38, 0xe2
@@ -78,7 +78,7 @@ fn vnc_auth_vectors() {
     );
     let challenge: [u8; 16] = std::array::from_fn(|i| u8::try_from(i + 16).expect("i"));
     assert_eq!(
-        vnc_auth_response(b"abc", &challenge),
+        *vnc_auth_response(b"abc", &challenge),
         [
             0x5d, 0x30, 0xc0, 0x9d, 0x60, 0x06, 0x99, 0xfa, 0x6c, 0x8f, 0x4e, 0xe5, 0xf8, 0xfb,
             0xf5, 0x0b

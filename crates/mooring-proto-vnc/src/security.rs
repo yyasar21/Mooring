@@ -169,11 +169,12 @@ pub fn vnc_des_key(password: &[u8]) -> Zeroizing<[u8; 8]> {
     key
 }
 
-/// Encrypt the 16-byte challenge as two DES-ECB blocks with the RFB key.
-pub fn vnc_auth_response(password: &[u8], challenge: &[u8; 16]) -> [u8; 16] {
+/// Encrypt the 16-byte challenge as two DES-ECB blocks with the RFB key. The key schedule
+/// (`des/zeroize`) and the response are wiped on drop (N-29).
+pub fn vnc_auth_response(password: &[u8], challenge: &[u8; 16]) -> Zeroizing<[u8; 16]> {
     let key = vnc_des_key(password);
     let cipher = Des::new(&(*key).into());
-    let mut out = *challenge;
+    let mut out = Zeroizing::new(*challenge);
     for chunk in out.chunks_exact_mut(8) {
         let mut block = des::cipher::Block::<Des>::default();
         block.copy_from_slice(chunk);

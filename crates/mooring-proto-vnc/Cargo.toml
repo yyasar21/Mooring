@@ -24,13 +24,13 @@ rustls-native-certs = { workspace = true }
 # Async TLS over the tokio TCP stream (rustls project, MIT/Apache-2.0/ISC, no unsafe, ring only).
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 # VNC Authentication DES challenge (RustCrypto, MIT OR Apache-2.0, already in the lockfile via russh).
-des = "0.9"
+des = { version = "0.9", features = ["zeroize"] }
 # ZRLE / Tight zlib inflate, used directly so flate2's build-wide C-zlib selection can never
 # reach hostile RFB bytes (review 5 M-15). Pure Rust, forbid(unsafe), MIT OR Apache-2.0 OR Zlib,
 # the same version flate2 already pulls in.
 miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"] }
 # Leaf certificate fields for the TOFU prompt (MIT OR Apache-2.0, forbid(unsafe), already in the lockfile via rcgen).
-x509-parser = "0.18"
+x509-parser = { version = "0.18", default-features = false }
 
 [dev-dependencies]
 # Test-only compressor for ZRLE/Tight vectors (never decodes in the product).

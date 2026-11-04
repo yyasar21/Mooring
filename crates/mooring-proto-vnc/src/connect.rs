@@ -227,7 +227,7 @@ async fn vnc_auth(conn: &mut Conn, cred: &Credential) -> Result<(), VncError> {
         })
         .await?;
     let password = security::vnc_password_bytes(secret)?;
-    send(&mut conn.io, &security::vnc_auth_response(&password, &challenge)).await
+    send(&mut conn.io, &*security::vnc_auth_response(&password, &challenge)).await
 }
 
 async fn upgrade(
