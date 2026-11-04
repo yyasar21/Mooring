@@ -6,6 +6,7 @@
 //! event the task drains the SSH trust events into the audit log. When the session ends, the
 //! task removes itself from the registry and writes `session_closed`.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -13,7 +14,7 @@ use base64::Engine as _;
 use mooring_audit::{AuditEvent, AuditLog};
 use mooring_core::session::{PromptAccount, PromptPurpose, Session, SessionEvent, SessionInput};
 use mooring_core::Protocol;
-use mooring_proto_ssh::{SshSession, TrustEvent};
+use mooring_proto_ssh::{SshControl, SshSession, TrustEvent};
 use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
 
@@ -132,9 +133,16 @@ pub enum SessionCommand {
     Close(oneshot::Sender<()>),
 }
 
+/// Running SFTP transfers of one session: transfer id → cancel signal (ADR-0010).
+pub type Transfers = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
+
 /// Registry entry for one live session.
 #[derive(Debug)]
 pub struct SessionHandle {
+    /// Forwards and SFTP of the session, usable while the task owns the session (ADR-0010).
+    pub control: SshControl,
+    /// Running SFTP transfers; cancelled when the session ends.
+    pub transfers: Transfers,
     /// Command channel to the task.
     pub commands: mpsc::Sender<SessionCommand>,
     /// Connection the session was opened for.
@@ -191,7 +199,10 @@ impl std::fmt::Debug for TaskContext {
 pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcResult<()> {
     let (tx, rx) = mpsc::channel(COMMAND_CAPACITY);
     let phase = Arc::new(AtomicU8::new(Phase::Connecting as u8));
+    let transfers = Transfers::default();
     let mut handle = SessionHandle {
+        control: session.control(),
+        transfers: Arc::clone(&transfers),
         commands: tx,
         connection_id: ctx.connection_id.clone(),
         protocol: Protocol::Ssh,
@@ -204,13 +215,14 @@ pub fn spawn(session: SshSession, ctx: TaskContext, opened_at: String) -> IpcRes
     // Hold the registry lock while spawning so the task cannot remove the entry before it
     // exists (it locks the registry only on exit).
     let mut map = registry.lock().map_err(|_| IpcError::poisoned())?;
-    let task = tokio::spawn(run(session, rx, ctx, phase));
+    let task = tokio::spawn(run(session, rx, ctx, phase, transfers));
     handle.task = Some(task.abort_handle());
     map.insert(id, handle);
     Ok(())
 }
 
-fn audit_trust(audit: &Mutex<AuditLog>, connection: &str, events: Vec<TrustEvent>) {
+/// Write the SSH trust and forward events drained from a session into the audit log.
+pub fn audit_trust(audit: &Mutex<AuditLog>, connection: &str, events: Vec<TrustEvent>) {
     for e in events {
         let (host, fingerprint, decision, expected) = match e {
             TrustEvent::HostKeyAdded { host, port, fingerprint, stored, .. } => {
@@ -236,14 +248,17 @@ fn audit_trust(audit: &Mutex<AuditLog>, connection: &str, events: Vec<TrustEvent
                 record_audit(audit, AuditEvent::BecomeFailed { connection: connection.to_owned() });
                 continue;
             }
-            // Forwards are not exposed over IPC yet; `mooring-audit` gains dedicated
-            // variants when they are (A1 follow-up). Until then they are traced.
+            // ADR-0010: every forward open (with its exposure) and close is audited.
             TrustEvent::ForwardOpened { id, kind, bind, target, exposure } => {
-                tracing::info!(id, kind, bind, target, exposure, "ssh forward opened");
+                let (kind, exposure) = (kind.to_owned(), exposure.to_owned());
+                let connection = connection.to_owned();
+                let event = AuditEvent::ForwardOpened { connection, id, kind, bind, target, exposure };
+                record_audit(audit, event);
                 continue;
             }
             TrustEvent::ForwardClosed { id, kind, bind, target } => {
-                tracing::info!(id, kind, bind, target, "ssh forward closed");
+                let (connection, kind) = (connection.to_owned(), kind.to_owned());
+                record_audit(audit, AuditEvent::ForwardClosed { connection, id, kind, bind, target });
                 continue;
             }
         };
@@ -264,6 +279,7 @@ async fn run(
     mut commands: mpsc::Receiver<SessionCommand>,
     ctx: TaskContext,
     phase: Arc<AtomicU8>,
+    transfers: Transfers,
 ) {
     let mut reason = String::from("session ended");
     let mut closing = false;
@@ -330,6 +346,11 @@ async fn run(
         }
     }
     phase.store(Phase::Closed as u8, Ordering::Relaxed);
+    // Transfers end with their session (each reports `cancelled` and audits itself).
+    let pending: Vec<_> = transfers.lock().map(|mut t| t.drain().collect()).unwrap_or_default();
+    for (_, cancel) in pending {
+        let _ = cancel.send(());
+    }
     audit_trust(&ctx.audit, &ctx.connection_id, session.take_audit_events());
     if let Ok(mut map) = ctx.registry.lock() {
         map.remove(&ctx.session_id);
@@ -394,5 +415,29 @@ mod tests {
         let text = std::fs::read_to_string(&path).expect("read");
         assert!(text.contains(r#""event":"become_failed""#), "{text}");
         assert!(text.contains(r#""connection":"conn-1""#), "{text}");
+    }
+
+    #[test]
+    fn forward_events_are_audited_with_exposure() {
+        let dir = tempfile::tempdir().expect("tmp");
+        let path = dir.path().join("audit.jsonl");
+        let log = Mutex::new(AuditLog::open(&path).expect("open"));
+        let (bind, target) = ("0.0.0.0:8080".to_owned(), "db.example.test:5432".to_owned());
+        let opened = TrustEvent::ForwardOpened {
+            id: "fwd-1".into(),
+            kind: "local",
+            bind: bind.clone(),
+            target: target.clone(),
+            exposure: "external",
+        };
+        let closed = TrustEvent::ForwardClosed { id: "fwd-1".into(), kind: "local", bind, target };
+        audit_trust(&log, "conn-1", vec![opened, closed]);
+        let text = std::fs::read_to_string(&path).expect("read");
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(lines[0].contains(r#""event":"forward_opened""#), "{text}");
+        assert!(lines[0].contains(r#""exposure":"external""#), "{text}");
+        assert!(lines[1].contains(r#""event":"forward_closed""#), "{text}");
+        assert!(AuditLog::verify(&path).expect("verify").ok());
     }
 }

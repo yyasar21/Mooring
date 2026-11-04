@@ -117,6 +117,49 @@ pub enum AuditEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expected: Option<String>,
     },
+
+    // --- ADR-0010 §Port forwarding / §SFTP (rust-core, forward + SFTP IPC) ---
+    /// A port forward started (ADR-0010 `session.forward.open { exposure }`).
+    ForwardOpened {
+        /// Connection id.
+        connection: String,
+        /// Session-local forward id, e.g. `fwd-1`.
+        id: String,
+        /// `local` | `remote` | `dynamic`.
+        kind: String,
+        /// Bound `host:port`.
+        bind: String,
+        /// Target `host:port`, or `socks5`.
+        target: String,
+        /// `loopback` | `external`.
+        exposure: String,
+    },
+    /// A port forward stopped (closed by the user or with its session).
+    ForwardClosed {
+        /// Connection id.
+        connection: String,
+        /// Session-local forward id.
+        id: String,
+        /// `local` | `remote` | `dynamic`.
+        kind: String,
+        /// Bound `host:port`.
+        bind: String,
+        /// Target `host:port`, or `socks5`.
+        target: String,
+    },
+    /// An SFTP transfer ended (ADR-0010 `session.sftp.transfer`). Never file contents.
+    SftpTransfer {
+        /// Connection id.
+        connection: String,
+        /// Transfer id.
+        transfer: String,
+        /// `download` | `upload`.
+        direction: String,
+        /// Bytes moved.
+        bytes: u64,
+        /// `done` | `failed` | `cancelled`.
+        outcome: String,
+    },
 }
 
 /// One line of the log.
@@ -310,6 +353,49 @@ mod tests {
         for (e, name) in cases {
             let v = serde_json::to_value(&e).expect("json");
             assert_eq!(v["event"], name);
+        }
+    }
+
+    #[test]
+    fn forward_and_sftp_events_have_stable_wire_names() {
+        let (c, s) = (|| "x".to_owned(), |v: &str| v.to_owned());
+        let cases = [
+            (
+                AuditEvent::ForwardOpened {
+                    connection: c(),
+                    id: s("fwd-1"),
+                    kind: s("local"),
+                    bind: s("127.0.0.1:1"),
+                    target: s("db.example.test:5432"),
+                    exposure: s("external"),
+                },
+                "forward_opened",
+            ),
+            (
+                AuditEvent::ForwardClosed {
+                    connection: c(),
+                    id: s("fwd-1"),
+                    kind: s("dynamic"),
+                    bind: s("127.0.0.1:1"),
+                    target: s("socks5"),
+                },
+                "forward_closed",
+            ),
+            (
+                AuditEvent::SftpTransfer {
+                    connection: c(),
+                    transfer: s("t"),
+                    direction: s("upload"),
+                    bytes: 7,
+                    outcome: s("done"),
+                },
+                "sftp_transfer",
+            ),
+        ];
+        for (e, name) in cases {
+            let v = serde_json::to_value(&e).expect("json");
+            assert_eq!(v["event"], name);
+            assert_eq!(serde_json::from_value::<AuditEvent>(v).expect("round trip"), e);
         }
     }
 

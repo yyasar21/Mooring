@@ -9,6 +9,7 @@
 //! * `handler` — russh client handler (host-key decision, forwarded channels);
 //!   `auth`/`agent` — login methods
 //! * `channel` — PTY shell pump; `driver` — per-connection task; [`session`] — the front
+//! * [`SshControl`] — forwards and SFTP from tasks that do not own the session
 //! * [`forward`] (+ `forward_io`, [`socks`]) — local / remote / dynamic port forwarding
 //! * [`sftp`] (+ `sftp_transfer`, [`LocalPath`]) — SFTP client on the same connection.
 
@@ -20,6 +21,7 @@ pub mod audit;
 mod auth;
 mod become_;
 mod channel;
+mod control;
 mod driver;
 mod exposure;
 pub mod forward;
@@ -35,6 +37,7 @@ pub mod socks;
 
 pub use audit::{AuthMethod, TrustEvent};
 pub use channel::{MAX_CHUNK, TERM};
+pub use control::SshControl;
 pub use forward::{Exposure, ForwardId, ForwardInfo, ForwardKind};
 pub use handler::ClientHandler;
 pub use known_hosts::{KnownHosts, TrustDecision};
