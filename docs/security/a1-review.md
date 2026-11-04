@@ -385,3 +385,22 @@ The full review is in [a1-review-4.md](a1-review-4.md), filed one review per fil
 - **Low:** L-15..L-18. **Nits:** N-10..N-16.
 - Everything else is approved: forwarding exposure (M-2 cleared), the SFTP fan-out bound (M-3
   cleared), L-7, rustls/ring with no aws-lc, the RFC 5424 formatter, and the QA-F1 fix.
+
+## Review 5 — A2 RDP/VNC (ADR-0011, ADR-0012)
+
+The full review is in [a2-review-5.md](a2-review-5.md). Range `main...a2` (`f85a319`),
+2026-11-04.
+
+**Verdict: `BLOCKER`.**
+- **B-5:** the RDP desktop size from the server reaches `DecodedImage::new` before the 8192²
+  check. A 65535² request is a 17 GiB allocation, which aborts the process under
+  `panic = "unwind"` too. Fix: validate before allocating.
+- **Before the A2 tag:**
+  - M-13: the VNC downgrade guard misses CA-validated servers (`prefer_tls`).
+  - M-14: IronRDP reassembles channel and fast-path fragments without a cap.
+  - M-15: flate2 feature unification inflates hostile VNC zlib with C zlib in the app.
+- **Low:** L-20..L-28. **Nits:** N-23..N-29.
+- Approved: the pin-first verifiers with signature checks, the Tauri gate as the single pin
+  writer, `trusted_once`, NLA-only with Kerberos off, R-RDP-STR, redaction, MFR1, the
+  credit flow, text-only clipboard, `tokio-rustls`, `x509-parser`, the IronRDP set, and
+  `image` for encoding only.

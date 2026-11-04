@@ -61,7 +61,8 @@ In scope:
 - The Mooring desktop application and the crates in this repository.
 - The vault format, its cryptography and the `age` export.
 - The IPC boundary between the WebView and the Rust core, capabilities and CSP.
-- Protocol parsers (SSH today; RDP, VNC and others as they land).
+- Protocol parsers (SSH; RDP through IronRDP and our TLS/CredSSP layer; our VNC/RFB client;
+  others as they land), the certificate trust stores and the frame path to the UI.
 - Release artefacts, signatures, SBOMs and provenance, the release workflows
   (`.github/workflows/release*.yml`, `scripts/release/`) and the update channel (from v0.1.0).
 - Credential import parsers (kubeconfig, PEM, OpenSSH keys and certificates, TOTP seeds).
@@ -102,6 +103,30 @@ Out of scope:
 
 A plain-language overview is in
 [Vault and security model](docs/user-guide/vault-and-security.md).
+
+## Server certificates for RDP and VNC
+
+RDP (TLS + NLA) and VNC (VeNCrypt X509) check the server certificate the way SSH checks host
+keys: trust on first use.
+- A certificate that validates against the operating system's roots, or the connection's own
+  CA (`caPem`), is accepted and not pinned, so a routine reissue does not stop a connection.
+- Any other certificate is shown to you before anything is sent (subject, issuer, validity,
+  SHA-256, problems). Accepting it pins its SHA-256 for that `host:port` in
+  `known_rdp_certs` / `known_vnc_certs` in the app data directory. Pins are hashed and mode
+  0600, but they are **not** in the vault.
+- A pinned host that presents a different certificate is a hard stop
+  ("CERTIFICATE CHANGED"). There is no "connect anyway". To accept a new certificate you remove
+  the pin explicitly, and both steps are recorded in the audit log.
+- A pin never replaces the TLS signature check.
+- For VNC, a pinned host must use TLS from then on: a server or network that suddenly offers no
+  TLS is refused ("TLS EXPECTED").
+- VNC connections default to `prefer_tls`, which falls back to an unencrypted session when the
+  server has no usable TLS. Such a session carries an "Unencrypted" badge and is audited. With
+  VNC authentication, the password response can then be recorded and cracked offline. Use
+  `require_tls` wherever the server supports it.
+
+Open hardening items for these protocols are tracked in
+[review 5](docs/security/a2-review-5.md).
 
 ## Syslog mirror
 
