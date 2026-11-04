@@ -68,7 +68,7 @@ fn parse_header(buf: &[u8], w: u16, h: u16) -> PResult<Header> {
         1 => {
             let n = usize::from(take!(r.u8())) + 1;
             let raw = take!(r.bytes(n * 3));
-            let palette: Vec<[u8; 3]> = raw.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+            let palette: Vec<[u8; 3]> = raw.as_chunks::<3>().0.to_vec();
             let size = if n == 2 { w.div_ceil(8) * h } else { w * h };
             (Filter::Palette(palette), size)
         }
@@ -139,8 +139,8 @@ pub fn decode_tight(
     let mut px = vec![0u8; w * h * 4];
     match filter {
         Filter::Copy => {
-            for (i, c) in raw.chunks_exact(3).enumerate() {
-                put_cpixel(&mut px, i, [c[0], c[1], c[2]]);
+            for (i, c) in raw.as_chunks::<3>().0.iter().enumerate() {
+                put_cpixel(&mut px, i, *c);
             }
         }
         Filter::Palette(palette) => {

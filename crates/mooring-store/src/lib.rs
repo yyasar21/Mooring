@@ -25,8 +25,8 @@ mod options;
 mod roles;
 pub mod schema;
 mod search;
-mod sync_rows;
 mod secret_sources;
+mod sync_rows;
 #[doc(hidden)]
 pub mod testing;
 mod util;
