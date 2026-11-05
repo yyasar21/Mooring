@@ -197,9 +197,13 @@ flowchart LR
   Tauri --> Store["mooring-store<br/>SQLite · sealed columns · FTS5"]
   Tauri --> Audit["mooring-audit<br/>hash-chained log"]
   Tauri --> SSH["mooring-proto-ssh<br/>russh · TOFU · SFTP · forwarding"]
-  Tauri -.-> RDP["mooring-proto-rdp / vnc<br/>(A2)"]
-  Store --> Core["mooring-core<br/>model · tree · Session trait"]
+  Tauri --> RDP["mooring-proto-rdp / vnc<br/>IronRDP · own RFB 3.8 · TOFU"]
+  Tauri --> Kube["mooring-proto-kube<br/>read-only guard · exec · logs"]
+  Tauri --> Infra["mooring-vsphere · mooring-secrets · mooring-sync<br/>vCenter REST · Vault KV v2 · MSY1 → S3"]
+  Infra --> HTTP["mooring-http<br/>hyper · rustls · pinned trust"]
+  Store --> Core["mooring-core<br/>model · tree · frame · Session trait"]
   SSH --> Core
+  RDP --> Core
 ```
 
 The UI is treated as untrusted: it calls a fixed set of validated commands and never receives
@@ -210,7 +214,8 @@ a secret. Read the [architecture overview](docs/developer-guide/architecture.md)
 - Threat model: [docs/security/threat-model.md](docs/security/threat-model.md) (attackers,
   STRIDE mitigations, accepted risks).
 - Decisions: [docs/adr/](docs/adr/) — vault cryptography, trust boundaries, storage, SSH trust,
-  IPC contract, credential model.
+  IPC contract, credential model, RDP/VNC, web sessions, Kubernetes, vSphere, external secrets,
+  vault sync.
 - Reviews: [docs/security/](docs/security/) — every phase ends with a written security review.
 - Plain-language summary: [Vault and security model](docs/user-guide/vault-and-security.md).
 - Reporting a vulnerability: [SECURITY.md](SECURITY.md). Please do not open public issues.
