@@ -14,11 +14,13 @@ administer. Open source, cross-platform, built in Rust.**
 
 ![Mooring with two SSH sessions open: connection tree on the left, terminal in the middle, host details and the linked credential on the right](docs/assets/hero.png)
 
-> **Project status: pre-release (Phase A1 complete).** The encrypted vault, connection tree,
-> typed credentials, SSH terminal with host-key verification, port forwarding, SFTP, auto-lock,
-> the audit log and its syslog mirror work today. RDP, VNC, web, Kubernetes and vSphere sessions
-> are on the [roadmap](docs/roadmap.md). Pre-release builds are on the
-> [releases page](https://github.com/yyasar21/Mooring/releases); the first stable release is v0.1.0.
+> **Project status: pre-release (Phases A1–A3 complete; A4 = release v0.1.0 in progress).**
+> The encrypted vault, connection tree, typed credentials, SSH / RDP / VNC / isolated web
+> sessions, read-only Kubernetes sessions, vSphere inventory sync with VM power and consoles,
+> HashiCorp Vault / OpenBao secret references, encrypted vault sync to S3, auto-lock, the audit
+> log and its syslog mirror all work on `main` and have passed six security reviews. Signed
+> installers, importers and the auto-updater are on the [roadmap](docs/roadmap.md) for v0.1.0.
+> Pre-release builds are on the [releases page](https://github.com/yyasar21/Mooring/releases).
 
 ## Contents
 
@@ -77,7 +79,7 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | Organise | Credential inheritance down the folder tree, per-connection override | ✅ |
 | Organise | Command palette to open any connection by name, host or tag | ✅ |
 | Credentials | Password, SSH key (+ passphrase), certificate | ✅ |
-| Credentials | Typed model with 15 kinds (domain users, agent, kubeconfig, tokens, TOTP…) | ✅ [ADR-0009](docs/adr/0009-credential-model.md) |
+| Credentials | Typed model with 17 kinds (domain users, agent, kubeconfig, tokens, TOTP, Vault AppRole, S3 access key, external references…) | ✅ [ADR-0009](docs/adr/0009-credential-model.md) |
 | Credentials | Copy password to clipboard, cleared after 30 s and on lock, audited | ✅ |
 | SSH | Terminal (xterm.js + WebGL), resize, streaming | ✅ |
 | SSH | Password, public key, keyboard-interactive, ssh-agent authentication | ✅ |
@@ -87,17 +89,18 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | Audit | Hash-chained audit log with in-app viewer and chain verification | ✅ |
 | Audit | RFC 5424 syslog mirror (UDP/TCP/TLS) with chain hash, heartbeat and redirect audit | ✅ |
 | UI | Three-pane layout, tabs, dark and light themes, keyboard-first | ✅ |
-| UI | Detach a tab into its own window | 🗓 A2 |
-| RDP | IronRDP with NLA/CredSSP, certificate TOFU, dynamic resolution, clipboard | 🗓 A2 |
-| VNC | RFB 3.8, Tight/ZRLE, VeNCrypt TLS, view-only mode | 🗓 A2 |
-| Web | Isolated web sessions per connection with their own permissions | 🗓 A2 |
-| vSphere | Inventory import, VM console, power state | 🗓 A3 |
-| Kubernetes | Contexts from kubeconfig, pod `exec` shells, logs, port-forward (read-only) | 🗓 A3 |
-| Integrations | External secret references (HashiCorp Vault / OpenBao), encrypted vault sync | 🗓 A3 |
+| UI | Detach a tab into its own window | ✅ |
+| RDP | IronRDP with NLA/CredSSP, certificate TOFU, dynamic resolution, clipboard | ✅ [ADR-0011](docs/adr/0011-rdp-vnc-sessions.md) |
+| VNC | RFB 3.8, Tight/ZRLE, VeNCrypt TLS, view-only mode | ✅ |
+| Web | Isolated web sessions per connection (own window, partitioned storage, navigation policy) | ✅ [ADR-0013](docs/adr/0013-web-sessions.md) |
+| vSphere | Inventory sync into a read-only folder, scheduled refresh, VM power state and opt-in power actions, vSphere Client / VMRC consoles | ✅ [ADR-0015](docs/adr/0015-vsphere-integration.md) |
+| Kubernetes | Contexts from kubeconfig or token, pod browser with live watch, RBAC self-review, `exec` shells, logs, port-forward — a closed read-only route list | ✅ [ADR-0014](docs/adr/0014-kubernetes-sessions.md) |
+| Integrations | HashiCorp Vault / OpenBao secret sources (token, AppRole, OIDC) with `external_ref` credentials resolved at connect time | ✅ [ADR-0016](docs/adr/0016-external-secrets.md) |
+| Integrations | Encrypted vault sync to S3-compatible storage (three-way merge, fork/rollback hard stops, join flow) | ✅ [ADR-0017](docs/adr/0017-vault-sync-and-signin.md) |
 | Import | Royal TS, Termius, mRemoteNG, PuTTY sessions | 🗓 A4 |
 | Release | dmg/pkg, exe/msi, deb with cosign-signed checksums, SBOM and provenance | ✅ pre-release |
 | Release | Code-signed installers, Homebrew tap, auto-update | 🗓 A4 |
-| QA | cargo-fuzz targets (known_hosts, kubeconfig, vault header, age import, SOCKS5) + nightly | ✅ |
+| QA | 37 cargo-fuzz targets (protocol parsers, kubeconfig, Vault/vCenter/S3 responses, sync blobs) + nightly | ✅ |
 
 ## How Mooring compares
 
@@ -114,9 +117,9 @@ November 2026. Check the vendor's site for current details.
 | Linux | ✅ | — | ✅ | — | ✅ |
 | Mobile | — | ✅ | ✅ | — | ✅ |
 | SSH | ✅ | ✅ | ✅ | ✅ | ✅ |
-| RDP / VNC | 🗓 A2 | ✅ | ✅ | ✅ | — |
-| VMware vSphere console | 🗓 A3 | ✅ | ✅ | — | — |
-| Team sharing | 🗓 (sync in A3) | ✅ | ✅ | Via shared file | ✅ |
+| RDP / VNC | ✅ | ✅ | ✅ | ✅ | — |
+| VMware vSphere console | ✅ | ✅ | ✅ | — | — |
+| Team sharing | Encrypted multi-device sync (S3) | ✅ | ✅ | Via shared file | ✅ |
 | Public source code | ✅ | — | — | ✅ | — |
 | Public threat model and security reviews | ✅ | — | — | — | — |
 
