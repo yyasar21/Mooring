@@ -45,6 +45,9 @@ design constraint, not an afterthought:
   (memory cost calibrated to your machine, about 500 ms per unlock). The resulting key wraps
   a random data key, and every secret field is sealed separately with
   **XChaCha20-Poly1305**. ([ADR-0002](docs/adr/0002-vault-cryptography.md))
+- **Or keep secrets out of Mooring entirely.** Point a credential at **HashiCorp Vault or
+  OpenBao** and Mooring reads the password, SSH key or kubeconfig at connect time, holds it only
+  for the handshake and never writes it anywhere. ([setup guide](docs/user-guide/external-secrets.md))
 - **Per-field AEAD.** Each sealed value is bound to its record and field name. A secret
   copied into another row or column fails to decrypt instead of leaking.
 - **Tamper-evident audit log.** Unlocks, locks, credential use, password copies, host-key
@@ -95,7 +98,7 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | Web | Isolated web sessions per connection (own window, partitioned storage, navigation policy) | ✅ [ADR-0013](docs/adr/0013-web-sessions.md) |
 | vSphere | Inventory sync into a read-only folder, scheduled refresh, VM power state and opt-in power actions, vSphere Client / VMRC consoles | ✅ [ADR-0015](docs/adr/0015-vsphere-integration.md) |
 | Kubernetes | Contexts from kubeconfig or token, pod browser with live watch, RBAC self-review, `exec` shells, logs, port-forward — a closed read-only route list | ✅ [ADR-0014](docs/adr/0014-kubernetes-sessions.md) |
-| Integrations | HashiCorp Vault / OpenBao secret sources (token, AppRole, OIDC) with `external_ref` credentials resolved at connect time | ✅ [ADR-0016](docs/adr/0016-external-secrets.md) |
+| Integrations | **Bring your own secret manager**: HashiCorp Vault / OpenBao (KV v2; token, AppRole or OIDC sign-in) — a connection's password, key or kubeconfig is fetched at connect time and never stored in Mooring ([setup guide](docs/user-guide/external-secrets.md)) | ✅ [ADR-0016](docs/adr/0016-external-secrets.md) |
 | Integrations | Encrypted vault sync to S3-compatible storage (three-way merge, fork/rollback hard stops, join flow) | ✅ [ADR-0017](docs/adr/0017-vault-sync-and-signin.md) |
 | Import | Royal TS, Termius, mRemoteNG, PuTTY sessions | 🗓 A4 |
 | Release | dmg/pkg, exe/msi, deb with cosign-signed checksums, SBOM and provenance | ✅ pre-release |
