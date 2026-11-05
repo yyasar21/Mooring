@@ -19,6 +19,9 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "zvariant via keyring secret-service backend; keyring unlock not wired yet" },
   { id = "RUSTSEC-2026-0371", reason = "zbus_names via keyring secret-service backend; keyring unlock not wired yet" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via keyring secret-service backend; keyring unlock not wired yet" },
+  # pin-utils (unmaintained, no vulnerability): transitive via IronRDP -> sspi -> async-dnssd, which only
+  # does DNS-SD on macOS for Kerberos discovery; Mooring never calls it. Upstream: Devolutions/sspi-rs.
+  { id = "RUSTSEC-2026-0441", reason = "pin-utils via ironrdp-connector -> sspi -> async-dnssd (mDNS helper, unused)" },
 ]
 
 [licenses]
