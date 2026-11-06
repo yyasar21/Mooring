@@ -29,6 +29,12 @@ minor version may contain breaking changes; they are called out under **Changed*
   reproducible-build check for the Rust crates, and a separate updater-signing job that runs in
   a protected GitHub environment.
 
+### Changed
+
+- Syslog mirror structured-data element is now `[mooring@67553 …]`: 67553 is the Private
+  Enterprise Number IANA assigned to the Mooring Project on 2026-11-06. Collectors that
+  matched the interim RFC 5612 documentation number `32473` must update their rules.
+
 ### Security
 
 - Security review 7 ([docs/security/a4-review-7.md](docs/security/a4-review-7.md)): APPROVE

@@ -185,7 +185,7 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Tampering: vault header (T1) | Header v2 is AAD of the DEK wrap, including `vault_id` and `keyring_wrap`; v1 AAD unchanged; v1↔v2 relabel fails; KDF floor on read | A0 ✓ / A1 ✓ |
 | Tampering: sealed fields (T1) | XChaCha20-Poly1305 per field, random 24 B nonce, AAD = record id ‖ 0x1F ‖ field; store binds credential id + column (row/column swap → `Tampered`) | A0 ✓ / A1 ✓ |
 | Tampering: keyring wrap (T1, T2) | Second wrap's AAD = header AAD (without wrap) ‖ 0x1F ‖ `keyring`; bound to KDF params, salt, vault id; enable/disable need master password | A1 ✓ (B1 fixed; OS commands on HOLD per R-T2-KR) |
-| Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; optional RFC 5424 mirror (`[mooring@… seq hash]`, the hash is the next entry's `prev`) over TLS/TCP/UDP, bounded non-blocking queue, drops counted; enable/disable/change audited with the host | A1 ✓ mirror (review 4); L-17, L-18 (start entry + hourly heartbeat), N-12 (`mooring@32473` until the PEN), N-13 ✓ (re-review). Open: registered IANA PEN before the first public release |
+| Tampering: audit log (T1, T2) | SHA-256 hash chain, `verify()`; file 0600; optional RFC 5424 mirror (`[mooring@… seq hash]`, the hash is the next entry's `prev`) over TLS/TCP/UDP, bounded non-blocking queue, drops counted; enable/disable/change audited with the host | A1 ✓ mirror (review 4); L-17, L-18 (start entry + hourly heartbeat), N-12 ✓ (`mooring@67553`, IANA PEN assigned 2026-11-06), N-13 ✓ (re-review) |
 | Repudiation | Audit entries for vault + credential + session + trust events; `vault.lock` carries `reason ∈ {user, idle, screen_lock, sleep, window_hidden}` | A0 ✓ / A1 partial (lock reasons ✓; keyring/export/credential events with wiring) |
 | Information disclosure: secrets in UI/logs (T5) | Credential ids only over IPC; hand-written `Debug`; error variants carry fixed strings, never values; `mooring_audit::redact` on sinks; no `println!` (lint); `SessionInput::Answer` is redacted in `Debug` and `Serialize` and is a `SecretString` end to end; IPC DTOs have no secret field (tested) | A0 ✓ / A1 ✓ |
 | Information disclosure: RDP/VNC credentials in flight (T2, T3) | Vault → `SecretString` → IronRDP `String` only right before `connect_finalize`; activation factory rebuilt without the password; `creds` dropped after NLA; re-resolved from the vault on each reconnect. VNC: DES key in `Zeroizing`, `X509Plain` only inside TLS, `vnc_user_password` never sent outside TLS. Key/Unicode input redacted in `Debug` | A2 ✓ with R-RDP-STR. L-24 ✓ (CredSSP/sspi targets pinned at `info`; N-38 span directives to check; user-guide note owed), N-29 ✓; plaintext VNC auth under R-VNC-PLAIN |
@@ -437,8 +437,8 @@ and no elevation. `wg show` reads only public keys, endpoints and counters; Moor
     start entry for a disabled or deleted config reaches only the local chain, which T2 can
     rewrite;
   - `dropped` is a lower bound.
-- **SD-ID.** `mooring@32473` (RFC 5612 documentation PEN) until Mooring's IANA PEN is assigned
-  (N-12 ✓); switch before the first public release.
+- **SD-ID.** `mooring@67553` — the Mooring Project's IANA PEN, assigned 2026-11-06 (N-12 ✓; the
+  RFC 5612 documentation number 32473 was used before v0.1.0).
 
 ### R-SFTP-LOCAL — local files reachable through SFTP (accepted, A1 exit)
 With B-4 fixed (re-review), the residual risk is this: a user who picks a folder can be

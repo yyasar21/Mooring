@@ -1,11 +1,11 @@
 //! RFC 5424 rendering of an [`AuditEntry`].
 //!
 //! ```text
-//! <PRI>1 TIMESTAMP HOSTNAME mooring PROCID MSGID [mooring@32473 seq="N" hash="H" trunc="1"? redacted="1"?] MSG
+//! <PRI>1 TIMESTAMP HOSTNAME mooring PROCID MSGID [mooring@67553 seq="N" hash="H" trunc="1"? redacted="1"?] MSG
 //! ```
 //!
-//! * `SD-ID` uses 32473, the RFC 5612 documentation enterprise number, until Mooring's own
-//!   IANA PEN is assigned (review 4, N-12); it is not part of the hashed entry.
+//! * `SD-ID` uses 67553, the Private Enterprise Number IANA assigned to the Mooring Project
+//!   on 2026-11-06 (review 4, N-12); it is not part of the hashed entry.
 //!
 //! * `PRI` = facility × 8 + severity (notice, or warning for trust changes/refusals).
 //! * `TIMESTAMP` is the entry's UTC time with microseconds (RFC 5424 allows at most six digits).
@@ -32,7 +32,7 @@ use crate::redact;
 /// `APP-NAME`.
 pub const APP_NAME: &str = "mooring";
 /// `SD-ID` of the structured-data element.
-pub const SD_ID: &str = "mooring@32473";
+pub const SD_ID: &str = "mooring@67553";
 /// Largest message produced (header + SD + MSG). Fits common collector limits for TCP/TLS;
 /// UDP receivers must accept 2048 (RFC 5426) and in practice accept this too.
 pub const MAX_MESSAGE: usize = 8192;
@@ -183,7 +183,7 @@ mod tests {
         let got = format_entry(&e, 13, "ws01.example.test", 4242);
         let want = format!(
             "<109>1 2026-11-04T10:20:30.123456Z ws01.example.test mooring 4242 vault_locked \
-             [mooring@32473 seq=\"7\" hash=\"{}\"] \
+             [mooring@67553 seq=\"7\" hash=\"{}\"] \
              {{\"seq\":7,\"at\":\"2026-11-04T10:20:30.123456789Z\",\"prev\":\"{}\",\"event\":\"vault_locked\",\"reason\":\"idle\"}}",
             e.digest(),
             "0".repeat(64)
@@ -240,11 +240,11 @@ mod tests {
             },
         );
         let got = format_entry(&e, 4, "-", 1);
-        assert!(got.starts_with("<36>1 2026-11-04T10:20:30.123456Z - mooring 1 trust_decision [mooring@32473 seq=\"1\" hash=\""), "{got}");
+        assert!(got.starts_with("<36>1 2026-11-04T10:20:30.123456Z - mooring 1 trust_decision [mooring@67553 seq=\"1\" hash=\""), "{got}");
         let at = OffsetDateTime::from_unix_timestamp(0).expect("epoch");
         assert_eq!(
             format_test(1, "h", 9, at),
-            "<13>1 1970-01-01T00:00:00.000000Z h mooring 9 test [mooring@32473 seq=\"0\" hash=\"-\"] {\"event\":\"syslog_test\"}"
+            "<13>1 1970-01-01T00:00:00.000000Z h mooring 9 test [mooring@67553 seq=\"0\" hash=\"-\"] {\"event\":\"syslog_test\"}"
         );
     }
 
@@ -271,7 +271,7 @@ mod tests {
         assert!(!got.contains("hunter2") && !got.contains("abc.def"), "{got}");
         assert!(got.contains(" evilhostname] mooring "), "hostname reduced to PRINTUSASCII");
         // the structured-data element is intact and closes before MSG
-        let sd = format!("[mooring@32473 seq=\"3\" hash=\"{}\" redacted=\"1\"] {{", e.digest());
+        let sd = format!("[mooring@67553 seq=\"3\" hash=\"{}\" redacted=\"1\"] {{", e.digest());
         assert!(got.contains(&sd), "{got}");
     }
 
