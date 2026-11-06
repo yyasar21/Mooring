@@ -7,8 +7,10 @@
 #   scripts/release/verify-release.sh v0.1.0 --allow-unlisted   # manual: extra files only warn
 #
 # Checks, in order:
-#   1. SHA256SUMS is signed by the release workflow of that repo at that tag
-#      (cosign keyless: Sigstore certificate identity + GitHub OIDC issuer, Rekor entry).
+#   1. SHA256SUMS is signed by the release workflow of that repo at the tag ref
+#      (cosign keyless: certificate identity release.yml@refs/tags/<tag>, GitHub OIDC issuer,
+#      Rekor entry). A signature from refs/heads/main is refused. The signing run (workflow
+#      commit, source commit, run URL) is printed from the certificate.
 #   2. Every file listed in SHA256SUMS matches its hash.
 #   3. No file on the release is left out of SHA256SUMS (unless --allow-unlisted).
 #   4. GitHub build-provenance attestation per artifact (when `gh attestation` exists).
@@ -30,7 +32,7 @@ ARGS=()
 for a in "$@"; do
   case "$a" in
     --allow-unlisted) ALLOW_UNLISTED=1 ;;
-    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
     -*) echo "error: unknown option $a" >&2; exit 1 ;;
     *) ARGS+=("$a") ;;
   esac
@@ -38,7 +40,7 @@ done
 ((${#ARGS[@]} <= 2)) || { echo "error: too many arguments" >&2; exit 1; }
 TAG="${ARGS[0]:-}"
 REPO="${ARGS[1]:-yyasar21/Mooring}"
-[[ -z "$TAG" ]] && { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+[[ -z "$TAG" ]] && { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "error: tag must look like v1.2.3" >&2; exit 1; }
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "error: repo must be owner/name" >&2; exit 1; }
 
@@ -58,17 +60,66 @@ for f in SHA256SUMS SHA256SUMS.sigstore.json; do
   [[ -f "$f" ]] || { echo "error: release has no $f" >&2; exit 1; }
 done
 
-# Tag pushes sign as ...release.yml@refs/tags/<tag>; a manual re-run (workflow_dispatch) signs
-# as ...release.yml@refs/heads/main. Accept exactly those two, nothing else.
+# The signer must be the release workflow *at the tag ref* (N-58): a push of the tag, or a
+# workflow_dispatch started from the tag. `refs/heads/main` is not accepted: anything merged
+# to main later could otherwise re-sign an older tag's SHA256SUMS through a re-run.
 REPO_RE="${REPO//./\\.}"
 TAG_RE="${TAG//./\\.}"
-IDENTITY_RE="^https://github\\.com/${REPO_RE}/\\.github/workflows/release\\.yml@refs/(tags/${TAG_RE}|heads/main)\$"
+IDENTITY_RE="^https://github\\.com/${REPO_RE}/\\.github/workflows/release\\.yml@refs/tags/${TAG_RE}\$"
 ISSUER="https://token.actions.githubusercontent.com"
-echo "==> cosign: SHA256SUMS signed by $REPO release.yml for $TAG"
+echo "==> cosign: SHA256SUMS signed by $REPO release.yml at refs/tags/$TAG"
 cosign verify-blob SHA256SUMS \
   --bundle SHA256SUMS.sigstore.json \
   --certificate-identity-regexp "$IDENTITY_RE" \
   --certificate-oidc-issuer "$ISSUER"
+
+# Show which run signed: the Fulcio certificate's Sigstore extensions (build signer URI and
+# digest = workflow file and its commit, source repository digest = the commit that was built,
+# run invocation URI). Informational, parsed from the bundle with python -I; cosign above is
+# the check. The source commit is compared with the tag's commit when `gh` can resolve it.
+SIGNER_INFO=$(python3 -I - SHA256SUMS.sigstore.json <<'PY' 2>/dev/null || true
+import base64, json, re, sys
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+vm = doc.get("verificationMaterial") or {}
+raw = (vm.get("certificate") or {}).get("rawBytes")
+if not raw:
+    chain = (vm.get("x509CertificateChain") or {}).get("certificates") or []
+    raw = chain[0].get("rawBytes") if chain else None
+if not raw:
+    sys.exit(0)
+der = base64.b64decode(raw)
+def ext(n):  # value of extension OID 1.3.6.1.4.1.57264.1.<n> (DER-wrapped UTF8String)
+    oid = b"\x06\x0a\x2b\x06\x01\x04\x01\x83\xbf\x30\x01" + bytes([n])
+    i = der.find(oid)
+    if i < 0:
+        return ""
+    i += len(oid)
+    if der[i] != 0x04:
+        return ""
+    i += 2 if der[i + 1] < 0x80 else 2 + (der[i + 1] & 0x7F)
+    if der[i] != 0x0C:
+        return ""
+    ln = der[i + 1]
+    if ln < 0x80:
+        i += 2
+    else:
+        k = ln & 0x7F; ln = int.from_bytes(der[i + 2:i + 2 + k], "big"); i += 2 + k
+    v = der[i:i + ln].decode("utf-8", "replace")
+    return v if re.fullmatch(r"[\x20-\x7e]+", v) else ""
+for label, n in (("identity", 9), ("workflow-commit", 10), ("source-commit", 13), ("run", 21)):
+    v = ext(n)
+    if v:
+        print(f"{label} {v}")
+PY
+)
+if [[ -n "$SIGNER_INFO" ]]; then
+  while read -r k v; do printf '  %-16s %s\n' "$k:" "$v"; done <<<"$SIGNER_INFO"
+  SOURCE_COMMIT=$(awk '$1 == "source-commit" {print $2}' <<<"$SIGNER_INFO")
+  TAG_COMMIT=$(gh api "repos/$REPO/commits/$TAG" --jq .sha 2>/dev/null || true)
+  if [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ && "$TAG_COMMIT" =~ ^[0-9a-f]{40}$ && "$SOURCE_COMMIT" != "$TAG_COMMIT" ]]; then
+    echo "warning: SHA256SUMS was signed from commit $SOURCE_COMMIT but $TAG now points at $TAG_COMMIT (tag moved?)" >&2
+  fi
+fi
 
 echo "==> sha256: every listed artifact"
 "${SHACHECK[@]}" SHA256SUMS

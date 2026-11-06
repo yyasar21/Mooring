@@ -62,9 +62,11 @@ jobs:
           version="${BASH_REMATCH[1]}"
           mkdir sums && cd sums
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS -p SHA256SUMS.sigstore.json
+          # Same identity rule as scripts/release/verify-release.sh (N-58): release.yml at the
+          # tag ref, never a branch.
           repo_re="${GITHUB_REPOSITORY//./\\.}"; tag_re="${TAG//./\\.}"
           cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-            --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/(tags/${tag_re}|heads/main)\$" \
+            --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/tags/${tag_re}\$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
           sha() { awk -v f="$1" '{n=$2; sub(/^\*/,"",n)} n==f {print $1}' SHA256SUMS; }
           arm=$(sha "Mooring_${version}_aarch64.dmg"); intel=$(sha "Mooring_${version}_x64.dmg")
