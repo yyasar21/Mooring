@@ -148,3 +148,15 @@ Codes: `import.too_large`, `import.format`, `import.encrypted`, `import.doctype`
 - Integration: apply is all-or-nothing (inject a failure mid-transaction); `planId` single use
   and dropped on lock; an LDAP mock in `mooring-testsrv` (LDAPS, paging, size limit, referral).
 - E2E: onboarding → Termius CSV → preview → apply → tree; mRemoteNG banner.
+
+## Amendment (2026-11-06, I2)
+
+`ldap3` 0.12.1 is **not** in the product binary: its BER decoder (`lber::parse_tag`) recurses per
+nesting level and `expect()`s on malformed frames, so a hostile LDAPS server could abort the
+process. `mooring-import::ldap` speaks LDAP v3 itself (bind, paged search, abandon, unbind — the
+only four operations the reader can emit) over tokio-rustls with `mooring-http`'s verifier,
+encodes with `lber` and decodes only frames that passed an iterative bounds scan. `ldap3` stays a
+dev-dependency as the RFC 4515 escaping oracle; the feature set is `tls-rustls-ring` (plain
+`tls-rustls` does not compile). Filter shape: selectable object class (`ad` | `openldap`) plus an
+escaped `cn`/`dNSHostName` substring; caps 5 000 entries / 30 s. Owner accepted.
+
