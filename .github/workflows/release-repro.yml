@@ -1,7 +1,8 @@
 # Reproducible-build check (ADR-0018 §4). Scope: the Rust workspace crates on Linux x86_64
 # (`default-members`, everything but `mooring-app`), built twice with `--release --locked` from
 # two different checkout paths and the pinned toolchain. SOURCE_DATE_EPOCH is the commit time;
-# `--remap-path-prefix` removes the workspace and CARGO_HOME paths from the binaries. The job
+# `--remap-path-prefix` (and CFLAGS `-ffile-prefix-map` for C sources) removes the workspace and
+# CARGO_HOME paths from every artifact, host ones included (no `--target`, see below). The job
 # fails when any `libmooring_*.{rlib,rmeta}` differs between the two builds and uploads a
 # diffoscope report. Not covered: the Tauri bundles (timestamps and host data from hdiutil, WiX,
 # ar, rpmbuild, squashfs; signatures embed time; WebView libraries differ by runner image).
@@ -72,10 +73,15 @@ jobs:
             local home; home=$(mkdir -p "$2" && cd "$2" && pwd)
             # Separate CARGO_HOME per build: the registry is re-fetched, so a build that only
             # reproduces because of a shared cache cannot pass by accident.
+            # No `--target`: with one, cargo applies RUSTFLAGS to target artifacts only, so
+            # proc macros and build scripts (host artifacts) kept their absolute paths and their
+            # crate hash leaked into every dependent crate (rc.2 dry run: all 15 outputs differed).
+            # CFLAGS does the same for the C sources `cc` compiles (ring).
             env SOURCE_DATE_EPOCH="$epoch" CARGO_HOME="$home" \
+              CFLAGS="-ffile-prefix-map=$src=/mooring -ffile-prefix-map=$home=/cargo" \
               RUSTFLAGS="--remap-path-prefix=$src=/mooring --remap-path-prefix=$home=/cargo -C codegen-units=1" \
               cargo build --manifest-path "$src/Cargo.toml" --release --locked \
-                --target x86_64-unknown-linux-gnu --target-dir "$src/target"
+                --target-dir "$src/target"
           }
           build build-a/src build-a/cargo-home
           build build-b/deeper/path/src build-b/cargo-home
@@ -86,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           hashes() { # hashes <checkout dir>: sha256 of every workspace rlib/rmeta, by file name
-            (cd "$1/target/x86_64-unknown-linux-gnu/release/deps" \
+            (cd "$1/target/release/deps" \
               && find . -maxdepth 1 -type f \( -name 'libmooring_*.rlib' -o -name 'libmooring_*.rmeta' \) -printf '%P\n' \
               | LC_ALL=C sort | xargs -d '\n' sha256sum --)
           }
@@ -116,8 +122,8 @@ jobs:
             hash_b=$(awk -v n="$name" '$2==n {print $1}' b.sums)
             [[ -n "$hash_b" && "$hash_a" != "$hash_b" ]] || continue
             diffoscope --max-report-size 10000000 --html "report/$name.html" \
-              "build-a/src/target/x86_64-unknown-linux-gnu/release/deps/$name" \
-              "build-b/deeper/path/src/target/x86_64-unknown-linux-gnu/release/deps/$name" || true
+              "build-a/src/target/release/deps/$name" \
+              "build-b/deeper/path/src/target/release/deps/$name" || true
           done < a.sums
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
