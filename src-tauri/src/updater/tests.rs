@@ -94,7 +94,7 @@ impl InstallProbe for FakeProbe {
 }
 
 pub fn facts(bundle: Bundle, path: &str, writable: bool) -> InstallFacts {
-    InstallFacts { bundle, install_path: PathBuf::from(path), writable }
+    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false }
 }
 
 /// An in-app `AppImage` install at a writable path.
@@ -139,6 +139,8 @@ fn install_mode_matrix() {
         (B::MacApp, "/Applications/Mooring.app", false, M::Manual(R::NotWritable)),
         (B::MacApp, "/opt/homebrew/Caskroom/mooring/0.1.0/Mooring.app", true, M::Manual(R::Homebrew)),
         (B::MacApp, "/usr/local/Caskroom/mooring/0.1.0/Mooring.app", true, M::Manual(R::Homebrew)),
+        (B::MacApp, "/opt/homebrew/Cellar/mooring/Mooring.app", true, M::InApp),
+        (B::MacApp, "/usr/local/Caskroom-not/Mooring.app", true, M::InApp),
         // Windows
         (B::Nsis, "C:\\Users\\u\\AppData\\Local\\Mooring", true, M::InApp),
         (B::Nsis, "C:\\Program Files\\Mooring", false, M::Manual(R::NotWritable)),
@@ -148,6 +150,52 @@ fn install_mode_matrix() {
     ];
     for (bundle, path, writable, want) in rows {
         assert_eq!(decide(&facts(*bundle, path, *writable)), *want, "{bundle:?} {path} w={writable}");
+    }
+}
+
+/// Review 7 N-55: a cask that moved its `.app` into `/Applications` is still Homebrew's
+/// (the `Caskroom/mooring` directory exists), and a symlinked `/Applications/Mooring.app`
+/// resolves under the Caskroom.
+#[test]
+fn homebrew_cask_is_detected_by_caskroom_presence_and_resolved_path() {
+    use super::install_mode::{cask_present_in, under_roots, CASKROOMS, CASK_TOKEN};
+    let moved = InstallFacts { cask_present: true, ..facts(Bundle::MacApp, "/Applications/Mooring.app", true) };
+    assert_eq!(decide(&moved), InstallMode::Manual(ManualReason::Homebrew));
+    let plain = facts(Bundle::MacApp, "/Applications/Mooring.app", true);
+    assert_eq!(decide(&plain), InstallMode::InApp);
+    // AppImage / NSIS never consult the cask fact.
+    let other = InstallFacts { cask_present: true, ..facts(Bundle::AppImage, "/home/u/Mooring.AppImage", true) };
+    assert_eq!(decide(&other), InstallMode::InApp);
+    assert_eq!(CASKROOMS, &["/opt/homebrew/Caskroom/", "/usr/local/Caskroom/"]);
+    assert_eq!(CASK_TOKEN, "mooring");
+
+    // Both prefixes, as the probe sees them after canonicalisation, in a temp tree.
+    let dir = tempfile::tempdir().expect("tmp");
+    let arm = dir.path().join("opt/homebrew/Caskroom");
+    let intel = dir.path().join("usr/local/Caskroom");
+    let roots = [arm.as_path(), intel.as_path()];
+    assert!(!cask_present_in(&roots, CASK_TOKEN), "nothing installed yet");
+    for root in [&arm, &intel] {
+        let app = root.join("mooring/0.1.0/Mooring.app");
+        std::fs::create_dir_all(&app).expect("mkdir");
+        assert!(under_roots(&app, &roots), "{}", app.display());
+        assert!(cask_present_in(&roots, CASK_TOKEN));
+        std::fs::remove_dir_all(root.join("mooring")).expect("rm");
+    }
+    assert!(!under_roots(&dir.path().join("Applications/Other.app"), &roots));
+    #[cfg(unix)]
+    {
+        let target = arm.join("mooring/0.2.0/Mooring.app");
+        std::fs::create_dir_all(&target).expect("mkdir");
+        let apps = dir.path().join("Applications");
+        std::fs::create_dir_all(&apps).expect("mkdir");
+        let link = apps.join("Mooring.app");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        let resolved = std::fs::canonicalize(&link).expect("canonical");
+        let canonical_roots = [std::fs::canonicalize(&arm).expect("c"), std::fs::canonicalize(&intel).expect("c")];
+        let canonical_roots: Vec<&std::path::Path> = canonical_roots.iter().map(PathBuf::as_path).collect();
+        assert!(under_roots(&resolved, &canonical_roots), "{}", resolved.display());
+        assert!(!under_roots(&link, &canonical_roots), "the unresolved link is outside");
     }
 }
 
@@ -217,10 +265,19 @@ fn single_flight_and_rate_limit() {
     // Its network use still counts for the next manual check.
     assert_eq!(rt.begin_check(t0 + Duration::from_secs(30), true).expect_err("gap").code, "update.rate_limited");
     drop(rt.begin_check(t0 + Duration::from_secs(10) + MIN_CHECK_GAP, true).expect("after the gap"));
-    // An install is never rate-limited, only single-flighted.
-    let f = rt.begin_install(t0 + Duration::from_secs(10) + MIN_CHECK_GAP).expect("install");
+    // An install right after a check is fine (the check gap does not apply to it)…
+    let t1 = t0 + Duration::from_secs(10) + MIN_CHECK_GAP;
+    let f = rt.begin_install(t1 + Duration::from_secs(1)).expect("install");
     assert_eq!(rt.begin_check(t0 + Duration::from_secs(1000), true).expect_err("busy").code, "update.busy");
     drop(f);
+    // …but installs are throttled against each other (review 7 N-51).
+    let e = rt.begin_install(t1 + Duration::from_secs(31)).expect_err("too soon");
+    assert_eq!(e.code, "update.rate_limited");
+    assert!(e.message.contains("30 s"), "{}", e.message);
+    assert!(!rt.busy(), "a refused install takes no flight");
+    drop(rt.begin_install(t1 + Duration::from_secs(1) + MIN_CHECK_GAP).expect("after the gap"));
+    // An install also counts as network use for the next manual check.
+    assert_eq!(rt.begin_check(t1 + Duration::from_secs(2) + MIN_CHECK_GAP, true).expect_err("gap").code, "update.rate_limited");
 }
 
 #[test]

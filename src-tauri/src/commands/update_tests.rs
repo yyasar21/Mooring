@@ -10,6 +10,7 @@ use crate::state::testing::{audit_events, unlocked, Fixture};
 use crate::updater::install_mode::Bundle;
 use crate::updater::source::SourceError;
 use crate::updater::tests::{facts, in_app_probe, offered, runtime, v, FakeProbe, FakeSource};
+use crate::updater::MIN_CHECK_GAP;
 
 fn audit_text(f: &Fixture) -> String {
     std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).unwrap_or_default()
@@ -136,7 +137,7 @@ async fn settings_round_trip_validation_and_audit() {
     // Wire shape and unknown fields.
     assert!(serde_json::from_str::<UpdateSettingsInput>(r#"{"backgroundCheck":true,"x":1}"#).is_err());
     let json = serde_json::to_string(&UpdateSettings::default()).expect("json");
-    assert_eq!(json, r#"{"backgroundCheck":false,"channel":"stable","lastCheck":null}"#);
+    assert_eq!(json, r#"{"backgroundCheck":false,"channel":"stable","lastCheck":null,"lastVerified":null}"#);
     let partial: UpdateSettings = serde_json::from_str(r#"{"backgroundCheck":true}"#).expect("defaults");
     assert_eq!(partial.channel, "stable");
 }
@@ -226,6 +227,75 @@ async fn install_refuses_the_manual_matrix_before_any_network_call() {
     let text = audit_text(&f);
     assert_eq!(text.matches(r#""event":"update.refused","code":"update.manual_only""#).count(), 5);
     assert_eq!(text.matches(r#""event":"update.refused","code":"update.not_writable""#).count(), 3);
+}
+
+/// Review 7 N-51: a second install attempt within 60 s of the previous one is refused
+/// before any network call; matrix, input and session refusals do not start the gap.
+#[tokio::test]
+async fn install_is_rate_limited_between_attempts() {
+    let f = unlocked();
+    let src = FakeSource::offering(Some(offered("0.2.0")));
+    let rt = runtime(Arc::clone(&src), in_app_probe());
+    let t0 = Instant::now();
+    let e = install(&f.state, &rt, t0, install_input("0.1.0", false)).await.expect_err("same");
+    assert_eq!(e.code, "update.none");
+    *src.install_error.lock().expect("lock") = Some(SourceError::Signature);
+    let e = install(&f.state, &rt, t0, install_input("0.2.0", false)).await.expect_err("sig");
+    assert_eq!(e.code, "update.signature", "the refused version did not start the gap");
+    assert_eq!(src.checks.load(Ordering::SeqCst), 1);
+    *src.install_error.lock().expect("lock") = None;
+    let e = install(&f.state, &rt, t0 + Duration::from_secs(30), install_input("0.2.0", false)).await.expect_err("gap");
+    assert_eq!(e.code, "update.rate_limited");
+    assert_eq!(src.checks.load(Ordering::SeqCst), 1, "no network while rate-limited");
+    assert!(!rt.busy());
+    install(&f.state, &rt, t0 + MIN_CHECK_GAP, install_input("0.2.0", false)).await.expect("after the gap");
+    assert_eq!(*src.installs.lock().expect("lock"), vec!["0.2.0".to_owned()]);
+    assert!(!audit_text(&f).contains("update.rate_limited"), "rate limiting is not audited (noise)");
+}
+
+/// Review 7 L-39: a verified install raises a persisted floor; a later offer below it is
+/// `update.downgrade` for both the check and the install, before any network call.
+#[tokio::test]
+async fn verified_floor_refuses_a_later_downgrade_offer() {
+    let f = unlocked();
+    let src = FakeSource::offering(Some(offered("0.3.0")));
+    let rt = runtime(Arc::clone(&src), in_app_probe());
+    let t0 = Instant::now();
+    assert_eq!(settings_get(&f.state).expect("s").last_verified, None);
+    install(&f.state, &rt, t0, install_input("0.3.0", false)).await.expect("install");
+    assert_eq!(settings_get(&f.state).expect("s").last_verified.as_deref(), Some("0.3.0"));
+    // The same process (the restart is the source's job) is now offered 0.2.0 > current.
+    src.set(Ok(Some(offered("0.2.0"))));
+    let e = check(&f.state, &rt, t0 + MIN_CHECK_GAP, true).await.expect_err("downgrade");
+    assert_eq!(e.code, "update.downgrade");
+    assert!(rt.last_available().is_none());
+    let before = src.checks.load(Ordering::SeqCst);
+    let e = install(&f.state, &rt, t0 + 2 * MIN_CHECK_GAP, install_input("0.2.0", false)).await.expect_err("downgrade");
+    assert_eq!(e.code, "update.downgrade");
+    assert_eq!(src.checks.load(Ordering::SeqCst), before, "refused before the source is asked");
+    assert_eq!(*src.installs.lock().expect("lock"), vec!["0.3.0".to_owned()]);
+    // A failed verification leaves the floor alone; the floor never goes down.
+    src.set(Ok(Some(offered("0.4.0"))));
+    *src.install_error.lock().expect("lock") = Some(SourceError::Signature);
+    let e = install(&f.state, &rt, t0 + 3 * MIN_CHECK_GAP, install_input("0.4.0", false)).await.expect_err("sig");
+    assert_eq!(e.code, "update.signature");
+    assert_eq!(settings_get(&f.state).expect("s").last_verified.as_deref(), Some("0.3.0"));
+    *src.install_error.lock().expect("lock") = None;
+    install(&f.state, &rt, t0 + 4 * MIN_CHECK_GAP, install_input("0.4.0", false)).await.expect("0.4.0");
+    assert_eq!(settings_get(&f.state).expect("s").last_verified.as_deref(), Some("0.4.0"));
+    raise_floor(&f.state.store, &v("0.3.5"));
+    assert_eq!(settings_get(&f.state).expect("s").last_verified.as_deref(), Some("0.4.0"), "monotonic");
+    // A corrupt floor is ignored, never trusted; the floor survives a settings change.
+    let text = audit_text(&f);
+    assert_eq!(text.matches(r#""event":"update.refused","code":"update.downgrade""#).count(), 2);
+    settings_set(&f.state, UpdateSettingsInput { background_check: true, channel: None }).expect("set");
+    assert_eq!(settings_get(&f.state).expect("s").last_verified.as_deref(), Some("0.4.0"));
+    {
+        let slot = f.state.store.lock().expect("lock");
+        slot.store.as_ref().expect("s").set_app_setting(KEY, r#"{"lastVerified":"nope"}"#).expect("write");
+    }
+    src.set(Ok(Some(offered("0.2.0"))));
+    assert!(check(&f.state, &rt, t0 + 5 * MIN_CHECK_GAP, true).await.expect("unparsable floor ignored").available.is_some());
 }
 
 #[tokio::test]

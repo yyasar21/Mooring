@@ -215,7 +215,10 @@ async fn tofu_accept_pins_and_the_pin_is_used_next_time() {
     let t = ldap_import::test(st, Some(Prompt::new(&confirm)), input(&srv, &cred))
         .await
         .expect("test bind");
-    assert_eq!(confirm.asked().len(), 1, "one prompt");
+    // Review 7 L-43: trust dialog, then the sign-in confirmation of the (credential, host)
+    // pair; the pinned preview below needs neither.
+    assert_eq!(confirm.asked().len(), 2, "trust, then sign-in");
+    assert!(confirm.asked()[1].title.contains("sign-in"), "{}", confirm.asked()[1].title);
     let ask = &confirm.asked()[0];
     assert!(
         ask.text.contains("127.0.0.1") && ask.text.contains("Fingerprint: SHA256:"),
@@ -232,7 +235,7 @@ async fn tofu_accept_pins_and_the_pin_is_used_next_time() {
     // Pinned: the preview runs with no prompt object at all.
     let p = ldap_import::preview(st, None, input(&srv, &cred)).await.expect("pinned preview");
     assert_eq!(p.counts.connections, 3);
-    assert_eq!(confirm.asked().len(), 1);
+    assert_eq!(confirm.asked().len(), 2);
     let r = import::apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: None })
         .expect("apply");
     assert_eq!(r.connections, 3);
@@ -261,7 +264,7 @@ async fn tofu_accept_without_a_writable_store_trusts_this_run_only() {
         .await
         .expect("trusted once");
     assert_eq!(p.counts.connections, 3);
-    assert_eq!(confirm.asked().len(), 1);
+    assert_eq!(confirm.asked().len(), 2, "trust (this run only), then sign-in (L-43)");
     assert!(!pins(st).has_pin("127.0.0.1", srv.addr().port()), "nothing was stored");
     srv.recorder().assert_no_violations();
     import::discard(st, &p.plan_id).expect("discard");

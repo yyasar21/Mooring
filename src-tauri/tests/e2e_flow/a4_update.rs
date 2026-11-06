@@ -103,7 +103,12 @@ impl InstallProbe for Probe {
 }
 
 fn probe(bundle: Bundle, path: &str, writable: bool) -> Arc<Probe> {
-    Arc::new(Probe(InstallFacts { bundle, install_path: path.into(), writable }))
+    Arc::new(Probe(InstallFacts {
+        bundle,
+        install_path: path.into(),
+        writable,
+        cask_present: false,
+    }))
 }
 
 fn runtime(source: Arc<Scripted>, probe: Arc<Probe>) -> UpdateRuntime {
@@ -255,11 +260,13 @@ async fn tampered_manifest_or_signature_is_refused_by_code_and_never_installed()
         probe(Bundle::AppImage, "/home/u/Applications/Mooring.AppImage", true),
     );
     let t0 = Instant::now();
+    // Review 7 N-51: install attempts that reach the source are 60 s apart; `t(n)` steps.
+    let t = |n: u32| t0 + n * MIN_CHECK_GAP;
     update::check(st, &rt, t0, true).await.expect("offer");
     // The asset's minisign signature does not verify (tampered bytes, swapped URL, wrong
     // key): refused after the download, before the audit hook, nothing written.
     source.fail_install(SourceError::Signature);
-    let err = update::install(st, &rt, t0, install_input("0.2.0")).await.expect_err("signature");
+    let err = update::install(st, &rt, t(1), install_input("0.2.0")).await.expect_err("signature");
     assert_eq!(err.code, "update.signature");
     assert!(!err.message.contains("http"), "{}", err.message);
     assert!(source.installed.lock().expect("lock").is_empty());
@@ -267,11 +274,18 @@ async fn tampered_manifest_or_signature_is_refused_by_code_and_never_installed()
     // A manifest that no longer parses / has no entry for this target.
     source.set(Err(SourceError::Manifest));
     assert_eq!(
-        update::install(st, &rt, t0, install_input("0.2.0")).await.expect_err("manifest").code,
+        update::install(st, &rt, t(1) + Duration::from_secs(30), install_input("0.2.0"))
+            .await
+            .expect_err("rate-limited: N-51")
+            .code,
+        "update.rate_limited"
+    );
+    assert_eq!(
+        update::install(st, &rt, t(2), install_input("0.2.0")).await.expect_err("manifest").code,
         "update.manifest"
     );
     assert_eq!(
-        update::check(st, &rt, t0 + MIN_CHECK_GAP, true).await.expect_err("manifest").code,
+        update::check(st, &rt, t(3), true).await.expect_err("manifest").code,
         "update.manifest"
     );
     // The re-check offers a different version than the one confirmed: not installed.
@@ -283,7 +297,7 @@ async fn tampered_manifest_or_signature_is_refused_by_code_and_never_installed()
     })));
     *source.install_error.lock().expect("lock") = None;
     assert_eq!(
-        update::install(st, &rt, t0, install_input("0.2.0")).await.expect_err("swapped").code,
+        update::install(st, &rt, t(4), install_input("0.2.0")).await.expect_err("swapped").code,
         "update.none"
     );
     // Downgrades and non-semver versions never reach the source.
@@ -307,7 +321,7 @@ async fn tampered_manifest_or_signature_is_refused_by_code_and_never_installed()
     assert!(source.installed.lock().expect("lock").is_empty());
     // The happy path, for contrast: the audit row is written right before the bundle is.
     assert_eq!(
-        update::install(st, &rt, t0, install_input("0.3.0")).await.map_err(|e| e.code),
+        update::install(st, &rt, t(5), install_input("0.3.0")).await.map_err(|e| e.code),
         Ok(())
     );
     assert_eq!(*source.installed.lock().expect("lock"), ["0.3.0"]);

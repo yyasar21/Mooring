@@ -11,7 +11,7 @@ use mooring_audit::AuditEvent;
 use mooring_core::{CredentialKind, Protocol, SecretName};
 use mooring_import::{
     detect, parse, ImportFormat, ImportOptions, ImportPlan, ImportSource, PlanCredential,
-    SkipReason, Skipped,
+    SkipReason, Skipped, Warning, WarningCode,
 };
 use mooring_store::{ImportBatch, ImportConnection, ImportCredential, ImportFolder, Secrets};
 use tauri::{AppHandle, Manager, Runtime, State};
@@ -69,17 +69,26 @@ pub fn root_name(format: ImportFormat) -> String {
     format!("Imported from {} ({today})", format.label())
 }
 
+/// The `known` source name whose `IdentityFile`s may be read (`{ known: "openssh" }`).
+pub const KEY_FILES_SOURCE: &str = "openssh";
+
 /// `import_preview`: read the source, parse, keep the plan, answer names only. Every
 /// `import.*` refusal on the way to a plan — unreadable or oversized source, undetected
 /// format, parser refusal — is audited as `import_refused { code }` (ADR-0019 §5);
 /// `input.invalid` (a malformed request) is not a refusal of a file.
+///
+/// Review 7 L-41: `importKeyFiles` is honoured **only** for the known-location source
+/// (`{ known: "openssh" }`, the user's own `~/.ssh/config`). A picked `ssh_config` is a file
+/// from someone else (T4) whose `IdentityFile` mapping is attacker-chosen, so the flag is
+/// ignored there and the plan carries a `key_files_only_for_known_location` warning.
 pub fn preview(state: &AppState, home: &Path, input: PreviewInput) -> IpcResult<ImportPreview> {
     state.with_ready(|_, _| Ok(()))?;
     let opts = ImportOptions {
         include_plaintext_secrets: input.include_plaintext_secrets,
         limits: mooring_import::Limits::DEFAULT,
     };
-    let (format, plan) = match read_and_parse(state, home, input.source, &opts) {
+    let known_openssh = input.source.known.as_deref() == Some(KEY_FILES_SOURCE);
+    let (format, mut plan) = match read_and_parse(state, home, input.source, &opts) {
         Ok(parsed) => parsed,
         Err(e) => {
             if e.code.starts_with("import.") {
@@ -88,7 +97,14 @@ pub fn preview(state: &AppState, home: &Path, input: PreviewInput) -> IpcResult<
             return Err(e);
         }
     };
-    finish_preview(state, home, format, plan, input.import_key_files)
+    let key_files = input.import_key_files && known_openssh;
+    if input.import_key_files && !known_openssh {
+        plan.warnings.push(Warning {
+            code: WarningCode::KeyFilesOnlyForKnownLocation,
+            source_ref: "importKeyFiles".to_owned(),
+        });
+    }
+    finish_preview(state, home, format, plan, key_files)
 }
 
 /// Source bytes → detected format → parsed plan; every failure is an `IpcError`.
@@ -117,8 +133,9 @@ fn read_and_parse(
     Ok((format, plan))
 }
 
-/// The part of `import_preview` after parsing: key-file opt-in, duplicate check, store the
-/// plan, build the DTO. Public for tests that start from a parsed plan.
+/// The part of `import_preview` after parsing: key-file opt-in (`import_key_files` is already
+/// restricted to the known-location source by [`preview`]), duplicate check, store the plan,
+/// build the DTO. Public for tests that start from a parsed plan.
 pub fn finish_preview(
     state: &AppState,
     home: &Path,
@@ -366,27 +383,32 @@ pub async fn import_pick<R: Runtime>(
     import_source::pick(&state, &picker, autolock.as_deref(), format).await
 }
 
-/// `import_preview({ source, includePlaintextSecrets, importKeyFiles })`.
+/// `import_preview({ source, includePlaintextSecrets, importKeyFiles })`. Review 7 N-60: the
+/// read, the parse (up to 16 MiB) and the duplicate scan run on the blocking pool, so a large
+/// hostile file never freezes the thread that serves IPC.
 #[tauri::command]
-pub fn import_preview(
-    state: State<'_, AppState>,
+pub async fn import_preview(
+    app: AppHandle,
     source: SourceInput,
     include_plaintext_secrets: bool,
     import_key_files: bool,
 ) -> IpcResult<ImportPreview> {
     let home = import_source::home_dir()?;
-    preview(&state, &home, PreviewInput { source, include_plaintext_secrets, import_key_files })
+    let input = PreviewInput { source, include_plaintext_secrets, import_key_files };
+    super::off_thread(app, move |app| preview(&app.state::<AppState>(), &home, input)).await
 }
 
-/// `import_apply({ planId, exclude, duplicates })`.
+/// `import_apply({ planId, exclude, duplicates })`. Review 7 N-60: up to 2 000 seals in one
+/// transaction run on the blocking pool.
 #[tauri::command]
-pub fn import_apply(
-    state: State<'_, AppState>,
+pub async fn import_apply(
+    app: AppHandle,
     plan_id: String,
     exclude: Vec<String>,
     duplicates: Option<String>,
 ) -> IpcResult<ImportReport> {
-    apply(&state, ApplyInput { plan_id, exclude, duplicates })
+    let input = ApplyInput { plan_id, exclude, duplicates };
+    super::off_thread(app, move |app| apply(&app.state::<AppState>(), input)).await
 }
 
 /// `import_discard({ planId })`.

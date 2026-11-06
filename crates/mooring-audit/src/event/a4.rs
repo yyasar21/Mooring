@@ -66,6 +66,12 @@ macro_rules! a4_variants {
             /// Interface names.
             interfaces: Vec<String>,
         },
+        /// `net_*` runs beyond the first 32 of an hour of process uptime, counted and written
+        /// once per hour (`net_suppressed`, review 7 N-52; the N-47 pattern).
+        NetSuppressed {
+            /// Runs that got no row of their own.
+            count: u64,
+        },
         /// An import file was parsed into a plan (ADR-0019 §6). Format only: no file name, host
         /// or count leaves the parser here.
         ImportPreviewed {

@@ -7,6 +7,17 @@
 //! it refused or the bind never completed; a run that dies after the bind writes `true` and
 //! then the refusal), `import_previewed { format: "ldap" }`, `import_refused { code }` —
 //! never a bind name, DN, entry or password.
+//!
+//! Review 7 L-43: a compromised `WebView` could otherwise send any stored password to a host
+//! of its choice in one call (a CA-valid or `caPem`-valid host never raises the TOFU dialog).
+//! Every run therefore goes trust → **sign-in confirmation** → bind: transport trust is
+//! settled first with a handshake-only probe ([`ldap::probe_tls`], no LDAP frame), then the
+//! first bind of a (credential, `host:port`) pair in this unlocked session asks in the native
+//! Gate ("Sign in to <host>?", three-slot rule, busy / cool-down as elsewhere), remembered in
+//! [`ConfirmedBinds`] until the vault locks. A refusal is audited `confirm_refused`.
+
+use std::collections::HashSet;
+use std::sync::Mutex;
 
 use mooring_audit::AuditEvent;
 use mooring_core::credential::CredentialFields;
@@ -72,6 +83,55 @@ fn default_scope() -> SearchScope {
     SearchScope::Sub
 }
 
+/// (credential id, `host:port`) pairs whose sign-in was confirmed since the last unlock
+/// (L-43). Memory only; `vault_lock` clears it.
+#[derive(Debug, Default)]
+pub struct ConfirmedBinds {
+    inner: Mutex<HashSet<(String, String)>>,
+}
+
+impl ConfirmedBinds {
+    fn with<T>(&self, f: impl FnOnce(&mut HashSet<(String, String)>) -> T) -> T {
+        let mut g = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        f(&mut g)
+    }
+
+    /// Whether this pair was confirmed in this session.
+    pub fn contains(&self, credential_id: &str, host: &str) -> bool {
+        self.with(|m| m.contains(&(credential_id.to_owned(), host.to_owned())))
+    }
+
+    fn insert(&self, credential_id: &str, host: &str) {
+        self.with(|m| {
+            m.insert((credential_id.to_owned(), host.to_owned()));
+        });
+    }
+
+    /// Forget every pair (vault lock).
+    pub fn clear(&self) {
+        self.with(HashSet::clear);
+    }
+
+    /// Pairs remembered (tests).
+    pub fn len(&self) -> usize {
+        self.with(|m| m.len())
+    }
+
+    /// Whether nothing is remembered.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// The resolved bind account: the wire credential and what the dialog may say about it.
+struct Resolved {
+    /// Id as validated (the key of [`ConfirmedBinds`]).
+    id: String,
+    /// The credential's display name (never the password).
+    label: String,
+    bind: BindCredential,
+}
+
 /// `ldap_import_test` result: names only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,16 +165,28 @@ fn bind_name(fields: &CredentialFields) -> IpcResult<String> {
     }
 }
 
+/// The bind credential from a stored password. Review 7 N-54 / RFC 4513 §5.1.2: a name with
+/// an empty password is an *unauthenticated* bind that many servers answer with success, so
+/// an empty (or non-UTF-8) secret is refused here, before any network. The store refuses to
+/// seal an empty secret on every write path; this is the last line.
+fn bind_credential(name: String, bytes: &[u8]) -> IpcResult<BindCredential> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| IpcError::new("credential.secret_missing", "stored password is not text"))?;
+    if text.is_empty() {
+        return Err(IpcError::new("ldap.bind", "the stored password is empty; an unauthenticated bind is never sent"));
+    }
+    Ok(BindCredential { name, password: Zeroizing::new(text.to_owned()) })
+}
+
 /// Resolve the bind credential from the unlocked vault (never kept beyond the call).
-fn credential(state: &AppState, id: &str) -> IpcResult<BindCredential> {
+fn credential(state: &AppState, id: &str) -> IpcResult<Resolved> {
     let id = crate::dto::credential_id("credentialId", id)?;
     state.with_ready(|vault, store| {
         let meta = store.get_credential(id)?;
         let name = bind_name(&meta.fields)?;
         let bytes = store.open_secret(vault, id, SecretName::Password)?;
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| IpcError::new("credential.secret_missing", "stored password is not text"))?;
-        Ok(BindCredential { name, password: Zeroizing::new(text.to_owned()) })
+        let bind = bind_credential(name, &bytes)?;
+        Ok(Resolved { id: id.to_string(), label: meta.name, bind })
     })
 }
 
@@ -175,25 +247,65 @@ async fn trust_prompt(state: &AppState, p: &Prepared, d: &TrustDecision, prompt:
     Ok(None)
 }
 
-/// Run `op` with a TLS client; on `http.trust_prompt` ask (when a prompt is given) and retry
-/// once with the pin written or `trusted_once`. Audits the bind the server saw: `true` when
-/// it accepted (even if the run died afterwards, so the chain reads bind → refused), `false`
-/// when a bind request went out and was not accepted; nothing when no bind left the client.
-async fn with_trust<T, F, Fut>(state: &AppState, p: &Prepared, input: &LdapInput, prompt: Option<Prompt<'_>>, op: F) -> IpcResult<T>
+/// L-43: the first bind of (`cred.id`, `host:port`) in this unlocked session needs the
+/// user's word in the native Gate; a confirmed pair is remembered until the vault locks.
+/// Without a prompt object the run is refused (`ldap.confirm_required`); a declined dialog
+/// is `ldap.bind_declined`, audited `confirm_refused { kind: ldap_bind }`, and starts the
+/// Gate's cool-down for this host like every cancelled destructive confirmation.
+async fn confirm_bind(state: &AppState, p: &Prepared, cred: &Resolved, prompt: Option<Prompt<'_>>) -> IpcResult<()> {
+    let host = host_key(&p.target.host, p.target.port);
+    if state.ldap_binds.contains(&cred.id, &host) {
+        return Ok(());
+    }
+    let Some(prompt) = prompt else {
+        return Err(IpcError::new("ldap.confirm_required", "signing in to the directory server needs a confirmation"));
+    };
+    let text = format!(
+        "Sign in to the directory server {host} with the password of \u{201c}{}\u{201d}?\n\nMooring will send the stored password of this credential to {host}. Continue only if you started this import yourself and the server is the one you expect.",
+        cred.label
+    );
+    let ask = Ask { title: "Mooring \u{b7} Directory sign-in".to_owned(), text, ok: format!("Sign in to {host}"), warning: true };
+    let scope = Scope { kind: "ldap_bind", target: &host, destructive: true };
+    let yes = prompt.ask(&state.confirm, scope, ask).await?;
+    if !yes {
+        state.audit(AuditEvent::ConfirmRefused { kind: "ldap_bind".to_owned(), target: host, reason: "declined".to_owned() });
+        return Err(IpcError::new("ldap.bind_declined", "the directory sign-in was not confirmed"));
+    }
+    state.ldap_binds.insert(&cred.id, &host);
+    Ok(())
+}
+
+/// Settle transport trust with a handshake-only probe: on `http.trust_prompt` ask (when a
+/// prompt is given) and probe again with the pin written or `trusted_once`. Returns the
+/// `trusted_once` fingerprint the run must reuse, if any. No LDAP frame leaves the client.
+async fn settle_trust(state: &AppState, p: &Prepared, input: &LdapInput, prompt: Option<Prompt<'_>>) -> IpcResult<Option<[u8; 32]>> {
+    let limits = LdapLimits::DEFAULT;
+    let first = ldap::probe_tls(p, tls(state, p, input.ca_pem.as_deref(), None).await?, &limits).await;
+    match (first, prompt) {
+        (Ok(()), _) => Ok(None),
+        (Err(LdapError::Tls(HttpError::TrustPrompt(d))), Some(prompt)) => {
+            let once = trust_prompt(state, p, &d, prompt).await?;
+            ldap::probe_tls(p, tls(state, p, input.ca_pem.as_deref(), once).await?, &limits).await.map_err(|e| map_error(&e))?;
+            Ok(once)
+        }
+        (Err(e), _) => Err(map_error(&e)),
+    }
+}
+
+/// The whole run: trust ([`settle_trust`]) → sign-in confirmation ([`confirm_bind`]) → `op`
+/// with a TLS client. Audits the bind the server saw: `true` when it accepted (even if the
+/// run died afterwards, so the chain reads bind → refused), `false` when a bind request
+/// went out and was not accepted; nothing when no bind left the client.
+async fn with_trust<T, F, Fut>(state: &AppState, p: &Prepared, input: &LdapInput, cred: &Resolved, prompt: Option<Prompt<'_>>, op: F) -> IpcResult<T>
 where
     F: Fn(TlsClient, BindSignal) -> Fut,
     Fut: std::future::Future<Output = Result<T, LdapError>>,
 {
     let host = host_key(&p.target.host, p.target.port);
+    let once = settle_trust(state, p, input, prompt).await?;
+    confirm_bind(state, p, cred, prompt).await?;
     let bind = BindSignal::default();
-    let first = op(tls(state, p, input.ca_pem.as_deref(), None).await?, bind.clone()).await;
-    let result = match (first, prompt) {
-        (Err(LdapError::Tls(HttpError::TrustPrompt(d))), Some(prompt)) => {
-            let once = trust_prompt(state, p, &d, prompt).await?;
-            op(tls(state, p, input.ca_pem.as_deref(), once).await?, bind.clone()).await
-        }
-        (r, _) => r,
-    };
+    let result = op(tls(state, p, input.ca_pem.as_deref(), once).await?, bind.clone()).await;
     match (result.is_ok(), bind.phase()) {
         (true, _) | (false, BindPhase::Bound) => state.audit(AuditEvent::LdapBind { host, success: true }),
         (false, BindPhase::Attempted) => state.audit(AuditEvent::LdapBind { host, success: false }),
@@ -212,9 +324,9 @@ pub async fn preview(state: &AppState, prompt: Option<Prompt<'_>>, input: LdapIn
     let p = prepare(&input).map_err(refused)?;
     let cred = credential(state, &input.credential_id)?;
     let limits = LdapLimits::DEFAULT;
-    let (q, c, l) = (&p, &cred, &limits);
+    let (q, c, l) = (&p, &cred.bind, &limits);
     let op = |tls, bind: BindSignal| async move { ldap::preview(q, c, tls, l, &bind).await };
-    let plan = with_trust(state, &p, &input, prompt, op).await.map_err(refused)?;
+    let plan = with_trust(state, &p, &input, &cred, prompt, op).await.map_err(refused)?;
     drop(cred);
     let home = std::path::Path::new("/nonexistent");
     import::finish_preview(state, home, ImportFormat::Ldap, plan, false)
@@ -226,10 +338,10 @@ pub async fn test(state: &AppState, prompt: Option<Prompt<'_>>, input: LdapInput
     let p = prepare(&input)?;
     let cred = credential(state, &input.credential_id)?;
     let limits = LdapLimits::DEFAULT;
-    let (q, c, l) = (&p, &cred, &limits);
+    let (q, c, l) = (&p, &cred.bind, &limits);
     let op = |tls, bind: BindSignal| async move { ldap::bind_only(q, c, tls, l, &bind).await };
-    with_trust(state, &p, &input, prompt, op).await?;
-    Ok(LdapTestResult { host: p.target.host.clone(), port: p.target.port, bound_as: cred.name.clone() })
+    with_trust(state, &p, &input, &cred, prompt, op).await?;
+    Ok(LdapTestResult { host: p.target.host.clone(), port: p.target.port, bound_as: cred.bind.name.clone() })
 }
 
 /// `ldap_import_preview({ url, baseDn, scope?, kind, filter?, credentialId, caPem?, sizeLimit? })`.

@@ -99,16 +99,36 @@ pub struct InstallFacts {
     /// Whether this user can write `install_path` **and** its parent (the plugin renames the
     /// old install aside and the new one into place).
     pub writable: bool,
+    /// A Homebrew `Caskroom/mooring` directory exists (N-55): the cask owns the install even
+    /// when its `.app` was moved to `/Applications`.
+    pub cask_present: bool,
 }
 
-/// Homebrew cask locations (Apple silicon and Intel prefixes).
-const HOMEBREW_PREFIXES: &[&str] = &["/opt/homebrew/", "/usr/local/Caskroom/", "/usr/local/Homebrew/"];
+/// Homebrew Caskroom roots (Apple silicon and Intel prefixes). Review 7 N-55: a cask
+/// `app` stanza **moves** `Mooring.app` into `/Applications` (older casks and `brew link`
+/// symlink it), so the bundle path alone does not identify a cask install; the probe also
+/// reports whether a `Caskroom/mooring` directory exists under either root.
+pub const CASKROOMS: &[&str] = &["/opt/homebrew/Caskroom/", "/usr/local/Caskroom/"];
 
-/// Whether the path is inside a Homebrew prefix, or is a symlink target of one (casks link
-/// `/Applications/Mooring.app` to the Caskroom; the probe resolves symlinks first).
+/// The cask token Homebrew installs this app under.
+pub const CASK_TOKEN: &str = "mooring";
+
+/// Whether `path` (already canonicalised by the probe, so a symlinked `/Applications/…`
+/// resolves to its Caskroom target) lies under one of `roots`.
+pub(crate) fn under_roots(path: &Path, roots: &[&Path]) -> bool {
+    roots.iter().any(|r| path.starts_with(r))
+}
+
+/// [`under_roots`] with the production Caskroom roots.
 fn under_homebrew(path: &Path) -> bool {
-    let s = path.to_string_lossy();
-    HOMEBREW_PREFIXES.iter().any(|p| s.starts_with(p))
+    let roots: Vec<&Path> = CASKROOMS.iter().map(Path::new).collect();
+    under_roots(path, &roots)
+}
+
+/// Whether `<root>/<token>` exists under any of `roots` (the cask is installed, wherever its
+/// `.app` was moved to).
+pub(crate) fn cask_present_in(roots: &[&Path], token: &str) -> bool {
+    roots.iter().any(|r| r.join(token).is_dir())
 }
 
 /// The matrix (ADR-0018 §3). Pure.
@@ -117,7 +137,9 @@ pub fn decide(facts: &InstallFacts) -> InstallMode {
     match facts.bundle {
         Bundle::Deb | Bundle::Rpm | Bundle::Msi => InstallMode::Manual(R::PackageManager),
         Bundle::Unknown => InstallMode::Manual(R::NotBundled),
-        Bundle::MacApp if under_homebrew(&facts.install_path) => InstallMode::Manual(R::Homebrew),
+        Bundle::MacApp if facts.cask_present || under_homebrew(&facts.install_path) => {
+            InstallMode::Manual(R::Homebrew)
+        }
         Bundle::AppImage | Bundle::MacApp | Bundle::Nsis => {
             if facts.writable {
                 InstallMode::InApp
@@ -172,14 +194,17 @@ impl InstallProbe for OsProbe {
         let bundle = Self::bundle();
         let exe = std::env::current_exe().ok()?;
         let install_path = Self::install_path(bundle, &exe)?;
-        // Casks symlink into /Applications; the Caskroom is what Homebrew owns.
+        // A symlinked `.app` resolves to its Caskroom target; a moved one is caught by
+        // `cask_present` (N-55).
         let resolved = std::fs::canonicalize(&install_path).unwrap_or_else(|_| install_path.clone());
+        let roots: Vec<&Path> = CASKROOMS.iter().map(Path::new).collect();
+        let cask_present = bundle == Bundle::MacApp && cask_present_in(&roots, CASK_TOKEN);
         let writable = match bundle {
             Bundle::AppImage => file_writable(&resolved) && dir_writable(resolved.parent()),
             Bundle::MacApp | Bundle::Nsis => dir_writable(Some(&resolved)) && dir_writable(resolved.parent()),
             _ => false,
         };
-        Some(InstallFacts { bundle, install_path: resolved, writable })
+        Some(InstallFacts { bundle, install_path: resolved, writable, cask_present })
     }
 }
 

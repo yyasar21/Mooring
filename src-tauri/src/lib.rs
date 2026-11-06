@@ -36,6 +36,8 @@ test_util_pub!(scheduler, vsphere_sync);
 test_util_pub!(oidc_window, secrets_runtime);
 // Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
 test_util_pub!(confirm_gate);
+// Review 7 N-52: per-process audit-row budget of the net_* commands.
+test_util_pub!(audit_budget);
 // ADR-0018 §3 (A4 U0): in-app updates, Rust-side plugin use only.
 test_util_pub!(updater);
 // ADR-0019 (A4 I1): import plans held between preview and apply.
@@ -121,6 +123,9 @@ pub fn run() {
             // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
             commands::syslog::install_heartbeat(app);
             autolock::install(app);
+            // Review 7 N-53: expired import plans (possibly holding secrets) are swept every
+            // minute, not only on the next preview.
+            import_plans::install(app);
             // ADR-0013: web and detached windows hide while the vault is locked.
             window_lock::install(app);
             // ADR-0017 (A3 S2): sync hub + interval runner (runs only while unlocked).

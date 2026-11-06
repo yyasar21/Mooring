@@ -6,18 +6,32 @@
 /// of the raw manifest field; the UI shows at most this much).
 pub const MAX_NOTES: usize = 4 * 1024;
 
-/// Unicode bidi controls and other invisible formatting characters that are removed.
+/// Unicode bidi controls and other invisible formatting characters that are removed
+/// (review 7 N-56: every `Cf` the notes could smuggle — bidi isolates and embeddings,
+/// zero-width joiners, word joiner and friends, variation selectors, tag characters —
+/// plus the C0/C1 controls other than `\n` / `\t`).
 fn is_dropped(c: char) -> bool {
     matches!(
         c,
-        '\u{200B}'..='\u{200F}'   // zero-width space/joiners, LRM, RLM
-        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
-        | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
-        | '\u{FEFF}'              // BOM / ZWNBSP
+        '\u{00AD}'                // soft hyphen
         | '\u{061C}'              // Arabic letter mark
-        | '\u{180E}'              // Mongolian vowel separator
+        | '\u{180B}'..='\u{180F}' // Mongolian free variation selectors + vowel separator
+        | '\u{200B}'..='\u{200F}' // zero-width space/joiners, LRM, RLM
+        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
+        | '\u{2060}'..='\u{2064}' // word joiner, invisible operators
+        | '\u{2066}'..='\u{206F}' // LRI, RLI, FSI, PDI, deprecated format controls
+        | '\u{FE00}'..='\u{FE0F}' // variation selectors 1-16
+        | '\u{FEFF}'              // BOM / ZWNBSP
         | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation
+        | '\u{E0000}'..='\u{E007F}' // tag characters
+        | '\u{E0100}'..='\u{E01EF}' // variation selectors 17-256
     ) || (c.is_control() && c != '\n' && c != '\t')
+}
+
+/// The Unicode line and paragraph separators become plain newlines (they would otherwise
+/// pass through as invisible text that still breaks a line in some renderers).
+fn normalise_separators(raw: &str) -> String {
+    raw.replace(['\u{2028}', '\u{2029}'], "\n")
 }
 
 /// Remove whole ANSI escape sequences, not just the `ESC` byte: CSI (`ESC [ … final`), OSC
@@ -61,7 +75,8 @@ fn strip_escapes(raw: &str) -> String {
 pub fn sanitise(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len().min(MAX_NOTES + 4));
     let mut blank_run = 0usize;
-    for line in strip_escapes(raw).replace("\r\n", "\n").replace('\r', "\n").split('\n') {
+    let text = normalise_separators(&strip_escapes(raw)).replace("\r\n", "\n").replace('\r', "\n");
+    for line in text.split('\n') {
         let line: String = line.chars().filter(|c| !is_dropped(*c)).collect();
         let line = line.trim_end();
         if line.is_empty() {
@@ -123,6 +138,23 @@ mod tests {
         assert!(out.trim_end_matches('…').chars().all(|c| c == 'é'));
         let exact = "x".repeat(MAX_NOTES);
         assert_eq!(sanitise(&exact), exact, "exactly the cap is untouched");
+    }
+
+    /// Review 7 N-56: the remaining `Cf` characters, the line / paragraph separators and
+    /// the tag block go too; ordinary non-ASCII text stays.
+    #[test]
+    fn strips_invisible_format_characters_and_tag_block() {
+        let raw = "a\u{2060}b\u{2061}c\u{200B}d\u{200F}e\u{2066}f\u{2069}g\u{FEFF}h\u{061C}i\u{180E}j\u{FE0F}k\u{E0100}l\u{E0001}m\u{E007F}n\u{00AD}o";
+        assert_eq!(sanitise(raw), "abcdefghijklmno");
+        assert_eq!(sanitise("one\u{2028}two\u{2029}three"), "one\ntwo\nthree");
+        assert_eq!(sanitise("x\u{2028}\u{2029}\u{2028}y"), "x\n\ny", "separators collapse like blank lines");
+        assert_eq!(sanitise("Türkçe – ok ✓ 日本"), "Türkçe – ok ✓ 日本", "visible text is untouched");
+        for c in ['\u{2060}', '\u{206F}', '\u{E0000}', '\u{E007F}', '\u{FE00}', '\u{E01EF}', '\u{180B}'] {
+            assert!(is_dropped(c), "{c:?}");
+        }
+        for c in ['a', 'é', '日', '\n', '\t', ' ', '–'] {
+            assert!(!is_dropped(c), "{c:?}");
+        }
     }
 
     #[test]
