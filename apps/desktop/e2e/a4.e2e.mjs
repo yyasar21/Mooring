@@ -3,13 +3,10 @@
 // first-run onboarding card's paths, Settings → Updates (unconfigured / in_app offer with the
 // install confirmation / manual reason) and the title-bar indicator after a background check,
 // the inspector's Network card (port check, ping, traceroute, WireGuard hidden when `wg` is
-// missing), and Settings → About. The Rust side of the same flows is
-// `cargo test -p mooring-app --test e2e_flow a4_`.
+// missing), Settings → About, and (U5) the Directory (LDAPS) source: form → the declined and
+// then confirmed native sign-in → test bind → preview → apply. The Rust side of the same flows
+// is `cargo test -p mooring-app --test e2e_flow a4_`.
 // Run: `node --test --test-concurrency=1 apps/desktop/e2e/a4.e2e.mjs` (after `pnpm install`).
-//
-// TODO(Q1, after U4 merges): the Directory (LDAPS) tile opens a form — add "LDAPS form →
-// test bind → preview → apply" here with the mock's `ldapImport*` knobs. Not written yet
-// because U4 (the form) is being built concurrently with this file.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createVault, freshPage, probe, screenshotOnFailure, startHarness, waitForProbe } from "./harness.mjs";
@@ -59,6 +56,8 @@ function setMock(page, patch) {
     if (p.netToolsState) t.netToolsState = p.netToolsState;
     if (p.netRateWindowMs !== undefined) t.netRateWindowMs = p.netRateWindowMs;
     if (p.updateInstallFails) t.updateInstallFails = p.updateInstallFails;
+    if (p.ldapSignIn) t.ldapSignIn = p.ldapSignIn;
+    if (p.ldapTrust) t.ldapTrust = p.ldapTrust;
     if (p.backgroundCheck) return t.simulateBackgroundCheck();
     return undefined;
   }, patch);
@@ -171,7 +170,64 @@ test("import wizard: mRemoteNG shows the passwords-never-imported banner; a refu
     const snap = await probe(page);
     assert.ok(events(snap).includes("import_refused"));
     assert.ok(!JSON.stringify(snap.audit).includes("locked.xml"), "a refusal is audited by code only");
-    assert.equal(await tiles.getByRole("button", { name: /Directory \(LDAPS\)/ }).isDisabled(), true, "the LDAPS tile waits for U4");
+    assert.equal(await tiles.getByRole("button", { name: /Directory \(LDAPS\)/ }).isEnabled(), true, "the LDAPS tile is live since U4");
+  }));
+
+test("import wizard: LDAPS form → declined sign-in refuses → confirmed test bind → preview → apply → new folder", (t) =>
+  flow(t, async (page) => {
+    await createVault(page);
+    await openSettings(page);
+    const tiles = region(page, "Import").getByRole("list", { name: "Import sources" });
+    await tiles.getByRole("button", { name: /Directory \(LDAPS\)/ }).click();
+    const dlg = dialog(page);
+    assert.equal(await dlg.getAttribute("aria-label"), "Import from Directory (LDAPS)");
+    assert.equal(await textOf(dlg.getByRole("list", { name: "Import steps" })), "1Directory2Preview3Apply");
+    assert.match(await dlg.innerText(), /asks you to confirm in a Mooring dialog/, "the form explains the native sign-in");
+    // Client-side checks first: ldap:// is named as insecure before anything is contacted.
+    await dlg.getByLabel("Server").fill("ldap://dc01.example.test");
+    await dlg.getByRole("button", { name: "Test bind" }).click();
+    assert.equal(await dlg.getByLabel("Server").getAttribute("aria-invalid"), "true");
+    await dlg.getByLabel("Server").fill("ldaps://dc01.example.test");
+    await dlg.getByLabel("Base DN").fill("OU=Servers,DC=example,DC=test");
+    await dlg.getByLabel("Bind credential").selectOption("cr-ad");
+    // The certificate is trusted (first contact), then the sign-in dialog is declined: nothing is sent.
+    await setMock(page, { ldapTrust: ["trust"], ldapSignIn: ["decline"] });
+    await dlg.getByRole("button", { name: "Test bind" }).click();
+    await dlg.getByRole("alert").filter({ hasText: "You did not confirm the sign-in" }).waitFor();
+    assert.match(await dlg.innerText(), /Not tested yet/);
+    let snap = await probe(page);
+    assert.ok(!events(snap).includes("ldap_bind"), "a declined sign-in never binds");
+    const refused = snap.audit.find((e) => e.event === "confirm_refused");
+    assert.deepEqual(refused?.details, { kind: "ldap_bind", target: "dc01.example.test:636", reason: "declined" });
+    // Confirmed: bound as the domain account, then disconnected, nothing searched.
+    await dlg.getByRole("button", { name: "Test bind" }).click();
+    const bound = dlg.getByRole("status").filter({ hasText: "Bound as" });
+    await bound.waitFor();
+    assert.match(await bound.innerText(), /dc01\.example\.test:636[\s\S]*EXAMPLE\\admin[\s\S]*Nothing was searched/);
+    // Preview: the pair is remembered, so no second dialog; the Servers OU with its sub-OUs.
+    await setMock(page, { ldapSignIn: ["decline"] }); // would refuse if the dialog were raised again
+    await dlg.getByRole("button", { name: "Preview" }).click();
+    await dlg.getByRole("group", { name: "Preview counts" }).waitFor();
+    assert.equal(await counts(dlg), "2folders5connections1credentials0secrets0skipped0warnings");
+    const items = dlg.getByRole("region", { name: "Items to import" });
+    assert.ok(await items.getByText("Duplicate, skipped").isVisible(), "the seeded web01 is flagged as a duplicate");
+    assert.equal(await dlg.getByRole("switch", { name: /plaintext|private keys/ }).count(), 0, "no opt-ins for a directory");
+    assert.match(await dlg.innerText(), /Directory account \(example\.test\)/);
+    assert.doesNotMatch(await dlg.innerText(), /DC=example|OU=Servers/, "no DN on the preview step");
+    await dlg.getByRole("button", { name: /^Import 6 items/ }).click(); // 7 selected minus the duplicate
+    const report = dlg.getByRole("group", { name: "Import report" });
+    await report.waitFor();
+    assert.equal(await textOf(report), "2folders4connections1credentials0secrets1skipped");
+    await dlg.getByRole("button", { name: "Open folder" }).click();
+    await dlg.waitFor({ state: "detached" });
+    await tree(page).getByRole("treeitem", { name: /^Imported from LDAP directory/ }).waitFor();
+    snap = await probe(page);
+    assert.equal(events(snap).filter((e) => e === "ldap_bind").length, 2, "one bind for the test, one for the preview");
+    assert.equal(snap.audit.find((e) => e.event === "import_previewed")?.details.format, "ldap");
+    assert.equal(snap.audit.find((e) => e.event === "import_applied")?.details.format, "ldap");
+    assert.equal(snap.audit.filter((e) => e.event === "cert_decision").length, 1, "the certificate dialog ran once");
+    assert.ok(!/admin|DC=example|OU=|password/.test(JSON.stringify(snap.audit)), "no bind name, DN or secret in the audit");
+    assert.equal(await page.evaluate(() => window.__mooringE2E?.transport.ldapSignIn.length ?? -1), 1, "the dialog was not raised for the remembered pair");
   }));
 
 // ---------------------------------------------------------------- onboarding card
