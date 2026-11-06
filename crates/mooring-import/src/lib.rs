@@ -16,6 +16,8 @@ mod csv;
 mod error;
 pub mod fuzz;
 mod gzip;
+#[cfg(feature = "directory")]
+pub mod ldap;
 mod limits;
 mod mremoteng;
 mod openssh;
@@ -53,12 +55,25 @@ pub enum ImportFormat {
     Putty,
     /// OpenSSH `~/.ssh/config`.
     Openssh,
+    /// An LDAPS directory (ADR-0019 §4): not a file, no [`Importer`]; a plan source only.
+    Ldap,
 }
 
 impl ImportFormat {
-    /// Every format, in picker order.
-    pub const ALL: [Self; 6] =
+    /// Every file format, in picker order.
+    pub const FILES: [Self; 6] =
         [Self::RoyalTs, Self::Rdm, Self::Termius, Self::Mremoteng, Self::Putty, Self::Openssh];
+
+    /// Every format (the file formats plus the directory source).
+    pub const ALL: [Self; 7] = [
+        Self::RoyalTs,
+        Self::Rdm,
+        Self::Termius,
+        Self::Mremoteng,
+        Self::Putty,
+        Self::Openssh,
+        Self::Ldap,
+    ];
 
     /// Stable wire name.
     #[must_use]
@@ -70,6 +85,7 @@ impl ImportFormat {
             Self::Mremoteng => "mremoteng",
             Self::Putty => "putty",
             Self::Openssh => "openssh",
+            Self::Ldap => "ldap",
         }
     }
 
@@ -83,6 +99,7 @@ impl ImportFormat {
             Self::Mremoteng => "mRemoteNG",
             Self::Putty => "PuTTY",
             Self::Openssh => "OpenSSH config",
+            Self::Ldap => "LDAP directory",
         }
     }
 
@@ -95,7 +112,7 @@ impl ImportFormat {
             Self::Termius => &["csv", "json"],
             Self::Mremoteng => &["xml"],
             Self::Putty => &["reg"],
-            Self::Openssh => &[],
+            Self::Openssh | Self::Ldap => &[],
         }
     }
 
@@ -111,17 +128,18 @@ impl ImportFormat {
         Self::ALL.into_iter().find(|f| f.name() == name)
     }
 
-    /// The importer.
+    /// The file importer (`None` for the directory source).
     #[must_use]
-    pub fn importer(self) -> &'static dyn Importer {
-        match self {
+    pub fn importer(self) -> Option<&'static dyn Importer> {
+        Some(match self {
             Self::RoyalTs => &royalts::RoyalTs,
             Self::Rdm => &rdm::Rdm,
             Self::Termius => &termius::Termius,
             Self::Mremoteng => &mremoteng::Mremoteng,
             Self::Putty => &putty::Putty,
             Self::Openssh => &openssh::Openssh,
-        }
+            Self::Ldap => return None,
+        })
     }
 }
 
@@ -178,7 +196,7 @@ pub fn detect(bytes: &[u8], filename: &str) -> Option<ImportFormat> {
         return by_name;
     }
     let head = &bytes[..bytes.len().min(SNIFF_LEN)];
-    ImportFormat::ALL.into_iter().find(|f| f.importer().sniff(head))
+    ImportFormat::FILES.into_iter().find(|f| f.importer().is_some_and(|i| i.sniff(head)))
 }
 
 /// Check the raw size cap(s) of a source.
@@ -203,7 +221,12 @@ pub fn parse(
     opts: &ImportOptions,
 ) -> Result<ImportPlan> {
     check_input_size(&src, &opts.limits)?;
-    format.importer().parse(src, opts)
+    let importer = format.importer().ok_or(ImportError::format(
+        "ldap",
+        "a directory is not a file format",
+        0,
+    ))?;
+    importer.parse(src, opts)
 }
 
 #[cfg(test)]
@@ -212,12 +235,19 @@ mod tests {
 
     #[test]
     fn names_round_trip() {
-        for f in ImportFormat::ALL {
+        for f in ImportFormat::FILES {
             assert_eq!(ImportFormat::parse(f.name()), Some(f));
-            assert_eq!(f.importer().format(), f);
+            assert_eq!(f.importer().map(Importer::format), Some(f));
             assert_eq!(serde_json::to_value(f).expect("json"), f.name());
         }
         assert_eq!(ImportFormat::parse("zip"), None);
+        assert_eq!(ImportFormat::parse("ldap"), Some(ImportFormat::Ldap));
+        assert!(ImportFormat::Ldap.importer().is_none() && !ImportFormat::Ldap.secrets_possible());
+        let src = ImportSource::File { name: "x", bytes: b"" };
+        assert_eq!(
+            parse(ImportFormat::Ldap, src, &ImportOptions::default()).err().map(|e| e.code()),
+            Some("import.format")
+        );
     }
 
     #[test]

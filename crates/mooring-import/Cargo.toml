@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+# ADR-0019 §4: the LDAPS directory importer (network I/O through ldap3 + mooring-http's verifier).
+directory = ["dep:ldap3", "dep:mooring-http", "dep:rustls", "dep:tokio"]
+
 [lints]
 workspace = true
 
@@ -24,5 +28,18 @@ quick-xml = { version = "0.42", default-features = false }
 # ratio cap (ADR-0019 §3); same backend selection as mooring-proto-vnc's test dependency.
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
+# Feature `directory` (A4 I2): pure-Rust LDAP client, rustls + ring (exact pin, owner maintenance
+# exception); the verifier / pin store come from mooring-http; rustls only to classify a handshake
+# failure; tokio for the task + deadline.
+ldap3 = { workspace = true, optional = true }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.2", optional = true }
+rustls = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
 [dev-dependencies]
 proptest = { workspace = true }
+# The crate's own tests run with the directory importer on.
+mooring-import = { path = ".", features = ["directory"] }
+mooring-testsrv = { path = "../mooring-testsrv" } # LDAP mock (dev-only crate)
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
