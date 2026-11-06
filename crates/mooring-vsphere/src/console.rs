@@ -111,6 +111,11 @@ pub fn parse_vmrc_ticket_for(
     if raw.is_empty() || raw.len() > MAX_TICKET_URL || !raw.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(bad);
     }
+    // The raw string is what reaches the OS URL handler, so the scheme must be literal
+    // lowercase `vmrc://` — `Url::parse` would accept `vmRc://` and lowercase only its view.
+    if !raw.starts_with("vmrc://") {
+        return Err(bad);
+    }
     let url = Url::parse(raw).map_err(|_| VsphereError::BadResponse("VMRC ticket"))?;
     let host_ok =
         url.host_str().is_some_and(|h| hosts.iter().any(|want| h.eq_ignore_ascii_case(want)));
@@ -195,6 +200,9 @@ mod tests {
             "vmrc://clone:x@vc.example.test/?moid=vm-42&moid=vm-43",
             "vmrc://clone:x@vc.example.test/?moid=vm-42#f",
             "vmrc://clone:x@vc.example.test/ ?moid=vm-42",
+            // Url::parse lowercases the scheme in its view only; the raw string goes to the OS.
+            "vmRc://clone:x@vc.example.test/?moid=vm-42",
+            "VMRC://clone:x@vc.example.test/?moid=vm-42",
             "",
         ] {
             assert!(parse_vmrc_ticket(bad, "vc.example.test", &vm).is_err(), "{bad}");

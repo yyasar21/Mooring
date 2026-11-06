@@ -16,7 +16,9 @@ pub fn run(data: &[u8]) {
     }
     let Ok(frame) = first else { return };
     assert!(frame.records.len() <= 256, "more than 256 records");
-    assert!((1..=MAX_DIM).contains(&frame.width) && (1..=MAX_DIM).contains(&frame.height));
+    // A 0×0 framebuffer is legal (the UI before the first resize, ADR-0011): the encoder emits
+    // it with no rectangles, so only the upper bound is an invariant here.
+    assert!(frame.width <= MAX_DIM && frame.height <= MAX_DIM);
     for r in &frame.records {
         match r {
             Mfr1Record::Rgba { rect, data } => {
