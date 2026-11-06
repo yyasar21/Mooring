@@ -17,6 +17,8 @@ import { MockNetBase } from "./ipc.mock.net";
 
 /** What the user answers in the Rust-native certificate dialog; `no_dialog` = it could not be shown. */
 export type LdapTrustAnswer = "trust" | "reject" | "no_dialog";
+/** What the native "Directory sign-in" confirmation (F2, review 7 L-43) answers; `no_dialog` = no prompter at all. */
+export type LdapSignInAnswer = "confirm" | "decline" | "no_dialog";
 /** Transport outcomes the mock directory can fake before the bind. */
 export type LdapFault = "ldap.unavailable" | "ldap.timeout" | "ldap.response" | "http.tls";
 
@@ -72,6 +74,7 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
     super.lockBackend();
     this.importPlans.clear();
     this.importPickRows.clear();
+    this.ldapConfirmed.clear(); // F2 L-43: confirmed (credential, host:port) pairs live until lock
   }
 
   private importId(prefix: string): string {
@@ -176,6 +179,10 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
   ldapRejects = new Set<string>(["cr-legacy"]);
   /** The next connects fail with this transport fault (`ldap.unavailable`, `ldap.timeout`, ...). */
   ldapFaults: LdapFault[] = [];
+  /** The next answers of the native "Sign in to <host:port>" dialog for an unconfirmed pair; empty = confirm. */
+  ldapSignIn: LdapSignInAnswer[] = [];
+  /** `AppState::ldap_binds`: `credentialId@host:port` pairs confirmed this unlocked session. */
+  ldapConfirmed = new Set<string>();
 
   /** Vault gate, argument checks, trust, bind: everything before a search, with the I2 audit rows. */
   private async ldapConnect(a: LdapImportTestArgs): Promise<{ host: string; port: number; base: string[]; boundAs: string }> {
@@ -200,6 +207,18 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
       this.record("cert_decision", { protocol: "ldap", host: pin, decision: answer === "trust" ? "trusted" : "rejected" });
       if (answer === "reject") return refuse(new IpcError("http.trust_rejected", "the certificate was rejected"));
       this.ldapPinned.add(pin);
+    }
+    // F2 (L-43): trust → confirm → bind. The first bind of a (credential, host:port) pair asks in a
+    // Rust-native dialog before the password leaves the vault; a refusal never binds.
+    const pair = `${cred.id}@${pin}`;
+    if (!this.ldapConfirmed.has(pair)) {
+      const answer = this.ldapSignIn.shift() ?? "confirm";
+      if (answer === "no_dialog") return refuse(new IpcError("ldap.confirm_required", "the sign-in needs a confirmation and no dialog could be shown"));
+      if (answer === "decline") {
+        this.record("confirm_refused", { kind: "ldap_bind", target: pin, reason: "declined" });
+        return refuse(new IpcError("ldap.bind_declined", "the sign-in was not confirmed"));
+      }
+      this.ldapConfirmed.add(pair);
     }
     const ok = !this.ldapRejects.has(cred.id);
     this.record("ldap_bind", { host: pin, success: String(ok) });

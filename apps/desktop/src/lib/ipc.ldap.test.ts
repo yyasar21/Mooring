@@ -81,6 +81,39 @@ describe("MockImportBase · ldap_import_test", () => {
     expect(mock.ldapTrust).toEqual(["reject"]);
   });
 
+  it("F2 (L-43): the first bind of a pair asks in the sign-in dialog; a refusal never binds; confirmed pairs last until lock", async () => {
+    const mock = new MockTransport();
+    mock.ldapSignIn.push("decline", "no_dialog", "confirm");
+    expect(await code(mock.ldapImportTest(ok()))).toBe("ldap.bind_declined");
+    expect(mock.audit.at(-2)).toMatchObject({ event: "confirm_refused", details: { kind: "ldap_bind", target: "dc01.example.test:636", reason: "declined" } });
+    expect(mock.audit.at(-1)?.details).toEqual({ code: "ldap.bind_declined" });
+    expect(await code(mock.ldapImportPreview(ok()))).toBe("ldap.confirm_required");
+    expect(mock.audit.filter((a) => a.event === "ldap_bind")).toHaveLength(0); // the password never left
+    expect(await code(mock.ldapImportTest(ok()))).toBe("ok");
+    expect(mock.ldapSignIn).toEqual([]);
+    expect(mock.ldapConfirmed.has("cr-ad@dc01.example.test:636")).toBe(true);
+    // Remembered per (credential, host:port): the same pair is silent, another credential or host asks again.
+    mock.ldapSignIn.push("decline");
+    expect(await code(mock.ldapImportPreview(ok()))).toBe("ok");
+    expect(mock.ldapSignIn).toEqual(["decline"]);
+    expect(await code(mock.ldapImportTest(ok({ credentialId: "cr-deploy" })))).toBe("ldap.bind_declined");
+    mock.ldapSignIn.push("decline");
+    expect(await code(mock.ldapImportTest(ok({ url: "ldaps://dc02.example.test" })))).toBe("ldap.bind_declined");
+    // The certificate dialog comes first (trust → confirm → bind): a rejected certificate never reaches the sign-in.
+    mock.ldapTrust.push("reject");
+    mock.ldapSignIn.push("decline");
+    expect(await code(mock.ldapImportTest(ok({ url: "ldaps://dc03.example.test" })))).toBe("http.trust_rejected");
+    expect(mock.ldapSignIn).toEqual(["decline"]);
+    mock.ldapSignIn.length = 0;
+    // Lock drops every confirmed pair; the next bind asks again.
+    await mock.vaultLock();
+    expect(mock.ldapConfirmed.size).toBe(0);
+    await mock.vaultUnlock("correct horse battery");
+    mock.ldapSignIn.push("decline");
+    expect(await code(mock.ldapImportTest(ok()))).toBe("ldap.bind_declined");
+    expect(JSON.stringify(mock.audit)).not.toMatch(/admin|DC=example|password/);
+  });
+
   it("fakes transport faults before the bind", async () => {
     const mock = new MockTransport();
     mock.ldapFaults.push("ldap.unavailable", "ldap.timeout", "http.tls");

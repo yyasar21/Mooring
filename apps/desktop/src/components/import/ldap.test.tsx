@@ -109,6 +109,34 @@ describe("ImportWizard · directory (LDAPS)", () => {
     expect(dialog().textContent).not.toMatch(/rc 49|rc 32/); // Rust's reasons never show; the friendly text does
   });
 
+  it("F2 (L-43): explains the native sign-in confirmation and maps a declined or impossible one to text", async () => {
+    const { mock } = await openDirectory();
+    expect(within(dialog()).getByTestId("ldap-signin-note")).toHaveTextContent("The first sign-in to a server with this credential asks you to confirm in a Mooring dialog (“Sign in to host:port”) before the password is sent.");
+    expect(within(dialog()).getByText(/the first bind asks for your confirmation/)).toBeInTheDocument();
+    fill();
+    mock.ldapSignIn.push("decline", "no_dialog");
+    click("Test bind");
+    await settle();
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent("You did not confirm the sign-in to the directory, so Mooring did not send the credential. Nothing was searched; try again and choose \"Sign in\" to continue.");
+    expect(within(dialog()).getByText(/Not tested yet/)).toBeInTheDocument();
+    expect(mock.audit.filter((a) => a.event === "ldap_bind")).toHaveLength(0);
+    expect(mock.audit.at(-2)).toMatchObject({ event: "confirm_refused", details: { kind: "ldap_bind", reason: "declined" } });
+    click("Preview");
+    await settle();
+    expect(within(dialog()).getByRole("alert")).toHaveTextContent("The sign-in to the directory needs a confirmation dialog, and none could be shown here. Run the import again from the main window.");
+    expect(within(dialog()).getByRole("listitem", { current: "step" })).toHaveTextContent("Directory");
+    // Confirmed once: test and preview both proceed without asking again.
+    click("Test bind");
+    await settle();
+    expect(within(dialog()).getByRole("status")).toHaveTextContent(/Bound as/);
+    mock.ldapSignIn.push("decline"); // would refuse, but the pair is remembered
+    click("Preview");
+    await settle();
+    expect(within(dialog()).getByRole("listitem", { current: "step" })).toHaveTextContent("Preview");
+    expect(mock.ldapSignIn).toEqual(["decline"]);
+    expect(dialog().textContent).not.toMatch(/[çğışöüÇĞİŞÖÜ]/);
+  });
+
   it("previews the directory into the shared preview step, applies, and Back keeps the form", async () => {
     const { mock } = await openDirectory();
     fill();
