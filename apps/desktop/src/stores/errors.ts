@@ -80,7 +80,7 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "confirm.busy": "Another confirmation dialog is already open. Answer it first.",
   "confirm.cooldown": "You cancelled this action a moment ago. Wait a few seconds before asking again.",
   // Shared by the vCenter (ADR-0015) and sync (ADR-0017) HTTP clients.
-  "http.trust_prompt": "The server's certificate is not trusted yet. Run Refresh now or Sync now to review and trust it; background runs cannot ask.",
+  "http.trust_prompt": "The server's certificate is not trusted yet. Run the action again from the app (Refresh now, Sync now or Test bind) to review and trust it; background runs cannot ask.",
   "http.trust_rejected": "You rejected the server's certificate, so Mooring did not connect. Nothing was stored.",
   "http.trust_mismatch":
     "The server's certificate changed since you trusted it, so Mooring stopped. Confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and try again.",
