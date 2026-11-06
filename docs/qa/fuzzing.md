@@ -76,8 +76,37 @@ parser and is replayed on stable by the owning crate's `tests/fuzz_corpus.rs`.
 
 Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test server
 (`mooring-testsrv`, docs/qa/test-servers.md) can record more RFB seeds for every encoding.
-Still Q1: `framebuffer_ops`, `rfb_handshake`, `raw_copyrect_bounds`, `vencrypt_negotiation`,
-`cut_text` as separate targets, and the pinned upstream IronRDP targets.
+
+### Review 5 L-28 (pre-TLS RFB, reassembly, cut text, framebuffer)
+
+| Target | Entry (`fuzz/entries/`) | Parser | Stable replay |
+| --- | --- | --- | --- |
+| `rfb_handshake` | `rfb_handshake.rs` | `mooring_proto_vnc::fuzz::handshake` (version, security list, `SecurityResult`, `ServerInit`) | mooring-proto-vnc |
+| `vencrypt_negotiation` | `vencrypt_negotiation.rs` | `mooring_proto_vnc::fuzz::vencrypt` | mooring-proto-vnc |
+| `rdp_reassembly` | `rdp_reassembly.rs` | `mooring_proto_rdp::fuzz::reassembly` (M-14 caps) | mooring-proto-rdp |
+| `cut_text` | `cut_text.rs` | `mooring_proto_vnc::{parse_server_message, messages::latin1_to_string / string_to_latin1}` | mooring-proto-vnc |
+| `framebuffer_ops` | `framebuffer_ops.rs` | `mooring_core::frame::Framebuffer` (resize / blit / copy / fill / cursor / `take_update` → `encode_update` → `decode_mfr1`) | mooring-core |
+
+`cut_text` (A4 Q1): byte 0 even frames the rest as a `ServerCutText` with the real length (or,
+for `sel % 4 == 2`, a tripled claim, so `Need` and `CutTextTooLong` are reached); the oracle
+is "no control character except tab / newline survives, the text re-encodes to the filtered
+input, a claim over 1 MiB is reported without reading the body". `framebuffer_ops` (A4 Q1):
+bytes 0–1 pick the size, then 8-byte ops whose rectangles are never clamped by the harness;
+the oracle is "a rectangle is refused exactly when it lies outside the framebuffer, the pixel
+buffer stays `w·h·4`, the dirty area never exceeds the framebuffer, an invalid sprite never
+reaches an update, every update's `MFR1` encoding decodes back". `raw_copyrect_bounds` is
+covered by `rfb_server_msg` (every encoding through `parse_rect` + `FrameSink`), so it is not
+a separate target.
+
+Still owed from L-28: `rdp_reactivation` — the Deactivation-Reactivation Sequence is driven
+inside `mooring_proto_rdp::active::reactivate` (private, async over the socket) and the
+`ConnectionActivationFactory` is built by `connect` from the first handshake, so there is no
+pure entry point yet. rust-core would add `mooring_proto_rdp::fuzz::reactivation(data)`
+(`ConnectionActivationSequence::new(config, io, user)` + `Sequence::step` per frame →
+`check_desktop` / `ActiveStage::reactivate`); the target then follows the pattern above. The
+pinned upstream IronRDP targets (`pdu_decoding`, `rle_decompression`, `bitmap_stream`,
+`cliprdr_format`, `channel_processing`) are run by the IronRDP project on the locked
+versions; they are not duplicated here.
 
 ## A3 targets (ADR-0014..0017)
 
@@ -110,22 +139,7 @@ branch).
 | `kube_pod_list_json` | `kube_pod_list_json.rs` | `mooring_proto_kube::fuzz::fuzz_pod_list_json` | 0014 §5 | mooring-proto-kube |
 
 Selector-prefixed targets take the first byte as the model / header selector and the rest as
-the body (see the crate's `fuzz.rs`); their seeds carry that byte.
-
-## A4 targets (ADR-0020 network tools, N1)
-
-| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
-| --- | --- | --- | --- | --- |
-| `net_ping_output` | `net_ping_output.rs` | `mooring_net::fuzz::fuzz_ping_output` (`parse_ping`) | 0020 §3 | mooring-net |
-| `net_traceroute_output` | `net_traceroute_output.rs` | `mooring_net::fuzz::fuzz_traceroute_output` (`parse_traceroute`) | 0020 §3 | mooring-net |
-| `net_wg_output` | `net_wg_output.rs` | `mooring_net::fuzz::fuzz_wg_output` (`[query selector, body]`, `parse_wg`) | 0020 §4 | mooring-net |
-
-Oracle for all three: no panic, the caps hold (64 KiB in, 200 lines × 512 bytes out, ≤ 64
-replies / hop rows, ≤ 32 interfaces, ≤ 256 peers), every produced line is free of control,
-ANSI, bidi and other `Cf` characters, numbers are finite and `received ≤ sent`. Seeds cover
-iputils, BSD, Windows en-US and tr-TR `ping`, Linux `traceroute`, `tracepath`, `tracert`
-and each `wg show` subcommand plus a hostile sample (ANSI, bidi, overlong numbers);
-`crates/mooring-net/tests/fuzz_corpus.rs` pins that the well-formed seeds keep parsing. `sync_blob_parse` seeds
+the body (see the crate's `fuzz.rs`); their seeds carry that byte. `sync_blob_parse` seeds
 include the committed `test-vectors/blob-v1.hex` blob so the fuzzer starts past the header
 checks. The seed under `http_certificate_info` is a throwaway self-signed EC certificate for
 `k.example.test` (no key is committed; kubeconfig seeds use token auth for the same reason).
@@ -147,6 +161,21 @@ The nightly job runs these families with `-malloc_limit_mb=1024`, as it does the
 targets: an API body, frame or blob parser must not allocate before it checks the size.
 `ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is not run: the hostile
 kubeconfig cases are plain `cargo test`s in `crates/mooring-core/tests/hostile_kubeconfig.rs`.
+
+## A4 targets (ADR-0020 network tools, N1)
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `net_ping_output` | `net_ping_output.rs` | `mooring_net::fuzz::fuzz_ping_output` (`parse_ping`) | 0020 §3 | mooring-net |
+| `net_traceroute_output` | `net_traceroute_output.rs` | `mooring_net::fuzz::fuzz_traceroute_output` (`parse_traceroute`) | 0020 §3 | mooring-net |
+| `net_wg_output` | `net_wg_output.rs` | `mooring_net::fuzz::fuzz_wg_output` (`[query selector, body]`, `parse_wg`) | 0020 §4 | mooring-net |
+
+Oracle for all three: no panic, the caps hold (64 KiB in, 200 lines × 512 bytes out, ≤ 64
+replies / hop rows, ≤ 32 interfaces, ≤ 256 peers), every produced line is free of control,
+ANSI, bidi and other `Cf` characters, numbers are finite and `received ≤ sent`. Seeds cover
+iputils, BSD, Windows en-US and tr-TR `ping`, Linux `traceroute`, `tracepath`, `tracert`
+and each `wg show` subcommand plus a hostile sample (ANSI, bidi, overlong numbers);
+`crates/mooring-net/tests/fuzz_corpus.rs` pins that the well-formed seeds keep parsing.
 
 ## A4 targets (ADR-0019, I1)
 
@@ -239,7 +268,7 @@ Without nightly, the stable side still works and is what CI runs on every push:
 ```sh
 cargo test -p mooring-proto-ssh -p mooring-core -p mooring-vault -p mooring-proto-rdp \
   -p mooring-proto-vnc -p mooring-http -p mooring-proto-kube -p mooring-vsphere \
-  -p mooring-secrets -p mooring-sync --test fuzz_corpus
+  -p mooring-secrets -p mooring-sync -p mooring-net -p mooring-import --test fuzz_corpus
 cd fuzz && cargo check --bins     # the targets compile on stable; only running them needs nightly
 ```
 

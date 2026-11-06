@@ -45,6 +45,12 @@ saphyr-parser = "=0.3.3"
 [features]
 s1 = [] # s3_error_xml: rusty-s3 presign + raw PUT/GET/HEAD/DELETE only
 
+# Mirrors the root workspace's patch (Cargo.toml): age 0.12.1 on crates.io pins ml-kem 0.2,
+# which no longer builds next to russh's ml-kem 0.3 / kem 0.3 (`cargo check --bins` failed on
+# `ml-kem 0.2.1` before this, A4 Q1). Same commit, same reason; drop both when age 0.13 ships.
+[patch.crates-io]
+age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }
+
 [[bin]]
 name = "known_hosts_parse"
 path = "fuzz_targets/known_hosts_parse.rs"
@@ -398,6 +404,22 @@ bench = false
 [[bin]]
 name = "ldap_ber_response"
 path = "fuzz_targets/ldap_ber_response.rs"
+test = false
+doc = false
+bench = false
+
+# Review 5 L-28 remainder (A4 Q1): `ServerCutText` + Latin-1 converters (mooring-proto-vnc)
+# and the shared framebuffer operations (mooring-core).
+[[bin]]
+name = "cut_text"
+path = "fuzz_targets/cut_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "framebuffer_ops"
+path = "fuzz_targets/framebuffer_ops.rs"
 test = false
 doc = false
 bench = false

@@ -1,7 +1,9 @@
 //! Stable replay of the VNC fuzz corpora (`rfb_server_msg`, `vnc_zrle`, `vnc_tight`,
-//! `rfb_handshake`, `vencrypt_negotiation`) and crash
+//! `rfb_handshake`, `vencrypt_negotiation`, `cut_text`) and crash
 //! regressions through the same entry points the cargo-fuzz targets use (docs/qa/fuzzing.md).
 
+#[path = "../../../fuzz/entries/cut_text.rs"]
+mod cut_text;
 #[path = "../../../fuzz/entries/replay.rs"]
 mod replay;
 #[path = "../../../fuzz/entries/rfb_handshake.rs"]
@@ -56,6 +58,27 @@ fn vencrypt_negotiation_corpus() {
     assert!(replay::replay("vencrypt_negotiation", vencrypt_negotiation::run) >= 2);
 }
 
+/// Review 5 L-28: `ServerCutText` + Latin-1 converters.
+#[test]
+fn cut_text_corpus() {
+    assert!(replay::replay("cut_text", cut_text::run) >= 5);
+}
+
+/// The framed seed must keep parsing as a `CutText` with the controls dropped, or the fuzzer
+/// only explores the converter.
+#[test]
+fn cut_text_seed_is_a_cut_text_message() {
+    use mooring_proto_vnc::{parse_server_message, Parsed, ServerMessage};
+    let s = seed("cut_text", "framed-controls");
+    let mut msg = vec![3, 0, 0, 0];
+    msg.extend_from_slice(&u32::try_from(s.len() - 1).expect("u32").to_be_bytes());
+    msg.extend_from_slice(&s[1..]);
+    let Ok(Parsed::Done(ServerMessage::CutText(t), used)) = parse_server_message(&msg) else {
+        panic!("not a cut text");
+    };
+    assert_eq!((t.as_str(), used), ("abcdef\n", msg.len()));
+}
+
 /// The full handshake seed must reach `ServerInit`, or the fuzzer only explores the version.
 #[test]
 fn handshake_seed_reaches_server_init() {
@@ -70,4 +93,23 @@ fn handshake_seed_reaches_server_init() {
     let Ok(Parsed::Done((), c)) = parse_security_result(&s[a + b..]) else { panic!("result") };
     let Ok(Parsed::Done(init, _)) = parse_server_init(&s[a + b + c..]) else { panic!("init") };
     assert_eq!((init.width, init.height, init.name.as_str()), (1024, 768, "test"));
+}
+
+/// A few thousand pseudo-random inputs through the entry on stable (a cheap stand-in for a
+/// nightly run; the seeds above cover the interesting paths). Deterministic xorshift, so a
+/// failure reproduces.
+#[test]
+fn cut_text_random_smoke() {
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    for _ in 0..3000 {
+        let len = usize::try_from(next() % 200).expect("usize");
+        let data: Vec<u8> = (0..len).map(|_| (next() & 0xFF) as u8).collect();
+        cut_text::run(&data);
+    }
 }
