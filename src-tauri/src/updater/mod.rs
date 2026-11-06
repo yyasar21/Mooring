@@ -160,6 +160,7 @@ impl UpdateRuntime {
             bundle: Bundle::Unknown,
             install_path: std::path::PathBuf::new(),
             writable: false,
+            cask_present: false,
         });
         install_mode::decide(&facts)
     }

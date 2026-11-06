@@ -103,7 +103,12 @@ impl InstallProbe for Probe {
 }
 
 fn probe(bundle: Bundle, path: &str, writable: bool) -> Arc<Probe> {
-    Arc::new(Probe(InstallFacts { bundle, install_path: path.into(), writable }))
+    Arc::new(Probe(InstallFacts {
+        bundle,
+        install_path: path.into(),
+        writable,
+        cask_present: false,
+    }))
 }
 
 fn runtime(source: Arc<Scripted>, probe: Arc<Probe>) -> UpdateRuntime {
