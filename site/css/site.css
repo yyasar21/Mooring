@@ -225,6 +225,11 @@ a:focus-visible, button:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .feature-groups { display: grid; gap: 0; padding: 1px 0 0 1px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
 .fgroup { background: var(--bg); padding: 22px 22px 26px; border: 1px solid var(--line); margin: -1px 0 0 -1px; }
 .fgroup h3 { color: var(--text); margin-bottom: 12px; }
+/* an odd last group stretches across the row instead of leaving two empty cells */
+@media (min-width: 1000px) {
+  .fgroup:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+  .fgroup:last-child:nth-child(3n + 1) ul { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 44px; }
+}
 .fgroup ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .fgroup li { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: baseline; font-size: 0.94rem; }
 .fgroup li[hidden] { display: none; }
@@ -312,6 +317,13 @@ a:focus-visible, button:focus-visible, summary:focus-visible, [tabindex]:focus-v
 .timeline .state { font: 400 0.78rem/1 var(--font-mono); color: var(--text-muted); margin: 8px 0 8px; }
 .timeline li[data-state] .state { color: var(--accent); }
 .timeline p:last-child { color: var(--text-muted); max-width: 60ch; }
+.timeline .bullets { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-width: 60ch; color: var(--text-muted); }
+.timeline .bullets li { position: relative; padding: 0 0 0 16px; }
+.timeline .bullets li::before {
+  content: ""; position: absolute; left: 0; top: 0.62em; width: 6px; height: 6px;
+  border: 1px solid var(--accent); transform: rotate(45deg);
+}
+.section-head .status-note { margin-top: 1rem; }
 
 /* faq */
 .faq { margin-top: 1.75rem; border-top: 1px solid var(--line-strong); }
