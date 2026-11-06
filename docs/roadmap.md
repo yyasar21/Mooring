@@ -68,6 +68,9 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
   Authenticode (when certificates exist); Linux `.deb`, `.rpm`, AppImage; `SHA256SUMS` signed with
   Sigstore (cosign keyless); signed updater manifests ([ADR-0018](adr/0018-release-v0-1-0.md)). Homebrew tap, winget later.
 - CycloneDX SBOMs, SLSA provenance, reproducible-build check.
+- **Exit gate also covers the public face**: README, `site/` (GitHub Pages), CHANGELOG, user guide and
+  the comparison table must describe the released state — every phase exit updates them, not
+  only the code.
 - Full security pass: zero critical/high findings; mediums documented.
 - Onboarding and importers: Royal TS, Termius, mRemoteNG, PuTTY sessions. No telemetry.
 - Exit: clean installs on fresh macOS, Windows 11 and Fedora machines.
