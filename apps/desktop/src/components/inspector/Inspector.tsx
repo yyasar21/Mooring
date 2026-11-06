@@ -5,6 +5,7 @@ import { folderPath, useTree } from "../../stores/tree";
 import { lineState, useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
+import { hasNetworkCard, NetworkCard } from "./NetworkCard";
 import { ImportWizard } from "../vsphere/ImportWizard";
 import { SyncPanel } from "../vsphere/SyncPanel";
 import { VmPanel } from "../vsphere/VmPanel";
@@ -107,9 +108,10 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
         <HudLabel>Credential</HudLabel>
         <ConnectionCredentials c={c} inheritedFrom={source} />
       </section>
-      <p className="px-3.5 pb-4 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
+      <p className="px-3.5 pb-1 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
         Copying writes an audit entry. Mooring clears the clipboard after 30 seconds.
       </p>
+      {hasNetworkCard(c) && <NetworkCard key={c.id} c={c} />}
     </div>
   );
 }

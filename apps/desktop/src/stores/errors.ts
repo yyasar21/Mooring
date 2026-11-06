@@ -89,6 +89,25 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
     "This host has two different trusted certificates (synced from another device). Remove one in Settings → Trust before connecting.",
   "http.trust_store": "Mooring could not read or write its certificate trust store.",
   "http.tls": "The TLS handshake with the server failed.",
+  // ADR-0018 §3 (U0): in-app updater.
+  "update.unconfigured": "Updates are not configured in this build.",
+  "update.busy": "An update check or install is already running. Wait for it to finish.",
+  "update.rate_limited": "You checked a moment ago. Wait a minute before checking again.",
+  "update.network": "The update server did not answer. Check the network and try again.",
+  "update.manifest": "The update manifest could not be read. Try again later.",
+  "update.signature": "The update's signature did not verify, so nothing was installed.",
+  "update.none": "There is no newer version, or the offered version changed. Check again.",
+  "update.manual_only": "This install is managed by a package manager or Homebrew. Update it there.",
+  "update.not_writable": "The installed application is not writable by your user, so Mooring cannot replace it. Reinstall from the release page.",
+  "update.sessions_open": "Sessions are still open. Close them, or confirm closing them, before installing.",
+  "update.install_failed": "The update was verified but could not be written. Nothing changed; try again or install from the release page.",
+  // ADR-0020 (N1): network tools.
+  "net.invalid_host": "That is not a valid host name or address, or this connection has no network host to probe.",
+  "net.tool_missing": "That tool was not found on this system. Mooring only runs the OS tools at their usual paths.",
+  "net.permission_denied": "WireGuard status needs elevated rights; Mooring does not elevate.",
+  "net.busy": "Two network tools are already running. Wait for one to finish.",
+  "net.rate_limited": "One port check per second. Try again in a moment.",
+  "net.spawn": "The tool could not be started.",
 };
 
 /** The friendly text for a bare error code (status fields carry codes, not messages). */

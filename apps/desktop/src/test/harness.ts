@@ -11,6 +11,7 @@ import { useConnOptions } from "../stores/connOptions";
 import { detachedSessions } from "../stores/sessions.detach";
 import { useKube } from "../stores/kube";
 import { useSync } from "../stores/sync";
+import { useUpdate } from "../stores/update";
 
 /** Fresh mock backend and empty stores for every test. */
 export function freshBackend(opts: MockOptions = {}): MockTransport {
@@ -24,6 +25,7 @@ export function freshBackend(opts: MockOptions = {}): MockTransport {
   useConnOptions.getState().reset();
   useKube.getState().reset();
   useSync.getState().reset();
+  useUpdate.getState().reset();
   detachedSessions.clear(); // mock session ids repeat across tests
   useUi.setState({ theme: "dark", inspectorOpen: true });
   useApp.setState({ info: null, vault: "unknown", lastError: null, lockReason: null });

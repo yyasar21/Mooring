@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { BrandMark, Kbd } from "@mooring/ui";
 import { useApp } from "../stores/app";
 import { INSPECTOR, SIDEBAR, useUi } from "../stores/ui";
+import { useUpdate } from "../stores/update";
 import { Sidebar } from "./tree/Sidebar";
 import { Workspace } from "./Workspace";
 import { Inspector } from "./inspector/Inspector";
@@ -11,7 +13,7 @@ import { SettingsView } from "./settings/SettingsView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
 import { Telemetry } from "./Telemetry";
-import { SyncBanner, SyncIndicator } from "./SyncBanner";
+import { openSettingsCard, SyncBanner, SyncIndicator } from "./SyncBanner";
 import { useShortcuts } from "./useShortcuts";
 
 /** Main window once the vault is unlocked: title bar, sync alarm (if any), tree | tabs (or audit) | inspector, telemetry strip. */
@@ -87,6 +89,7 @@ function TitleBar() {
         <Kbd>mod K</Kbd>
       </button>
       <SyncIndicator />
+      <UpdateIndicator />
       <nav aria-label="Views" className="ml-auto flex items-center gap-1">
         <button
           type="button"
@@ -130,6 +133,26 @@ function TitleBar() {
         </button>
       </nav>
     </header>
+  );
+}
+
+/**
+ * Subtle title-bar notice of the opt-in background update check (ADR-0018 §3): the shell holds
+ * the one `update:available` subscription for the unlocked session; the notice only names the
+ * version and jumps to Settings → Updates, where installing is a separate, confirmed step.
+ */
+function UpdateIndicator() {
+  const badge = useUpdate((s) => s.badge);
+  const view = useUi((s) => s.view);
+
+  useEffect(() => useUpdate.getState().watch(), []);
+
+  if (badge === null || view === "settings") return null;
+  return (
+    <button type="button" className="update-indicator" onClick={() => { openSettingsCard("updates-title"); }} aria-label={`Update ${badge} available. Open update settings`}>
+      <span aria-hidden className="state-dot" data-state="connected" />
+      Update {badge}
+    </button>
   );
 }
 

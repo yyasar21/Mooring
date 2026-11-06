@@ -11,6 +11,7 @@ import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick
 import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 import { decodeSyncStatus } from "./ipc.decode.sync";
+import { decodeUpdateInfo } from "./ipc.decode.update";
 
 export * from "./ipc.types";
 
@@ -226,6 +227,22 @@ export class TauriTransport implements Ipc {
   onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(decodeSyncStatus(payload)); });
 
   onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
+
+  // ---------- ADR-0018 §3 (updater, U0) ----------
+
+  updateCheck: Ipc["updateCheck"] = () => call<unknown>("update_check").then(decodeUpdateInfo);
+  updateInstall: Ipc["updateInstall"] = (a) => call("update_install", { ...a });
+  updateSettingsGet: Ipc["updateSettingsGet"] = () => call("update_settings_get");
+  updateSettingsSet: Ipc["updateSettingsSet"] = (a) => call("update_settings_set", { ...a });
+  onUpdateAvailable: Ipc["onUpdateAvailable"] = (handler) => subscribe("update:available", (payload) => { handler(decodeUpdateInfo(payload)); });
+
+  // ---------- ADR-0020 (network tools, N1) ----------
+
+  netTools: Ipc["netTools"] = () => call("net_tools");
+  netPortCheck: Ipc["netPortCheck"] = (a) => call("net_port_check", { ...a });
+  netPing: Ipc["netPing"] = (a) => call("net_ping", { ...a });
+  netTraceroute: Ipc["netTraceroute"] = (a) => call("net_traceroute", { ...a });
+  netWgShow: Ipc["netWgShow"] = () => call("net_wg_show");
 }
 
 /** Subscribe to a Tauri event; the returned function unsubscribes, also when called before `listen` resolved. */
