@@ -1,9 +1,10 @@
-# Threat model — Mooring (v1, Phases A1–A3)
+# Threat model — Mooring (v1, Phases A1–A4)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
-Last change: A3 (ADR-0014..0017): read-only Kubernetes sessions, vSphere inventory sync, power
-and consoles, external secret sources (Vault / OpenBao, OIDC window), vault sync over S3, and
-the shared `mooring-http` client. See review [a3-review-6.md](a3-review-6.md). Earlier: A2
+Last change: A4 (ADR-0018..0020): the v0.1.0 release pipeline and the in-app updater, the file
+importers and the LDAPS directory importer, and the OS network tools. See review
+[a4-review-7.md](a4-review-7.md). Earlier: A3 (ADR-0014..0017) in
+[a3-review-6.md](a3-review-6.md); A2
 (ADR-0011..0013) in [a2-review-5.md](a2-review-5.md); A1 exit (ADR-0010) in
 [a1-review-4.md](a1-review-4.md);
 ADR-0009 typed credentials, the public release pipeline and the public scrub in
@@ -36,6 +37,9 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | vCenter session token, VMRC tickets (A3) | RAM only (`Zeroizing`); the session is logged out on lock; a VMRC ticket lives ≤ 60 s and is handed to the OS URL handler | Inventory and power control as that account; one console on one VM (ticket) |
 | Vault / OpenBao tokens (A3) | RAM only (`TokenCache`, `Zeroizing`); ours revoked on lock and exit | Read of every KV path the token's policy allows |
 | Sync objects (A3) | S3 bucket: MSY1 blobs (AEAD under an HKDF subkey of the DEK), `history/`, and the vault **header** as its own object | Header: offline guessing of the master password (as T1). Blobs: none without the DEK; rollback and fork are detected, withholding is not |
+| Updater signing key (A4) | GitHub secret `TAURI_SIGNING_PRIVATE_KEY` (+ password) and the owner's password manager; public half compiled into the app (`plugins.updater.pubkey`) | Code execution on every in-app install whose manifest the holder can also serve (R-UPD, M-17) |
+| Import plans (A4) | RAM only (`ImportPlans`, ≤ 8, 10 min, single use, cleared on lock); opted-in plaintext secrets `Zeroizing` | The secrets of one import (Termius passwords/keys, opted-in `~/.ssh` keys) |
+| LDAP certificate pins (A4) | `known_ldap_certs`, same format and sync as the other pins | A pinned hostile directory receives bind passwords |
 | Kube / vSphere / Vault / sync certificate pins (A3) | `known_{kube,vsphere,vault,sync}_certs`, same format as the RDP/VNC pins; **synced** to every device of the vault (owner decision 10) | A pin accepted on one device is trusted on all (L-35) |
 
 ## Attackers
@@ -48,6 +52,34 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | T5 | Compromised WebView (XSS, malicious remote page in A2) | Runs JS inside the app, calls any exposed IPC command |
 | T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
 | T7 | Sync storage operator (S3 provider, bucket admin, anyone with the bucket keys) (A3) | Reads, replays, withholds, deletes or replaces any object, serves an old generation, logs request URLs; cannot forge MSY1 without the DEK |
+
+## Trust boundaries added in A4 (ADR-0018..0020)
+- **Release workflow → users.** `release.yml` builds in `contents: read` jobs, hashes the
+  workflow artifacts in `finalize` (no checkout, pinned cosign / attest only), signs
+  `SHA256SUMS` keyless and attests every file; a human publishes the draft. The updater key is a
+  second root, and today it sits in the build jobs' environment (M-17).
+- **GitHub → updater (T3, T6, repo write).** `latest.json` is unsigned. It is fetched over
+  `https` from the fixed `releases/latest/download` endpoint: platform verifier, OS proxy
+  honoured, redirects `https` only. The offered version must be greater than the running one,
+  the artifact must carry a minisign signature by the compiled-in key, and the plugin installs
+  only where no elevation is needed. Not yet bound: the download host and size (L-40), and the
+  link between version and artifact for signatures that carry no version (L-39).
+- **Import files (T4).** Royal TS, RDM, Termius, mRemoteNG, PuTTY and OpenSSH exports are
+  picked in Rust (a `pickId`, never a path over IPC) or read from `~/.ssh/config` /
+  `~/.putty/sessions/`. They are parsed under caps into a plan held in Rust. Secrets are read
+  only with the opt-in and only from plaintext formats. The opt-in key read is confined to
+  `~/.ssh`, but it also applies to picked configs (L-41). The apply is one transaction into a
+  new folder.
+- **App → LDAPS directory (T3, T4).** Our own LDAP v3 reader (bind, paged search, abandon,
+  unbind) over tokio-rustls, with the `mooring-http` verifier and `known_ldap_certs` TOFU
+  through the B-6 Gate. Every server frame is scanned iteratively (≤ 256 KiB, depth ≤ 32)
+  before `lber` parses it. The bind password leaves only after a trusted handshake. A T5 can
+  choose the host and the credential (L-43).
+- **App → OS network tools.** `ping`, `traceroute` / `tracepath` / `TRACERT.EXE` and
+  `wg show` run from fixed absolute paths with explicit argv, no shell and a cleared
+  environment; output is capped and sanitised, and the tool is killed at the deadline. There
+  is also a TCP connect check (no bytes sent), at most 1/s. No elevation, no raw sockets
+  (owner decision 19).
 
 ## Trust boundaries added in A3 (ADR-0014..0017)
 - **App → HTTPS APIs (`mooring-http`).** One client for kube, vCenter, Vault and S3: our
@@ -180,7 +212,11 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Injection: store (T5 via future IPC) | Parameterised SQL only; FTS input quoted per token, operator-only tokens dropped, 256 chars / 16 tokens / limit ≤ 200; names/hosts/tags validated and capped | A1 ✓ |
 | Elevation: WebView → OS (T5) | Capabilities `core:default` only (re-checked for A1 items 3–5: 30 app commands, no plugin; A1 exit: back to `core:default` with B-4 ✓, asserted by a test (no `dialog:`, no `fs:`); `tauri-plugin-dialog` registered for its Rust API only; `tauri-plugin-fs` never registered); CSP unchanged; `freezePrototype`; every command validates and caps its input and maps errors to `IpcError`; `invoke()` only in `ipc.ts`; no `innerHTML`; remote content in a separate window and capability | A0 ✓ / A1 ✓ (M-4 navigation guard open) / A2 ✓: `AppManifest` (R5); `main` = `core:default` + `mooring-main`, `detached` = six commands, `web` = none; no `dialog:`/`fs:`/`shell:`/`http:`/`opener:`/`core:window`/`core:webview` anywhere (tested). Open: L-32 (Tauri not pinned to the reviewed 2.12.5) |
 | Supply chain (T6) | cargo-deny (licenses, bans, advisories; `aws-lc-rs`/`aws-lc-sys` banned in A2), cargo-audit, lockfiles, Dependabot (cargo, npm, actions); exactly one allowed git source (age). Reviewed in A2: the IronRDP set, `sspi` + R-RDP-FFI, `tokio-rustls`, `x509-parser`, `socket2`, `des`, `arboard` `image-data` (`image`, `moxcms`, `pxfm`, macOS `tiff`/`zune-jpeg`, R-IMG). Reviewed in A1: age, keyring 4, sysinfo, rusqlite (bundled), russh (ring only; no aws-lc in the lockfile), russh-sftp, hmac/sha1, arboard, base64, @xterm/*, @fontsource/chakra-petch. Reviewed for ADR-0009: saphyr-parser (+ arraydeque, R-YAML-DEQ), ssh-key rc, pem-rfc7468, data-encoding, hmac 0.13, sha1 0.11, sha2 0.11 (`sha2-next`) | A1 reviewed (R-AGE-PIN, R-RSA, R-YAML-DEQ). `ci.yml`/`security.yml` still tag-pinned (L-14) |
-| Supply chain: release pipeline (T6) | Releases are drafts, published by hand. Every release action pinned by SHA; no cache; `persist-credentials: false`; secrets exported only when set and never echoed. `SHA256SUMS` signed with cosign keyless (Rekor), SLSA provenance per file, CycloneDX SBOMs. The Homebrew bump cosign-verifies before rendering; the tap PAT is scoped to one repo | A4 prep: **M-7** (build jobs hold `contents: write`; `finalize` runs `cargo install` and syft with `id-token: write`), L-12, L-13. Workflows not yet executed |
+| Supply chain: release pipeline (T6) | Releases are drafts, published by hand. Every release action pinned by SHA; no cache; `persist-credentials: false`; secrets exported only when set and never echoed. Jobs split by privilege (M-7 ✓); `finalize` hashes workflow artifacts and refuses unsigned draft assets. `SHA256SUMS` signed with cosign keyless (Rekor), SLSA provenance per file, CycloneDX SBOMs, `latest.json` inside `SHA256SUMS`. `verify-release.sh` fails closed (L-12 ✓) and checks the manifest. The Homebrew bump cosign-verifies before rendering; the tap PAT is scoped to one repo | A4 (review 7): **M-17** (updater key in the build environment; no Environment / tag protection), N-57, N-58; carried L-13 (before Azure secrets), L-14 (semgrep digest), N-8. Workflows not yet executed (rc.2 dry run pending) |
+| Tampering / elevation: in-app updates (T3, T6) | Rust-only plugin, registered only with a pubkey; no `updater:*` permission anywhere (test); main-only, vault-gated commands; strict semver upgrade only; minisign verification against the compiled-in key before any write; install only where the user can write (deb/rpm/MSI/Homebrew/unwritable → manual); `https_only` incl. redirects; notes plain text, sanitised, 4 KiB; single flight, 60 s gap; background check opt-in, badge only | A4 (review 7): L-39 (`requireSignedVersion`), L-40 (download host/size), N-51, N-55, N-56. R-UPD |
+| Denial of service / disclosure: hostile import files (T4) | Caps before allocation (16 MiB input, gzip 64 MiB and 20:1, XML depth 64 / 200 000 elements / 4 KiB values, item caps); `DOCTYPE` refused; predefined + numeric entities only; ZIP refused; errors carry offsets, never content; one fuzz target per parser + `detect`; secrets only with the opt-in, never mRemoteNG; plan in Rust; one transaction | A4 (review 7): L-41, N-53, N-59, N-60. R-IMPORT-SECRET |
+| Spoofing / disclosure: LDAPS directory (T3, T4, T5) | `ldaps://` only; our verifier + `known_ldap_certs` TOFU through the B-6 Gate; bind after a trusted handshake; four operations only; iterative BER pre-scan; caps on entries, pages, frames, values; referrals ignored; errors carry result codes only | A4 (review 7): L-43 (T5 picks host + credential, CA-valid hosts unprompted), N-54. R-LDAP-STR |
+| Elevation / probing: OS network tools (T5, T4) | Fixed absolute paths, explicit argv with `--` where accepted, `Target` never starts with `-`/`/`, `env_clear`, no shell, kill on cap/deadline, parsers capped and fuzzed, read-only `WgQuery`, ≤ 2 processes, 1 port check/s, vault-gated, no elevation | A4 (review 7): N-52. R-NET-PROBE |
 
 ## Risks
 
@@ -301,10 +337,70 @@ signing secrets sit in the environment of the bundling step, and so in the envir
 and cargo build scripts (Tauri's bundler reads them from there).
 
 Conditions:
-- M-7: split the jobs by privilege; no third-party installs in the signing job.
-- L-12: the verifier fails closed.
-- L-13: review or replace `artifact-signing-cli`.
+- M-7 ✓ (review 7): jobs split by privilege; no third-party installs in the signing job.
+- L-12 ✓ (review 7): the verifier fails closed.
+- L-13: review or replace `artifact-signing-cli` before the Azure secrets are created.
 - A human publishes each draft, after running `verify-release.sh`.
+- M-17 (3): the signing secrets are environment secrets of a protected `release` environment
+  (tags `v*` only, owner as reviewer), with rulesets on `v*` tags and on `main`. N-58: the
+  `main` identity can re-sign any tag through a dispatch run.
+
+### R-UPD — the updater key is a second release root (accepted with conditions, ADR-0018)
+Whoever holds `TAURI_SIGNING_PRIVATE_KEY` **and** controls the response of
+`github.com/yyasar21/Mooring/releases/latest/download/latest.json` ships code to every in-app
+install (AppImage, user-writable `.app`, per-user NSIS) the next time the user clicks
+"Install". Controlling that response takes one of:
+- repo write;
+- a GitHub compromise;
+- a TLS MITM with a CA the OS trusts. Corporate proxies count: the plugin uses the platform
+  verifier and honours the OS proxy.
+
+The manifest is unsigned. The client trusts only the artifact signature, the version order and,
+once L-39 lands, the version inside the signature. Rotating the key means a new key pair, a new
+pubkey, and a release that carries it, signed with the old key.
+
+Conditions:
+- M-17: the key never enters a job that runs project or third-party build code; environment
+  protection as above.
+- L-39: `requireSignedVersion: true` before a second release exists.
+- L-40: the download URL is pinned to this repository's release of the offered version, with
+  a size cap.
+- In-app installs never elevate: the install-mode matrix keeps the plugin's `pkexec` / sudo /
+  AppleScript paths unreachable. One residual remains: if permissions change between the probe
+  and the macOS swap, the genuine OS authorisation dialog appears, and the user can cancel it.
+- The check runs only on demand or when opted in, at most once per 24 h in the background,
+  and sends only a version string and the user agent.
+
+### R-IMPORT-SECRET — opted-in plaintext secrets pass the import buffers (accepted, ADR-0019)
+With "import plaintext secrets" on, Termius passwords and keys pass through several buffers
+once without zeroization: the raw file bytes, the `serde_json::Value` / CSV / XML strings and
+the parse buffers. With the OpenSSH key opt-in, private keys from `~/.ssh` pass the same way.
+Only the plan's `SecretBundle` is `Zeroizing`. The source file stays on disk, and the wizard
+says so.
+- mRemoteNG passwords are dropped at parse (owner decision 17).
+- RDM and Royal TS secrets are never read.
+- Encrypted or obfuscated values are never decrypted.
+- The opt-in is off by default, and offered only for formats that can hold plaintext secrets.
+
+### R-LDAP-STR — the bind password in `lber` buffers (accepted, ADR-0019 §4)
+`BindCredential.password` is `Zeroizing`. The bind frame copies it once into an unzeroized
+`lber` `Vec` / `BytesMut` and the rustls write buffer. It is sent only after the server
+certificate is trusted (pin, CA or the native TOFU dialog). Simple bind sends the password to
+the server by design, so a hostile directory that the user trusted receives it.
+
+L-43: a T5 can pick both the host and the credential, and a CA-valid host needs no dialog. This
+matches the accepted "T5 answers TOFU" risk for SSH, but it is quieter: one call, and no
+connection appears in the tree. Review 7 asks for a native confirmation per (credential, host)
+pair.
+
+### R-NET-PROBE — network probes from the app (accepted, ADR-0020)
+`net_port_check` connects to any host and port the WebView names, loopback included, at most
+once per second, and reports open / closed / timeout. `ping` and `traceroute` run the OS tools
+with whatever rights the distribution gave them. A T5 can therefore map reachable services
+slowly, but it learns no banner and sends no payload. The commands are vault-gated and
+audited; the audit budget is still owed (N-52). Mooring adds no capability, no setuid helper
+and no elevation. `wg show` reads only public keys, endpoints and counters; Mooring never runs
+`showconf`, `dump` or `private-key`.
 
 ### R-SYSLOG — the audit mirror (accepted with conditions, A1 exit)
 - **Plaintext transports.** UDP and TCP send inventory-class audit content (hosts, names,
@@ -492,6 +588,9 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
 - A3: R-KUBE-EXEC, R-KUBE-CFG, R-VMRC-ARGV, R-SYNC-OP and R-EXT-STR (above). Certificate TOFU
   now also covers kube, vCenter, Vault and the sync endpoint, and pins are synced across the
   vault's devices.
+- A4: R-UPD (with conditions), R-IMPORT-SECRET, R-LDAP-STR and R-NET-PROBE (above). TOFU now
+  also covers LDAPS directories (`known_ldap_certs`, synced). Maintenance exception:
+  `osakit` (updater; its macOS elevation path is never taken). `ldap3` is a dev-dependency only.
 - Certificate TOFU (RDP/VNC), as for SSH: the first connection to a self-signed host is
   unauthenticated. A T5 can answer `yes` and can remove a pin first (N-27). Both are audited,
   and a mismatch is never overridable without the removal. CA-validated hosts are not pinned,
@@ -518,22 +617,22 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
       - [x] **B-4 (blocker):** dialog opened in Rust with single-use `pickId`; capability back
         to `core:default`; ADR-0010 amendment.
       - [x] M-8, M-9, M-10, M-11, QA-F2, L-15..L-18, N-10..N-16.
-      - [ ] **M-12:** refuse non-ASCII kubeconfig keys, and extend the oracle and seeds
-        (Kubernetes gate).
-      - [ ] L-19 before the first public release; N-17..N-22 as scheduled.
+      - [x] **M-12:** non-ASCII kubeconfig keys refused (review 7).
+      - [x] L-19: the remote mode is kept on replace (review 7); N-17..N-22 as scheduled.
 - [ ] **ADR-0009 (review 3):**
       - **B-3 (blocker):** `cert_pem` holds certificates only; `move_certificate` fails
         closed; a UI paste of certificate + key is split.
       - M-5 ✓ and L-10 ✓ (review 4), and the fuzz target with its oracle ✓ (M-11). Gate: no
         Kubernetes session or kubeconfig import before M-12 is fixed.
       - M-6: the `become` prompt is matched in the command echo; detect a failed escalation.
-      - L-11: call `reseal_legacy` from `vault_unlock`, before the first public release.
+      - L-11 ✓ (review 7): `reseal_legacy` runs after unlock.
       - Fuzz targets: `kubeconfig_parse`, `ssh_public_key`, `ssh_certificate`,
         `ssh_private_key`, `x509_pem`, `otp_decode_seed`, `parse_account`.
       - N-5..N-7.
 - [ ] **Release (review 3):**
-      - M-7: split the jobs by privilege before the first signed release.
-      - L-12, L-13, L-14, N-8, N-9.
+      - M-7 ✓, L-12 ✓, N-9 ✓ (review 7).
+      - L-13 (before the Azure secrets), L-14 (semgrep container digest), N-8 (tap token in
+        the clone URL).
       - **G-1:** publish from a fresh repository with one squashed commit. Never make the
         existing repository public: its history still holds the scrubbed lab identifiers.
 - [x] **A1 blockers:** B1, B2 fixed and tested (re-review, `1e76c3a`).
@@ -596,6 +695,18 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
       - [ ] N-50 (with F1): `secret_source_trust` prompts only on `TrustVerdict::Prompt`.
       - [ ] Upstream: kube-rs `config` optional (R-KUBE-CFG).
       - [x] S3 sync integrity: counters, parent hash and header hash inside the AEAD (MSY1).
-- [ ] A3/A4: LDAP injection review; revisit R-INV now that the DB leaves the device (sync:
+- [ ] A3/A4: LDAP injection review ✓ (review 7); revisit R-INV now that the DB leaves the device (sync:
       inventory is inside the AEAD, so T7 does not read it); import `--merge` must re-check
       `vault_id`.
+- [ ] **A4 (review 7: `APPROVE WITH NITS`; the `v0.1.0` tag is conditional):**
+      - [ ] **M-17:** move the updater key out of the build jobs (a `sign-updater` job), make
+        it an environment secret with tag-only deployment and owner review, and add `v*` and
+        `main` rulesets. Due before `TAURI_SIGNING_PRIVATE_KEY` is created.
+      - [ ] L-39 (`requireSignedVersion`, `MissingSignedVersion` → `update.signature`),
+        L-40 (download URL prefix + size cap), L-41 (key files only from `~/.ssh/config`),
+        L-42 (site / README claims), L-43 (per-(credential, host) confirmation for LDAP binds).
+      - [ ] N-51..N-60 as scheduled.
+      - [ ] Per-OS: native dialogs including the LDAPS trust dialog, the updater leg (Q1
+        Decision 3), Windows net tools, and the carried A3 per-OS runs.
+      - [ ] Also owed: the L-28 nightly run and `rdp_reactivation`, the L-36 VMRC help text,
+        and the G-1 fresh repository.
