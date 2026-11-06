@@ -4,7 +4,9 @@
 //! `mooring_net::Runner` over the fixed path table of the running OS; at most
 //! [`MAX_PROCESSES`] tool processes run at a time (`net.busy`), and port checks are rate
 //! limited to one per [`NetRuntime::tcp_interval`] (`net.rate_limited`). Audit rows carry
-//! host names and counts only, never tool output.
+//! host names and counts only, never tool output, and are bounded per process (review 7
+//! N-52): the first [`NET_AUDITED`] runs of an hour of uptime get a row each, the rest are
+//! counted and written as one `net_suppressed { count }` row when the next hour starts.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -18,6 +20,7 @@ use serde::Deserialize;
 use tauri::State;
 use tokio::sync::Semaphore;
 
+use crate::audit_budget::{AuditBudget, NET_AUDITED, WINDOW};
 use crate::dto;
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
@@ -34,6 +37,7 @@ pub struct NetRuntime {
     procs: Semaphore,
     last_tcp: Mutex<Option<Instant>>,
     tcp_interval: Duration,
+    budget: AuditBudget,
 }
 
 impl NetRuntime {
@@ -51,6 +55,26 @@ impl NetRuntime {
             procs: Semaphore::new(MAX_PROCESSES),
             last_tcp: Mutex::new(None),
             tcp_interval,
+            budget: AuditBudget::new(NET_AUDITED, WINDOW),
+        }
+    }
+
+    /// Write `event` within the per-process budget (N-52): its own row for the first
+    /// [`NET_AUDITED`] of the hour, otherwise counted into the next `net_suppressed` row.
+    fn audit(&self, state: &AppState, event: AuditEvent) {
+        self.audit_at(state, event, Instant::now());
+    }
+
+    /// [`audit`](Self::audit) at a simulated `now` (tests).
+    pub fn audit_at(&self, state: &AppState, event: AuditEvent, now: Instant) {
+        let accounted = self.budget.account(now);
+        if let Some(count) = accounted.summary {
+            state.audit(AuditEvent::NetSuppressed { count });
+        }
+        if accounted.own_row {
+            state.audit(event);
+        } else {
+            tracing::debug!("net audit row suppressed (budget)");
         }
     }
 
@@ -184,7 +208,7 @@ pub async fn port_check(
         TcpResult::Unreachable => "unreachable",
         TcpResult::DnsFailed => "dns_failed",
     };
-    state.audit(AuditEvent::NetTcpCheck { host: r.target.to_string(), port, outcome: outcome.into() });
+    rt.audit(state, AuditEvent::NetTcpCheck { host: r.target.to_string(), port, outcome: outcome.into() });
     Ok(result)
 }
 
@@ -204,7 +228,7 @@ pub async fn ping(state: &AppState, rt: &NetRuntime, target: &TargetArg, count: 
     let count = small(count, DEFAULT_PING_COUNT, MAX_PING_COUNT, "count")?;
     let _permit = rt.permit()?;
     let run = rt.runner.ping(&r.target, count).await.map_err(|e| net_error(&e))?;
-    state.audit(AuditEvent::NetPing { host: r.target.to_string(), sent: run.result.sent, received: run.result.received });
+    rt.audit(state, AuditEvent::NetPing { host: r.target.to_string(), sent: run.result.sent, received: run.result.received });
     Ok(run)
 }
 
@@ -220,7 +244,7 @@ pub async fn traceroute(
     let _permit = rt.permit()?;
     let run = rt.runner.traceroute(&r.target, max_hops).await.map_err(|e| net_error(&e))?;
     let hops = u32::try_from(run.result.hops.len()).unwrap_or(u32::MAX);
-    state.audit(AuditEvent::NetTraceroute { host: r.target.to_string(), hops });
+    rt.audit(state, AuditEvent::NetTraceroute { host: r.target.to_string(), hops });
     Ok(run)
 }
 
@@ -230,7 +254,7 @@ pub async fn wg_show(state: &AppState, rt: &NetRuntime) -> IpcResult<WgStatus> {
     let _permit = rt.permit()?;
     let status = rt.runner.wg_status().await.map_err(|e| net_error(&e))?;
     let interfaces = status.interfaces.iter().map(|i| i.name.clone()).collect();
-    state.audit(AuditEvent::NetWgStatus { interfaces });
+    rt.audit(state, AuditEvent::NetWgStatus { interfaces });
     Ok(status)
 }
 

@@ -36,6 +36,8 @@ test_util_pub!(scheduler, vsphere_sync);
 test_util_pub!(oidc_window, secrets_runtime);
 // Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
 test_util_pub!(confirm_gate);
+// Review 7 N-52: per-process audit-row budget of the net_* commands.
+test_util_pub!(audit_budget);
 // ADR-0018 §3 (A4 U0): in-app updates, Rust-side plugin use only.
 test_util_pub!(updater);
 // ADR-0019 (A4 I1): import plans held between preview and apply.

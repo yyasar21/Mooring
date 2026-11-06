@@ -273,6 +273,8 @@ fn confirm_refused_has_a_stable_wire_name() {
         (v["event"].clone(), v["count"].clone()),
         ("confirm_refused_suppressed".into(), 7.into())
     );
+    let v = serde_json::to_value(AuditEvent::NetSuppressed { count: 9 }).expect("json");
+    assert_eq!((v["event"].clone(), v["count"].clone()), ("net_suppressed".into(), 9.into()));
 }
 
 /// ADR-0018 §3: the four updater rows carry versions and codes only.

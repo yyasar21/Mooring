@@ -124,6 +124,38 @@ async fn port_check_against_loopback_audits_and_rate_limits() {
     assert_eq!(r, TcpResult::Closed);
 }
 
+/// Review 7 N-52: `net_*` rows are bounded like `confirm_refused` (N-47): 32 per hour of
+/// uptime, then one `net_suppressed { count }` row when the next hour starts.
+#[tokio::test]
+async fn net_audit_rows_are_bounded_per_hour_of_uptime() {
+    let f = unlocked();
+    let st = &f.state;
+    let rt = NetRuntime::with_paths(ToolPaths::for_os(Os::Linux), Duration::ZERO);
+    let t0 = Instant::now();
+    let row = || AuditEvent::NetTcpCheck { host: "127.0.0.1".into(), port: 22, outcome: "closed".into() };
+    for _ in 0..100 {
+        rt.audit_at(st, row(), t0 + Duration::from_secs(1));
+    }
+    assert_eq!(audit_rows(st, "net_tcp_check").len(), 32);
+    assert!(audit_rows(st, "net_suppressed").is_empty(), "still the same hour: counted only");
+    // The next hour: one summary for the 68 counted runs, then a fresh budget.
+    rt.audit_at(st, row(), t0 + crate::audit_budget::WINDOW);
+    let summary = audit_rows(st, "net_suppressed");
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0]["count"], json!(68));
+    assert_eq!(audit_rows(st, "net_tcp_check").len(), 33);
+    // The budget is shared by every net_* row of the process.
+    rt.audit_at(st, AuditEvent::NetWgStatus { interfaces: vec![] }, t0 + crate::audit_budget::WINDOW);
+    assert_eq!(audit_rows(st, "net_wg_status").len(), 1);
+    // A real port check goes through the same budget.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = i64::from(listener.local_addr().expect("addr").port());
+    port_check(st, &rt, &host("127.0.0.1", Some(port)), Some(2000)).await.expect("check");
+    assert_eq!(audit_rows(st, "net_tcp_check").len(), 34);
+    let text = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("audit");
+    assert_eq!(text.matches("\"event\":\"net_").count(), 36, "32 + 1 + 1 + 1 rows, 1 summary");
+}
+
 #[tokio::test]
 async fn missing_tools_are_reported_not_searched() {
     let f = unlocked();
