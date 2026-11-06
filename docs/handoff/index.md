@@ -8,6 +8,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |
 | 2026-11-04 | A3 | rust-core | [a3-rust-core-k1.md](a3-rust-core-k1.md) · [k2](a3-rust-core-k2.md) · [k3](a3-rust-core-k3.md) · [k4](a3-rust-core-k4.md) · [v1](a3-rust-core-v1.md) · [v2](a3-rust-core-v2.md) · [e1](a3-rust-core-e1.md) · [e2](a3-rust-core-e2.md) · [s1](a3-rust-core-s1.md) · [s2 + integration](a3-rust-core-s2.md) |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u1.md](a3-ui-u1.md) — typed IPC, Kubernetes cluster browser, exec, logs, pod forwards |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-u0.md](a4-rust-core-u0.md) — in-app updater: update_check/install/settings, install-mode matrix, background check opt-in; Cargo.lock: +tauri-plugin-updater 2.14.1 tree |
 | 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) — updater manifest + config, cosign/SBOM/provenance finalize, release-repro.yml, version 0.1.0-rc.2, owner actions |
 | 2026-11-06 | A4 | ui-engineer | [a4-ui-u3.md](a4-ui-u3.md) — app icon (bollard + line), BrandMark, favicon, About card |
 | 2026-11-06 | A4 | architect | [a4-architect.md](a4-architect.md) — ADR-0018 release v0.1.0 (cosign keyless, updater on demand, repro job), ADR-0019 importers + LDAPS, ADR-0020 network tools; task split |
