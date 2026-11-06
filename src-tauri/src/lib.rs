@@ -36,6 +36,8 @@ test_util_pub!(scheduler, vsphere_sync);
 test_util_pub!(oidc_window, secrets_runtime);
 // Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
 test_util_pub!(confirm_gate);
+// ADR-0018 §3 (A4 U0): in-app updates, Rust-side plugin use only.
+test_util_pub!(updater);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -71,6 +73,8 @@ use crate::commands::{sync as sync_cmds, sync_join};
 use crate::commands::{vsphere, vsphere_console};
 // ADR-0016 E2
 use crate::commands::{secret_sources, secret_sources_oidc};
+// ADR-0018 §3 (A4 U0)
+use crate::commands::update as update_cmds;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -81,11 +85,19 @@ use crate::state::{AppState, Settings};
 #[allow(clippy::too_many_lines)]
 pub fn run() {
     init_tracing();
-    let app = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    // ADR-0018 §3: the updater plugin exists only when a pubkey is compiled in; its JS commands
+    // are unreachable anyway (no `updater:*` permission in any capability).
+    let updater_configured = updater::configured_pubkey(context.config()).is_some();
+    let mut builder = tauri::Builder::default()
         // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`, ADR-0015 power /
         // certificate / VMRC confirmations); the `main` capability grants no dialog permission.
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .plugin(tauri_plugin_dialog::init());
+    if updater_configured {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    let app = builder
+        .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;
             let cache_dir = app.path().app_cache_dir()?;
@@ -107,6 +119,19 @@ pub fn run() {
             sync_runner::install(app);
             // ADR-0016 E2: OIDC window backend + Vault token renewer.
             oidc_window::install(app);
+            // ADR-0018 §3 (A4 U0): update runtime + opt-in background check.
+            let current = app.package_info().version.clone();
+            app.manage(if updater_configured {
+                let source = updater::source::PluginSource::new(app.handle().clone());
+                updater::UpdateRuntime::new(
+                    std::sync::Arc::new(source),
+                    std::sync::Arc::new(updater::install_mode::OsProbe),
+                    current,
+                )
+            } else {
+                updater::UpdateRuntime::unconfigured(current)
+            });
+            updater::background::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
@@ -226,8 +251,13 @@ pub fn run() {
             secret_sources::credential_external_test,
             secret_sources_oidc::secret_source_oidc_begin,
             secret_sources_oidc::secret_source_oidc_status,
+            // ADR-0018 §3 (A4 U0): in-app updates
+            update_cmds::update_check,
+            update_cmds::update_install,
+            update_cmds::update_settings_get,
+            update_cmds::update_settings_set,
         ]))
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building the Tauri application");
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {

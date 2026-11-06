@@ -12,7 +12,7 @@
 
 #![allow(clippy::doc_markdown)]
 
-use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_server};
+use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_server, updater};
 
 #[path = "e2e_flow/credential_kinds.rs"]
 mod credential_kinds;

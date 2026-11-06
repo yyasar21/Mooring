@@ -36,6 +36,8 @@ pub mod kube_wire;
 // ADR-0016 E2: external secret sources.
 pub mod secret_sources;
 pub mod secret_sources_oidc;
+// ADR-0018 §3 (A4 U0): in-app updates.
+pub mod update;
 #[cfg(test)]
 mod test_session;
 // ADR-0010 (A1 exit): auto-lock policy and syslog mirror settings.

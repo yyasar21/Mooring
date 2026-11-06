@@ -139,7 +139,25 @@ pub async fn vault_gated_codes(
         ("web_clear_data", code(web::check_clear(st, conn))),
     ];
     out.extend(vault_gated_codes_a3(st, folder, cred, conn).await);
+    out.extend(vault_gated_codes_a4(st).await);
     out
+}
+
+/// ADR-0018 §3 (A4 U0): the four `update_*` commands check the vault before anything else
+/// (before the "unconfigured" answer, the rate limit and the install matrix), so an
+/// unconfigured runtime is enough to pin the gate.
+async fn vault_gated_codes_a4(st: &AppState) -> Vec<(&'static str, &'static str)> {
+    use crate::commands::update::{self, InstallInput, UpdateSettingsInput};
+    let rt = crate::updater::UpdateRuntime::unconfigured(semver::Version::new(0, 1, 0));
+    let now = std::time::Instant::now();
+    let install = InstallInput { version: "9.9.9".into(), close_sessions: false };
+    let settings = UpdateSettingsInput { background_check: true, channel: None };
+    vec![
+        ("update_check", code(update::check(st, &rt, now, true).await)),
+        ("update_install", code(update::install(st, &rt, now, install).await)),
+        ("update_settings_get", code(update::settings_get(st))),
+        ("update_settings_set", code(update::settings_set(st, settings))),
+    ]
 }
 
 /// Review 6 L-38: the A3 commands that are gated *indirectly*. `kube_open` goes through

@@ -45,8 +45,15 @@ pub fn check_json(file: &str, value: &impl serde::Serialize) {
 }
 
 /// String literals in `src/` that look like `area.reason` but are not error codes.
-const NOT_CODES: &[&str] =
-    &["app.autolock", "app.syslog", "audit.jsonl", "mooring.db", "sync.config", "tauri.localhost"];
+const NOT_CODES: &[&str] = &[
+    "app.autolock",
+    "app.syslog",
+    "app.update",
+    "audit.jsonl",
+    "mooring.db",
+    "sync.config",
+    "tauri.localhost",
+];
 
 /// Every `IpcError` code the app can emit, collected from the non-test sources: each
 /// `"area.reason"` literal (codes are only ever written as literals: `IpcError::new("…")`,

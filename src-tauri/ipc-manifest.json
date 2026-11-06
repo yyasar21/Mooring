@@ -238,6 +238,18 @@
   "tree_list": [
     "main"
   ],
+  "update_check": [
+    "main"
+  ],
+  "update_install": [
+    "main"
+  ],
+  "update_settings_get": [
+    "main"
+  ],
+  "update_settings_set": [
+    "main"
+  ],
   "vault_change_password": [
     "main"
   ],

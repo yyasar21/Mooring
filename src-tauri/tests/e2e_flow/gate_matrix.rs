@@ -53,6 +53,8 @@ pub const NOT_GATED: &[(&str, &str)] = &[
     ("syslog_set", "gated by `with_ready` (unit tests in `syslog_tests`); needs a `TlsRoots` fixture"),
     ("secret_source_revoke", "drops in-memory tokens only; must stay callable while locked"),
     ("secret_source_oidc_status", "reports in-memory OIDC state only; no store, no I/O"),
+    // ADR-0018 §3 (A4 U0): `update_check`, `update_install`, `update_settings_get` and
+    // `update_settings_set` are rows of the matrix (`support::vault_gated_codes_a4`).
 ];
 
 /// The command names of `src-tauri/ipc-manifest.json` (the golden copy of `guard::COMMANDS`).
