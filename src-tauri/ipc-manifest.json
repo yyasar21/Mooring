@@ -125,6 +125,21 @@
   "kube_pods": [
     "main"
   ],
+  "net_ping": [
+    "main"
+  ],
+  "net_port_check": [
+    "main"
+  ],
+  "net_tools": [
+    "main"
+  ],
+  "net_traceroute": [
+    "main"
+  ],
+  "net_wg_show": [
+    "main"
+  ],
   "secret_source_create": [
     "main"
   ],

@@ -13,6 +13,7 @@ use mooring_core::known_certs::CertProtocol;
 use crate::commands::credentials::{self, NewCredential, WireSecrets};
 use crate::commands::kube::{self, ExecRequest};
 use crate::commands::kube_logs::{self, LogsRequest};
+use crate::commands::net::{self, NetRuntime, TargetArg};
 use crate::commands::sessions::{self as sess, WireInput};
 use crate::commands::sync::{self, ConfigureInput};
 use crate::commands::sync_config::BackendInput;
@@ -272,7 +273,27 @@ async fn vault_gated_codes_a3(
     ]
     .into_iter()
     .chain(vault_gated_codes_indirect(st, cred, conn))
+    .chain(vault_gated_codes_a4(st, conn).await)
     .collect()
+}
+
+/// ADR-0020 §6 (A4 N1): the network tools refuse with `vault.locked` before resolving the
+/// target, touching the rate limiter or spawning anything. A runtime without any tool path
+/// proves no binary is needed to see the gate.
+async fn vault_gated_codes_a4(st: &AppState, conn: &str) -> Vec<(&'static str, &'static str)> {
+    let rt = NetRuntime::with_paths(
+        mooring_net::ToolPaths::custom(mooring_net::Os::Linux, vec![], vec![], vec![], vec![]),
+        Duration::ZERO,
+    );
+    let by_id = TargetArg::Connection { connection_id: conn.into() };
+    let by_host = TargetArg::Host { host: "h.example.test".into(), port: Some(22) };
+    vec![
+        ("net_tools", code(net::tools(st, &rt))),
+        ("net_port_check", code(net::port_check(st, &rt, &by_host, None).await)),
+        ("net_ping", code(net::ping(st, &rt, &by_id, None).await)),
+        ("net_traceroute", code(net::traceroute(st, &rt, &by_host, None).await)),
+        ("net_wg_show", code(net::wg_show(st, &rt).await)),
+    ]
 }
 
 /// `vault_change_password` is not gated on unlock: it re-proves the current password.

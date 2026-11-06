@@ -112,4 +112,10 @@ permissions = [
   "allow-credential-external-test",
   "allow-secret-source-oidc-begin",
   "allow-secret-source-oidc-status",
+  # ADR-0020 (A4 N1): network tools
+  "allow-net-tools",
+  "allow-net-port-check",
+  "allow-net-ping",
+  "allow-net-traceroute",
+  "allow-net-wg-show",
 ]

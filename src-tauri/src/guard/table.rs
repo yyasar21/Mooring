@@ -122,4 +122,10 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("credential_external_test", Scope::Main),
     ("secret_source_oidc_begin", Scope::Main),
     ("secret_source_oidc_status", Scope::Main),
+    // ADR-0020 (A4 N1): network tools, main only (the card lives in the inspector).
+    ("net_tools", Scope::Main),
+    ("net_port_check", Scope::Main),
+    ("net_ping", Scope::Main),
+    ("net_traceroute", Scope::Main),
+    ("net_wg_show", Scope::Main),
 ];

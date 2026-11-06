@@ -34,6 +34,7 @@ mooring-http = { path = "../crates/mooring-http", version = "0.1.0-rc.1" } # ADR
 mooring-sync = { path = "../crates/mooring-sync", version = "0.1.0-rc.1" } # ADR-0017 S2: vault sync commands (internal crate)
 mooring-vsphere = { path = "../crates/mooring-vsphere", version = "0.1.0-rc.1" } # ADR-0015 V2: inventory sync, power, consoles (workspace crate, no new third-party code)
 mooring-secrets = { path = "../crates/mooring-secrets", version = "0.1.0-rc.1" } # ADR-0016 E2: Vault / OpenBao resolver (E1 crate, no third-party dependency)
+mooring-net = { path = "../crates/mooring-net", version = "0.1.0-rc.1" } # ADR-0020 N1: TCP check, ping / traceroute / wg show runners (workspace crate, no new third-party code)
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }
