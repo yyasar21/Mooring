@@ -23,8 +23,10 @@ case "$1 $2" in
   *) exit 2 ;;
 esac
 EOF
+# stub cosign: records its arguments in $COSIGN_ARGS (one per line) and obeys $COSIGN_FAIL
 cat >"$WORK/bin/cosign" <<'EOF'
 #!/usr/bin/env bash
+[[ -n "${COSIGN_ARGS:-}" ]] && printf '%s\n' "$@" >"$COSIGN_ARGS"
 [[ "${COSIGN_FAIL:-}" == 1 ]] && exit 1; exit 0
 EOF
 # stub minisign: obeys $MINISIGN_FAIL (space-separated names of the files to reject)
@@ -101,6 +103,51 @@ empty=$(release empty)
 expect nonzero "an empty SHA256SUMS" FAKE_RELEASE="$empty" -- v1.2.3
 
 expect nonzero "an unknown option" FAKE_RELEASE="$good" -- v1.2.3 --yolo
+
+# --- cosign identity (N-58): the release workflow at the tag ref, never a branch ---
+expect 0 "identity recorded" FAKE_RELEASE="$good" COSIGN_ARGS="$WORK/cosign.args" -- v1.2.3
+identity=$(awk 'p {print; exit} /^--certificate-identity-regexp$/ {p=1}' "$WORK/cosign.args")
+if [[ "$identity" == '^https://github\.com/yyasar21/Mooring/\.github/workflows/release\.yml@refs/tags/v1\.2\.3$' ]]; then
+  pass=$((pass + 1)); echo "ok   cosign identity is release.yml at refs/tags/<tag> only"
+else
+  fail=$((fail + 1)); echo "FAIL cosign identity regexp: $identity"
+fi
+if grep -q 'heads/main' "$WORK/cosign.args"; then
+  fail=$((fail + 1)); echo "FAIL cosign identity still accepts refs/heads/main"
+else
+  pass=$((pass + 1)); echo "ok   refs/heads/main is not an accepted identity"
+fi
+if grep -qx -- '--certificate-oidc-issuer' "$WORK/cosign.args" && grep -qx 'https://token.actions.githubusercontent.com' "$WORK/cosign.args"; then
+  pass=$((pass + 1)); echo "ok   GitHub OIDC issuer pinned"
+else
+  fail=$((fail + 1)); echo "FAIL GitHub OIDC issuer not pinned"
+fi
+
+# The signer summary comes from the Fulcio extensions of the bundle's certificate. A synthetic
+# DER fragment with the four extensions is enough for the parser (it searches by OID bytes).
+certinfo=$(release certinfo a.dmg)
+python3 -I - "$certinfo/SHA256SUMS.sigstore.json" <<'PY'
+import base64, json, sys
+def ext(n, value):
+    v = value.encode()
+    return (b"\x06\x0a\x2b\x06\x01\x04\x01\x83\xbf\x30\x01" + bytes([n])
+            + b"\x04" + bytes([len(v) + 2]) + b"\x0c" + bytes([len(v)]) + v)
+der = (b"\x30\x82\x01\x00"
+       + ext(9, "https://github.com/yyasar21/Mooring/.github/workflows/release.yml@refs/tags/v1.2.3")
+       + ext(10, "a" * 40) + ext(13, "b" * 40)
+       + ext(21, "https://github.com/yyasar21/Mooring/actions/runs/1/attempts/1"))
+json.dump({"verificationMaterial": {"certificate": {"rawBytes": base64.b64encode(der).decode()}}},
+          open(sys.argv[1], "w"))
+PY
+rehash "$certinfo"
+expect 0 "a bundle with Fulcio extensions" FAKE_RELEASE="$certinfo" -- v1.2.3
+if grep -q 'identity: *https://github.com/yyasar21/Mooring/.github/workflows/release.yml@refs/tags/v1.2.3' "$WORK/out" \
+   && grep -q "workflow-commit: *$(printf 'a%.0s' {1..40})" "$WORK/out" \
+   && grep -q "source-commit: *$(printf 'b%.0s' {1..40})" "$WORK/out"; then
+  pass=$((pass + 1)); echo "ok   signer summary printed from the certificate"
+else
+  fail=$((fail + 1)); echo "FAIL signer summary missing"; sed 's/^/     /' "$WORK/out"
+fi
 
 # --- updater manifest (latest.json) ---
 APPIMAGE=Mooring_1.2.3_amd64.AppImage

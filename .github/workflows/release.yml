@@ -8,21 +8,35 @@
 #   Windows .exe (NSIS, per-user) + .msi (WiX): x64
 #   Linux   .deb + .rpm + .AppImage: x86_64 (ubuntu-22.04), aarch64 (ubuntu-22.04-arm)
 #   All     SHA256SUMS + Sigstore bundle (cosign keyless), CycloneDX SBOMs, SLSA provenance.
-#           Tauri updater artifacts (`.sig`) only when TAURI_SIGNING_PRIVATE_KEY is set;
-#           `finalize` then writes latest.json from them (scripts/release/updater-manifest.sh),
-#           so no tauri-action job races another for the manifest.
+#           Tauri updater artifacts (`.sig` + latest.json) only when the `release` environment
+#           holds TAURI_SIGNING_PRIVATE_KEY; `sign-updater` signs, `finalize` writes the manifest
+#           (scripts/release/updater-manifest.sh), so no tauri-action job races for it.
 #
 # Signing is opt-in per secret: a fork without secrets still produces unsigned installers.
 # Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
 # APPLE_CERTIFICATE as "sign with this" and fails. Nothing here echoes a secret.
 # No build cache on purpose: release builds must not consume caches written by PR runs.
+# The Rust toolchain is pinned (RUST_TOOLCHAIN) to the version release-repro.yml checks (N-57).
 #
-# Jobs are split by privilege (security review 3, M-7). Third-party code (npm and cargo build
-# scripts, tauri-action, cargo-cyclonedx, syft) only ever runs with `contents: read`:
+# Jobs are split by privilege (security review 3, M-7; review 7, M-17). Third-party code (npm
+# and cargo build scripts, tauri-action, cargo-cyclonedx, syft) only ever runs with
+# `contents: read` and never next to the updater key:
 #   create-release  contents: write   creates the draft; runs no project or third-party code;
-#                                     hands scripts/release/*.sh to finalize as an artifact
-#   build           contents: read    builds and uploads workflow artifacts only
+#                                     lints this file (the updater key may only be referenced
+#                                     by sign-updater) and hands scripts/release/*.sh to
+#                                     finalize as an artifact
+#   build           contents: read    builds and uploads workflow artifacts only. It never sees
+#                                     TAURI_SIGNING_PRIVATE_KEY: `createUpdaterArtifacts` is
+#                                     forced off, and the macOS updater archive is a plain
+#                                     `tar -czf` of the signed .app (the NSIS -setup.exe and the
+#                                     AppImage are their own updater artifacts in the v2 format)
 #   sbom            contents: read    cargo-cyclonedx + syft, pinned; no id-token
+#   sign-updater    contents: read    environment `release` (owner approves; deployment policy
+#                                     tags `v*`). No checkout, no npm/cargo install: downloads
+#                                     the build artifacts and the Tauri CLI npm tarballs (pinned
+#                                     version, SHA-512 checked in this file) and runs
+#                                     `tauri signer sign --app-version` per updater artifact.
+#                                     The key exists only in that one step's environment
 #   publish         contents: write   uploads the build artifacts to the draft; no checkout
 #   finalize        contents: write + id-token: write + attestations: write
 #                   no checkout, no cargo install; only cosign-installer (pinned cosign release,
@@ -30,6 +44,10 @@
 #                   updater-manifest script from the tag's checkout. It hashes the workflow
 #                   artifacts (not the draft), signs, attests, uploads, then fails if the draft
 #                   holds any file that SHA256SUMS does not cover.
+#
+# Runs must come from the tag ref: a push of `v*`, or `workflow_dispatch` started *from the tag*
+# ("Use workflow from" → Tags). The cosign identity verify-release.sh accepts is
+# `release.yml@refs/tags/<tag>` only (N-58), and the `release` environment admits tags only.
 name: release
 
 on:
@@ -38,7 +56,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to (re)build, e.g. v0.1.0. Uploads into its draft release."
+        description: "Existing tag to (re)build, e.g. v0.1.0. Run the workflow FROM that tag. Uploads into its draft release."
         required: true
         type: string
 
@@ -53,6 +71,14 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # Same compiler as release-repro.yml (scripts/release/lint-workflows.sh enforces it). Bump
+  # both together with the `rust-version` floor in Cargo.toml.
+  RUST_TOOLCHAIN: "1.97.0"
+  # Tauri CLI used by sign-updater (`signer sign`), fetched as npm tarballs and checked against
+  # these SHA-512 integrity values (the ones pnpm-lock.yaml records for @tauri-apps/cli 2.12.4).
+  TAURI_CLI_VERSION: "2.12.4"
+  TAURI_CLI_SHA512: "JI9bHfudSRJikGOrjbXEm6RjzzvmKuLc+JixB1NE8hNzQkNlCCIC3pTES3uypkR9lxHrsbxzcnSwhI2IxBQphw=="
+  TAURI_CLI_LINUX_X64_SHA512: "tNzZSa79Z1nRpHxEpQ38lsAFpKlFlYvoXzjTV+lRRn/zSf3wrdUC3wnLcq2XEadchPu4ttK0zivhYzr+XGD19Q=="
 
 jobs:
   create-release:
@@ -76,6 +102,10 @@ jobs:
           set -euo pipefail
           [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)$ ]] || { echo "::error::tag '$TAG' is not vMAJOR.MINOR.PATCH"; exit 1; }
           version="${BASH_REMATCH[1]}"
+          # The signing identity is this workflow at the tag ref (N-58) and the `release`
+          # environment admits tag refs only, so a dispatch from a branch cannot produce a
+          # verifiable release: refuse it early instead of failing in sign-updater.
+          [[ "$GITHUB_REF" == "refs/tags/$TAG" ]] || { echo "::error::run from the tag itself (Use workflow from → Tags → $TAG), not from $GITHUB_REF"; exit 1; }
           # ubuntu-22.04 ships Python 3.10 (no tomllib): read the workspace version with sed.
           cargo_v=$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p}' Cargo.toml | head -1)
           tauri_v=$(python3 -I -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')
@@ -83,6 +113,11 @@ jobs:
             [[ "${pair#*:}" == "$version" ]] || { echo "::error::${pair%%:*} says ${pair#*:}, tag says $version (run make bump)"; exit 1; }
           done
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # M-17 (4): the updater key may be referenced by the sign-updater job only, and the Rust
+      # toolchain pin must equal release-repro.yml's. Pure bash + python -I, no dependencies.
+      - name: Lint the release workflows (updater key scope, toolchain pin)
+        run: bash scripts/release/lint-workflows.sh .github/workflows
 
       - name: Create or reuse the draft release
         id: draft
@@ -124,10 +159,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `updater`: whether the job ships an updater artifact for sign-updater. macOS: only the
+        # universal build (one `.app.tar.gz` fills both darwin slots of latest.json). Windows:
+        # the NSIS -setup.exe. Linux: the AppImage (absent on pre-releases).
         include:
           - { name: macos-arm64, os: macos-14, target: aarch64-apple-darwin, rust: aarch64-apple-darwin, arch: aarch64, bundles: "app,dmg", updater: false }
           - { name: macos-x64, os: macos-14, target: x86_64-apple-darwin, rust: x86_64-apple-darwin, arch: x64, bundles: "app,dmg", updater: false }
-          # The universal build feeds the updater manifest for both macOS architectures.
           - { name: macos-universal, os: macos-14, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin", arch: universal, bundles: "app,dmg", updater: true }
           - { name: windows-x64, os: windows-2022, target: x86_64-pc-windows-msvc, rust: x86_64-pc-windows-msvc, arch: x64, bundles: "nsis,msi", updater: true }
           - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, rust: x86_64-unknown-linux-gnu, arch: amd64, bundles: "deb,rpm,appimage", updater: true }
@@ -141,7 +178,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.rust }}
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (version from package.json)
@@ -160,11 +197,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Platform signing material only. The updater key (TAURI_SIGNING_PRIVATE_KEY) is never
+      # exported here: this job runs npm and cargo build scripts (M-17); sign-updater holds it.
       - name: Export signing material that exists
         id: secrets
         shell: bash
         env:
-          UPDATER: ${{ matrix.updater }}
           S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           S_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           S_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -181,8 +219,6 @@ jobs:
           S_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           S_TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}
           S_TAURI_SIGNING_RPM_KEY_PASSPHRASE: ${{ secrets.TAURI_SIGNING_RPM_KEY_PASSPHRASE }}
-          S_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          S_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           put() { local d; d="EOF_$(openssl rand -hex 16)"; printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"; }
@@ -200,19 +236,12 @@ jobs:
               printf '%s\n' "$S_APPLE_API_KEY_P8" > "$p8"; chmod 600 "$p8"; put APPLE_API_KEY_PATH "$p8"
             fi
           fi
-          updater=false
-          if [[ "$UPDATER" == true ]] && has TAURI_SIGNING_PRIVATE_KEY; then
-            put TAURI_SIGNING_PRIVATE_KEY "$S_TAURI_SIGNING_PRIVATE_KEY"
-            put TAURI_SIGNING_PRIVATE_KEY_PASSWORD "${S_TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
-            updater=true
-          fi
           signed=false
           case "$RUNNER_OS" in
             macOS) has APPLE_CERTIFICATE && signed=true ;;
             Windows) { has AZURE_CLIENT_ID || has WINDOWS_CERTIFICATE; } && signed=true ;;
             Linux) has TAURI_SIGNING_RPM_KEY && signed=true ;;
           esac
-          echo "updater=$updater" >> "$GITHUB_OUTPUT"
           echo "signed=$signed" >> "$GITHUB_OUTPUT"
 
       - name: Import Authenticode certificate (PFX)
@@ -248,11 +277,12 @@ jobs:
         run: |
           import json, os, pathlib
           env = os.environ.get
-          # tauri.conf.json says createUpdaterArtifacts: true (ADR-0018). The bundler refuses to
-          # run that without TAURI_SIGNING_PRIVATE_KEY, so jobs without the key (forks, the
-          # per-arch macOS builds) turn it off and ship no `.sig`. With the key, the Tauri CLI
-          # checks that it matches plugins.updater.pubkey and fails the build otherwise.
-          bundle = {"createUpdaterArtifacts": bool(env("TAURI_SIGNING_PRIVATE_KEY"))}
+          # tauri.conf.json says createUpdaterArtifacts: true (ADR-0018), which makes the Tauri
+          # CLI demand TAURI_SIGNING_PRIVATE_KEY in *this* job's environment. Forced off here
+          # (M-17): the build never holds the key, the bundler creates no `.sig`, and
+          # plugins.updater.pubkey is still compiled in (tauri-build reads the merged config).
+          # The updater archives are made below and signed by the sign-updater job.
+          bundle = {"createUpdaterArtifacts": False}
           # The rpm and AppImage bundlers reject '-' in a version and Tauri rejects '~' (not
           # semver), so pre-releases ship the .deb only on Linux; stable releases add rpm + AppImage.
           bundles = env("BUNDLES")
@@ -304,23 +334,40 @@ jobs:
           [[ -f "$pkg" ]] || { echo "::error::.pkg was not produced"; exit 1; }
           echo "PKG_PATH=$pkg" >> "$GITHUB_ENV"
 
+      # The macOS updater artifact is a gzipped tar whose single top-level entry is the .app
+      # (tauri-plugin-updater strips the first path component). Made after tauri-action, so the
+      # bundle inside is the signed, notarized one. COPYFILE_DISABLE keeps bsdtar from adding
+      # `._*` AppleDouble entries. Same name the Tauri bundler would have used, plus the arch.
+      - name: Updater archive from the .app
+        if: runner.os == 'macOS' && matrix.updater
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          dir="target/${{ matrix.target }}/release/bundle/macos"
+          [[ -d "$dir/Mooring.app" ]] || { echo "::error::$dir/Mooring.app not found"; exit 1; }
+          archive="$RUNNER_TEMP/Mooring_${ARCH}.app.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$archive" -C "$dir" Mooring.app
+          tar -tzf "$archive" | awk -F/ '{print $1}' | sort -u | grep -qx 'Mooring.app' || { echo "::error::unexpected archive layout"; exit 1; }
+          echo "UPDATER_ARCHIVE=$archive" >> "$GITHUB_ENV"
+
       - name: Collect release files
         shell: bash
         env:
           PATHS: ${{ steps.tauri.outputs.artifactPaths }}
-          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/out"; mkdir -p "$out"
           files=()
           while IFS= read -r line; do line="${line%$'\r'}"; [[ -n "$line" ]] && files+=("$line"); done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
           [[ -n "${PKG_PATH:-}" ]] && files+=("$PKG_PATH")
+          [[ -n "${UPDATER_ARCHIVE:-}" ]] && files+=("$UPDATER_ARCHIVE")
           for f in "${files[@]}"; do
             f="${f//\\//}" # Windows runners report D:\a\... paths; Git Bash wants forward slashes
             [[ -f "$f" ]] || continue # .app bundles are directories; the .dmg / .app.tar.gz carry them
             name=$(basename "$f")
-            # updater archives share a name across macOS targets: add the arch, as tauri-action did
-            case "$name" in *.app.tar.gz|*.app.tar.gz.sig) name="${name%%.app.tar.gz*}_${ARCH}.app.tar.gz${name##*.app.tar.gz}" ;; esac
+            [[ "$name" != *.sig ]] || { echo "::error::the build produced a signature ($name); updater signing belongs to sign-updater"; exit 1; }
             [[ ! -e "$out/$name" ]] || { echo "::error::duplicate release file $name"; exit 1; }
             cp -- "$f" "$out/$name"
           done
@@ -342,7 +389,7 @@ jobs:
         run: |
           {
             echo "### ${{ matrix.name }}"
-            echo "signed: ${{ steps.secrets.outputs.signed }} · updater artifacts: ${{ steps.secrets.outputs.updater }}"
+            echo "signed: ${{ steps.secrets.outputs.signed }} · updater artifact: ${{ matrix.updater }} (signed later by sign-updater)"
             echo '```'; echo "$PATHS" | tr ',' '\n' | sed 's/[][]//g;s/"//g'; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -362,7 +409,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Rust SBOM (CycloneDX, cargo-cyclonedx)
         run: |
@@ -388,6 +435,93 @@ jobs:
         with:
           name: sbom
           path: sbom/
+          if-no-files-found: error
+          retention-days: 7
+
+  # M-17: the only job that ever sees the updater private key. `environment: release` makes the
+  # key an environment secret (required reviewer = owner, deployment policy tags `v*`); a
+  # repository secret of the same name must not exist. No checkout: nothing from the repository
+  # runs here. No npm/cargo install: the Tauri CLI comes as two npm tarballs whose SHA-512 is
+  # pinned above, unpacked with tar (no lifecycle scripts) and run with the runner's node.
+  # The key enters the environment of the signing step only.
+  sign-updater:
+    name: sign updater artifacts
+    needs: [create-release, build]
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: read
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bundles-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Fetch the pinned Tauri CLI (npm tarballs, SHA-512 checked)
+        id: cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://registry.npmjs.org/@tauri-apps"
+          tools="$RUNNER_TEMP/tauri-cli/node_modules/@tauri-apps"
+          fetch() { # fetch <package> <sha512-base64>: verify, then unpack into node_modules
+            local pkg="$1" want="$2" tgz="$RUNNER_TEMP/$1.tgz" got
+            curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 \
+              -o "$tgz" "$base/$pkg/-/$pkg-$TAURI_CLI_VERSION.tgz"
+            got=$(openssl dgst -sha512 -binary "$tgz" | base64 -w0)
+            [[ "$got" == "$want" ]] || { echo "::error::SHA-512 mismatch for $pkg@$TAURI_CLI_VERSION"; exit 1; }
+            mkdir -p "$tools/$pkg"
+            tar -xzf "$tgz" -C "$tools/$pkg" --strip-components=1
+          }
+          fetch cli "$TAURI_CLI_SHA512"
+          fetch cli-linux-x64-gnu "$TAURI_CLI_LINUX_X64_SHA512"
+          cli="$tools/cli/tauri.js"
+          [[ "$(node "$cli" --version)" == "tauri-cli $TAURI_CLI_VERSION" ]] || { echo "::error::unexpected Tauri CLI"; exit 1; }
+          echo "path=$cli" >> "$GITHUB_OUTPUT"
+
+      # `--app-version` binds the version into the signed trusted comment, as `tauri build`
+      # does; clients with requireSignedVersion refuse a manifest that announces another one.
+      # Stdout of the signer (it echoes the public signature) is dropped; only file names are
+      # printed. Without the key (fork, or the secret not created yet) nothing is signed and
+      # the release ships no in-app update channel.
+      - name: Sign updater artifacts
+        id: sign
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CLI: ${{ steps.cli.outputs.path }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "::notice::TAURI_SIGNING_PRIVATE_KEY is not set in environment 'release'; updater artifacts stay unsigned, no latest.json"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t targets < <(find artifacts -maxdepth 1 -type f \
+            \( -name '*.app.tar.gz' -o -name '*-setup.exe' -o -name '*.AppImage' \) | LC_ALL=C sort)
+          ((${#targets[@]} > 0)) || { echo "::error::no updater artifacts among the build outputs"; exit 1; }
+          mkdir sigs
+          for f in "${targets[@]}"; do
+            name=${f##*/}
+            node "$CLI" signer sign --app-version "$VERSION" "$f" >/dev/null \
+              || { echo "::error::signing failed for $name"; exit 1; }
+            sig=$(tr -d '\r\n' < "$f.sig")
+            [[ "$sig" =~ ^[A-Za-z0-9+/=]+$ && ${#sig} -ge 64 ]] || { echo "::error::$name.sig is not a base64 signature"; exit 1; }
+            mv "$f.sig" "sigs/$name.sig"
+            echo "signed $name"
+          done
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.sign.outputs.signed == 'true'
+        with:
+          name: updater-signatures
+          path: sigs/*.sig
           if-no-files-found: error
           retention-days: 7
 
@@ -419,10 +553,10 @@ jobs:
 
   finalize:
     name: checksums, signature, provenance
-    needs: [create-release, build, sbom, publish]
+    needs: [create-release, build, sbom, sign-updater, publish]
     runs-on: ubuntu-22.04
     permissions:
-      contents: write # upload SHA256SUMS, bundle and SBOMs
+      contents: write # upload SHA256SUMS, bundle, SBOMs, updater signatures and manifest
       id-token: write # Sigstore keyless signing + attestations
       attestations: write
     env:
@@ -452,6 +586,13 @@ jobs:
           name: sbom
           path: artifacts/sbom
 
+      - name: Updater signatures (sign-updater job)
+        if: needs.sign-updater.outputs.signed == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: updater-signatures
+          path: artifacts/updater-signatures
+
       - name: Flatten
         shell: bash
         run: |
@@ -465,8 +606,9 @@ jobs:
           ls -la dist
 
       # Written before SHA256SUMS so the manifest is hashed, signed and attested like every other
-      # file. Without `.sig` files (no updater key) the script writes nothing and the release has
-      # no in-app update channel. pub_date is the tagged commit's time, stable across re-runs.
+      # file. Without `.sig` files (sign-updater had no key) the script writes nothing and the
+      # release has no in-app update channel. pub_date is the tagged commit's time, stable
+      # across re-runs.
       - name: Updater manifest (latest.json) from the .sig files
         shell: bash
         run: |
@@ -487,12 +629,13 @@ jobs:
         with:
           subject-checksums: dist/SHA256SUMS
 
-      - name: Upload checksums, signature, SBOMs and the updater manifest
+      - name: Upload checksums, signature, SBOMs, updater signatures and manifest
         shell: bash
         run: |
           set -euo pipefail
           extra=()
           [[ -f dist/latest.json ]] && extra+=(dist/latest.json)
+          while IFS= read -r -d '' f; do extra+=("$f"); done < <(find dist -maxdepth 1 -type f -name '*.sig' -print0)
           gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" \
             dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json "${extra[@]}"
 

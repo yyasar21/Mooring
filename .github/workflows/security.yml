@@ -40,9 +40,15 @@ jobs:
 
   semgrep:
     runs-on: ubuntu-22.04
-    # TODO(L-14): pin by digest (semgrep/semgrep@sha256:...). Docker Hub was unreachable from the
-    # session that pinned the actions, so the image tag is still floating.
-    container: { image: semgrep/semgrep }
+    # TODO(L-14): digest. Docker Hub (registry-1.docker.io, hub.docker.com) is unreachable from
+    # the agent sessions, so the digest must be resolved on a machine with Docker Hub access and
+    # pasted here as `semgrep/semgrep:<version>@sha256:<digest>`. Either command works:
+    #   docker manifest inspect --verbose semgrep/semgrep:latest | jq -r '.[0].Descriptor.digest // .Descriptor.digest'
+    #   docker buildx imagetools inspect semgrep/semgrep:latest --format '{{.Manifest.Digest}}'
+    # (the multi-arch index digest; pin the tag that `docker run semgrep/semgrep:latest semgrep --version`
+    # reports next to it, so a reader knows which release the digest is). Renovate/Dependabot
+    # can bump a digest-pinned `image:`; a floating tag is what L-14 rejects.
+    container: { image: semgrep/semgrep } # TODO(L-14): digest — replace with semgrep/semgrep:<version>@sha256:<digest>
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
