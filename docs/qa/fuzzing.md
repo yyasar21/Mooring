@@ -86,6 +86,7 @@ Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test 
 | `rdp_reassembly` | `rdp_reassembly.rs` | `mooring_proto_rdp::fuzz::reassembly` (M-14 caps) | mooring-proto-rdp |
 | `cut_text` | `cut_text.rs` | `mooring_proto_vnc::{parse_server_message, messages::latin1_to_string / string_to_latin1}` | mooring-proto-vnc |
 | `framebuffer_ops` | `framebuffer_ops.rs` | `mooring_core::frame::Framebuffer` (resize / blit / copy / fill / cursor / `take_update` → `encode_update` → `decode_mfr1`) | mooring-core |
+| `rdp_reactivation` | `rdp_reactivation.rs` | `mooring_proto_rdp::fuzz::reactivation` (`ConnectionActivationSequence` → `check_desktop` → `ActiveStage::reactivate`) | mooring-proto-rdp |
 
 `cut_text` (A4 Q1): byte 0 even frames the rest as a `ServerCutText` with the real length (or,
 for `sel % 4 == 2`, a tripled claim, so `Need` and `CutTextTooLong` are reached); the oracle
@@ -98,12 +99,18 @@ reaches an update, every update's `MFR1` encoding decodes back". `raw_copyrect_b
 covered by `rfb_server_msg` (every encoding through `parse_rect` + `FrameSink`), so it is not
 a separate target.
 
-Still owed from L-28: `rdp_reactivation` — the Deactivation-Reactivation Sequence is driven
-inside `mooring_proto_rdp::active::reactivate` (private, async over the socket) and the
-`ConnectionActivationFactory` is built by `connect` from the first handshake, so there is no
-pure entry point yet. rust-core would add `mooring_proto_rdp::fuzz::reactivation(data)`
-(`ConnectionActivationSequence::new(config, io, user)` + `Sequence::step` per frame →
-`check_desktop` / `ActiveStage::reactivate`); the target then follows the pattern above. The
+`rdp_reactivation` (A4 F1, the last L-28 item): each `[len16, bytes]` frame is one hostile
+server PDU stepped through a fresh `ConnectionActivationSequence` built from the product
+connector config (same ids as the other RDP entries), with `step_no_input` on the client's
+own turns exactly as `single_sequence_step_read` does; a finalized sequence then goes through
+`check_desktop` and `ActiveStage::reactivate` like `active::reactivate` after a server
+`DeactivateAll`. The oracle is "never panics, a desktop outside `MAX_DIM` is refused before
+`DecodedImage` allocates for it". Seeds: the full sequence (Demand Active → Synchronize →
+Control ×2 → Font Map) at 1024×768, the same behind a leading `DeactivateAll` at 1280×800,
+a 60000×60000 desktop, a truncated Demand Active and an error-info disconnect;
+`rdp_reactivation_seeds_reach_the_reactivation_branch` pins that the two full sequences
+still finalize (so the fuzzer starts past the refusal branches) and the other three do not.
+The
 pinned upstream IronRDP targets (`pdu_decoding`, `rle_decompression`, `bitmap_stream`,
 `cliprdr_format`, `channel_processing`) are run by the IronRDP project on the locked
 versions; they are not duplicated here.

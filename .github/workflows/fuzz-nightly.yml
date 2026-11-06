@@ -54,6 +54,7 @@ jobs:
           # Review 5 L-28 remainder (A4 Q1): ServerCutText + Latin-1, framebuffer operations.
           - cut_text
           - framebuffer_ops
+          - rdp_reactivation
           # A3 (ADR-0014..0017, Q2): kubeconfig resolve, kube frames / logs / guard, vCenter
           # bodies, Vault bodies + OIDC URLs, MSY1 blob + snapshot, mooring-http parsers.
           - kubeconfig_resolve

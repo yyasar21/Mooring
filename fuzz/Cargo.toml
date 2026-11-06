@@ -168,6 +168,12 @@ name = "rdp_reassembly"
 path = "fuzz_targets/rdp_reassembly.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "rdp_reactivation"
+path = "fuzz_targets/rdp_reactivation.rs"
+test = false
+doc = false
 bench = false
 
 [[bin]]
