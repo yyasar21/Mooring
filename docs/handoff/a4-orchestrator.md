@@ -28,10 +28,19 @@
 2. **L-14**: pin the semgrep container by digest (`docker buildx imagetools inspect
    semgrep/semgrep:latest --format '{{.Manifest.Digest}}'`; Docker Hub is unreachable from the
    agent sandboxes).
-3. **rc.2 dry run**: `actionlint` on the Mac, then `git tag -a v0.1.0-rc.2 -m "…" <main>` and
-   push → draft pre-release; `scripts/release/verify-release.sh v0.1.0-rc.2`; check the trusted
-   comment (N-62); run the updater leg from `docs/handoff/a4-qa-q1.md` Decision 3 including a URL
-   outside the prefix; `release-repro.yml` result.
+3. **rc.2 dry run** ✅ (2026-11-07): tag `v0.1.0-rc.2` at 7d471c9, release run 42292761856
+   green on attempt 2 (attempt 1: the password secret held one space — GitHub refuses an empty
+   secret — fixed in 06fe585 by treating a whitespace-only password as empty; the owner then
+   deleted the secret). Published as a public pre-release so the assets could be fetched.
+   Verified from the agent sandbox with the `verify-release.sh` logic: 16/16 hashes, full
+   SHA256SUMS coverage, Fulcio certificate identity `release.yml@refs/tags/v0.1.0-rc.2` on
+   7d471c9, `latest.json` (3 platforms; Linux only on stable tags) consistent with the `.sig`
+   files, updater signatures verified against the app's public key, trusted comment carries
+   `version:0.1.0-rc.2` (N-62). Not done there: the cosign/Rekor chain check (the Sigstore TUF
+   CDN is unreachable from the sandboxes) — the owner runs `verify-release.sh` with cosign on
+   the Mac for v0.1.0. `release-repro` failed on its first run (RUSTFLAGS do not reach host
+   artifacts under `--target`), fixed in 1302a82, green on re-dispatch (run 42310206391).
+   Still open: the updater leg from `docs/handoff/a4-qa-q1.md` Decision 3 on a real install.
 4. **Per-OS manual gates** (owner + qa): `docs/qa/native-dialogs.md` (six dialogs incl.
    "Directory sign-in"), L-31, ADR-0013 E2E, ADR-0016 §4 OIDC interception, Windows L-29 E2E,
    net tools on Windows, fresh-install smoke on macOS / Windows 11 / Fedora.
