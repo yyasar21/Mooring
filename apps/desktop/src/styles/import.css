@@ -26,8 +26,6 @@
 .imp-tile-main:hover:not(:disabled) .imp-tile-mark, .imp-tile-main:focus-visible .imp-tile-mark { color: var(--accent); }
 .imp-tile-name { font: 600 var(--fs-s)/1.2 var(--font-display); letter-spacing: 0.04em; color: inherit; overflow-wrap: anywhere; }
 .imp-tile-hint { font-size: var(--fs-xs); line-height: 1.35; color: var(--text-faint); }
-.imp-tile[data-soon] .imp-tile-main { border-style: dashed; }
-.imp-tile[data-soon] .imp-tile-hint { color: var(--text-muted); font-style: italic; }
 .imp-tile-known {
   align-self: flex-start; height: 22px; padding: 0 6px; margin-left: 2px; border: 0; background: transparent; color: var(--text-muted);
   font: 500 var(--fs-xs)/1 var(--font-sans); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px;
@@ -49,6 +47,15 @@
 .imp-dock-name { font: 500 var(--fs-m)/1.2 var(--font-mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-dock-size { font-size: var(--fs-xs); color: var(--text-muted); }
 .imp-dock-empty { font-size: var(--fs-s); color: var(--text-faint); }
+
+/* the directory form (I2): the same fields as the option sheets; the dock holds the bind result */
+.imp-dir { display: flex; flex-direction: column; gap: 12px; }
+.imp-dir > p { margin: 0; font-size: var(--fs-s); line-height: 1.5; }
+.imp-dir-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 16px; align-items: start; }
+.imp-dir-row + .field-hint { margin-top: -6px; }
+.imp-dir .imp-dock-name { font-size: var(--fs-s); }
+.imp-dir .imp-dock-size { line-height: 1.4; white-space: normal; }
+.imp-dir[data-busy] .imp-dock { opacity: 0.7; }
 
 /* counters */
 .imp-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 1px; margin: 0; background: var(--line); border: 1px solid var(--line); }

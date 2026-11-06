@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
-import { ipc, type ImportFormat, type ImportFormatInfo, type KnownLocation } from "../../lib/ipc";
+import { ipc, type ImportFormatInfo, type KnownLocation } from "../../lib/ipc";
 import { describeError } from "../../stores/errors";
 import { SettingsCard } from "../settings/Toggle";
+import type { SourceId } from "./importText";
 import { ImportWizard } from "./ImportWizard";
 import { SourceTiles } from "./SourceTiles";
 
 /**
- * Settings → Import (ADR-0019 §6): the source grid; a tile opens the wizard at its file step,
- * the known-location shortcut runs the preview straight away.
+ * Settings → Import (ADR-0019 §6): the source grid; a tile opens the wizard at its file step (or
+ * the directory form for LDAPS), the known-location shortcut runs the preview straight away.
  */
 export function ImportCard() {
   const [formats, setFormats] = useState<ImportFormatInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<{ format: ImportFormat; known: KnownLocation | null } | null>(null);
+  const [open, setOpen] = useState<{ format: SourceId; known: KnownLocation | null } | null>(null);
 
   useEffect(() => {
     let live = true;

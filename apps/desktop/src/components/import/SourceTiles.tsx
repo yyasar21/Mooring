@@ -1,14 +1,14 @@
-import type { ImportFormat, ImportFormatInfo, KnownLocation } from "../../lib/ipc";
-import { KNOWN_LOCATION_TEXT, SOURCE_TILES } from "./importText";
+import type { ImportFormatInfo, KnownLocation } from "../../lib/ipc";
+import { KNOWN_LOCATION_TEXT, SOURCE_TILES, type SourceId } from "./importText";
 
 /**
- * The source grid of ADR-0019 §6: one tile per importer, the known-location shortcut under PuTTY
- * and OpenSSH, and the "Directory (LDAPS)" tile reserved for the I2 importer (disabled until its
- * form lands; see `docs/handoff/a4-ui-u1.md`, "Extension point").
+ * The source grid of ADR-0019 §6: one tile per file importer, the known-location shortcut under
+ * PuTTY and OpenSSH, and the "Directory (LDAPS)" tile of the I2 importer (its form is the
+ * wizard's `directory` step).
  */
 export function SourceTiles({ formats, onChoose, onKnown, disabled }: {
   formats: ImportFormatInfo[];
-  onChoose: (format: ImportFormat) => void;
+  onChoose: (source: SourceId) => void;
   onKnown: (known: KnownLocation) => void;
   disabled?: boolean;
 }) {
@@ -16,24 +16,21 @@ export function SourceTiles({ formats, onChoose, onKnown, disabled }: {
     <ul className="imp-tiles" aria-label="Import sources">
       {SOURCE_TILES.map((t) => {
         const info = t.id === "ldaps" ? null : formats.find((f) => f.format === t.id);
-        const soon = t.id === "ldaps";
         const known = info?.knownLocation ?? null;
         return (
-          <li key={t.id} className="imp-tile" data-soon={soon || undefined}>
+          <li key={t.id} className="imp-tile">
             <button
               type="button"
               className="imp-tile-main"
-              disabled={disabled || soon}
+              disabled={disabled}
               aria-describedby={`imp-tile-hint-${t.id}`}
-              onClick={() => { if (t.id !== "ldaps") onChoose(t.id); }}
+              onClick={() => { onChoose(t.id); }}
             >
               <span className="imp-tile-mark" aria-hidden>
                 <TileGlyph id={t.id} />
               </span>
               <span className="imp-tile-name">{t.label}</span>
-              <span id={`imp-tile-hint-${t.id}`} className="imp-tile-hint">
-                {soon ? "Coming in this release" : t.hint}
-              </span>
+              <span id={`imp-tile-hint-${t.id}`} className="imp-tile-hint">{t.hint}</span>
             </button>
             {known && (
               <button type="button" className="imp-tile-known" disabled={disabled} onClick={() => { onKnown(known); }}>

@@ -162,7 +162,7 @@ describe("ImportWizard", () => {
 });
 
 describe("ImportCard", () => {
-  it("lists seven tiles, the two known-location shortcuts, and the disabled LDAPS tile", async () => {
+  it("lists seven tiles, the two known-location shortcuts, and the LDAPS tile opens the directory step", async () => {
     freshBackend();
     render(<ImportCard />);
     await settle();
@@ -172,8 +172,13 @@ describe("ImportCard", () => {
       "Royal TS", "Remote Desktop Manager", "Termius", "mRemoteNG", "PuTTY", "OpenSSH config", "Directory (LDAPS)",
     ]);
     const ldaps = within(tiles).getByRole("button", { name: /Directory \(LDAPS\)/ });
-    expect(ldaps).toBeDisabled();
-    expect(ldaps).toHaveAccessibleDescription("Coming in this release");
+    expect(ldaps).toBeEnabled();
+    expect(ldaps).toHaveAccessibleDescription("Computers from Active Directory or OpenLDAP");
+    fireEvent.click(ldaps);
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Import from Directory (LDAPS)");
+    expect(within(screen.getByRole("dialog")).getByRole("listitem", { current: "step" })).toHaveTextContent("Directory");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(within(tiles).getByRole("button", { name: "Import from ~/.ssh/config" })).toBeEnabled();
     expect(within(tiles).getByRole("button", { name: "Import from ~/.putty/sessions" })).toBeEnabled();
     expect(card.textContent).not.toMatch(/[çğışöüÇĞİŞÖÜ]/); // English only

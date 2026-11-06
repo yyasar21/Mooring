@@ -2,8 +2,11 @@
 // warning code means, how a file size reads. Nothing here names a path from the user's machine.
 import type { ImportFormat, ImportSkipReason, ImportWarningCode, KnownLocation } from "../../lib/ipc";
 
-/** The source tiles, in display order; the LDAPS tile is the I2 extension point (disabled here). */
+/** The source tiles, in display order: the six file importers and the LDAPS directory (I2). */
 export type SourceId = ImportFormat | "ldaps";
+
+/** The wizard's first step: a file dialog, or the directory form. */
+export const sourceKind = (s: SourceId | null): "file" | "directory" | null => (s === null ? null : s === "ldaps" ? "directory" : "file");
 
 export interface SourceTile {
   id: SourceId;
@@ -19,7 +22,7 @@ export const SOURCE_TILES: readonly SourceTile[] = [
   { id: "mremoteng", label: "mRemoteNG", hint: "The confCons.xml file" },
   { id: "putty", label: "PuTTY", hint: "A .reg export of the sessions" },
   { id: "openssh", label: "OpenSSH config", hint: "Host entries of an ssh config file" },
-  { id: "ldaps", label: "Directory (LDAPS)", hint: "Computers from Active Directory" },
+  { id: "ldaps", label: "Directory (LDAPS)", hint: "Computers from Active Directory or OpenLDAP" },
 ];
 
 /** The shortcut under a tile whose format has a known location. */
@@ -49,6 +52,7 @@ export const WARNING_TEXT: Record<ImportWarningCode, string> = {
   port_ignored: "A port outside 1–65535; the protocol default is used.",
   user_ignored: "A user name or domain that failed validation was dropped.",
   notes_truncated: "The lists of skipped items and warnings hit their cap; the counts are complete, the lists are not.",
+  path_truncated: "An OU path deeper than eight levels was cut at eight; the computer sits in the eighth folder.",
 };
 
 /** "1.3 KB", "48 KB", "2.1 MB": enough for a caption. */

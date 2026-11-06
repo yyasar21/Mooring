@@ -50,8 +50,29 @@ describe("TauriTransport · ADR-0019 import", () => {
     ]);
   });
 
+  it("names the two directory commands (I2) with the contract's argument shapes", async () => {
+    const t = new TauriTransport();
+    reply = { host: "dc01.example.test", port: 636, boundAs: "EXAMPLE\\admin" };
+    expect(await t.ldapImportTest({ url: "ldaps://dc01.example.test", baseDn: "DC=example,DC=test", kind: "ad", credentialId: "cr-ad" })).toEqual(reply);
+    reply = { planId: "pl-2" };
+    await t.ldapImportPreview({
+      url: "ldaps://dc01.example.test:636", baseDn: "OU=Servers,DC=example,DC=test", scope: "one", kind: "openldap", filter: "web", credentialId: "cr-deploy",
+      caPem: "-----BEGIN CERTIFICATE-----", sizeLimit: 500,
+    });
+    expect(calls).toEqual([
+      { cmd: "ldap_import_test", args: { url: "ldaps://dc01.example.test", baseDn: "DC=example,DC=test", kind: "ad", credentialId: "cr-ad" } },
+      {
+        cmd: "ldap_import_preview",
+        args: {
+          url: "ldaps://dc01.example.test:636", baseDn: "OU=Servers,DC=example,DC=test", scope: "one", kind: "openldap", filter: "web", credentialId: "cr-deploy",
+          caPem: "-----BEGIN CERTIFICATE-----", sizeLimit: 500,
+        },
+      },
+    ]);
+  });
+
   it.skipIf(RUST_MANIFEST === null)("every import command exists in the Rust manifest for the main window", () => {
-    for (const cmd of ["import_formats", "import_pick", "import_preview", "import_apply", "import_discard"]) {
+    for (const cmd of ["import_formats", "import_pick", "import_preview", "import_apply", "import_discard", "ldap_import_test", "ldap_import_preview"]) {
       expect({ cmd, labels: RUST_MANIFEST?.[cmd] }).toEqual({ cmd, labels: ["main"] });
     }
   });

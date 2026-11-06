@@ -64,7 +64,7 @@ describe("OnboardingCard", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAccessibleName("Import connections");
     const tiles = within(dialog).getByRole("list", { name: "Import sources" });
-    expect(within(tiles).getByRole("button", { name: /Directory \(LDAPS\)/ })).toBeDisabled();
+    expect(within(tiles).getByRole("button", { name: /Directory \(LDAPS\)/ })).toBeEnabled();
     fireEvent.click(within(tiles).getByRole("button", { name: "Import from ~/.ssh/config" }));
     await settle();
     expect(screen.getByRole("dialog")).toHaveAccessibleName("Import from OpenSSH config");
