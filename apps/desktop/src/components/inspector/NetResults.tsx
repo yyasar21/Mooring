@@ -101,19 +101,16 @@ export function WgResult({ r }: { r: WgStatus }) {
             <span className="tnum text-text-muted">{i.listenPort !== undefined ? ` listening on ${String(i.listenPort)}` : ""} · {i.peers.length} peer{i.peers.length === 1 ? "" : "s"}</span>
           </p>
           {i.peers.length > 0 && (
-            <table className="net-table" aria-label={`Peers of ${i.name}`}>
-              <thead><tr><th>peer</th><th>endpoint</th><th>handshake</th><th>rx / tx</th></tr></thead>
-              <tbody>
-                {i.peers.map((p) => (
-                  <tr key={p.publicKey}>
-                    <td className="mono">{p.publicKey}</td>
-                    <td className="mono">{p.endpoint ?? "—"}</td>
-                    <td>{p.lastHandshakeSecs !== undefined ? fmtAgo(p.lastHandshakeSecs) : "never"}</td>
-                    <td className="tnum">{fmtBytes(p.rxBytes) ?? "0 B"} / {fmtBytes(p.txBytes) ?? "0 B"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ul className="net-peers" aria-label={`Peers of ${i.name}`}>
+              {i.peers.map((p) => (
+                <li key={p.publicKey} className="net-peer">
+                  <span className="mono">{p.publicKey}</span>
+                  <span className="mono text-text-muted">{p.endpoint ?? "no endpoint"}</span>
+                  <span>handshake {p.lastHandshakeSecs !== undefined ? fmtAgo(p.lastHandshakeSecs) : "never"}</span>
+                  <span className="tnum text-text-muted">rx {fmtBytes(p.rxBytes) ?? "0 B"} · tx {fmtBytes(p.txBytes) ?? "0 B"}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       ))}

@@ -156,12 +156,13 @@ describe("Inspector → Network (ADR-0020, N1)", () => {
     fireEvent.click(within(c).getByRole("button", { name: "WireGuard" }));
     await settle();
     expect(c).toHaveTextContent("wg0 listening on 51820 · 2 peers");
-    const rows = within(within(c).getByRole("table", { name: "Peers of wg0" })).getAllByRole("row").slice(1);
+    const rows = within(within(c).getByRole("list", { name: "Peers of wg0" })).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent("hQ4m2zYk…9sLp");
     expect(rows[0]).toHaveTextContent("198.51.100.7:51820");
-    expect(rows[0]).toHaveTextContent("42 s ago");
-    expect(rows[0]).toHaveTextContent("18.4 MB / 2.2 MB");
-    expect(rows[1]).toHaveTextContent("never");
+    expect(rows[0]).toHaveTextContent("handshake 42 s ago");
+    expect(rows[0]).toHaveTextContent("rx 18.4 MB · tx 2.2 MB");
+    expect(rows[1]).toHaveTextContent("handshake never");
     expect(c.textContent).not.toMatch(/[A-Za-z0-9+/]{43}=/); // never a full key
     mock.netWgDenied = true;
     fireEvent.click(within(c).getByRole("button", { name: "WireGuard" }));

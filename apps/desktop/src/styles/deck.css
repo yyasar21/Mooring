@@ -224,3 +224,8 @@
 .net-output-summary:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .net-output { margin: 0; max-height: 220px; overflow: auto; padding: 6px 8px; border-top: 1px solid var(--line); font: 400 var(--fs-xs)/1.45 var(--font-mono); color: var(--text); white-space: pre; }
 .net-wg { display: flex; flex-direction: column; gap: 4px; }
+.net-peers { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; border: 1px solid var(--line); }
+.net-peer { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1px 10px; padding: 5px 8px; font-size: var(--fs-xs); }
+.net-peer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-peer > span:nth-child(2) { white-space: normal; overflow-wrap: anywhere; }
+.net-peer + .net-peer { border-top: 1px solid var(--line); }

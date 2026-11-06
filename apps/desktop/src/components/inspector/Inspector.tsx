@@ -108,10 +108,10 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
         <HudLabel>Credential</HudLabel>
         <ConnectionCredentials c={c} inheritedFrom={source} />
       </section>
-      {hasNetworkCard(c) && <NetworkCard key={c.id} c={c} />}
-      <p className="px-3.5 pb-4 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
+      <p className="px-3.5 pb-1 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
         Copying writes an audit entry. Mooring clears the clipboard after 30 seconds.
       </p>
+      {hasNetworkCard(c) && <NetworkCard key={c.id} c={c} />}
     </div>
   );
 }
