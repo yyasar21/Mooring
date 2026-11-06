@@ -123,4 +123,10 @@ permissions = [
   "allow-net-ping",
   "allow-net-traceroute",
   "allow-net-wg-show",
+  # ADR-0019 (A4 I1): importers
+  "allow-import-formats",
+  "allow-import-pick",
+  "allow-import-preview",
+  "allow-import-apply",
+  "allow-import-discard",
 ]

@@ -30,6 +30,8 @@ mooring-secrets = { path = "../crates/mooring-secrets" }
 mooring-sync = { path = "../crates/mooring-sync" }
 # A4 (ADR-0020 N1): ping / traceroute / wg show output parsers.
 mooring-net = { path = "../crates/mooring-net" }
+# A4 (ADR-0019, I1): the six file importers plus `detect`.
+mooring-import = { path = "../crates/mooring-import" }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
@@ -139,13 +141,6 @@ path = "fuzz_targets/vnc_tight.rs"
 test = false
 doc = false
 bench = false
-
-[profile.release]
-debug = 1
-
-# Mirror of the root workspace patch (patches only apply from the workspace root).
-[patch.crates-io]
-age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }
 
 [[bin]]
 name = "rfb_handshake"
@@ -273,7 +268,6 @@ test = false
 doc = false
 bench = false
 
-# A3 Q2: entries the crates already expose but no target named (crate `fuzz` modules).
 [[bin]]
 name = "kube_portforward_frames"
 path = "fuzz_targets/kube_portforward_frames.rs"
@@ -309,10 +303,16 @@ test = false
 doc = false
 bench = false
 
-# A4 N1 (ADR-0020): OS tool output parsers.
 [[bin]]
 name = "net_ping_output"
 path = "fuzz_targets/net_ping_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_royalts"
+path = "fuzz_targets/import_royalts.rs"
 test = false
 doc = false
 bench = false
@@ -325,8 +325,64 @@ doc = false
 bench = false
 
 [[bin]]
+name = "import_rdm"
+path = "fuzz_targets/import_rdm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "net_wg_output"
 path = "fuzz_targets/net_wg_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_termius_csv"
+path = "fuzz_targets/import_termius_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_termius_json"
+path = "fuzz_targets/import_termius_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_mremoteng"
+path = "fuzz_targets/import_mremoteng.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_putty_reg"
+path = "fuzz_targets/import_putty_reg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_putty_session"
+path = "fuzz_targets/import_putty_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_ssh_config"
+path = "fuzz_targets/import_ssh_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_detect"
+path = "fuzz_targets/import_detect.rs"
 test = false
 doc = false
 bench = false

@@ -1,0 +1,220 @@
+use std::path::Path;
+
+use mooring_core::CredentialKind;
+use mooring_import::{ImportFormat, ImportOptions, ImportSource};
+use russh::keys::ssh_key::private::Ed25519Keypair;
+use russh::keys::ssh_key::LineEnding;
+use russh::keys::PrivateKey;
+
+use super::*;
+use crate::commands::tree;
+use crate::state::testing;
+
+const TERMIUS_CSV: &[u8] = include_bytes!("../../../crates/mooring-import/tests/fixtures/termius.csv");
+const SSH_CONFIG: &[u8] = include_bytes!("../../../crates/mooring-import/tests/fixtures/ssh_config");
+
+fn plan_of(format: ImportFormat, name: &str, bytes: &[u8], secrets: bool) -> ImportPlan {
+    let opts = ImportOptions { include_plaintext_secrets: secrets, ..ImportOptions::default() };
+    parse(format, ImportSource::File { name, bytes }, &opts).expect("plan")
+}
+
+fn preview_termius(state: &AppState, secrets: bool) -> ImportPreview {
+    let plan = plan_of(ImportFormat::Termius, "hosts.csv", TERMIUS_CSV, secrets);
+    finish_preview(state, Path::new("/nonexistent"), ImportFormat::Termius, plan, false).expect("preview")
+}
+
+fn tree_totals(state: &AppState) -> (usize, usize) {
+    let t = tree::list(state).expect("tree");
+    (t.folders.len(), t.connections.len())
+}
+
+#[test]
+fn formats_catalogue() {
+    let f = formats();
+    assert_eq!(f.len(), 6);
+    let putty = f.iter().find(|f| f.format == ImportFormat::Putty).expect("putty");
+    assert_eq!(putty.known_location, Some("putty"));
+    assert!(!putty.secrets_possible);
+    let termius = f.iter().find(|f| f.format == ImportFormat::Termius).expect("termius");
+    assert!(termius.secrets_possible && termius.known_location.is_none());
+    let json = serde_json::to_value(&f[0]).expect("json");
+    assert_eq!(json["format"], "royal_ts");
+    assert!(json["secretsPossible"].is_boolean());
+}
+
+#[test]
+fn preview_then_apply_writes_a_new_root_folder_and_audits() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let p = preview_termius(st, true);
+    assert_eq!(p.format, ImportFormat::Termius);
+    assert!(p.root_name.starts_with("Imported from Termius ("));
+    assert_eq!((p.counts.folders, p.counts.connections, p.counts.credentials, p.counts.secrets), (3, 4, 3, 1));
+    assert_eq!(p.items.iter().filter(|i| i.kind == "folder").count(), 3);
+    let web = p.items.iter().find(|i| i.name == "web01").expect("web01");
+    assert_eq!((web.kind, web.host.as_deref(), web.port, web.username.as_deref()), ("connection", Some("web01.example.test"), Some(22), Some("deploy")));
+    assert!(web.duplicate_of.is_none());
+    let deploy = p.credentials.iter().find(|c| c.name == "deploy").expect("cred");
+    assert!(deploy.has_secret && deploy.kind == CredentialKind::UserPassword);
+    // The DTO never carries a secret, whatever the opt-in.
+    let json = serde_json::to_string(&p).expect("json");
+    assert!(!json.contains("test-only-pw"));
+    assert!(json.contains("\"hasSecret\":true"));
+    assert_eq!(st.import_plans.len(), 1);
+
+    let before = tree_totals(st);
+    let report = apply(st, ApplyInput { plan_id: p.plan_id.clone(), exclude: vec![], duplicates: None }).expect("apply");
+    assert_eq!((report.folders, report.connections, report.credentials, report.secrets), (3, 4, 3, 1));
+    assert_eq!(report.skipped, 2);
+    assert_eq!(tree_totals(st), (before.0 + 4, before.1 + 4));
+    let t = tree::list(st).expect("tree");
+    let root = t.folders.iter().find(|f| f.id == report.root_folder_id).expect("import root");
+    assert!(root.name.starts_with("Imported from Termius"));
+    // Single use.
+    assert_eq!(apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: None }).expect_err("used").code, "import.plan_expired");
+    let events = testing::audit_events(st);
+    assert!(events.contains(&"import_previewed".to_owned()));
+    assert!(events.contains(&"import_applied".to_owned()));
+    let text = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("audit");
+    assert!(!text.contains("web01.example.test"), "no host in the audit");
+    assert!(!text.contains("test-only-pw"));
+}
+
+#[test]
+fn exclusions_duplicates_and_discard() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    // First apply, then a second preview of the same file flags every connection as duplicate.
+    let p = preview_termius(st, false);
+    apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: None }).expect("first");
+    let p = preview_termius(st, false);
+    let dups: Vec<&ItemDto> = p.items.iter().filter(|i| i.duplicate_of.is_some()).collect();
+    assert_eq!(dups.len(), 4);
+    let before = tree_totals(st);
+    let r = apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: Some("skip".into()) }).expect("skip");
+    assert_eq!(r.connections, 0);
+    assert_eq!(r.credentials, 0, "unreferenced prompt credentials are not written");
+    assert_eq!(tree_totals(st), (before.0 + 4, before.1));
+    // Import duplicates anyway, excluding the Web folder (its connection lifts to Prod) and
+    // one credential (its connection is unlinked).
+    let p = preview_termius(st, false);
+    let web_folder = p.items.iter().find(|i| i.kind == "folder" && i.name == "Web").expect("Web").key.clone();
+    let dba = p.credentials.iter().find(|c| c.name == "dba").expect("dba").key.clone();
+    let r = apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![web_folder, dba], duplicates: Some("import".into()) }).expect("import");
+    assert_eq!((r.folders, r.connections, r.credentials), (2, 4, 2));
+    let t = tree::list(st).expect("tree");
+    let root = t.folders.iter().find(|f| f.id == r.root_folder_id).expect("root");
+    let prod = t.folders.iter().find(|f| f.parent_id.as_deref() == Some(root.id.as_str()) && f.name == "Prod").expect("Prod");
+    let web01 = t.connections.iter().find(|c| c.folder_id == prod.id && c.name == "web01").expect("lifted");
+    assert!(web01.credential_id.is_some());
+    let db01 = t.connections.iter().find(|c| c.folder_id == prod.id && c.name == "db01").expect("db01");
+    assert!(db01.credential_id.is_none(), "excluded credential unlinked");
+    // Bad arguments and discard.
+    let p = preview_termius(st, false);
+    assert_eq!(apply(st, ApplyInput { plan_id: p.plan_id.clone(), exclude: vec![], duplicates: Some("merge".into()) }).expect_err("bad").code, "input.invalid");
+    discard(st, &p.plan_id).expect("discard");
+    assert_eq!(discard(st, &p.plan_id).expect_err("gone").code, "import.plan_expired");
+    assert!(st.import_plans.is_empty());
+}
+
+#[test]
+fn locked_vault_refuses_and_drops_plans() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let p = preview_termius(st, true);
+    crate::commands::vault::lock(st, None).expect("lock");
+    assert!(st.import_plans.is_empty(), "plans (and their secrets) do not survive a lock");
+    let home = Path::new("/nonexistent");
+    let input = PreviewInput { source: SourceInput { pick_id: None, known: Some("openssh".into()) }, include_plaintext_secrets: false, import_key_files: false };
+    assert_eq!(preview(st, home, input).expect_err("locked").code, "vault.locked");
+    assert_eq!(apply(st, ApplyInput { plan_id: p.plan_id.clone(), exclude: vec![], duplicates: None }).expect_err("locked").code, "vault.locked");
+    assert_eq!(discard(st, &p.plan_id).expect_err("locked").code, "vault.locked");
+}
+
+#[test]
+fn known_openssh_source_and_key_file_opt_in() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let home = tempfile::tempdir().expect("home");
+    let ssh = home.path().join(".ssh");
+    std::fs::create_dir_all(&ssh).expect("mkdir");
+    std::fs::write(ssh.join("config"), SSH_CONFIG).expect("config");
+    let key = PrivateKey::from(Ed25519Keypair::from_seed(&[7; 32]));
+    std::fs::write(ssh.join("id_ed25519"), key.to_openssh(LineEnding::LF).expect("pem").as_bytes()).expect("key");
+    std::fs::write(ssh.join("id_rsa"), b"not a key").expect("junk");
+    let outside = home.path().join("lab key");
+    std::fs::write(&outside, key.to_openssh(LineEnding::LF).expect("pem").as_bytes()).expect("outside");
+    let input = |keys: bool| PreviewInput {
+        source: SourceInput { pick_id: None, known: Some("openssh".into()) },
+        include_plaintext_secrets: false,
+        import_key_files: keys,
+    };
+    let p = preview(st, home.path(), input(false)).expect("preview");
+    assert_eq!(p.format, ImportFormat::Openssh);
+    assert_eq!(p.counts.connections, 5);
+    assert!(p.credentials.iter().all(|c| c.kind == CredentialKind::SshAgent && !c.has_secret));
+    let p = preview(st, home.path(), input(true)).expect("preview with keys");
+    let kinds: Vec<(&str, CredentialKind, bool)> = p.credentials.iter().map(|c| (c.name.as_str(), c.kind, c.has_secret)).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ("deploy (id_ed25519)", CredentialKind::SshKey, true),
+            ("dba (id_rsa)", CredentialKind::SshAgent, false),
+            ("ops (lab key)", CredentialKind::SshAgent, false),
+            ("%r (id_rsa)", CredentialKind::SshAgent, false),
+        ]
+    );
+    let unreadable: Vec<&str> = p.skipped.iter().filter(|s| s.reason == mooring_import::SkipReason::KeyUnreadable).map(|s| s.source_ref.as_str()).collect();
+    assert_eq!(unreadable.len(), 3, "junk, a path outside ~/.ssh and a literal %r key: {unreadable:?}");
+    let r = apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: None }).expect("apply");
+    assert_eq!((r.connections, r.credentials, r.secrets), (5, 4, 1));
+    // Unknown locations and a missing file.
+    let missing = PreviewInput { source: SourceInput { pick_id: None, known: Some("putty".into()) }, include_plaintext_secrets: false, import_key_files: false };
+    assert_eq!(preview(st, home.path(), missing).expect_err("no putty dir").code, "import.not_found");
+    let both = PreviewInput { source: SourceInput { pick_id: Some("x".into()), known: Some("putty".into()) }, include_plaintext_secrets: false, import_key_files: false };
+    assert_eq!(preview(st, home.path(), both).expect_err("both").code, "input.invalid");
+    let bad_pick = PreviewInput { source: SourceInput { pick_id: Some("zz".into()), known: None }, include_plaintext_secrets: false, import_key_files: false };
+    assert_eq!(preview(st, home.path(), bad_pick).expect_err("pick").code, "input.invalid");
+}
+
+#[test]
+fn putty_sessions_dir_and_refused_file_audit() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let home = tempfile::tempdir().expect("home");
+    let dir = home.path().join(".putty").join("sessions");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("lab%20box"), b"HostName=ops@192.0.2.7\nProtocol=ssh\nPortNumber=22\n").expect("session");
+    std::fs::write(dir.join("Default%20Settings"), b"Protocol=ssh\n").expect("default");
+    let input = PreviewInput { source: SourceInput { pick_id: None, known: Some("putty".into()) }, include_plaintext_secrets: false, import_key_files: false };
+    let p = preview(st, home.path(), input).expect("preview");
+    assert_eq!(p.format, ImportFormat::Putty);
+    assert_eq!(p.items.iter().filter(|i| i.kind == "connection").map(|i| i.name.as_str()).collect::<Vec<_>>(), vec!["lab box"]);
+    assert_eq!(p.skipped.len(), 1);
+    // A refused source is audited by code only.
+    std::fs::write(home.path().join(".ssh.config"), b"").ok();
+    let ssh = home.path().join(".ssh");
+    std::fs::create_dir_all(&ssh).expect("mkdir");
+    std::fs::write(ssh.join("config"), b"\xFF\xFEa").expect("bad config");
+    let input = PreviewInput { source: SourceInput { pick_id: None, known: Some("openssh".into()) }, include_plaintext_secrets: false, import_key_files: false };
+    assert_eq!(preview(st, home.path(), input).expect_err("refused").code, "import.format");
+    let events = testing::audit_events(st);
+    assert!(events.contains(&"import_refused".to_owned()));
+}
+
+#[test]
+fn parser_codes_are_listed_for_the_golden() {
+    use mooring_import::ImportError as E;
+    let all = [
+        E::TooLarge { max: 1 },
+        E::Format { format: "x", what: "y", at: 0 },
+        E::Encrypted,
+        E::Doctype { at: 0 },
+        E::Limits { what: "z" },
+        E::UnsupportedContainer { what: "zip" },
+    ];
+    for e in all {
+        assert!(PARSER_CODES.contains(&e.code()), "{}", e.code());
+    }
+    assert_eq!(PARSER_CODES.len(), 6);
+}

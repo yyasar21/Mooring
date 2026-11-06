@@ -38,6 +38,8 @@ test_util_pub!(oidc_window, secrets_runtime);
 test_util_pub!(confirm_gate);
 // ADR-0018 §3 (A4 U0): in-app updates, Rust-side plugin use only.
 test_util_pub!(updater);
+// ADR-0019 (A4 I1): import plans held between preview and apply.
+test_util_pub!(import_plans);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -77,6 +79,8 @@ use crate::commands::{secret_sources, secret_sources_oidc};
 use crate::commands::update as update_cmds;
 // ADR-0020 (A4 N1)
 use crate::commands::net as net_cmds;
+// ADR-0019 (A4 I1): importers.
+use crate::commands::import;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -266,6 +270,11 @@ pub fn run() {
             net_cmds::net_ping,
             net_cmds::net_traceroute,
             net_cmds::net_wg_show,
+            import::import_formats,
+            import::import_pick,
+            import::import_preview,
+            import::import_apply,
+            import::import_discard,
         ]))
         .build(context)
         .expect("error while building the Tauri application");

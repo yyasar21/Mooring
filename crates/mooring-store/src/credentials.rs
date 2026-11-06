@@ -83,7 +83,7 @@ pub type Secrets<'a> = BTreeMap<SecretName, &'a [u8]>;
 
 /// Check every secret against the kind and fold derived values (fingerprint, contexts) and the
 /// otp slot rule into `fields`.
-fn prepare(fields: &mut CredentialFields, secrets: &Secrets<'_>) -> Result<()> {
+pub(crate) fn prepare(fields: &mut CredentialFields, secrets: &Secrets<'_>) -> Result<()> {
     let kind = fields.kind();
     for (name, plain) in secrets {
         validate_secret(kind, *name, plain)?;
@@ -92,7 +92,7 @@ fn prepare(fields: &mut CredentialFields, secrets: &Secrets<'_>) -> Result<()> {
     Ok(())
 }
 
-fn otp_consistent(fields: &mut CredentialFields, has_seed: bool) -> Result<()> {
+pub(crate) fn otp_consistent(fields: &mut CredentialFields, has_seed: bool) -> Result<()> {
     if has_seed && fields.otp().is_none() {
         fields.set_otp(Some(mooring_core::credential::OtpParams::default()))?;
     }

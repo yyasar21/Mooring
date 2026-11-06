@@ -1,0 +1,1 @@
+<mrng:Connections xmlns:mrng="urn:x" ConfVersion="2.6"><Node Name="a" Type="Connection" Hostname="192.0.2.1" Protocol="SSH2" Port="22"/></mrng:Connections>

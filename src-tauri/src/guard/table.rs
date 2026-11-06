@@ -133,4 +133,10 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("net_ping", Scope::Main),
     ("net_traceroute", Scope::Main),
     ("net_wg_show", Scope::Main),
+    // ADR-0019 §5 (A4 I1): importers, main only.
+    ("import_formats", Scope::Main),
+    ("import_pick", Scope::Main),
+    ("import_preview", Scope::Main),
+    ("import_apply", Scope::Main),
+    ("import_discard", Scope::Main),
 ];

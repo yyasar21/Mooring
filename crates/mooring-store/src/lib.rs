@@ -13,6 +13,7 @@
 //! * [`Store::export_sync_rows`] / [`Store::replace_sync_rows`] — raw rows for vault sync
 //! * [`Store::create_secret_source`] — Vault / `OpenBao` secret sources (migration 0007)
 //! * [`Store::apply_inventory_diff`] — vSphere-synced, read-only subtrees (migration 0006)
+//! * [`Store::import_apply`] — one importer plan into a new root subfolder, one transaction (ADR-0019)
 
 #![forbid(unsafe_code)]
 
@@ -21,6 +22,7 @@ mod connections;
 mod credentials;
 mod error;
 mod folders;
+mod import;
 mod legacy;
 mod options;
 mod roles;
@@ -40,6 +42,7 @@ use rusqlite::Connection;
 pub use app_settings::{APP_PREFIX, MAX_APP_KEY, MAX_APP_VALUE};
 pub use credentials::{CredentialMeta, Secrets};
 pub use error::{Result, StoreError};
+pub use import::{ImportBatch, ImportConnection, ImportCredential, ImportFolder, ImportOutcome};
 pub use mooring_core::{CredentialKind, Role, SecretName};
 pub use roles::Resolved;
 pub use search::{ConnectionHit, MAX_SEARCH_LIMIT};

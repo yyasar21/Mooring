@@ -58,3 +58,7 @@ pub mod vsphere_login;
 pub mod vsphere_vm;
 // ADR-0020 (A4 N1): network tools.
 pub mod net;
+// ADR-0019 (A4 I1): file importers.
+pub mod import;
+pub mod import_dto;
+pub mod import_source;

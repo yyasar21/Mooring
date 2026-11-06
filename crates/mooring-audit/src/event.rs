@@ -729,4 +729,30 @@ pub enum AuditEvent {
         /// Interface names.
         interfaces: Vec<String>,
     },
+    /// An import file was parsed into a plan (ADR-0019 §6). Format only: no file name, host
+    /// or count leaves the parser here.
+    ImportPreviewed {
+        /// Wire name of the format (`royal_ts`, `termius`, …).
+        format: String,
+    },
+    /// A plan was written to the store in one transaction (`import_applied`).
+    ImportApplied {
+        /// Format.
+        format: String,
+        /// Folders created.
+        folders: u64,
+        /// Connections created.
+        connections: u64,
+        /// Credentials created.
+        credentials: u64,
+        /// Secrets sealed (plaintext opt-in).
+        secrets: u64,
+        /// Items left out (parser skips, exclusions, duplicates).
+        skipped: u64,
+    },
+    /// An import file was refused (`code` is the IPC error code, e.g. `import.doctype`).
+    ImportRefused {
+        /// Error code.
+        code: String,
+    },
 }

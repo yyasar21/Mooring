@@ -184,6 +184,9 @@ pub struct AppState {
     pub secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
     /// Review 6 M-16: single flight and cool-down of the Rust-native confirmations.
     pub confirm: Arc<crate::confirm_gate::ConfirmGate>,
+    /// ADR-0019 §3: previewed import plans by `planId` (secrets stay here, never in the UI).
+    /// Cleared by `vault_lock`.
+    pub import_plans: crate::import_plans::ImportPlans,
 }
 
 /// Errors while loading state at startup.
@@ -255,6 +258,7 @@ impl AppState {
             web: crate::web::WebRegistry::default(),
             lock_observer: crate::window_lock::LockObserver::default(),
             vsphere: crate::vsphere_sync::VsphereHub::default(),
+            import_plans: crate::import_plans::ImportPlans::default(),
         })
     }
 

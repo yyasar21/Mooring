@@ -31,6 +31,12 @@ pub type PickReply = Box<dyn FnOnce(Option<PathBuf>) + Send>;
 pub trait LocalPicker: Send + Sync {
     /// Open the picker and call `reply` exactly once (possibly from another thread).
     fn pick(&self, mode: PickMode, reply: PickReply);
+
+    /// [`pick`](Self::pick) with a file-type filter (`import_pick`, ADR-0019 §3); an empty
+    /// `extensions` list means no filter. The default ignores the filter.
+    fn pick_filtered(&self, mode: PickMode, _label: &str, _extensions: &[&str], reply: PickReply) {
+        self.pick(mode, reply);
+    }
 }
 
 /// The production picker: the OS dialog, parented to the main window.
@@ -44,12 +50,26 @@ impl<R: Runtime> std::fmt::Debug for DialogPicker<R> {
     }
 }
 
+impl<R: Runtime> DialogPicker<R> {
+    /// The dialog parented to `app`'s main window.
+    pub fn new(app: AppHandle<R>) -> Self {
+        Self { app }
+    }
+}
+
 impl<R: Runtime> LocalPicker for DialogPicker<R> {
     fn pick(&self, mode: PickMode, reply: PickReply) {
+        self.pick_filtered(mode, "", &[], reply);
+    }
+
+    fn pick_filtered(&self, mode: PickMode, label: &str, extensions: &[&str], reply: PickReply) {
         use tauri_plugin_dialog::DialogExt;
         let mut builder = self.app.dialog().file();
         if let Some(main) = self.app.get_webview_window(crate::navigation::MAIN_WINDOW) {
             builder = builder.set_parent(&main);
+        }
+        if !extensions.is_empty() {
+            builder = builder.add_filter(label, extensions);
         }
         let done = move |p: Option<tauri_plugin_dialog::FilePath>| {
             reply(p.and_then(|p| p.into_path().ok()));

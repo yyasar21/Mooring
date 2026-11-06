@@ -4047,6 +4047,7 @@ dependencies = [
  "mooring-audit",
  "mooring-core",
  "mooring-http",
+ "mooring-import",
  "mooring-net",
  "mooring-proto-kube",
  "mooring-proto-rdp",
@@ -4154,6 +4155,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x509-parser",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-import"
+version = "0.1.0-rc.2"
+dependencies = [
+ "flate2",
+ "mooring-core",
+ "proptest",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
  "zeroize",
 ]
 

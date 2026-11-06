@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mrng:Connections xmlns:mrng="http://mremoteng.org" Name="Connections" Export="false" EncryptionEngine="AES" BlockCipherMode="GCM" KdfIterations="1000" FullFileEncryption="false" Protected="ZW5jcnlwdGVk" ConfVersion="2.6">
+  <Node Name="Lab" Type="Container" Descr="" Icon="mRemoteNG" Panel="General" Expanded="True">
+    <Node Name="dc01" Type="Connection" Descr="domain controller" Icon="mRemoteNG" Panel="General" Username="alice" Domain="CORP" Password="bm90LWltcG9ydGVk" Hostname="dc01.example.test" Protocol="RDP" PuttySession="Default Settings" Port="3389" ConnectToConsole="false" />
+    <Node Name="web01" Type="Connection" Descr="" Icon="mRemoteNG" Panel="General" Username="ops" Domain="" Password="" Hostname="192.0.2.10" Protocol="SSH2" Port="2222" />
+    <Node Name="Old" Type="Container" Descr="" Icon="mRemoteNG" Panel="General">
+      <Node Name="legacy" Type="Connection" Username="" Hostname="198.51.100.7" Protocol="Telnet" Port="23" />
+      <Node Name="kvm" Type="Connection" Username="" Hostname="198.51.100.8" Protocol="VNC" Port="5901" />
+    </Node>
+  </Node>
+  <Node Name="intranet" Type="Connection" Hostname="wiki.example.test" Protocol="HTTPS" Port="8443" />
+  <Node Name="bad host" Type="Connection" Hostname="has space.example.test" Protocol="RDP" Port="3389" />
+  <Node Name="bad port" Type="Connection" Username="ops" Hostname="203.0.113.5" Protocol="SSH2" Port="99999" />
+</mrng:Connections>
