@@ -145,8 +145,10 @@ Release details and verification steps live in [docs/release.md](docs/release.md
 | Fedora, RHEL | Package | `sudo dnf install ./mooring-<version>.x86_64.rpm` |
 | Any Linux | AppImage | `chmod +x Mooring_<version>_amd64.AppImage && ./Mooring_<version>_amd64.AppImage` |
 
-All artefacts will be signed (macOS notarized, Windows Authenticode, Linux minisign-signed
-`SHA256SUMS`) and come with a CycloneDX SBOM. See [SECURITY.md](SECURITY.md).
+Every release ships `SHA256SUMS` signed with Sigstore (cosign keyless), SLSA build provenance, a
+CycloneDX SBOM and a minisign-signed updater manifest; macOS notarization and Windows Authenticode
+follow once the certificates exist (the first release may be ad-hoc-signed — see
+[docs/release.md](docs/release.md) for how to verify a download). See [SECURITY.md](SECURITY.md).
 
 ### Build from source
 

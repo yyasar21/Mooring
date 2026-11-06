@@ -58,8 +58,8 @@ e2e: ## Playwright UI flows against the Vite dev server + mock transport (apps/d
 fuzz: ## run every fuzz target for 60 s each (A1+)
 	@cd fuzz && for t in $$(cargo +nightly fuzz list 2>/dev/null); do cargo +nightly fuzz run $$t -- -max_total_time=60; done
 
-bundle: ## unsigned local bundles
-	cargo tauri build
+bundle: ## unsigned local bundles (no updater artifacts: the signing key stays out of dev machines)
+	cargo tauri build --no-sign
 
 sbom: ## CycloneDX SBOMs into build/
 	mkdir -p build && cargo cyclonedx --format json --override-filename build/sbom-cargo 2>/dev/null || echo "cargo install cargo-cyclonedx"
