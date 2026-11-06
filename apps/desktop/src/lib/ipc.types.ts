@@ -6,12 +6,14 @@ import type { CertificateInfo, CloseCode, FrameHandler, ProtocolOptions, RemoteI
 import type { KubeExecTarget, KubeIpc } from "./ipc.types.kube";
 import type { SyncedRowFlags, SyncState, VsphereIpc } from "./ipc.types.vsphere";
 import type { SecretsIpc, SyncIpc } from "./ipc.types.secrets";
+import type { ImportIpc } from "./ipc.types.import";
 
 export * from "./ipc.types.exit";
 export * from "./ipc.types.remote";
 export * from "./ipc.types.kube";
 export * from "./ipc.types.vsphere";
 export * from "./ipc.types.secrets";
+export * from "./ipc.types.import";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -303,7 +305,7 @@ export interface AuditVerify {
 }
 
 /** Every command of ADR-0008 … ADR-0017 (plus the A0 vault/app commands). */
-export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc {
+export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, ImportIpc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;

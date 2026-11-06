@@ -20,7 +20,7 @@ import { credentialValidFor, supportsOverride } from "./credentials";
 
 import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
 import type { MockOptions } from "./ipc.mock.exit";
-import { MockSecretsBase } from "./ipc.mock.secrets";
+import { MockImportBase } from "./ipc.mock.import";
 import type { RemoteTarget } from "./ipc.mock.remote";
 
 export type { MockOptions } from "./ipc.mock.exit";
@@ -38,7 +38,7 @@ interface MockSession {
   line: string;
 }
 
-export class MockTransport extends MockSecretsBase implements Ipc {
+export class MockTransport extends MockImportBase implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
   creds = new MockCredentials(seedCredentials());
