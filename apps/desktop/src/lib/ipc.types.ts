@@ -8,6 +8,7 @@ import type { SyncedRowFlags, SyncState, VsphereIpc } from "./ipc.types.vsphere"
 import type { SecretsIpc, SyncIpc } from "./ipc.types.secrets";
 import type { UpdateIpc } from "./ipc.types.update";
 import type { NetIpc } from "./ipc.types.net";
+import type { ImportIpc } from "./ipc.types.import";
 
 export * from "./ipc.types.exit";
 export * from "./ipc.types.remote";
@@ -16,6 +17,7 @@ export * from "./ipc.types.vsphere";
 export * from "./ipc.types.secrets";
 export * from "./ipc.types.update";
 export * from "./ipc.types.net";
+export * from "./ipc.types.import";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -307,7 +309,7 @@ export interface AuditVerify {
 }
 
 /** Every command of ADR-0008 … ADR-0020 (plus the A0 vault/app commands). */
-export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, UpdateIpc, NetIpc {
+export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, UpdateIpc, NetIpc, ImportIpc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;

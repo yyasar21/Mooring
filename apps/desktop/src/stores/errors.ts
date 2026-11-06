@@ -108,6 +108,15 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "net.busy": "Two network tools are already running. Wait for one to finish.",
   "net.rate_limited": "One port check per second. Try again in a moment.",
   "net.spawn": "The tool could not be started.",
+  // ADR-0019 (I1): file importers. Every message is content-free; the file stays on disk untouched.
+  "import.too_large": "This file is larger than 16 MiB, which is more than Mooring imports. Export a smaller set.",
+  "import.format": "Mooring could not read this file as that tool's export. Check that the right tool is selected and the export is complete.",
+  "import.encrypted": "This file is encrypted. Export it unencrypted from the source tool, then import it again.",
+  "import.doctype": "This XML file declares a DOCTYPE, which Mooring refuses. Export it again without one.",
+  "import.limits": "This file exceeds an import limit (20 000 connections, 5 000 folders, 2 000 credentials, or the decompressed size). Split the export.",
+  "import.unsupported_container": "This file is a ZIP archive. Unpack it first and import the export inside.",
+  "import.plan_expired": "The preview expired or was already used. Preview the file again.",
+  "import.not_found": "Nothing to import at that location on this computer.",
 };
 
 /** The friendly text for a bare error code (status fields carry codes, not messages). */

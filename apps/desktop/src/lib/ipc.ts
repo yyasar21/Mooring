@@ -226,6 +226,14 @@ export class TauriTransport implements Ipc {
   vaultJoin: Ipc["vaultJoin"] = (a) => call("vault_join", { ...a });
   onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(decodeSyncStatus(payload)); });
 
+  // ---------- ADR-0019 (importers, I1) ----------
+
+  importFormats: Ipc["importFormats"] = () => call("import_formats");
+  importPick: Ipc["importPick"] = (a) => call("import_pick", { ...a });
+  importPreview: Ipc["importPreview"] = (a) => call("import_preview", { ...a });
+  importApply: Ipc["importApply"] = (a) => call("import_apply", { ...a });
+  importDiscard: Ipc["importDiscard"] = (a) => call("import_discard", { ...a });
+
   onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
 
   // ---------- ADR-0018 §3 (updater, U0) ----------

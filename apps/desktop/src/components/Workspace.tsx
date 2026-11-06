@@ -13,6 +13,9 @@ import { ForwardsPanel } from "./forwards/ForwardsPanel";
 import { SftpPanel } from "./sftp/SftpPanel";
 import { ClusterBrowser } from "./kube/ClusterBrowser";
 import { LogsViewer } from "./kube/LogsViewer";
+import { OnboardingCard } from "./onboarding/OnboardingCard";
+import { ImportWizard } from "./import/ImportWizard";
+import { onboardingPending, useOnboarding } from "../stores/onboarding";
 
 // xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
 const TerminalView = lazy(() => import("./terminal/TerminalView").then((m) => ({ default: m.TerminalView })));
@@ -21,6 +24,7 @@ const TerminalView = lazy(() => import("./terminal/TerminalView").then((m) => ({
 export function Workspace() {
   const tabs = useSessions((s) => s.tabs);
   const activeTab = useSessions((s) => s.activeTab);
+  const importing = useOnboarding((s) => s.importing);
 
   return (
     <section aria-label="Sessions" className="flex h-full min-w-0 flex-col bg-bg">
@@ -31,6 +35,7 @@ export function Workspace() {
           <SessionPanel key={t.id} tab={t} active={t.id === activeTab} />
         ))}
       </div>
+      {importing && <ImportWizard format={null} onClose={() => { useOnboarding.getState().setImporting(false); }} />}
     </section>
   );
 }
@@ -130,6 +135,16 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
 }
 
 function EmptyState() {
+  // ADR-0019 §6: an empty tree after unlock gets the first-run card until it is dismissed or filled.
+  const empty = useTree((s) => s.loaded && s.connections.length === 0);
+  const pending = useOnboarding(onboardingPending);
+  if (empty && pending) {
+    return (
+      <div className="panel-note">
+        <OnboardingCard />
+      </div>
+    );
+  }
   return (
     <div className="panel-note">
       <svg className="reticle absolute" width="260" height="260" viewBox="0 0 260 260" fill="none" stroke="currentColor" aria-hidden>
