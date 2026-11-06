@@ -62,7 +62,7 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
 - Security focus: token lifetimes, read-only Kubernetes guard, native-dialog defaults, sync integrity
   (AEAD with version counters, fork/rollback hard stops) — review 6 APPROVE WITH NITS.
 
-## A4 — Release v0.1.0 🗓
+## A4 — Release v0.1.0 🚧 (code complete 2026-11-06; review 7 APPROVE WITH NITS; tag after the owner's GitHub settings, the rc.2 dry run and the per-OS manual gates)
 
 - Signed bundles: macOS universal `.dmg`/`.pkg` with notarization; Windows `.exe`/`.msi` with
   Authenticode (when certificates exist); Linux `.deb`, `.rpm`, AppImage; `SHA256SUMS` signed with
