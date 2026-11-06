@@ -133,6 +133,35 @@ targets: an API body, frame or blob parser must not allocate before it checks th
 `ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is not run: the hostile
 kubeconfig cases are plain `cargo test`s in `crates/mooring-core/tests/hostile_kubeconfig.rs`.
 
+## A4 targets (ADR-0019, I1)
+
+Every import file is hostile (T3). Each importer in `crates/mooring-import` has one target;
+the entries live in `mooring_import::fuzz` and are replayed on stable by
+`crates/mooring-import/tests/fuzz_corpus.rs`, which also pins that every `fixture-plain` seed
+still parses (≥ 2 connections) and that `detect` names its format. The first byte of every
+input is the plaintext-secret opt-in flag (odd = on); the oracle asserts the item caps, that
+every emitted item re-passes the `mooring-core` validators, that folder / credential keys
+resolve, and that no plan carries a secret unless the flag is set **and** the format can hold
+plaintext secrets (Termius, OpenSSH) — never for mRemoteNG, PuTTY, Royal TS or RDM.
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `import_royalts` | `import_royalts.rs` | `mooring_import::fuzz::fuzz_royalts` (`.rtsx`, gzip `.rtsz`; ZIP refused) | 0019 §2 | mooring-import |
+| `import_rdm` | `import_rdm.rs` | `mooring_import::fuzz::fuzz_rdm` | 0019 §2 | mooring-import |
+| `import_termius_csv` | `import_termius_csv.rs` | `mooring_import::fuzz::fuzz_termius_csv` (in-house RFC 4180 reader) | 0019 §2 | mooring-import |
+| `import_termius_json` | `import_termius_json.rs` | `mooring_import::fuzz::fuzz_termius_json` | 0019 §2 | mooring-import |
+| `import_mremoteng` | `import_mremoteng.rs` | `mooring_import::fuzz::fuzz_mremoteng` | 0019 §2 | mooring-import |
+| `import_putty_reg` | `import_putty_reg.rs` | `mooring_import::fuzz::fuzz_putty_reg` (UTF-16LE / UTF-8) | 0019 §2 | mooring-import |
+| `import_putty_session` | `import_putty_session.rs` | `mooring_import::fuzz::fuzz_putty_session` (`name NUL content NUL …`) | 0019 §2 | mooring-import |
+| `import_ssh_config` | `import_ssh_config.rs` | `mooring_import::fuzz::fuzz_ssh_config` | 0019 §2 | mooring-import |
+| `import_detect` | `import_detect.rs` | `mooring_import::fuzz::fuzz_detect` (`[name selector, file]`, then the detected parser) | 0019 §1 | mooring-import |
+
+The XML targets share `mooring_import::xml` (quick-xml 0.42 under the ADR caps: `<!DOCTYPE`
+refused, depth ≤ 64, ≤ 200 000 elements, attribute / text ≤ 4 KiB, five predefined and
+numeric references only). The fuzz-time caps lower the input to 1 MiB and the decompressed
+size to 8 MiB (`FUZZ_LIMITS`) so a run stays fast. `ldap_ber_response` and
+`ldap_filter_escape` belong to I2 and are not here yet.
+
 ## Layout
 
 ```

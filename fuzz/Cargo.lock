@@ -2559,6 +2559,7 @@ dependencies = [
  "libfuzzer-sys",
  "mooring-core",
  "mooring-http",
+ "mooring-import",
  "mooring-proto-kube",
  "mooring-proto-rdp",
  "mooring-proto-ssh",
@@ -2597,6 +2598,20 @@ dependencies = [
  "tower-service",
  "tracing",
  "x509-parser",
+ "zeroize",
+]
+
+[[package]]
+name = "mooring-import"
+version = "0.1.0-rc.1"
+dependencies = [
+ "flate2",
+ "mooring-core",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
  "zeroize",
 ]
 
@@ -3525,6 +3540,15 @@ checksum = "4dcd034599e63b970727f70d79e02d62390a4a84f7c6b827c27c46d5ac3fa622"
 dependencies = [
  "ar_archive_writer",
  "cc",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

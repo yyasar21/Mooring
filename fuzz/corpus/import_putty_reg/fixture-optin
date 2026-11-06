@@ -1,0 +1,37 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY]
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\Default%20Settings]
+"Present"=dword:00000001
+"HostName"=""
+"Protocol"="ssh"
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\prod%20web]
+"Present"=dword:00000001
+"HostName"="deploy@web01.example.test"
+"Protocol"="ssh"
+"PortNumber"=dword:00000016
+"UserName"=""
+"PublicKeyFile"="C:\\keys\\deploy.ppk"
+"LineCodePage"=""
+"Colour0"="187,187,187"
+"FontCharSet"=hex:00
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\db%2Dbox]
+"HostName"="192.0.2.40"
+"Protocol"="ssh"
+"PortNumber"=dword:00000899
+"UserName"="dba"
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\console]
+"HostName"="198.51.100.9"
+"Protocol"="serial"
+"SerialLine"="COM1"
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\quoted]
+"HostName"="h \"x\".example.test"
+"Protocol"="ssh"
+
+[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\SshHostKeys]
+"rsa2@22:web01.example.test"="0x10001,0xdeadbeef"

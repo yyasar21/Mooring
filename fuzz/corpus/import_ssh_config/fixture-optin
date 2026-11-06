@@ -1,0 +1,36 @@
+# Lab hosts (fixture: example.test / RFC 5737 only)
+Include ~/.ssh/config.d/*
+ServerAliveInterval 30
+
+Host web01 web01-alt
+    HostName web01.example.test
+    User deploy
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+    ForwardAgent yes
+
+Host db01
+  HostName=192.0.2.31
+  User dba
+  ProxyJump bastion
+
+Host bastion
+    HostName 198.51.100.2
+    User ops
+    IdentityFile "~/.ssh/lab key"
+
+Host *.internal !*.dmz.internal
+    User generic
+
+Match host web01
+    Port 2223
+
+Host bare
+    User %r
+
+Host badhost
+    HostName has space.example.test
+
+Host *
+    User fallback
+    IdentityFile ~/.ssh/id_rsa

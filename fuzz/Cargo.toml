@@ -28,6 +28,8 @@ mooring-proto-kube = { path = "../crates/mooring-proto-kube" }
 mooring-vsphere = { path = "../crates/mooring-vsphere" }
 mooring-secrets = { path = "../crates/mooring-secrets" }
 mooring-sync = { path = "../crates/mooring-sync" }
+# A4 (ADR-0019, I1): the six file importers plus `detect`.
+mooring-import = { path = "../crates/mooring-import" }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
@@ -303,6 +305,71 @@ bench = false
 [[bin]]
 name = "http_json_body"
 path = "fuzz_targets/http_json_body.rs"
+test = false
+doc = false
+bench = false
+
+# A4 I1 (ADR-0019): one target per importer plus `detect`; entries in crates/mooring-import/src/fuzz.rs.
+
+[[bin]]
+name = "import_royalts"
+path = "fuzz_targets/import_royalts.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_rdm"
+path = "fuzz_targets/import_rdm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_termius_csv"
+path = "fuzz_targets/import_termius_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_termius_json"
+path = "fuzz_targets/import_termius_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_mremoteng"
+path = "fuzz_targets/import_mremoteng.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_putty_reg"
+path = "fuzz_targets/import_putty_reg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_putty_session"
+path = "fuzz_targets/import_putty_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_ssh_config"
+path = "fuzz_targets/import_ssh_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_detect"
+path = "fuzz_targets/import_detect.rs"
 test = false
 doc = false
 bench = false
