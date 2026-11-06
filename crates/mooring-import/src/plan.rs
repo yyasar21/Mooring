@@ -139,6 +139,9 @@ pub enum WarningCode {
     NotesTruncated,
     /// A directory entry sits deeper than the folder depth cap; it landed at the cap.
     PathTruncated,
+    /// `importKeyFiles` was set for a picked file; the opt-in only applies to the known
+    /// `~/.ssh/config` location (review 7 L-41), so it was ignored.
+    KeyFilesOnlyForKnownLocation,
 }
 
 /// A warning entry.
