@@ -7,9 +7,8 @@ import type { ConnectionSummary, NetIpc, NetTarget, NetTools, PingRun, PortCheck
 import { NET_LIMITS } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockUpdateBase } from "./ipc.mock.update";
+import { IPV4, validHost } from "./validate.net";
 
-const LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
-const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const IPV6 = /^\[?[0-9A-Fa-f:.]+\]?$/;
 
 /**
@@ -23,16 +22,6 @@ function trait(host: string): "closed" | "slow" | "unreach" | "dns" | "ok" {
   if (host.includes("unreach")) return "unreach";
   if (!host.endsWith(".example.test") && !IPV4.test(host) && !IPV6.test(host)) return "dns";
   return "ok";
-}
-
-/** `Target::parse` of `mooring-net`, loosely: ASCII, ≤ 253 bytes, RFC 1123 labels or a literal. */
-export function validHost(host: string): boolean {
-  if (host.length === 0 || host.length > 253 || host.startsWith("-") || host.startsWith("/")) return false;
-  if (!/^[\x21-\x7e]+$/.test(host)) return false; // printable ASCII only: no whitespace, controls or non-ASCII
-  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
-  if (host.includes("%")) return false;
-  if (IPV4.test(host) || (host.includes(":") && IPV6.test(host))) return true;
-  return host.split(".").every((l) => LABEL.test(l));
 }
 
 /** A stable pseudo RTT in ms from the host name (so screenshots and tests repeat). */

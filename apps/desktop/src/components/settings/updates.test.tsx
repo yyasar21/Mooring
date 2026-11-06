@@ -8,7 +8,8 @@ import { useUpdate } from "../../stores/update";
 import { freshBackend, settle } from "../../test/harness";
 import { Shell } from "../Shell";
 import { SettingsView } from "./SettingsView";
-import { fmtBytes, fmtDate, fmtStamp, MANUAL_REASON_TEXT, RELEASE_PAGE, UpdatesCard } from "./UpdatesCard";
+import { fmtBytes, fmtDate, fmtStamp } from "../../lib/format";
+import { MANUAL_REASON_TEXT, RELEASE_PAGE, UpdatesCard } from "./UpdatesCard";
 
 describe("Settings → Updates (ADR-0018 §3, U0)", () => {
   let mock: MockTransport;

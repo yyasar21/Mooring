@@ -3,7 +3,7 @@
 // the two-slot semaphore, and the WireGuard status with shortened keys.
 import { IpcError } from "./ipc";
 import { MockTransport } from "./ipc.mock";
-import { validHost } from "./ipc.mock.net";
+import { validHost } from "./validate.net";
 
 const code = async (p: Promise<unknown>) => {
   try {

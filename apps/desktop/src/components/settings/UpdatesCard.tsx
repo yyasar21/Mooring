@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { UpdateInfo, UpdateManualReason } from "../../lib/ipc";
+import { fmtBytes, fmtDate, fmtStamp } from "../../lib/format";
 import { useApp } from "../../stores/app";
 import { useSessions } from "../../stores/sessions";
 import { useUpdate } from "../../stores/update";
@@ -15,29 +16,6 @@ export const MANUAL_REASON_TEXT: Record<UpdateManualReason, string> = {
   not_writable: "The installed application is not writable by your user (for example a root-owned /Applications bundle or a per-machine install), and Mooring never asks for elevated rights. Download the new version from the release page and install it the way this one was installed.",
   not_bundled: "This build is not a packaged release, so there is nothing for Mooring to replace. Download a packaged release from the release page.",
 };
-
-/** "46.0 MB" / "812 kB" / "1.2 GB"; null when the manifest carries no size. */
-export function fmtBytes(n: number | null): string | null {
-  if (n === null || n < 0) return null;
-  if (n < 1000) return `${String(n)} B`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(0)} kB`;
-  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)} MB`;
-  return `${(n / 1_000_000_000).toFixed(2)} GB`;
-}
-
-/** "2026-11-20" from RFC 3339, or the raw text when it does not parse; null for null. */
-export function fmtDate(iso: string | null): string | null {
-  if (iso === null) return null;
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? iso : new Date(t).toISOString().slice(0, 10);
-}
-
-/** "2026-11-06 10:42 UTC" / "never". */
-export function fmtStamp(iso: string | null): string {
-  if (iso === null) return "never";
-  const t = Date.parse(iso);
-  return Number.isNaN(t) ? iso : `${new Date(t).toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
 
 /** Release notes as plain text: Rust stripped controls, ANSI and bidi; the UI only keeps the line breaks. */
 function Notes({ text }: { text: string }) {
