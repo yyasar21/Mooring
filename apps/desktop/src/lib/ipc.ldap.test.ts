@@ -106,7 +106,7 @@ describe("MockImportBase · ldap_import_test", () => {
     expect(mock.ldapSignIn).toEqual(["decline"]);
     mock.ldapSignIn.length = 0;
     // Lock drops every confirmed pair; the next bind asks again.
-    await mock.vaultLock();
+    await mock.vaultLock("user");
     expect(mock.ldapConfirmed.size).toBe(0);
     await mock.vaultUnlock("correct horse battery");
     mock.ldapSignIn.push("decline");
