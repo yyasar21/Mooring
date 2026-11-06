@@ -210,6 +210,31 @@ async fn server_limits_surface_as_ldap_codes() {
     assert!(events.contains(&"import_refused".to_owned()));
 }
 
+/// Review 7 N-54: an empty stored password never leaves the client (RFC 4513 §5.1.2
+/// unauthenticated bind); refused as `ldap.bind` before connecting. The store refuses to seal
+/// an empty secret (`validate_secret`), so the command-level check is exercised on its own
+/// and the store rule is pinned alongside.
+#[test]
+fn empty_bind_password_is_refused_before_any_network() {
+    assert_eq!(bind_credential("svc".into(), b"").expect_err("empty").code, "ldap.bind");
+    assert_eq!(bind_credential("svc".into(), &[0xff, 0xfe]).expect_err("binary").code, "credential.secret_missing");
+    let ok = bind_credential("svc".into(), b"pw").expect("ok");
+    assert_eq!((ok.name.as_str(), ok.password.as_str()), ("svc", "pw"));
+    let f = testing::unlocked();
+    let st = &f.state;
+    let cred = domain_user(st);
+    let id = crate::dto::credential_id("credentialId", &cred).expect("id");
+    let err = st
+        .with_ready(|vault, store| {
+            let mut set = mooring_store::Secrets::new();
+            set.insert(SecretName::Password, b"".as_slice());
+            store.replace_secrets(vault, id, &set, &[])?;
+            Ok(())
+        })
+        .expect_err("the store never seals an empty password");
+    assert_eq!(err.code, "input.invalid");
+}
+
 #[test]
 fn ldap_codes_match_the_crate() {
     let errors = [

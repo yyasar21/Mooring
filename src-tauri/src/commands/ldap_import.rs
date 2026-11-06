@@ -105,6 +105,19 @@ fn bind_name(fields: &CredentialFields) -> IpcResult<String> {
     }
 }
 
+/// The bind credential from a stored password. Review 7 N-54 / RFC 4513 §5.1.2: a name with
+/// an empty password is an *unauthenticated* bind that many servers answer with success, so
+/// an empty (or non-UTF-8) secret is refused here, before any network. The store refuses to
+/// seal an empty secret on every write path; this is the last line.
+fn bind_credential(name: String, bytes: &[u8]) -> IpcResult<BindCredential> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| IpcError::new("credential.secret_missing", "stored password is not text"))?;
+    if text.is_empty() {
+        return Err(IpcError::new("ldap.bind", "the stored password is empty; an unauthenticated bind is never sent"));
+    }
+    Ok(BindCredential { name, password: Zeroizing::new(text.to_owned()) })
+}
+
 /// Resolve the bind credential from the unlocked vault (never kept beyond the call).
 fn credential(state: &AppState, id: &str) -> IpcResult<BindCredential> {
     let id = crate::dto::credential_id("credentialId", id)?;
@@ -112,9 +125,7 @@ fn credential(state: &AppState, id: &str) -> IpcResult<BindCredential> {
         let meta = store.get_credential(id)?;
         let name = bind_name(&meta.fields)?;
         let bytes = store.open_secret(vault, id, SecretName::Password)?;
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| IpcError::new("credential.secret_missing", "stored password is not text"))?;
-        Ok(BindCredential { name, password: Zeroizing::new(text.to_owned()) })
+        bind_credential(name, &bytes)
     })
 }
 
