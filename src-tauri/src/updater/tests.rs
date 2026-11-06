@@ -265,10 +265,19 @@ fn single_flight_and_rate_limit() {
     // Its network use still counts for the next manual check.
     assert_eq!(rt.begin_check(t0 + Duration::from_secs(30), true).expect_err("gap").code, "update.rate_limited");
     drop(rt.begin_check(t0 + Duration::from_secs(10) + MIN_CHECK_GAP, true).expect("after the gap"));
-    // An install is never rate-limited, only single-flighted.
-    let f = rt.begin_install(t0 + Duration::from_secs(10) + MIN_CHECK_GAP).expect("install");
+    // An install right after a check is fine (the check gap does not apply to it)…
+    let t1 = t0 + Duration::from_secs(10) + MIN_CHECK_GAP;
+    let f = rt.begin_install(t1 + Duration::from_secs(1)).expect("install");
     assert_eq!(rt.begin_check(t0 + Duration::from_secs(1000), true).expect_err("busy").code, "update.busy");
     drop(f);
+    // …but installs are throttled against each other (review 7 N-51).
+    let e = rt.begin_install(t1 + Duration::from_secs(31)).expect_err("too soon");
+    assert_eq!(e.code, "update.rate_limited");
+    assert!(e.message.contains("30 s"), "{}", e.message);
+    assert!(!rt.busy(), "a refused install takes no flight");
+    drop(rt.begin_install(t1 + Duration::from_secs(1) + MIN_CHECK_GAP).expect("after the gap"));
+    // An install also counts as network use for the next manual check.
+    assert_eq!(rt.begin_check(t1 + Duration::from_secs(2) + MIN_CHECK_GAP, true).expect_err("gap").code, "update.rate_limited");
 }
 
 #[test]

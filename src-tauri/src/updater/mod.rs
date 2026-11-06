@@ -6,7 +6,8 @@
 //!   answer `update.unconfigured`. No capability grants `updater:*`: the plugin's JS commands
 //!   are unreachable from every window and only Rust talks to it.
 //! * One network check at a time (`update.busy`), at least [`MIN_CHECK_GAP`] between manual
-//!   checks (`update.rate_limited`). An install takes the same single flight.
+//!   checks (`update.rate_limited`). An install takes the same single flight and is throttled
+//!   the same way against the previous install attempt (review 7 N-51).
 //! * The install-mode matrix ([`install_mode`]) is decided in Rust before the plugin is
 //!   asked, so its elevation paths (pkexec / sudo / `AppleScript`) are never reached.
 
@@ -38,7 +39,19 @@ enum Busy {
 struct Inner {
     busy: Option<Busy>,
     last_network: Option<Instant>,
+    /// Start of the previous install attempt that reached the source (N-51).
+    last_install: Option<Instant>,
     last_available: Option<RemoteUpdate>,
+}
+
+fn rate_limited(last: Option<Instant>, now: Instant) -> Result<(), IpcError> {
+    let Some(last) = last else { return Ok(()) };
+    let elapsed = now.saturating_duration_since(last);
+    if elapsed < MIN_CHECK_GAP {
+        let wait = MIN_CHECK_GAP.saturating_sub(elapsed).as_secs().max(1);
+        return Err(IpcError::new("update.rate_limited", format!("checked a moment ago; try again in {wait} s")));
+    }
+    Ok(())
 }
 
 /// Managed state of the updater.
@@ -111,31 +124,27 @@ impl UpdateRuntime {
             return Err(busy());
         }
         if enforce_gap {
-            if let Some(last) = inner.last_network {
-                let elapsed = now.saturating_duration_since(last);
-                if elapsed < MIN_CHECK_GAP {
-                    let wait = MIN_CHECK_GAP.saturating_sub(elapsed).as_secs().max(1);
-                    return Err(IpcError::new(
-                        "update.rate_limited",
-                        format!("checked a moment ago; try again in {wait} s"),
-                    ));
-                }
-            }
+            rate_limited(inner.last_network, now)?;
         }
         inner.busy = Some(Busy::Check);
         inner.last_network = Some(now);
         Ok(Flight { inner: &self.inner })
     }
 
-    /// Take the single flight for an install (its own re-check is not rate-limited: it is
-    /// the user's confirmation of a check they just saw).
+    /// Take the single flight for an install. Its re-check is not held to the *check* gap
+    /// (it is the user's confirmation of a check they just saw), but installs are throttled
+    /// against each other: less than [`MIN_CHECK_GAP`] after the previous install attempt is
+    /// `update.rate_limited` (review 7 N-51: a T5 looping `update_install` gets one network
+    /// request per minute at most).
     pub fn begin_install(&self, now: Instant) -> IpcResult<Flight<'_>> {
         let mut inner = self.inner.lock().map_err(|_| IpcError::poisoned())?;
         if inner.busy.is_some() {
             return Err(busy());
         }
+        rate_limited(inner.last_install, now)?;
         inner.busy = Some(Busy::Install);
         inner.last_network = Some(now);
+        inner.last_install = Some(now);
         Ok(Flight { inner: &self.inner })
     }
 

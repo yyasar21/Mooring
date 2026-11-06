@@ -10,6 +10,7 @@ use crate::state::testing::{audit_events, unlocked, Fixture};
 use crate::updater::install_mode::Bundle;
 use crate::updater::source::SourceError;
 use crate::updater::tests::{facts, in_app_probe, offered, runtime, v, FakeProbe, FakeSource};
+use crate::updater::MIN_CHECK_GAP;
 
 fn audit_text(f: &Fixture) -> String {
     std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).unwrap_or_default()
@@ -226,6 +227,30 @@ async fn install_refuses_the_manual_matrix_before_any_network_call() {
     let text = audit_text(&f);
     assert_eq!(text.matches(r#""event":"update.refused","code":"update.manual_only""#).count(), 5);
     assert_eq!(text.matches(r#""event":"update.refused","code":"update.not_writable""#).count(), 3);
+}
+
+/// Review 7 N-51: a second install attempt within 60 s of the previous one is refused
+/// before any network call; matrix, input and session refusals do not start the gap.
+#[tokio::test]
+async fn install_is_rate_limited_between_attempts() {
+    let f = unlocked();
+    let src = FakeSource::offering(Some(offered("0.2.0")));
+    let rt = runtime(Arc::clone(&src), in_app_probe());
+    let t0 = Instant::now();
+    let e = install(&f.state, &rt, t0, install_input("0.1.0", false)).await.expect_err("same");
+    assert_eq!(e.code, "update.none");
+    *src.install_error.lock().expect("lock") = Some(SourceError::Signature);
+    let e = install(&f.state, &rt, t0, install_input("0.2.0", false)).await.expect_err("sig");
+    assert_eq!(e.code, "update.signature", "the refused version did not start the gap");
+    assert_eq!(src.checks.load(Ordering::SeqCst), 1);
+    *src.install_error.lock().expect("lock") = None;
+    let e = install(&f.state, &rt, t0 + Duration::from_secs(30), install_input("0.2.0", false)).await.expect_err("gap");
+    assert_eq!(e.code, "update.rate_limited");
+    assert_eq!(src.checks.load(Ordering::SeqCst), 1, "no network while rate-limited");
+    assert!(!rt.busy());
+    install(&f.state, &rt, t0 + MIN_CHECK_GAP, install_input("0.2.0", false)).await.expect("after the gap");
+    assert_eq!(*src.installs.lock().expect("lock"), vec!["0.2.0".to_owned()]);
+    assert!(!audit_text(&f).contains("update.rate_limited"), "rate limiting is not audited (noise)");
 }
 
 #[tokio::test]
