@@ -3,8 +3,10 @@
 //! file import (`import_apply` / `import_discard` finish it); `ldap_import_test` binds and
 //! unbinds. Transport trust is `known_ldap_certs` plus `caPem`, with the Rust-native TOFU
 //! prompt of the vSphere / sync Gates (pin on "Trust", `trusted_once` when the pin cannot be
-//! stored). Audit: `ldap_bind { host, success }`, `import_previewed { format: "ldap" }`,
-//! `import_refused { code }` — never a bind name, DN, entry or password.
+//! stored). Audit: `ldap_bind { host, success }` for every bind the server saw (`false` when
+//! it refused or the bind never completed; a run that dies after the bind writes `true` and
+//! then the refusal), `import_previewed { format: "ldap" }`, `import_refused { code }` —
+//! never a bind name, DN, entry or password.
 
 use mooring_audit::AuditEvent;
 use mooring_core::credential::CredentialFields;
@@ -12,7 +14,7 @@ use mooring_core::known_certs::{host_key, CertProtocol, KnownCerts};
 use mooring_core::SecretName;
 use mooring_http::tls::{client_config, TlsClient, TlsTarget};
 use mooring_http::{HttpError, TrustDecision, MAX_CA_PEM};
-use mooring_import::ldap::{self, BindCredential, DirectoryKind, LdapError, LdapLimits, LdapQuery, Prepared, SearchScope};
+use mooring_import::ldap::{self, BindCredential, BindPhase, BindSignal, DirectoryKind, LdapError, LdapLimits, LdapQuery, Prepared, SearchScope};
 use mooring_import::ImportFormat;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
@@ -174,25 +176,28 @@ async fn trust_prompt(state: &AppState, p: &Prepared, d: &TrustDecision, prompt:
 }
 
 /// Run `op` with a TLS client; on `http.trust_prompt` ask (when a prompt is given) and retry
-/// once with the pin written or `trusted_once`. Audits the bind outcome.
+/// once with the pin written or `trusted_once`. Audits the bind the server saw: `true` when
+/// it accepted (even if the run died afterwards, so the chain reads bind → refused), `false`
+/// when a bind request went out and was not accepted; nothing when no bind left the client.
 async fn with_trust<T, F, Fut>(state: &AppState, p: &Prepared, input: &LdapInput, prompt: Option<Prompt<'_>>, op: F) -> IpcResult<T>
 where
-    F: Fn(TlsClient) -> Fut,
+    F: Fn(TlsClient, BindSignal) -> Fut,
     Fut: std::future::Future<Output = Result<T, LdapError>>,
 {
     let host = host_key(&p.target.host, p.target.port);
-    let first = op(tls(state, p, input.ca_pem.as_deref(), None).await?).await;
+    let bind = BindSignal::default();
+    let first = op(tls(state, p, input.ca_pem.as_deref(), None).await?, bind.clone()).await;
     let result = match (first, prompt) {
         (Err(LdapError::Tls(HttpError::TrustPrompt(d))), Some(prompt)) => {
             let once = trust_prompt(state, p, &d, prompt).await?;
-            op(tls(state, p, input.ca_pem.as_deref(), once).await?).await
+            op(tls(state, p, input.ca_pem.as_deref(), once).await?, bind.clone()).await
         }
         (r, _) => r,
     };
-    match &result {
-        Ok(_) => state.audit(AuditEvent::LdapBind { host, success: true }),
-        Err(LdapError::Bind(_)) => state.audit(AuditEvent::LdapBind { host, success: false }),
-        Err(_) => {}
+    match (result.is_ok(), bind.phase()) {
+        (true, _) | (false, BindPhase::Bound) => state.audit(AuditEvent::LdapBind { host, success: true }),
+        (false, BindPhase::Attempted) => state.audit(AuditEvent::LdapBind { host, success: false }),
+        (false, BindPhase::NotAttempted) => {}
     }
     result.map_err(|e| map_error(&e))
 }
@@ -207,7 +212,9 @@ pub async fn preview(state: &AppState, prompt: Option<Prompt<'_>>, input: LdapIn
     let p = prepare(&input).map_err(refused)?;
     let cred = credential(state, &input.credential_id)?;
     let limits = LdapLimits::DEFAULT;
-    let plan = with_trust(state, &p, &input, prompt, |tls| ldap::preview(&p, &cred, tls, &limits)).await.map_err(refused)?;
+    let (q, c, l) = (&p, &cred, &limits);
+    let op = |tls, bind: BindSignal| async move { ldap::preview(q, c, tls, l, &bind).await };
+    let plan = with_trust(state, &p, &input, prompt, op).await.map_err(refused)?;
     drop(cred);
     let home = std::path::Path::new("/nonexistent");
     import::finish_preview(state, home, ImportFormat::Ldap, plan, false)
@@ -219,7 +226,9 @@ pub async fn test(state: &AppState, prompt: Option<Prompt<'_>>, input: LdapInput
     let p = prepare(&input)?;
     let cred = credential(state, &input.credential_id)?;
     let limits = LdapLimits::DEFAULT;
-    with_trust(state, &p, &input, prompt, |tls| ldap::bind_only(&p, &cred, tls, &limits)).await?;
+    let (q, c, l) = (&p, &cred, &limits);
+    let op = |tls, bind: BindSignal| async move { ldap::bind_only(q, c, tls, l, &bind).await };
+    with_trust(state, &p, &input, prompt, op).await?;
     Ok(LdapTestResult { host: p.target.host.clone(), port: p.target.port, bound_as: cred.name.clone() })
 }
 

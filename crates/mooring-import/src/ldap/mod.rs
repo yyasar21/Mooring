@@ -160,6 +160,45 @@ impl LdapQuery {
     }
 }
 
+/// How far a run got with its bind (A4 F1): lets the caller audit `ldap_bind` for a run
+/// that dies after the server accepted the bind (bind → refused), and a failed bind as
+/// `success: false` without counting a transport or trust failure as a bind attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BindPhase {
+    /// No bind request left the client (query, connect, TLS or trust failure).
+    #[default]
+    NotAttempted,
+    /// The bind request was sent and the server did not accept it (refused, bad reply,
+    /// dropped connection or deadline).
+    Attempted,
+    /// The server accepted the bind.
+    Bound,
+}
+
+/// Shared progress marker of one run, set by the client as the bind advances.
+#[derive(Debug, Clone, Default)]
+pub struct BindSignal(std::sync::Arc<std::sync::atomic::AtomicU8>);
+
+impl BindSignal {
+    /// Where the bind got to so far.
+    pub fn phase(&self) -> BindPhase {
+        match self.0.load(std::sync::atomic::Ordering::Acquire) {
+            0 => BindPhase::NotAttempted,
+            1 => BindPhase::Attempted,
+            _ => BindPhase::Bound,
+        }
+    }
+
+    pub(crate) fn set(&self, phase: BindPhase) {
+        let v = match phase {
+            BindPhase::NotAttempted => 0,
+            BindPhase::Attempted => 1,
+            BindPhase::Bound => 2,
+        };
+        self.0.store(v, std::sync::atomic::Ordering::Release);
+    }
+}
+
 /// The simple-bind identity: a DN, a UPN or `DOMAIN\user` plus the password from the vault.
 /// `Debug` prints the name only.
 pub struct BindCredential {
@@ -234,8 +273,9 @@ pub async fn preview(
     cred: &BindCredential,
     tls: mooring_http::TlsClient,
     limits: &LdapLimits,
+    bind: &BindSignal,
 ) -> Result<ImportPlan, LdapError> {
-    let entries = fetch(query, cred, tls, limits).await?;
+    let entries = fetch(query, cred, tls, limits, bind).await?;
     let opts = PlanOptions {
         kind: query.kind,
         base: query.base.clone(),

@@ -17,7 +17,7 @@ use tokio_rustls::client::TlsStream;
 use super::entry::{extract, RawEntry, ATTRIBUTES};
 use super::frame::{scan, Scan, MAX_FRAME};
 use super::wire::{self, Message};
-use super::{BindCredential, LdapError, LdapLimits, Prepared};
+use super::{BindCredential, BindPhase, BindSignal, LdapError, LdapLimits, Prepared};
 
 const RC_SUCCESS: u32 = 0;
 const RC_TIME_LIMIT: u32 = 3;
@@ -66,6 +66,7 @@ impl DirectoryReader {
         cred: &BindCredential,
         tls: TlsClient,
         limits: &LdapLimits,
+        bind: &BindSignal,
     ) -> Result<Self, LdapError> {
         let host = query.target.host.clone();
         let sni = ServerName::try_from(host.clone())
@@ -94,6 +95,7 @@ impl DirectoryReader {
             next_id: 1,
         };
         let id = reader.id();
+        bind.set(BindPhase::Attempted);
         reader.send(&wire::bind_request(id, &cred.name, &cred.password)).await?;
         let reply = reader.recv_for(id).await?;
         if reply.op != wire::APP_BIND_RESPONSE {
@@ -105,6 +107,7 @@ impl DirectoryReader {
             let _ = reader.unbind().await;
             return Err(LdapError::Bind(rc));
         }
+        bind.set(BindPhase::Bound);
         Ok(reader)
     }
 
@@ -272,11 +275,12 @@ pub async fn fetch(
     cred: &BindCredential,
     tls: TlsClient,
     limits: &LdapLimits,
+    bind: &BindSignal,
 ) -> Result<Vec<RawEntry>, LdapError> {
-    let (query, limits) = (query.clone(), *limits);
+    let (query, limits, bind) = (query.clone(), *limits, bind.clone());
     let cred = BindCredential { name: cred.name.clone(), password: cred.password.clone() };
     run(limits.deadline, async move {
-        let mut reader = DirectoryReader::connect(&query, &cred, tls, &limits).await?;
+        let mut reader = DirectoryReader::connect(&query, &cred, tls, &limits, &bind).await?;
         let result = reader.search(&query, &limits).await;
         reader.close().await;
         result
@@ -290,11 +294,12 @@ pub async fn bind_only(
     cred: &BindCredential,
     tls: TlsClient,
     limits: &LdapLimits,
+    bind: &BindSignal,
 ) -> Result<(), LdapError> {
-    let (query, limits) = (query.clone(), *limits);
+    let (query, limits, bind) = (query.clone(), *limits, bind.clone());
     let cred = BindCredential { name: cred.name.clone(), password: cred.password.clone() };
     run(limits.deadline, async move {
-        let reader = DirectoryReader::connect(&query, &cred, tls, &limits).await?;
+        let reader = DirectoryReader::connect(&query, &cred, tls, &limits, &bind).await?;
         reader.close().await;
         Ok(())
     })

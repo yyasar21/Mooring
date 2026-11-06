@@ -126,14 +126,14 @@ async fn hostile_server_frames_fail_fast_with_ldap_response_and_no_violation() {
     );
     srv.recorder().assert_no_violations();
 
-    // Audit: one refusal per hostile case, by code only; a bind row for each completed run
-    // (a run that dies on a hostile frame after the bind writes the refusal only); no names.
+    // Audit: one refusal per hostile case, by code only; a bind row for every run, since the
+    // server accepted each bind before the hostile frame (F1: bind → refused); no names.
     let refused = audit_rows(st, "import_refused");
     assert_eq!(refused.len(), cases.len(), "{refused:?}");
     assert!(refused.iter().all(|r| r["code"] == "ldap.response"));
     assert_refusals_carry_only_a_code(st, "import_refused");
     let binds = audit_rows(st, "ldap_bind");
-    assert_eq!(binds.len(), 2, "{binds:?}");
+    assert_eq!(binds.len(), cases.len() + 2, "{binds:?}");
     assert!(binds
         .iter()
         .all(|b| b["success"] == true

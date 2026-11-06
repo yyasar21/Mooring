@@ -61,7 +61,7 @@ impl Env {
 
     async fn run(&self, q: &LdapQuery, limits: &LdapLimits) -> Result<ImportPlan, LdapError> {
         let p = q.prepare(limits).expect("prepared");
-        preview(&p, &cred(true), self.tls(true).await, limits).await
+        preview(&p, &cred(true), self.tls(true).await, limits, &BindSignal::default()).await
     }
 }
 
@@ -159,7 +159,9 @@ async fn client_cap_abandons_when_the_server_sends_more() {
     let limits = LdapLimits { max_entries: 3, ..fast() };
     let q = LdapQuery { size_limit: Some(3), ..e.query() };
     let p = q.prepare(&limits).expect("p");
-    let err = preview(&p, &cred(true), e.tls(true).await, &limits).await.expect_err("cap");
+    let err = preview(&p, &cred(true), e.tls(true).await, &limits, &BindSignal::default())
+        .await
+        .expect_err("cap");
     assert_eq!(err.code(), "ldap.size_limit");
     assert_eq!(e.srv.recorder().ops(), ["bind", "search", "abandon", "unbind"]);
     e.srv.recorder().assert_no_violations();
@@ -190,11 +192,15 @@ async fn name_filter_reaches_the_server_escaped() {
 async fn bind_failure_and_bind_only() {
     let e = env(LdapKnobs::default()).await;
     let p = e.query().prepare(&fast()).expect("p");
-    let err = preview(&p, &cred(false), e.tls(true).await, &fast()).await.expect_err("bind");
+    let bind = BindSignal::default();
+    let err = preview(&p, &cred(false), e.tls(true).await, &fast(), &bind).await.expect_err("bind");
+    assert_eq!(bind.phase(), BindPhase::Attempted);
     assert_eq!(err.code(), "ldap.bind");
     assert!(matches!(err, LdapError::Bind(49)));
     assert_eq!(e.srv.recorder().ops(), ["bind", "unbind"]);
-    bind_only(&p, &cred(true), e.tls(true).await, &fast()).await.expect("bind only");
+    let bind = BindSignal::default();
+    bind_only(&p, &cred(true), e.tls(true).await, &fast(), &bind).await.expect("bind only");
+    assert_eq!(bind.phase(), BindPhase::Bound);
     assert_eq!(e.srv.recorder().ops(), ["bind", "unbind", "bind", "unbind"]);
     e.srv.recorder().assert_no_violations();
 }
@@ -203,7 +209,10 @@ async fn bind_failure_and_bind_only() {
 async fn unknown_certificate_is_a_trust_prompt() {
     let e = env(LdapKnobs::default()).await;
     let p = e.query().prepare(&fast()).expect("p");
-    let err = preview(&p, &cred(true), e.tls(false).await, &fast()).await.expect_err("prompt");
+    let bind = BindSignal::default();
+    let err =
+        preview(&p, &cred(true), e.tls(false).await, &fast(), &bind).await.expect_err("prompt");
+    assert_eq!(bind.phase(), BindPhase::NotAttempted, "nothing reaches the server without trust");
     assert_eq!(err.code(), "http.trust_prompt");
     let LdapError::Tls(HttpError::TrustPrompt(d)) = err else { panic!("{err:?}") };
     assert_eq!(
