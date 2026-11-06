@@ -4082,6 +4082,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mooring-import"
+version = "0.1.0-rc.1"
+dependencies = [
+ "flate2",
+ "mooring-core",
+ "proptest",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "mooring-proto-kube"
 version = "0.1.0-rc.1"
 dependencies = [

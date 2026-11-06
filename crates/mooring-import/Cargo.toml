@@ -1,0 +1,28 @@
+[package]
+name = "mooring-import"
+description = "Mooring importers: Royal TS, RDM, Termius, mRemoteNG, PuTTY and OpenSSH exports into a dry-run ImportPlan (ADR-0019)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+# Royal TS / RDM / mRemoteNG XML (ADR-0019 §1): streaming, forbid(unsafe), MIT, already in the
+# tree via plist; DOCTYPE, depth and size caps are enforced in `xml.rs` on top of it.
+quick-xml = { version = "0.42", default-features = false }
+# Royal TS `.rtsz` (gzip-compressed `.rtsx`): pure-Rust inflate with a decompressed-size and
+# ratio cap (ADR-0019 §3); same backend selection as mooring-proto-vnc's test dependency.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
