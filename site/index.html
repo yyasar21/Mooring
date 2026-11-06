@@ -214,7 +214,7 @@
         <section class="fgroup" aria-labelledby="fg-release"><h3 id="fg-release">Release</h3><ul>
           <li data-status="available"><span>Pre-release dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed <code>SHA256SUMS</code>, SBOM and provenance</span></li>
           <li data-status="available"><span>37 fuzz targets for protocol parsers and API responses, run nightly</span></li>
-          <li data-status="planned" data-phase="A4"><span>Code-signed and notarized installers</span></li>
+          <li data-status="planned"><span>Notarized / Authenticode-signed installers (after v0.1.0, once certificates exist)</span></li>
           <li data-status="planned" data-phase="A4"><span>In-app updater with signed manifests</span></li>
           <li data-status="planned" data-phase="A4"><span>Homebrew tap; winget after v0.1.0</span></li>
         </ul></section>
@@ -354,8 +354,8 @@
         <li data-state="done"><h3>A3 <span>Infrastructure integrations</span></h3><p class="state">Done, exit 2026-11-05</p><p>vSphere inventory sync with power actions and consoles, read-only Kubernetes sessions, Vault / OpenBao secret references, encrypted vault sync with a join flow. Review 6.</p></li>
         <li data-state="now"><h3>A4 <span>Release v0.1.0</span></h3><p class="state">In progress</p>
           <ul class="bullets">
-            <li>Signed and notarized installers for macOS, Windows and Linux; cosign-signed checksums, SBOMs, provenance</li>
-            <li>In-app updater with minisign-signed manifests</li>
+            <li>Installers for macOS, Windows and Linux with cosign-signed checksums, SBOMs and build provenance (notarization and Authenticode follow once certificates exist)</li>
+            <li>In-app updater: packages signed with the project key and verified before install; checks only when you ask (background check is opt-in)</li>
             <li>Importers for Royal TS, Termius, mRemoteNG, PuTTY and OpenSSH config</li>
             <li>Network tools: TCP port check, ping and traceroute</li>
             <li>Full security pass with zero critical or high findings; clean installs on fresh machines</li>
@@ -372,7 +372,7 @@
       <div class="faq">
         <details><summary>Is Mooring free?</summary><p>Yes. It is open source under the MIT License. There is no paid tier, no account and no telemetry.</p></details>
         <details><summary>Is it ready for production use?</summary><p>Not yet. Mooring is pre-release software: everything through phase A3 works on <code>main</code> and has passed six security reviews, but installers are not code-signed and there is no updater until v0.1.0. Keep your existing tool alongside it for now.</p></details>
-        <details><summary>Does Mooring send my data anywhere?</summary><p>No. The vault, database, audit log and trusted host keys stay on your machine, and Mooring connects only to the hosts and services you open. Vault sync is off until you configure a bucket; when on, it uploads one blob encrypted on your device, and the secrets fetched from Vault or OpenBao are never written to disk.</p></details>
+        <details><summary>Does Mooring send my data anywhere?</summary><p>No. The vault, database, audit log and trusted host keys stay on your machine, and Mooring connects only to the hosts and services you open — plus the GitHub release page when you check for updates. Vault sync is off until you configure a bucket; when on, it uploads one blob encrypted on your device, and the secrets fetched from Vault or OpenBao are never written to disk.</p></details>
         <details><summary>What if I forget my master password?</summary><p>Your secrets cannot be recovered, by you or by the developers. Names, hosts and tags remain readable so you can rebuild the tree, but passwords and keys are gone. Keep the master password in a password manager or a safe written copy.</p></details>
         <details><summary>Can I use my existing SSH keys and known_hosts?</summary><p>Paste a private key into an SSH key credential, or use your ssh-agent. Mooring reads the OpenSSH <code>known_hosts</code> format. Importing from <code>~/.ssh</code> with a file picker is planned.</p></details>
         <details><summary>Can Mooring change my cluster or my VMs?</summary><p>Not the cluster. The Kubernetes client can only list, watch, read logs, exec and port-forward; everything else is rejected before it leaves your machine, whatever your token allows. On vSphere the inventory is read-only; the only writes are the VM power actions you turn on per connection, each confirmed in a native dialog and written to the audit log.</p></details>

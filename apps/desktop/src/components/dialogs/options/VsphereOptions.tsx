@@ -56,7 +56,7 @@ export function VsphereOptions({ value, errors, onChange }: { value: VsphereConn
         checked={value.allowVmrc}
         onChange={(allowVmrc) => { set({ allowVmrc }); }}
         label="Offer VMware Remote Console"
-        hint="Hands a one-time ticket to the VMRC app installed on this computer."
+        hint="Hands a one-time ticket (60 s, single use) to the VMRC app installed on this computer. The ticket passes through the command line, so other local users on a shared machine can see it."
       />
       <CaPemField id="vs-ca" value={value.caPem} error={errors.caPem} onChange={(caPem) => { set({ caPem }); }} />
     </div>
