@@ -235,7 +235,7 @@ fn picked_ssh_config_ignores_the_key_file_opt_in_with_a_warning() {
     // A "connection pack" that names the user's real key under its own host.
     let pack = home.path().join("pack_ssh_config");
     std::fs::write(&pack, SSH_CONFIG).expect("pack");
-    let pick = |path: &Path| {
+    let picked = |path: &Path| {
         st.picks
             .insert(st.picks.epoch(), import_source::IMPORT_PICK_SESSION, PickMode::File, path.to_path_buf(), Instant::now())
             .expect("pick")
@@ -245,7 +245,7 @@ fn picked_ssh_config_ignores_the_key_file_opt_in_with_a_warning() {
         include_plaintext_secrets: false,
         import_key_files: keys,
     };
-    let p = preview(st, home.path(), input(pick(&pack), true)).expect("preview");
+    let p = preview(st, home.path(), input(picked(&pack), true)).expect("preview");
     assert_eq!(p.format, ImportFormat::Openssh);
     assert_eq!(p.counts.connections, 5);
     assert!(p.credentials.iter().all(|c| c.kind == CredentialKind::SshAgent && !c.has_secret), "{:?}", p.credentials);
@@ -259,7 +259,7 @@ fn picked_ssh_config_ignores_the_key_file_opt_in_with_a_warning() {
     let r = apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: None }).expect("apply");
     assert_eq!(r.secrets, 0, "nothing from ~/.ssh reached the vault");
     // The same file without the flag carries no such warning.
-    let p = preview(st, home.path(), input(pick(&pack), false)).expect("preview");
+    let p = preview(st, home.path(), input(picked(&pack), false)).expect("preview");
     assert!(!p.warnings.iter().any(|w| w.code == mooring_import::WarningCode::KeyFilesOnlyForKnownLocation));
     // The known location with the flag still reads the key (the L-41 boundary).
     std::fs::write(ssh.join("config"), SSH_CONFIG).expect("config");

@@ -213,7 +213,7 @@ impl UpdateSource for PluginSource {
             // bytes; the capped reader drops it as soon as it runs past the package cap.
             let u = &update;
             let bytes = download::capped(download::PACKAGE_CAP, download::DOWNLOAD_DEADLINE, |mut on_chunk| async move {
-                u.download(|len, declared| on_chunk(len, declared), || {}).await.map_err(|e| map_err(&e))
+                u.download(&mut on_chunk, || {}).await.map_err(|e| map_err(&e))
             })
             .await?;
             before_install();

@@ -169,13 +169,11 @@ pub(crate) fn raise_floor(store_slot: &std::sync::Mutex<crate::state::StoreSlot>
         return;
     }
     settings.last_verified = Some(version.to_string());
-    match serde_json::to_string(&settings) {
-        Ok(json) => {
-            if let Err(e) = store.set_app_setting(KEY, &json) {
-                tracing::warn!(error = %e, "update floor not stored");
-            }
-        }
-        Err(_) => tracing::warn!("update floor not stored"),
+    let stored = serde_json::to_string(&settings)
+        .map_err(|_| ())
+        .and_then(|json| store.set_app_setting(KEY, &json).map_err(|_| ()));
+    if stored.is_err() {
+        tracing::warn!("update floor not stored");
     }
 }
 

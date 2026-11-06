@@ -24,7 +24,7 @@ pub const RELEASE_DOWNLOAD_PREFIX: &str = "https://github.com/yyasar21/Mooring/r
 pub const MANIFEST_CAP: usize = 64 * 1024;
 /// Largest update package (bytes).
 pub const PACKAGE_CAP: u64 = 256 * 1024 * 1024;
-/// Deadline for the whole download (an 80 MB AppImage on a slow link, not 30 s).
+/// Deadline for the whole download (an 80 MB `AppImage` on a slow link, not 30 s).
 pub const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(10 * 60);
 
 /// The asset name of a release download: one path segment of `[A-Za-z0-9._-]+`.
@@ -58,7 +58,7 @@ pub fn check_download_url(url: &str, version: &Version) -> Result<(), SourceErro
 
 /// The parsed manifest, re-serialised, must fit [`MANIFEST_CAP`].
 pub fn manifest_within_cap(raw_json: &serde_json::Value) -> Result<(), SourceError> {
-    let len = serde_json::to_vec(raw_json).map(|v| v.len()).unwrap_or(usize::MAX);
+    let len = serde_json::to_vec(raw_json).map_or(usize::MAX, |v| v.len());
     if len > MANIFEST_CAP {
         tracing::warn!(len, "update manifest over the cap");
         return Err(SourceError::Manifest);
@@ -127,13 +127,11 @@ where
             }
         }
     };
-    match tokio::time::timeout(deadline, run).await {
-        Ok(r) => r,
-        Err(_) => {
-            tracing::warn!(received = progress.received(), "update download deadline passed");
-            Err(SourceError::Network)
-        }
-    }
+    let Ok(result) = tokio::time::timeout(deadline, run).await else {
+        tracing::warn!(received = progress.received(), "update download deadline passed");
+        return Err(SourceError::Network);
+    };
+    result
 }
 
 #[cfg(test)]

@@ -290,9 +290,10 @@ async fn verified_floor_refuses_a_later_downgrade_offer() {
     assert_eq!(text.matches(r#""event":"update.refused","code":"update.downgrade""#).count(), 2);
     settings_set(&f.state, UpdateSettingsInput { background_check: true, channel: None }).expect("set");
     assert_eq!(settings_get(&f.state).expect("s").last_verified.as_deref(), Some("0.4.0"));
-    let slot = f.state.store.lock().expect("lock");
-    slot.store.as_ref().expect("s").set_app_setting(KEY, r#"{"lastVerified":"nope"}"#).expect("write");
-    drop(slot);
+    {
+        let slot = f.state.store.lock().expect("lock");
+        slot.store.as_ref().expect("s").set_app_setting(KEY, r#"{"lastVerified":"nope"}"#).expect("write");
+    }
     src.set(Ok(Some(offered("0.2.0"))));
     assert!(check(&f.state, &rt, t0 + 5 * MIN_CHECK_GAP, true).await.expect("unparsable floor ignored").available.is_some());
 }
