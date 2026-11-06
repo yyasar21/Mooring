@@ -29,7 +29,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-pub use client::{bind_only, fetch, DirectoryReader};
+pub use client::{bind_only, fetch, probe_tls, DirectoryReader};
 pub use entry::{EntryLimits, RawEntry, ATTRIBUTES};
 pub use filter::{escape_value, search_filter, Dn, LdapTarget};
 pub use plan::{build_plan, is_windows, PlanOptions, MAX_DEPTH};

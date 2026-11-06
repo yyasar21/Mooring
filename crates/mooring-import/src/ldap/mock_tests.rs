@@ -205,6 +205,27 @@ async fn bind_failure_and_bind_only() {
     e.srv.recorder().assert_no_violations();
 }
 
+/// Review 7 L-43: the handshake-only probe settles trust without a single LDAP frame — the
+/// recorder sees no request for a trusted handshake, and an unknown certificate is the same
+/// trust prompt the full run would raise.
+#[tokio::test]
+async fn probe_tls_settles_trust_without_an_ldap_frame() {
+    let e = env(LdapKnobs::default()).await;
+    let p = e.query().prepare(&fast()).expect("p");
+    probe_tls(&p, e.tls(true).await, &fast()).await.expect("trusted probe");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(e.srv.recorder().requests().is_empty(), "no LDAP request on a probe");
+    let err = probe_tls(&p, e.tls(false).await, &fast()).await.expect_err("prompt");
+    assert_eq!(err.code(), "http.trust_prompt");
+    assert!(matches!(err, LdapError::Tls(HttpError::TrustPrompt(_))));
+    assert!(e.srv.recorder().requests().is_empty());
+    // The real run still works afterwards on the same server.
+    let bind = BindSignal::default();
+    bind_only(&p, &cred(true), e.tls(true).await, &fast(), &bind).await.expect("bind");
+    assert_eq!(e.srv.recorder().ops(), ["bind", "unbind"]);
+    e.srv.recorder().assert_no_violations();
+}
+
 #[tokio::test]
 async fn unknown_certificate_is_a_trust_prompt() {
     let e = env(LdapKnobs::default()).await;

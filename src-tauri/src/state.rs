@@ -187,6 +187,9 @@ pub struct AppState {
     /// ADR-0019 §3: previewed import plans by `planId` (secrets stay here, never in the UI).
     /// Cleared by `vault_lock`.
     pub import_plans: crate::import_plans::ImportPlans,
+    /// Review 7 L-43: (credential, `host:port`) pairs whose directory sign-in the user
+    /// confirmed in this unlocked session. Cleared by `vault_lock`.
+    pub ldap_binds: crate::commands::ldap_import::ConfirmedBinds,
 }
 
 /// Errors while loading state at startup.
@@ -259,6 +262,7 @@ impl AppState {
             lock_observer: crate::window_lock::LockObserver::default(),
             vsphere: crate::vsphere_sync::VsphereHub::default(),
             import_plans: crate::import_plans::ImportPlans::default(),
+            ldap_binds: crate::commands::ldap_import::ConfirmedBinds::default(),
         })
     }
 

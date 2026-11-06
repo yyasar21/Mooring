@@ -48,8 +48,11 @@ async fn preview_prompts_once_pins_and_applies_like_a_file_import() {
     let cred = domain_user(st);
     let confirm = FixedConfirm::new(true);
     let p = preview(st, Some(Prompt::new(&confirm)), input(&srv, &cred)).await.expect("preview");
-    assert_eq!(confirm.asked().len(), 1);
+    // L-43: the trust dialog, then the sign-in confirmation (trust → confirm → bind).
+    assert_eq!(confirm.asked().len(), 2);
     assert!(confirm.asked()[0].text.contains("127.0.0.1"));
+    assert!(confirm.asked()[0].title.contains("certificate"));
+    assert!(confirm.asked()[1].title.contains("sign-in"), "{}", confirm.asked()[1].title);
     assert!(pins(st).has_pin("127.0.0.1", srv.addr().port()));
     assert_eq!(p.format, ImportFormat::Ldap);
     assert!(p.root_name.starts_with("Imported from LDAP directory ("));
@@ -64,10 +67,10 @@ async fn preview_prompts_once_pins_and_applies_like_a_file_import() {
     let report = import::apply(st, ApplyInput { plan_id: p.plan_id, exclude: vec![], duplicates: None }).expect("apply");
     assert_eq!((report.folders, report.connections, report.credentials, report.secrets), (3, 3, 1, 0));
 
-    // The pin is used next time: no prompt, same result.
+    // The pin and the confirmed pair are used next time: no prompt, same result.
     let again = preview(st, None, input(&srv, &cred)).await.expect("pinned");
     assert_eq!(again.counts.connections, 3);
-    assert_eq!(confirm.asked().len(), 1);
+    assert_eq!(confirm.asked().len(), 2);
     assert_eq!(again.items.iter().filter(|i| i.duplicate_of.is_some()).count(), 3, "already imported");
 
     let events = testing::audit_events(st);
@@ -157,8 +160,10 @@ async fn test_binds_and_unbinds_only_and_locked_vault_refuses() {
     assert_eq!(srv.recorder().ops(), ["bind", "unbind"]);
     let events = testing::audit_events(st);
     assert!(events.contains(&"ldap_bind".to_owned()) && !events.contains(&"import_previewed".to_owned()));
+    assert_eq!(st.ldap_binds.len(), 1, "the pair is remembered");
 
     crate::commands::vault::lock(st, None).expect("lock");
+    assert!(st.ldap_binds.is_empty(), "L-43: confirmed pairs do not survive a lock");
     assert_eq!(test(st, None, input(&srv, &cred)).await.expect_err("locked").code, "vault.locked");
     assert_eq!(preview(st, None, input(&srv, &cred)).await.expect_err("locked").code, "vault.locked");
     assert_eq!(srv.recorder().ops().len(), 2, "no traffic while locked");
@@ -208,6 +213,100 @@ async fn server_limits_surface_as_ldap_codes() {
     assert!(st.import_plans.is_empty());
     let events = testing::audit_events(st);
     assert!(events.contains(&"import_refused".to_owned()));
+}
+
+/// A mock whose leaf is signed by a test CA, with that CA as `caPem`: the chain validates,
+/// so the TOFU dialog never appears — the L-43 attacker's setup.
+async fn ca_valid_mock() -> (LdapServer, String) {
+    let (cert, ca) = mooring_testsrv::tls::TestCert::generate_ca_issued(&["localhost", "127.0.0.1"]).expect("cert");
+    let srv = ldap::start(LdapConfig { cert: Some(cert), ..LdapConfig::default() }, 0).await.expect("mock");
+    (srv, ca)
+}
+
+/// Review 7 L-43: a T5-style `ldap_import_test` against a CA-valid host (`caPem`) raises the
+/// sign-in dialog before any bind frame; declined → `ldap.bind_declined`, `confirm_refused`
+/// audited, the password never leaves, and the Gate's cool-down blocks a re-ask.
+#[tokio::test]
+async fn first_bind_of_a_pair_asks_and_a_refusal_never_binds() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let (srv, ca) = ca_valid_mock().await;
+    let cred = domain_user(st);
+    let with_ca = || LdapInput { ca_pem: Some(ca.clone()), ..input(&srv, &cred) };
+    let no = FixedConfirm::new(false);
+    let err = test(st, Some(Prompt::new(&no)), with_ca()).await.expect_err("declined");
+    assert_eq!(err.code, "ldap.bind_declined");
+    assert_eq!(no.asked().len(), 1, "no TOFU dialog for a CA-valid chain; the sign-in one only");
+    let ask = &no.asked()[0];
+    assert_eq!(ask.title, "Mooring \u{b7} Directory sign-in");
+    assert_eq!(ask.ok, format!("Sign in to 127.0.0.1:{}", srv.addr().port()));
+    assert!(ask.text.contains("Directory bind") && ask.text.contains("127.0.0.1"), "{}", ask.text);
+    assert!(!ask.text.contains(BIND_PW) && !ask.text.contains("svc-mooring"), "names only: {}", ask.text);
+    assert!(ask.warning);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(srv.recorder().requests().is_empty(), "no LDAP frame without the confirmation");
+    assert!(st.ldap_binds.is_empty());
+    // The same pair inside the cool-down is refused without a dialog (M-16); the preview is
+    // an import, so its refusal is audited by code.
+    let err = preview(st, Some(Prompt::new(&no)), with_ca()).await.expect_err("cool-down");
+    assert_eq!(err.code, "confirm.cooldown");
+    assert_eq!(no.asked().len(), 1);
+    // No prompt object at all: refused before any frame.
+    st.confirm.clear_cooldowns();
+    let err = preview(st, None, with_ca()).await.expect_err("no prompt");
+    assert_eq!(err.code, "ldap.confirm_required");
+    assert!(srv.recorder().requests().is_empty());
+    let text = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("audit");
+    assert!(text.contains(r#""event":"confirm_refused","kind":"ldap_bind""#), "{text}");
+    assert!(text.contains(r#""reason":"declined""#));
+    assert!(text.contains(r#""event":"import_refused","code":"ldap.confirm_required""#));
+    assert!(!text.contains("ldap_bind\"") || !text.contains(r#""event":"ldap_bind""#), "no bind row");
+    assert!(!text.contains(BIND_PW) && !text.contains("svc-mooring"));
+    assert!(!testing::audit_events(st).contains(&"cert_decision".to_owned()), "CA-valid: no TOFU row");
+}
+
+/// Review 7 L-43: a confirmed (credential, host:port) pair is remembered for the session —
+/// the second call needs no prompt — while another credential or another port asks again;
+/// a vault lock forgets every pair.
+#[tokio::test]
+async fn confirmed_pair_is_remembered_until_lock_and_scoped_to_credential_and_host() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let (srv, ca) = ca_valid_mock().await;
+    let cred = domain_user(st);
+    let with_ca = |c: &str| LdapInput { ca_pem: Some(ca.clone()), ..input(&srv, c) };
+    let yes = FixedConfirm::new(true);
+    let r = test(st, Some(Prompt::new(&yes)), with_ca(&cred)).await.expect("confirmed");
+    assert_eq!(r.bound_as, "svc-mooring@corp.example.test");
+    assert_eq!(yes.asked().len(), 1);
+    assert_eq!(srv.recorder().ops(), ["bind", "unbind"]);
+    assert!(st.ldap_binds.contains(&cred, &format!("127.0.0.1:{}", srv.addr().port())));
+    // Remembered: the preview runs with no prompt object at all.
+    let p = preview(st, None, with_ca(&cred)).await.expect("remembered");
+    assert_eq!(p.counts.connections, 3);
+    assert_eq!(yes.asked().len(), 1);
+    // Another credential to the same host is a new pair.
+    let other = credentials::create(st, NewCredential::user_password("other", "svc-mooring@corp.example.test", BIND_PW)).expect("c");
+    assert_eq!(preview(st, None, with_ca(&other.id)).await.expect_err("new pair").code, "ldap.confirm_required");
+    test(st, Some(Prompt::new(&yes)), with_ca(&other.id)).await.expect("other confirmed");
+    assert_eq!(yes.asked().len(), 2);
+    assert_eq!(st.ldap_binds.len(), 2);
+    // The same credential to another host:port is a new pair too: the key is `host:port`
+    // (the trust probe runs first, so a dead port fails there; nothing is asked or remembered).
+    let elsewhere = LdapInput { url: "ldaps://127.0.0.1:1".into(), ..with_ca(&cred) };
+    assert_eq!(test(st, Some(Prompt::new(&yes)), elsewhere).await.expect_err("other port").code, "ldap.unavailable");
+    assert_eq!(yes.asked().len(), 2);
+    assert!(!st.ldap_binds.contains(&cred, "127.0.0.1:1"));
+    // A lock forgets every pair; after the unlock the first bind asks again.
+    crate::commands::vault::lock(st, None).expect("lock");
+    assert!(st.ldap_binds.is_empty());
+    crate::commands::vault::unlock(st, secrecy::SecretString::from(testing::MASTER.to_owned())).expect("unlock");
+    assert_eq!(preview(st, None, with_ca(&cred)).await.expect_err("forgotten").code, "ldap.confirm_required");
+    test(st, Some(Prompt::new(&yes)), with_ca(&cred)).await.expect("asked again");
+    assert_eq!(yes.asked().len(), 3);
+    srv.recorder().assert_no_violations();
+    let text = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("audit");
+    assert!(!text.contains("confirm_refused"));
 }
 
 /// Review 7 N-54: an empty stored password never leaves the client (RFC 4513 §5.1.2

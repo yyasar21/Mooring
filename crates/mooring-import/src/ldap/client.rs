@@ -58,6 +58,47 @@ fn io_error(e: &std::io::Error) -> LdapError {
     LdapError::Unavailable(format!("io {:?}", e.kind()))
 }
 
+/// TCP connect plus TLS handshake with `tls` (our verifier: a trust decision surfaces as
+/// `LdapError::Tls(HttpError::Trust*)`), under `limits.connect_timeout`. No LDAP frame.
+async fn handshake(
+    query: &Prepared,
+    tls: TlsClient,
+    limits: &LdapLimits,
+) -> Result<TlsStream<TcpStream>, LdapError> {
+    let host = query.target.host.clone();
+    let sni = ServerName::try_from(host.clone())
+        .map_err(|_| LdapError::Invalid("host is not a valid TLS server name"))?;
+    let connect = async {
+        let tcp = TcpStream::connect((host.as_str(), query.target.port))
+            .await
+            .map_err(|e| io_error(&e))?;
+        let _ = tcp.set_nodelay(true);
+        let connector = tokio_rustls::TlsConnector::from(Arc::clone(&tls.config));
+        connector.connect(sni, tcp).await.map_err(|e| match tls.trust_error() {
+            Some(t) => LdapError::Tls(t),
+            None => match e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) {
+                Some(r) => LdapError::Tls(HttpError::Tls(r.to_string())),
+                None => io_error(&e),
+            },
+        })
+    };
+    tokio::time::timeout(limits.connect_timeout, connect).await.map_err(|_| LdapError::Timeout)?
+}
+
+/// Settle transport trust without sending a byte of LDAP (review 7 L-43): connect, complete
+/// the TLS handshake with `tls` and close. The caller learns the trust verdict for the
+/// target (`Ok`, or `LdapError::Tls(HttpError::TrustPrompt(_))` and friends) before it
+/// decides whether a password may be sent there.
+pub async fn probe_tls(
+    query: &Prepared,
+    tls: TlsClient,
+    limits: &LdapLimits,
+) -> Result<(), LdapError> {
+    let mut stream = handshake(query, tls, limits).await?;
+    let _ = tokio::time::timeout(UNBIND_GRACE, stream.shutdown()).await;
+    Ok(())
+}
+
 impl DirectoryReader {
     /// Connect over LDAPS with `tls` and bind as `cred`. A bind result other than success
     /// is `ldap.bind` with the result code (the diagnostic text is dropped).
@@ -68,26 +109,7 @@ impl DirectoryReader {
         limits: &LdapLimits,
         bind: &BindSignal,
     ) -> Result<Self, LdapError> {
-        let host = query.target.host.clone();
-        let sni = ServerName::try_from(host.clone())
-            .map_err(|_| LdapError::Invalid("host is not a valid TLS server name"))?;
-        let connect = async {
-            let tcp = TcpStream::connect((host.as_str(), query.target.port))
-                .await
-                .map_err(|e| io_error(&e))?;
-            let _ = tcp.set_nodelay(true);
-            let connector = tokio_rustls::TlsConnector::from(Arc::clone(&tls.config));
-            connector.connect(sni, tcp).await.map_err(|e| match tls.trust_error() {
-                Some(t) => LdapError::Tls(t),
-                None => match e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) {
-                    Some(r) => LdapError::Tls(HttpError::Tls(r.to_string())),
-                    None => io_error(&e),
-                },
-            })
-        };
-        let stream = tokio::time::timeout(limits.connect_timeout, connect)
-            .await
-            .map_err(|_| LdapError::Timeout)??;
+        let stream = handshake(query, tls, limits).await?;
         let mut reader = Self {
             stream,
             buf: Vec::new(),
