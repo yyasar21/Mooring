@@ -362,3 +362,120 @@ grep uses: without @<40-hex> in security/ci/test-vectors.yml   none; semgrep con
 ```
 Not run: builds, tests, cargo-geiger (not installed), gitleaks, semgrep, pnpm audit, cargo-fuzz,
 actionlint, the workflows, the per-OS checks.
+
+---
+
+## Re-review 7b — fix rounds R2 (release-engineer), F1 and F2 (rust-core), L-36 / L-42 wording
+
+Reviewer: security-reviewer · 2026-11-06 · `a4` @ `eec26f0` (R2, F1, F2 and the orchestrator's
+`c8bfa23` merged). Inputs: `docs/handoff/a4-release-engineer.md` (R2),
+`a4-rust-core-f1.md`, `a4-rust-core-f2.md`. Read: every workflow under `.github/workflows/`,
+`scripts/release/{lint-workflows,verify-release}.sh`, `src-tauri/tauri.conf.json`,
+`src-tauri/src/updater/{source,download,mod,install_mode,notes}.rs`,
+`src-tauri/src/commands/{update,import,ldap_import,net,mod}.rs`, `src-tauri/src/audit_budget.rs`,
+`src-tauri/src/import_plans.rs`, `crates/mooring-import/src/ldap/client.rs`,
+`crates/mooring-secrets/src/error.rs`, `site/index.html`, `README.md`, `VsphereOptions.tsx`, and
+`tauri-plugin-updater` 2.14.1 `restore_update` / `verify` / `install` (`updater.rs:688-696`,
+`:895-925`). No build, no test run. Run here: `bash scripts/release/lint-workflows.sh
+.github/workflows` → `ok`.
+
+### Verdict: `APPROVE WITH NITS` (merge to `main`) — `v0.1.0` tag conditional
+
+M-17 is fixed in the workflow. The updater key is referenced in **one step of one job**.
+`sign-updater` has `environment: release` and `contents: read`. It has no checkout and
+installs nothing from npm or cargo. It runs a Tauri CLI whose two tarballs are pinned by SHA-512.
+I checked both values against `pnpm-lock.yaml:755` and `:785`. The lint fails the run if any
+other job or workflow names the secret. What is left of M-17 is the owner's GitHub settings:
+the code cannot verify them, and they are a tag condition. Every Low from review 7 is fixed,
+except two. L-42 is **partial**: three public claims remain. L-40 has one residual, the
+manifest cap, which I **accept under R-UPD until 0.1.1**. Nothing is reopened.
+
+### Closure table
+
+| ID | Status | Evidence (file:line) / exact gap |
+| --- | --- | --- |
+| **M-17** (1) build without key | **fixed** | `release.yml:281-285` forces `createUpdaterArtifacts: False` in the CI overlay. `:341-352`: the macOS updater archive is a plain `tar` after tauri-action, with its layout asserted. `:370`: a `.sig` in the build outputs fails the job. Grep for `TAURI_SIGNING_PRIVATE_KEY` across `.github/`: secret references only at `:494-495` (inside `sign-updater`). `TAURI_SIGNING_RPM_KEY*` (`:220-221`) is a different, platform secret (R-REL) |
+| M-17 (2) `sign-updater` | **fixed** | `release.yml:447-526`: `needs: [create-release, build]`, `environment: release` (`:451`), `permissions: contents: read` (`:452-453`), no checkout. `:462-482`: `curl --proto '=https'` from `registry.npmjs.org`, then `openssl dgst -sha512` against `TAURI_CLI_SHA512` / `TAURI_CLI_LINUX_X64_SHA512` (`:81-82`, equal to the lockfile integrity). `tar` unpacks without lifecycle scripts, and the version is asserted. `:488-516`: the key sits only in that step's `env:`, signer stdout is dropped, and each `.sig` is shape-checked. `--app-version` binds the version. Trust base of the key step: the runner image, the SHA-pinned `download-artifact`, the runner's `node` / `openssl` / `tar`, and the pinned CLI (accepted) |
+| M-17 (2) `finalize` trust | **fixed** | `release.yml:556`: `needs` includes `sign-updater`. `:590-594`: downloads `updater-signatures` only when `signed == 'true'`. `:596-605`: flatten refuses duplicate names, so a `.sig` that a build job slipped in collides with the real one. `finalize` trusts the following, all unforgeable without the key or the tag: `bundles-*` (R-REL, as before), `sbom`, `release-scripts` (`create-release`'s checkout of the tag), and the `.sig` files. A forged `.sig` fails the client's minisign check |
+| M-17 (3) environment / rulesets | **owner action** (tag condition) | No code can prove it. See "Conditions" below |
+| M-17 (4) lint | **fixed** (gap: N-61) | `scripts/release/lint-workflows.sh:26-45`, called from `release.yml:119-120`. 8 test cases (`scripts/release/tests/lint-workflows.test.sh`). Matches only the literal `secrets.TAURI_SIGNING_PRIVATE_KEY`; see N-61 |
+| N-57 | **fixed** | `release.yml:76` `RUST_TOOLCHAIN: "1.97.0"`, used at `:181`, `:412`. `release-repro.yml:36` is the same. Lint `:48-61` keeps them equal and refuses `toolchain: stable` |
+| N-58 | **fixed** | `verify-release.sh:64-73` and `release-homebrew.yml:65-70` accept only `release.yml@refs/tags/<tag>`. `release.yml:105-108` refuses a run whose `GITHUB_REF` is not the tag. The signer summary is printed from the Fulcio extensions (`verify-release.sh:109`) |
+| N-8 | **fixed** | `release-homebrew.yml:89-117`: anonymous clone, push through a `GIT_ASKPASS` script that reads the token from the step environment (`chmod 700`, removed after the push), `credential.helper=`, `GIT_TERMINAL_PROMPT=0`. The step fails if `x-access-token` appears in `.git/config` |
+| L-14 | **partial** (owner, tag condition) | `security.yml:51` `container: { image: semgrep/semgrep }` is still floating, with a TODO. Docker Hub is unreachable from the sandboxes. Every `uses:` in every workflow is SHA-pinned (grep: none without `@<40 hex>`) |
+| L-39 | **fixed** (release-side nit: N-62) | `tauri.conf.json:85` `requireSignedVersion: true`. `updater/source.rs:150-159`: `check_inner` rebuilds through `restore_update`, which forces `require_signed_version = true` (plugin `updater.rs:692-694`). Both `install` and `verify` honour it (`:900-925`). `source.rs:174-178`: `MissingSignedVersion` / `SignedVersionMismatch` map to `update.signature`. Floor: `commands/update.rs:83` `last_verified`. `:152-157` `check_floor`, called from the check (`:220`) and the install (`:267`). `:161-178` `raise_floor` is monotonic and runs from `before_install` (`:293-297`): after the plugin verified the bytes, before anything is written. The renderer cannot write `last_verified` (`UpdateSettingsInput` is `deny_unknown_fields`, `:100-108`). Residual N-63 |
+| L-40 | **fixed, manifest cap accepted under R-UPD until 0.1.1** | `updater/download.rs:22`, `:42-57`: the URL must be exactly `https://github.com/yyasar21/Mooring/releases/download/v<offered>/<asset>`, with the asset in `[A-Za-z0-9._-]{1,255}`. It is checked on the `Url` after parse normalisation, which is the string reqwest requests. `source.rs:210`: checked before any download byte. `download.rs:100-135`: a 256 MiB cap, applied to the declared length or the running count. The future is dropped at the next await, so the overshoot is at most one chunk. One 10 min deadline (`source.rs:211`). `source.rs:221`: `install(bytes)` re-verifies. **Gap 1:** the 64 KiB manifest cap (`download.rs:60-67`) applies only after `res.json()`. In flight, only the 30 s request timeout bounds the manifest. **Decision: accepted under R-UPD until 0.1.1.** The endpoint is fixed to `github.com`. Reaching the client takes repo write or a trusted-CA MITM (the same precondition as M-17). The effect is memory for at most 30 s of one user-initiated or opt-in check, with no install. Fixing it means an own fetch, i.e. a direct `reqwest` dependency with the `system-proxy` / TLS settings mirrored: a dependency change I would rather review on its own than add in a fix round. Due by 0.1.1: F2 option (a). **Gap 2:** no 30 s idle timeout. A slow-drip download holds the update single flight for at most 10 min (availability only; accepted) |
+| L-41 | **fixed** | `commands/import.rs:90`, `:100-106`: `importKeyFiles` is honoured only for `{ known: "openssh" }`. A picked file gets the `key_files_only_for_known_location` warning. `finish_preview` also requires `format == Openssh` (`:146`). Test `picked_ssh_config_ignores_the_key_file_opt_in_with_a_warning`. UI: the toggle should show only on the known tile (ui-engineer, F2 contract note). Not a security condition, because the backend ignores the flag |
+| L-42 | **partial** (tag condition) | Fixed: `site/index.html:217`, `:278`, `:357-358`, `:375` (`github.com` when checking for updates); `README.md:148-151`. **Remaining false or ambiguous claims:** `site/index.html:218` still says "In-app updater with **signed manifests**" (the manifest is unsigned). `site/index.html:311` says "Notarized and Authenticode-signed installers … land with v0.1.0" (ADR-0018 §2: v0.1.0 ships unsigned / ad-hoc). `README.md:105` lists "Code-signed installers" for A4. Also `site/index.html:96` and `README.md:22` say "Signed installers … with v0.1.0": write "checksum-signed (cosign) installers". Fix: `:218` → "In-app updater: signed packages, version bound in the signature; the manifest is unsigned". `:311` → "The Homebrew tap and the updater land with v0.1.0; notarized / Authenticode-signed installers follow once certificates exist". `README.md:105` → move "Code-signed installers" to a later phase |
+| L-43 | **fixed; residual accepted under R-LDAP-STR** (sub-item N-64) | `commands/ldap_import.rs:299-315` `with_trust`: `settle_trust` (`:281-293`, `probe_tls` = TCP + TLS + close, no LDAP frame, `crates/mooring-import/src/ldap/client.rs:92-100`) → `confirm_bind` (`:255-276`: native Gate, kind `ldap_bind`, `destructive: true`, so the B-6 three-slot rule, single flight and cool-down apply; the text names the credential's validated display name and `host:port`; refusal → `ldap.bind_declined` + `confirm_refused`; no prompter → `ldap.confirm_required`) → the op, whose bind is the first LDAP frame (`client.rs:112-121`). Both `ldap_import_test` (`:336-345`) and `ldap_import_preview` (`:318-333`) go through it. The pairs live in memory only and are cleared on lock (`commands/vault.rs:143`). The op re-validates TLS with the same pin / `trusted_once`, so a certificate swapped after the probe gets no bind. **Decision on the handshake-before-dialog residual: accepted.** Before any dialog, a T5-chosen host sees one TCP connect and a TLS ClientHello: client IP, plus an SNI the T5 chose itself. `net_port_check` already gives a T5 the same reach (R-NET-PROBE), and no secret or LDAP frame leaves. Flipping the order would put the sign-in dialog before the certificate dialog and lose the "which certificate" context. Recorded under R-LDAP-STR. The in-memory memory (not the store) is fine: it is stricter. A confirmed pair is keyed by host, not by trust anchor: a later call for the same host with a T5-supplied `caPem` needs no new dialog, but it only matters to someone who also controls that host's network path (T3 + T5). Not done: audit `caPem` use by fingerprint (N-64) |
+| N-50 | **fixed** (API; no caller yet) | `crates/mooring-secrets/src/error.rs:138-145` `prompt_decision()` returns a decision only for `TrustVerdict::Prompt`. Test at `:253-256`. `secret_source_trust` must use it when it lands |
+| N-51 | **fixed** | `updater/mod.rs:135-151`: `begin_install` enforces `MIN_CHECK_GAP` between install attempts, before any network |
+| N-52 | **fixed** | `audit_budget.rs:11-72` (32 rows per hour of uptime, shared by every `net_*`, then `net_suppressed { count }`); `commands/net.rs:64-80`. A count for the final window is written only when a later event arrives, so it is lost at exit: acceptable, the same arithmetic as N-47 |
+| N-53 | **fixed** | `import_plans.rs:66-76` (`with(now, …)` sweeps on every access), `:130-142` (60 s task), `lib.rs:128` |
+| N-54 | **fixed** | `commands/ldap_import.rs:172-179`: an empty password → `ldap.bind` before any network |
+| N-55 | **fixed** | `updater/install_mode.rs:107-132`: `CASKROOMS`, `cask_present_in`; `MacApp` with a cask present or under a Caskroom → `homebrew` |
+| N-56 | **partial** (nit) | `updater/notes.rs:13-29` uses a hand list. It still lets these `Cf` characters through: U+0600–0605, U+06DD, U+070F, U+0890–0891, U+08E2, U+110BD, U+110CD, U+13430–1343F, U+1BCA0–1BCA3, U+1D173–1D17A. Fix: also drop `mooring_core`'s `is_bidi_or_invisible(c)` (`crates/mooring-core/src/model.rs:172-197`, `pub const fn`), as asked. U+2028/2029 → `\n`: done (`:33-35`). Low impact: plain text, 4 KiB |
+| N-59 | **fixed** (F1) | `commands/import.rs:91-98`: every `import.*` refusal from read / detect / parse is audited. `a4_import::undetected_format_is_audited_as_a_refusal` is no longer ignored (`src-tauri/tests/e2e_flow/a4_import.rs:148-149`) |
+| N-60 | **fixed** | `commands/mod.rs:72-84` `off_thread` (`spawn_blocking`, panic → `internal`). `commands/import.rs:389-412`: both commands are `async` on the blocking pool. Still `Scope::Main` (`guard/table.rs:139-140`) |
+| L-28 | **partial** (carried) | `rdp_reactivation` added (F1: `fuzz/Cargo.toml:173-174`, `fuzz-nightly.yml:57`, seed test). Still owed: one green nightly run |
+| F1 `ldap_bind` rows | **approved** | `with_trust` (`ldap_import.rs:309-313`) audits by `BindSignal` phase. `Attempted` is set before the bind frame (`client.rs:120`), so any bind that left the client is in the chain |
+| F1 audit split | **approved** | One `AuditEvent`, same serde tags; variant order is not observable (36/36 audit tests per F1) |
+| L-36 | **fixed** | `VsphereOptions.tsx:59`: the hint says the ticket passes the command line and is visible to other local users |
+
+### New nits (7b)
+
+| ID | Sev | Where | Finding | Exact fix |
+| --- | --- | --- | --- | --- |
+| N-61 | Nit | `scripts/release/lint-workflows.sh:26` | The lint matches only the literal `secrets.TAURI_SIGNING_PRIVATE_KEY`. It does not catch `${{ toJSON(secrets) }}`, `secrets['TAURI_SIGNING_PRIVATE_KEY']`, `secrets: inherit`, or a second job or workflow that declares `environment: release`. A tag-triggered workflow that a writer merged could do any of these. The owner's approval of the `release` deployment is then the only gate | Fail on `toJSON(secrets)`, `secrets[`, `secrets: inherit` anywhere. Fail on `environment: release` (or `name: release`) outside `release.yml` / `sign-updater`. Add a test case each |
+| N-62 | Nit | `scripts/release/verify-release.sh:195-208` | Step 5 checks each `.sig` with minisign but does not assert `version:<v>` in the trusted comment (L-39 asked for it). The client now fails closed (`update.signature`) if the CLI ever omits the version, so the effect is availability only | After `minisign -Vq`, also run `minisign -V` (not quiet) and require `version:${TAG#v}` in the trusted comment. Until then: check by hand in the rc.2 dry run |
+| N-63 | Nit | `commands/update.rs:186-196` vs `:161-178` | `settings_set` (and the `last_check` write in `check`, `:225-227`) does read → modify → write in two separate store locks. A `raise_floor` that lands between them is overwritten with the old `last_verified`. A T5 can only re-time it, and the effect is a floor one release lower. The running version and `is_newer` still refuse a real downgrade | Do the read-modify-write under one `store.lock()` (as `raise_floor` does), or have `settings_set` / `check` never write `last_verified` back (merge with `max`) |
+| N-64 | Nit | `commands/ldap_import.rs:208-217`, `:281-293` | The L-43 "also" item: a `caPem` given per call is not audited, so a bind validated by a caller-supplied root looks the same in the chain as one validated by a public CA | Audit `ca_pem_used { host, sha256 }` (fingerprint of the PEM roots) once per run, as L-22 / N-42 |
+
+### Conditions for the `v0.1.0` tag (replaces the list above)
+1. **Owner GitHub settings (M-17 (3), N-58)** before `TAURI_SIGNING_PRIVATE_KEY` exists:
+   - Environment **`release`**: required reviewer = owner. "Prevent self-review" cannot apply
+     to a single maintainer, so record that the approval is the owner's conscious step.
+     Deployment branches and tags = **Selected**, tag rule **`v*`** only, no branch rule.
+   - **Environment secrets** `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+     in `release`. **No repository secret** of either name. Delete one if it was created from
+     the R1 notes, because the lint cannot see where a secret is defined.
+   - **Tag ruleset** `v*`: restrict creation, update and deletion; bypass = owner only.
+   - **Branch ruleset** `main`: PR with one review, block force push and deletion. The owner
+     may bypass for the `chore(release)` commit.
+   - Before approving the `release` deployment, review the diff of `.github/workflows/`
+     since the previous tag. Any change there runs next to the key.
+   If v0.1.0 ships without the key, then there is no `latest.json` and no in-app channel. The
+   environment secrets then move to "before the first release with a key". The rulesets
+   remain required for v0.1.0 (cosign identity, N-58).
+2. **L-14:** pin `security.yml:51` to `semgrep/semgrep:<version>@sha256:<digest>` from a machine
+   with Docker Hub access (commands in `a4-release-engineer.md` R2 owner action 5).
+3. **L-42 remainder:** `site/index.html:218`, `:311`, `README.md:105` (and the "Signed
+   installers" wording at `site/index.html:96`, `README.md:22`).
+4. **rc.2 dry run:** the first execution of the new `release.yml`. Run `actionlint` on the
+   Mac first. Then: `sign-updater` waits for approval; `verify-release.sh` is green; the
+   trusted comment carries `version:<v>` (N-62, by hand); the hand-made `.app.tar.gz` installs
+   in-app; the Q1 Decision 3 updater leg (wrong signature, lower version, bogus platform,
+   URL outside the prefix → `update.manifest`, then a real install per bundle type).
+5. Carried and unchanged: per-OS `docs/qa/native-dialogs.md` on macOS / Windows 11 / Fedora,
+   now **including the new "Directory sign-in" dialog** (L-43). L-31. The ADR-0013 E2E. The
+   ADR-0016 §4 OIDC interception. The Windows L-29 E2E. The Windows net-tools run. L-28 (one
+   green nightly including `rdp_reactivation`). G-1 (fresh squashed repository). ADR-0018 §6
+   gates (`security.yml` green on the release commit, `make check` on three OSes,
+   fresh-install smoke, a human publishes).
+6. Not tag conditions, scheduled: the L-40 in-flight manifest cap by **0.1.1** (R-UPD
+   expiry). N-56 remainder, N-61..N-64. L-13 before any Azure secret.
+
+### Test evidence (7b)
+```
+Linux x86_64, 2026-11-06, a4 @ eec26f0, no build, no test run (orchestrator gate)
+grep -rn TAURI_SIGNING .github/ scripts/      secret refs: release.yml:494-495 (sign-updater) only;
+                                              RPM key (platform) :220-221; tests/lint fixtures
+grep environment: .github/workflows           release.yml:451 (sign-updater), pages.yml:41 (github-pages)
+grep uses: without @<40 hex>                  none in any workflow
+grep container:/image:                        security.yml:51 semgrep/semgrep (floating, TODO L-14)
+pnpm-lock.yaml:755, :785 integrity            == TAURI_CLI_LINUX_X64_SHA512, TAURI_CLI_SHA512 (release.yml:81-82)
+bash scripts/release/lint-workflows.sh .github/workflows   lint-workflows: ok
+tauri-plugin-updater 2.14.1 updater.rs:688-696  restore_update forces require_signed_version
+                                    :895-925  verify()/install() re-verify with it
+```
+Not run: builds, tests, actionlint (not installed), the workflows, any per-OS check.

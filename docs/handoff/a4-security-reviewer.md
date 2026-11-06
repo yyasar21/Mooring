@@ -86,3 +86,58 @@ Date: 2026-11-06 · Worktree from `a4` @ `cfca0ff` · Range `git diff fc41747..H
   `uses:` in `security`/`ci`/`test-vectors` SHA-pinned.
 - Not run: builds, tests, cargo-geiger (not installed), gitleaks, semgrep, pnpm audit,
   cargo-fuzz, actionlint, the workflows, any per-OS check.
+
+---
+
+## Re-review 7b (2026-11-06, `a4` @ `eec26f0`)
+
+### Done
+- [`docs/security/a4-review-7.md`](../security/a4-review-7.md) § "Re-review 7b": closure
+  table for R2, F1, F2 and the L-36 / L-42 wording. **`APPROVE WITH NITS` for the merge to
+  `main`.** Nothing reopened.
+  - Fixed: M-17 (1)(2)(4) (the key is only in the signing step of `sign-updater`,
+    `environment: release`, `contents: read`, no checkout, CLI tarballs SHA-512-pinned and
+    equal to `pnpm-lock.yaml`, lint). Also N-57, N-58, N-8, L-39 (incl. the monotonic floor),
+    L-40 (URL pin, 256 MiB cap, 10 min deadline), L-41, L-43, N-50..N-55, N-59, N-60, L-36.
+  - Partial: L-42 (`site/index.html:218`, `:311`, `README.md:105`), L-14 (semgrep digest),
+    N-56 (hand list misses part of `Cf`), L-28 (nightly run owed).
+  - Decisions: **L-40 manifest cap post-parse accepted under R-UPD until 0.1.1** (needs a
+    direct `reqwest` fetch, reviewed as a dependency change). **L-43 TLS probe before the
+    sign-in dialog accepted** under R-LDAP-STR (no more reach than `net_port_check`; no
+    secret or LDAP frame before the confirmation).
+  - New nits: N-61 (lint misses `toJSON(secrets)` / `secrets[` / `secrets: inherit` /
+    another `environment: release`), N-62 (`verify-release.sh` does not assert
+    `version:<v>`), N-63 (settings read-modify-write can overwrite `lastVerified`), N-64
+    (`caPem` not audited).
+- [`docs/security/threat-model.md`](../security/threat-model.md): asset row, A4 trust
+  boundaries, STRIDE rows, R-REL, R-UPD (L-40 acceptance with its 0.1.1 expiry), R-LDAP-STR
+  (L-43 residual), open items (A3 N-50 / L-36 closed; A4 block rewritten).
+
+### Left open (owners)
+- **owner (tag conditions):** the `release` environment (reviewer = owner; deployment tags
+  `v*` only), `TAURI_SIGNING_PRIVATE_KEY{,_PASSWORD}` as **environment** secrets with no
+  repository secret of that name, a `v*` tag ruleset (bypass = owner), a `main` branch ruleset
+  (PR + review, no force push). Review the `.github/workflows/` diff before each deployment
+  approval. The L-14 semgrep digest. G-1.
+- **orchestrator / ui-engineer:** the L-42 remainder (before the tag). The L-41 toggle only on
+  the known tile, and the F2 IPC codes in the UI (not security conditions).
+- **release-engineer:** N-61, N-62. Run `actionlint` before the rc tag.
+- **rust-core:** N-56 remainder (reuse `mooring_core`'s `is_bidi_or_invisible`), N-63, N-64.
+  The L-40 own manifest fetch for 0.1.1.
+- **qa-engineer:** the "Directory sign-in" row in `docs/qa/native-dialogs.md` and the per-OS
+  run. The rc.2 updater leg (add: URL outside the prefix → `update.manifest`). One green
+  nightly fuzz run.
+
+### Decision needed
+- None from the reviewer. The owner may still overrule the two acceptances (L-40 manifest
+  cap, L-43 probe order) and ask for the fixes before the tag.
+
+### Test evidence
+- `bash scripts/release/lint-workflows.sh .github/workflows` → `ok`.
+- Greps: `TAURI_SIGNING_PRIVATE_KEY` secret references only at `release.yml:494-495`;
+  `environment:` only in `sign-updater` and `pages.yml`; no `uses:` without a 40-hex SHA;
+  only `security.yml:51` has a floating container.
+- `pnpm-lock.yaml:755`, `:785` integrity equal `release.yml:81-82`.
+- Plugin source: `tauri-plugin-updater` 2.14.1 `updater.rs:688-696` (`restore_update` forces
+  `require_signed_version`), `:895-925` (`verify` / `install`).
+- Not run: builds, tests, actionlint, the workflows, any per-OS check.
