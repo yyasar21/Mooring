@@ -38,7 +38,7 @@
 }
 .wordmark { display: flex; align-items: center; gap: 9px; padding-right: 6px; }
 .wordmark-text { font: 600 13px/1 var(--font-display); letter-spacing: 0.32em; color: var(--text); }
-.wordmark svg { color: var(--accent); filter: drop-shadow(0 0 4px var(--accent-dim)); }
+.wordmark svg { color: var(--text); filter: drop-shadow(0 0 4px var(--accent-dim)); }
 .seek {
   display: flex; align-items: center; gap: 10px; height: 26px; width: 400px; min-width: 0; padding: 0 4px 0 10px;
   border: 1px solid var(--line-strong); background: var(--bg); color: var(--text-faint); text-align: left;

@@ -1,4 +1,4 @@
-import { Kbd } from "@mooring/ui";
+import { BrandMark, Kbd } from "@mooring/ui";
 import { useApp } from "../stores/app";
 import { INSPECTOR, SIDEBAR, useUi } from "../stores/ui";
 import { Sidebar } from "./tree/Sidebar";
@@ -135,11 +135,5 @@ function TitleBar() {
 
 /** Brand mark: a bollard seen from above, with a line made fast to it. */
 function Mark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-      <path d="M9 1.5 15.5 5v8L9 16.5 2.5 13V5z" />
-      <circle cx="9" cy="9" r="2.4" />
-      <path d="M11.2 9h5.3" />
-    </svg>
-  );
+  return <BrandMark size={18} />;
 }
