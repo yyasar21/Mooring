@@ -502,6 +502,12 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # The key has no password. GitHub refuses an empty secret, so the password secret is
+          # either absent or whitespace; both mean "no password" (rc.2 dry run: a one-space
+          # secret was rejected by the signer as a wrong password).
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD//[[:space:]]/}" ]]; then
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          fi
           mapfile -t targets < <(find artifacts -maxdepth 1 -type f \
             \( -name '*.app.tar.gz' -o -name '*-setup.exe' -o -name '*.AppImage' \) | LC_ALL=C sort)
           ((${#targets[@]} > 0)) || { echo "::error::no updater artifacts among the build outputs"; exit 1; }
