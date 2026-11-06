@@ -12,6 +12,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-n1.md](a4-rust-core-n1.md) — mooring-net: TCP check, ping/traceroute/wg show (fixed paths, no shell), net_* commands, 3 fuzz targets |
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-u0.md](a4-rust-core-u0.md) — in-app updater: update_check/install/settings, install-mode matrix, background check opt-in; Cargo.lock: +tauri-plugin-updater 2.14.1 tree |
 | 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) — updater manifest + config, cosign/SBOM/provenance finalize, release-repro.yml, version 0.1.0-rc.2, owner actions |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-site.md](a4-ui-site.md) — landing site refreshed to A1–A3 complete / A4 in progress; new icon, 12-shot gallery, FAQ |
 | 2026-11-06 | A4 | ui-engineer | [a4-ui-u1.md](a4-ui-u1.md) — Settings → Import card, 3-step import wizard, first-run onboarding card |
 | 2026-11-06 | A4 | ui-engineer | [a4-ui-u2.md](a4-ui-u2.md) — Settings → Updates card + title-bar indicator, inspector Network card |
 | 2026-11-06 | A4 | ui-engineer | [a4-ui-u3.md](a4-ui-u3.md) — app icon (bollard + line), BrandMark, favicon, About card |
