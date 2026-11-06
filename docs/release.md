@@ -32,11 +32,12 @@ Each release on <https://github.com/yyasar21/Mooring/releases> carries:
 | `Mooring_<v>_amd64.AppImage`, `_aarch64.AppImage` | Portable Linux build |
 | `SHA256SUMS`, `SHA256SUMS.sigstore.json` | Checksums of every file plus their Sigstore (cosign keyless) signature |
 | `mooring-<v>-cargo.cdx.json`, `mooring-<v>-source.cdx.json` | CycloneDX SBOMs (Rust tree; full source tree incl. npm) |
-| `*.app.tar.gz` | macOS app archives per architecture (updater manifest is not produced yet — see Update channel) |
+| `Mooring_universal.app.tar.gz`, `*-setup.exe`, `*.msi`, `*.AppImage` + `.sig` | In-app updater artifacts and their signatures (only when the release was built with the updater key) |
+| `latest.json` | In-app updater manifest: per platform the URL and signature of the artifact above (see Updates) |
 
 Every file also has a GitHub build-provenance (SLSA) attestation.
 
-Note: the rpm and AppImage bundlers do not accept pre-release versions such as `0.1.0-rc.1`,
+Note: the rpm and AppImage bundlers do not accept pre-release versions such as `0.1.0-rc.2`,
 so pre-releases ship the `.deb` only on Linux; stable releases add `.rpm` and the AppImage.
 
 ## Install
@@ -151,20 +152,30 @@ gh attestation verify Mooring_<v>_amd64.deb --repo yyasar21/Mooring
 ```
 
 Maintainers can check a whole release in one go with
-`scripts/release/verify-release.sh v<v>` (or `make verify-release TAG=v<v>`).
+`scripts/release/verify-release.sh v<v>` (or `make verify-release TAG=v<v>`): cosign signature,
+every hash, no unlisted asset, provenance per file and, when the release carries `latest.json`,
+that every manifest entry points at this release and matches its `.sig`; with `minisign`
+installed it also verifies each updater artifact against the app's public key.
 
 If a release was rebuilt by hand (workflow_dispatch), its certificate identity ends in
 `@refs/heads/main` instead of the tag. The script accepts both; nothing else is valid.
 
 ## Updates
 
-In-app updates are **not enabled yet**: the updater plugin, its public key and the capability change need a security review (tracked in the roadmap). Until then, install new releases from the Releases page or your package manager. When enabled, the manifest will be published at
-`https://github.com/yyasar21/Mooring/releases/latest/download/latest.json`. Each update is
-verified against the public key compiled into the app before it is installed, independently of
-TLS. Pre-releases (`v1.2.0-rc.1`) never reach that channel.
+Mooring checks for updates **only when you ask** (Settings → Updates), or, if you opt in, once
+a day in the background; a background check only shows a badge and never downloads anything.
+The app reads `https://github.com/yyasar21/Mooring/releases/latest/download/latest.json`, which
+GitHub resolves to the newest published stable release: drafts and pre-releases
+(`v0.1.0-rc.2`) never appear there. Every update is verified against the public key compiled
+into the app (`plugins.updater.pubkey`) before a byte is written, independently of TLS, and a
+downgrade is refused.
 
-The in-app updater (Tauri updater plugin) is not wired up in 0.1.x. Until it is, update with
-the package manager you installed from, or install the new release over the old one.
+In-app installation is offered only where it needs no elevation: a macOS `.app` in a folder you
+can write to, the Windows per-user installer and the Linux AppImage. Everything else (`.msi`,
+`.deb`, `.rpm`, Homebrew, an `/Applications` owned by root) shows the new version and sends you
+to this page or your package manager; Mooring never asks for an administrator password.
+
+A release without `latest.json` (built without the updater key) has no in-app channel.
 
 ## Making a release (maintainers)
 
@@ -205,7 +216,7 @@ the matching step is skipped and the build stays unsigned, so forks work as-is.
 | Name | Kind | Used for |
 | --- | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY` | secret | Updater signatures + `latest.json`. Generate with `pnpm tauri signer generate -w mooring-updater.key`; the content of the file, not the path. |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | Password of that key |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | Password of that key; create the secret with an empty value for a key without one |
 | `APPLE_CERTIFICATE` | secret | Base64 of the "Developer ID Application" `.p12` (`openssl base64 -A -in cert.p12`) |
 | `APPLE_CERTIFICATE_PASSWORD` | secret | `.p12` export password |
 | `APPLE_SIGNING_IDENTITY` | secret | e.g. `Developer ID Application: Yunus Yaşar (TEAMID)` |
@@ -223,7 +234,8 @@ short-lived OIDC token (`id-token: write`, finalize job only).
 
 ## Local builds
 
-`make bundle` builds unsigned installers for the current OS into
-`target/release/bundle/`. `make icons` regenerates `src-tauri/icons/` from
+`pnpm tauri build --no-sign` builds unsigned installers for the current OS into
+`target/release/bundle/` (`--no-sign` skips the updater signature, which needs the private key
+only CI has; without it the bundler refuses to run with `createUpdaterArtifacts: true`). `make icons` regenerates `src-tauri/icons/` from
 `packaging/icon.svg`. Package-manager templates for later (winget, Scoop) live in
 `packaging/winget/` and `packaging/scoop/`.
