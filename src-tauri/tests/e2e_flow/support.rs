@@ -9,11 +9,13 @@ use secrecy::SecretString;
 use tokio::sync::mpsc;
 
 use mooring_core::known_certs::CertProtocol;
+use mooring_import::ldap::{DirectoryKind, SearchScope};
 
 use crate::commands::credentials::{self, NewCredential, WireSecrets};
 use crate::commands::import::{self, ApplyInput, PreviewInput, SourceInput};
 use crate::commands::kube::{self, ExecRequest};
 use crate::commands::kube_logs::{self, LogsRequest};
+use crate::commands::ldap_import::{self, LdapInput};
 use crate::commands::net::{self, NetRuntime, TargetArg};
 use crate::commands::sessions::{self as sess, WireInput};
 use crate::commands::sftp_pick::FixedPicker;
@@ -164,8 +166,8 @@ async fn vault_gated_codes_a4_update(st: &AppState) -> Vec<(&'static str, &'stat
     ]
 }
 
-/// The A4 I1 import commands (ADR-0019 §3): every one checks the vault before reading a file,
-/// opening a dialog or touching a plan.
+/// The A4 I1 import commands (ADR-0019 §3) and the I2 directory commands (§4): every one
+/// checks the vault before reading a file, opening a dialog, touching a plan or connecting.
 async fn vault_gated_codes_a4_import(st: &AppState) -> Vec<(&'static str, &'static str)> {
     let home = std::path::Path::new("/nonexistent");
     let preview = PreviewInput {
@@ -185,7 +187,24 @@ async fn vault_gated_codes_a4_import(st: &AppState) -> Vec<(&'static str, &'stat
         ("import_preview", code(import::preview(st, home, preview))),
         ("import_apply", code(import::apply(st, apply))),
         ("import_discard", code(import::discard(st, &"0".repeat(32)))),
+        ("ldap_import_preview", code(ldap_import::preview(st, None, ldap_input()).await)),
+        ("ldap_import_test", code(ldap_import::test(st, None, ldap_input()).await)),
     ]
+}
+
+/// ADR-0019 §4 (A4 I2): a well-formed directory query; the vault gate answers before any
+/// name resolution or connect (`example.test` is never contacted).
+fn ldap_input() -> LdapInput {
+    LdapInput {
+        url: "ldaps://dc.example.test".into(),
+        base_dn: "DC=corp,DC=example,DC=test".into(),
+        scope: SearchScope::Sub,
+        kind: DirectoryKind::Ad,
+        filter: None,
+        credential_id: "00000000-0000-4000-8000-000000000000".into(),
+        ca_pem: None,
+        size_limit: None,
+    }
 }
 
 /// Review 6 L-38: the A3 commands that are gated *indirectly*. `kube_open` goes through

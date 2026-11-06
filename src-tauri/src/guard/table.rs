@@ -139,4 +139,6 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("import_preview", Scope::Main),
     ("import_apply", Scope::Main),
     ("import_discard", Scope::Main),
+    ("ldap_import_preview", Scope::Main),
+    ("ldap_import_test", Scope::Main),
 ];

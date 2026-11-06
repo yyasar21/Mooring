@@ -140,6 +140,12 @@
   "kube_pods": [
     "main"
   ],
+  "ldap_import_preview": [
+    "main"
+  ],
+  "ldap_import_test": [
+    "main"
+  ],
   "net_ping": [
     "main"
   ],

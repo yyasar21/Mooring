@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ldap-import-test"
+description = "Enables the ldap_import_test command without any pre-configured scope."
+commands.allow = ["ldap_import_test"]
+
+[[permission]]
+identifier = "deny-ldap-import-test"
+description = "Denies the ldap_import_test command without any pre-configured scope."
+commands.deny = ["ldap_import_test"]

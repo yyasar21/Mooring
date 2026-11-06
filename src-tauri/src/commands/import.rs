@@ -40,9 +40,10 @@ pub const PARSER_CODES: &[&str] = &[
     "import.unsupported_container",
 ];
 
-/// `import_formats()`.
+/// `import_formats()`: the file formats (the LDAP directory is a separate wizard source,
+/// `ldap_import_*`, not a picker tile).
 pub fn formats() -> Vec<FormatDto> {
-    ImportFormat::ALL
+    ImportFormat::FILES
         .into_iter()
         .map(|f| FormatDto {
             format: f,

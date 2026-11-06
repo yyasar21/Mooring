@@ -755,4 +755,12 @@ pub enum AuditEvent {
         /// Error code.
         code: String,
     },
+    /// A directory bind was attempted (ADR-0019 §4, `ldap_import_*`): host only, never the
+    /// bind name, the password, a DN or an entry.
+    LdapBind {
+        /// `host:port` of the directory.
+        host: String,
+        /// Whether the server accepted the bind.
+        success: bool,
+    },
 }
