@@ -122,4 +122,9 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("credential_external_test", Scope::Main),
     ("secret_source_oidc_begin", Scope::Main),
     ("secret_source_oidc_status", Scope::Main),
+    // ADR-0018 §3 (A4 U0): in-app updates, main only, all vault-gated.
+    ("update_check", Scope::Main),
+    ("update_install", Scope::Main),
+    ("update_settings_get", Scope::Main),
+    ("update_settings_set", Scope::Main),
 ];

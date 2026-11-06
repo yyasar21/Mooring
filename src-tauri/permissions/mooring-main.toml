@@ -112,4 +112,9 @@ permissions = [
   "allow-credential-external-test",
   "allow-secret-source-oidc-begin",
   "allow-secret-source-oidc-status",
+  # ADR-0018 U0: in-app updates
+  "allow-update-check",
+  "allow-update-install",
+  "allow-update-settings-get",
+  "allow-update-settings-set",
 ]

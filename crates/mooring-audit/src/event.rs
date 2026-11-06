@@ -669,4 +669,33 @@ pub enum AuditEvent {
         /// Refusals that got no row of their own.
         count: u64,
     },
+    // ---- ADR-0018 §3 (A4 U0): in-app updates (versions and codes only) ------------------
+    /// An update check finished (`update_check`, or the opt-in background check).
+    #[serde(rename = "update.check")]
+    UpdateCheck {
+        /// Running version.
+        current: String,
+        /// Version offered by the manifest, if newer.
+        available: Option<String>,
+    },
+    /// A verified bundle is about to be installed (`update_install`); the app restarts after.
+    #[serde(rename = "update.install")]
+    UpdateInstall {
+        /// Running version.
+        from: String,
+        /// Version being installed.
+        to: String,
+    },
+    /// An install was refused (`code` is the IPC error code, e.g. `update.manual_only`).
+    #[serde(rename = "update.refused")]
+    UpdateRefused {
+        /// Error code.
+        code: String,
+    },
+    /// The update settings changed (`update_settings_set`).
+    #[serde(rename = "update.settings_changed")]
+    UpdateSettingsChanged {
+        /// Opt-in background check on or off.
+        background_check: bool,
+    },
 }

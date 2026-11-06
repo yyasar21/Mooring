@@ -129,6 +129,23 @@ fn oidc_capability_grants_nothing() {
     assert!(super::check("vault_status", "oidc-0b1e", None).is_err());
 }
 
+/// ADR-0018 §3: no capability and no permission set grants anything of the updater plugin;
+/// the app's own `update_*` commands are the only way in, and they are `main`-only.
+#[test]
+fn no_capability_grants_an_updater_permission() {
+    for (name, cap) in capabilities() {
+        let text = serde_json::to_string(&cap).expect("json");
+        assert!(!text.contains("updater:"), "{name} names an updater permission");
+    }
+    let set = std::fs::read_to_string(root().join("permissions/mooring-main.toml")).expect("set");
+    assert!(!set.contains("updater:"), "mooring-main.toml names an updater permission");
+    for cmd in ["update_check", "update_install", "update_settings_get", "update_settings_set"] {
+        assert_eq!(super::scope(cmd), Some(Scope::Main), "{cmd}");
+        assert!(super::check(cmd, "detached-abc", None).is_err(), "{cmd} from a detached window");
+        assert!(super::check(cmd, "web-abc", None).is_err(), "{cmd} from a web window");
+    }
+}
+
 #[test]
 fn no_capability_names_dialog_fs_or_shell() {
     for (name, cap) in capabilities() {
@@ -136,6 +153,8 @@ fn no_capability_names_dialog_fs_or_shell() {
             for bad in ["dialog:", "fs:", "shell:", "http:", "opener:", "core:webview", "core:window"] {
                 assert!(!p.starts_with(bad), "{name}: {p}");
             }
+            // ADR-0018 §3: the updater is Rust-only; no window may reach its JS commands.
+            assert!(!p.contains("updater"), "{name}: {p}");
         }
         assert!(cap.get("remote").is_none(), "{name}: no remote capability in A2");
     }
