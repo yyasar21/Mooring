@@ -36,6 +36,8 @@ test_util_pub!(scheduler, vsphere_sync);
 test_util_pub!(oidc_window, secrets_runtime);
 // Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
 test_util_pub!(confirm_gate);
+// ADR-0019 (A4 I1): import plans held between preview and apply.
+test_util_pub!(import_plans);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -71,6 +73,8 @@ use crate::commands::{sync as sync_cmds, sync_join};
 use crate::commands::{vsphere, vsphere_console};
 // ADR-0016 E2
 use crate::commands::{secret_sources, secret_sources_oidc};
+// ADR-0019 (A4 I1): importers.
+use crate::commands::import;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -226,6 +230,11 @@ pub fn run() {
             secret_sources::credential_external_test,
             secret_sources_oidc::secret_source_oidc_begin,
             secret_sources_oidc::secret_source_oidc_status,
+            import::import_formats,
+            import::import_pick,
+            import::import_preview,
+            import::import_apply,
+            import::import_discard,
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Tauri application");

@@ -1,4 +1,4 @@
-//! Fuzz entry `import_putty_session`: PuTTY `~/.putty/sessions/*`: `[opt-in flag, name NUL content NUL …]`.
+//! Fuzz entry `import_putty_session`: `PuTTY` `~/.putty/sessions/*`: `[opt-in flag, name NUL content NUL …]`.
 //! Shared by `fuzz/fuzz_targets/import_putty_session.rs` and the stable replay in
 //! `crates/mooring-import/tests/fuzz_corpus.rs`.
 

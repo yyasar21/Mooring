@@ -92,6 +92,21 @@
   "forward_open": [
     "main"
   ],
+  "import_apply": [
+    "main"
+  ],
+  "import_discard": [
+    "main"
+  ],
+  "import_formats": [
+    "main"
+  ],
+  "import_pick": [
+    "main"
+  ],
+  "import_preview": [
+    "main"
+  ],
   "known_certs_list": [
     "main"
   ],

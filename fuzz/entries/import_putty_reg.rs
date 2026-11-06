@@ -1,4 +1,4 @@
-//! Fuzz entry `import_putty_reg`: PuTTY `.reg` export, UTF-16LE or UTF-8: `[opt-in flag, file…]`.
+//! Fuzz entry `import_putty_reg`: `PuTTY` `.reg` export, UTF-16LE or UTF-8: `[opt-in flag, file…]`.
 //! Shared by `fuzz/fuzz_targets/import_putty_reg.rs` and the stable replay in
 //! `crates/mooring-import/tests/fuzz_corpus.rs`.
 

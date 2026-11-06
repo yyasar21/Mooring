@@ -11,17 +11,19 @@ use tokio::sync::mpsc;
 use mooring_core::known_certs::CertProtocol;
 
 use crate::commands::credentials::{self, NewCredential, WireSecrets};
+use crate::commands::import::{self, ApplyInput, PreviewInput, SourceInput};
 use crate::commands::kube::{self, ExecRequest};
 use crate::commands::kube_logs::{self, LogsRequest};
 use crate::commands::sessions::{self as sess, WireInput};
+use crate::commands::sftp_pick::FixedPicker;
 use crate::commands::sync::{self, ConfigureInput};
 use crate::commands::sync_config::BackendInput;
 use crate::commands::sync_join::{self, JoinInput};
 use crate::commands::tree::{self, ConnectionFields};
 use crate::commands::vsphere_confirm::{FixedConfirm, Prompt};
 use crate::commands::{
-    audit, conn_options, credential_copy, detach, known_certs, secret_sources, secret_sources_oidc,
-    session_graphics, syslog, vault, vsphere, vsphere_vm, web,
+    audit, conn_options, credential_copy, detach, import_source, known_certs, secret_sources,
+    secret_sources_oidc, session_graphics, syslog, vault, vsphere, vsphere_vm, web,
 };
 use crate::error::IpcResult;
 use crate::sessions::EventSink;
@@ -139,7 +141,32 @@ pub async fn vault_gated_codes(
         ("web_clear_data", code(web::check_clear(st, conn))),
     ];
     out.extend(vault_gated_codes_a3(st, folder, cred, conn).await);
+    out.extend(vault_gated_codes_a4(st).await);
     out
+}
+
+/// The A4 I1 import commands (ADR-0019 §3): every one checks the vault before reading a file,
+/// opening a dialog or touching a plan.
+async fn vault_gated_codes_a4(st: &AppState) -> Vec<(&'static str, &'static str)> {
+    let home = std::path::Path::new("/nonexistent");
+    let preview = PreviewInput {
+        source: SourceInput { pick_id: None, known: Some("openssh".into()) },
+        include_plaintext_secrets: false,
+        import_key_files: false,
+    };
+    let apply = ApplyInput { plan_id: "0".repeat(32), exclude: vec![], duplicates: None };
+    let picker = FixedPicker(None);
+    vec![
+        (
+            "import_pick",
+            code(
+                import_source::pick(st, &picker, None, mooring_import::ImportFormat::Termius).await,
+            ),
+        ),
+        ("import_preview", code(import::preview(st, home, preview))),
+        ("import_apply", code(import::apply(st, apply))),
+        ("import_discard", code(import::discard(st, &"0".repeat(32)))),
+    ]
 }
 
 /// Review 6 L-38: the A3 commands that are gated *indirectly*. `kube_open` goes through

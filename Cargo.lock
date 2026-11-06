@@ -3974,6 +3974,7 @@ dependencies = [
  "mooring-audit",
  "mooring-core",
  "mooring-http",
+ "mooring-import",
  "mooring-proto-kube",
  "mooring-proto-rdp",
  "mooring-proto-ssh",

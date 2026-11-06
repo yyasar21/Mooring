@@ -54,3 +54,7 @@ pub mod vsphere_confirm;
 pub mod vsphere_console;
 pub mod vsphere_login;
 pub mod vsphere_vm;
+// ADR-0019 (A4 I1): file importers.
+pub mod import;
+pub mod import_dto;
+pub mod import_source;

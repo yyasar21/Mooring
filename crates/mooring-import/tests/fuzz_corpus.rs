@@ -61,8 +61,9 @@ fn fixture_seeds_are_accepted() {
         let body = &bytes[1..];
         assert_eq!(detect(body, name), Some(format), "{target}");
         assert_eq!(detect(body, "unknown"), Some(format), "{target} by content");
-        let plan = parse(format, ImportSource::File { name, bytes: body }, &ImportOptions::default())
-            .unwrap_or_else(|e| panic!("{target}: {e}"));
+        let plan =
+            parse(format, ImportSource::File { name, bytes: body }, &ImportOptions::default())
+                .unwrap_or_else(|e| panic!("{target}: {e}"));
         assert!(plan.counts().connections >= 2, "{target}");
         assert_eq!(plan.counts().secrets, 0, "{target}: no secret without the opt-in");
     }
