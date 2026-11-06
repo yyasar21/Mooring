@@ -20,7 +20,7 @@ import { credentialValidFor, supportsOverride } from "./credentials";
 
 import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
 import type { MockOptions } from "./ipc.mock.exit";
-import { MockSecretsBase } from "./ipc.mock.secrets";
+import { MockNetBase } from "./ipc.mock.net";
 import type { RemoteTarget } from "./ipc.mock.remote";
 
 export type { MockOptions } from "./ipc.mock.exit";
@@ -38,7 +38,7 @@ interface MockSession {
   line: string;
 }
 
-export class MockTransport extends MockSecretsBase implements Ipc {
+export class MockTransport extends MockNetBase implements Ipc {
   folders = seedFolders();
   connections = seedConnections();
   creds = new MockCredentials(seedCredentials());
@@ -116,6 +116,9 @@ export class MockTransport extends MockSecretsBase implements Ipc {
   }
 
   protected credentialRows() { return this.creds.items; }
+  protected connectionRows() { return this.connections; }
+  protected liveSessionIds(): string[] { return [...this.sessions.keys(), ...this.remoteInfos().map((s) => s.sessionId), ...this.kubeInfos().map((s) => s.sessionId)]; }
+  protected closeSessionForUpdate(sessionId: string): Promise<void> { return this.sessionClose({ sessionId }); }
 
   protected sshSession(sessionId: string): MockSession | null {
     return this.sessions.get(sessionId) ?? null;
