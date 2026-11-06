@@ -69,36 +69,52 @@ pub fn root_name(format: ImportFormat) -> String {
     format!("Imported from {} ({today})", format.label())
 }
 
-/// `import_preview`: read the source, parse, keep the plan, answer names only.
+/// `import_preview`: read the source, parse, keep the plan, answer names only. Every
+/// `import.*` refusal on the way to a plan — unreadable or oversized source, undetected
+/// format, parser refusal — is audited as `import_refused { code }` (ADR-0019 §5);
+/// `input.invalid` (a malformed request) is not a refusal of a file.
 pub fn preview(state: &AppState, home: &Path, input: PreviewInput) -> IpcResult<ImportPreview> {
     state.with_ready(|_, _| Ok(()))?;
     let opts = ImportOptions {
         include_plaintext_secrets: input.include_plaintext_secrets,
         limits: mooring_import::Limits::DEFAULT,
     };
-    let parsed = match (input.source.pick_id, input.source.known) {
+    let (format, plan) = match read_and_parse(state, home, input.source, &opts) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            if e.code.starts_with("import.") {
+                state.audit(AuditEvent::ImportRefused { code: e.code.to_owned() });
+            }
+            return Err(e);
+        }
+    };
+    finish_preview(state, home, format, plan, input.import_key_files)
+}
+
+/// Source bytes → detected format → parsed plan; every failure is an `IpcError`.
+fn read_and_parse(
+    state: &AppState,
+    home: &Path,
+    source: SourceInput,
+    opts: &ImportOptions,
+) -> IpcResult<(ImportFormat, ImportPlan)> {
+    let (format, parsed) = match (source.pick_id, source.known) {
         (Some(pick_id), None) => {
             let (name, bytes) = import_source::read_picked(state, &pick_id, opts.limits.max_input)?;
             let format = detect(&bytes, &name)
                 .ok_or_else(|| IpcError::new("import.format", "the file is not a supported export"))?;
-            (format, parse(format, ImportSource::File { name: &name, bytes: &bytes }, &opts))
+            (format, parse(format, ImportSource::File { name: &name, bytes: &bytes }, opts))
         }
         (None, Some(known)) => match import_source::read_known(home, &known, &opts.limits)? {
             Known::File(format, name, bytes) => {
-                (format, parse(format, ImportSource::File { name: &name, bytes: &bytes }, &opts))
+                (format, parse(format, ImportSource::File { name: &name, bytes: &bytes }, opts))
             }
-            Known::Dir(format, files) => (format, parse(format, ImportSource::Dir(&files), &opts)),
+            Known::Dir(format, files) => (format, parse(format, ImportSource::Dir(&files), opts)),
         },
         _ => return Err(IpcError::invalid("source", "exactly one of pickId or known")),
     };
-    let (format, plan) = match parsed {
-        (format, Ok(plan)) => (format, plan),
-        (_, Err(e)) => {
-            state.audit(AuditEvent::ImportRefused { code: e.code().to_owned() });
-            return Err(import_err(&e));
-        }
-    };
-    finish_preview(state, home, format, plan, input.import_key_files)
+    let plan = parsed.map_err(|e| import_err(&e))?;
+    Ok((format, plan))
 }
 
 /// The part of `import_preview` after parsing: key-file opt-in, duplicate check, store the
