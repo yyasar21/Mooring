@@ -13,6 +13,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-n1.md](a4-rust-core-n1.md) — mooring-net: TCP check, ping/traceroute/wg show (fixed paths, no shell), net_* commands, 3 fuzz targets |
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-u0.md](a4-rust-core-u0.md) — in-app updater: update_check/install/settings, install-mode matrix, background check opt-in; Cargo.lock: +tauri-plugin-updater 2.14.1 tree |
 | 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) — updater manifest + config, cosign/SBOM/provenance finalize, release-repro.yml, version 0.1.0-rc.2, owner actions |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-f1.md](a4-rust-core-f1.md) — import refusals always audited, rdp_reactivation fuzz target (L-28 closed), audit event.rs split by phase, ldap_bind rows |
 | 2026-11-06 | A4 | security-reviewer | [../security/a4-review-7.md](../security/a4-review-7.md) — review 7: APPROVE WITH NITS (M-17 updater key in build env, L-39..L-43, N-51..N-60); threat model A4; SECURITY.md 0.1.x; [handoff](a4-security-reviewer.md) |
 | 2026-11-06 | A4 | qa-engineer | [a4-qa-q1.md](a4-qa-q1.md) — 14 A4 fuzz targets + L-28 cut_text/framebuffer_ops, hostile importer/LDAP/net/updater suites (+17 app tests), 10 E2E flows; fuzz lock fix (age patch) |
 | 2026-11-06 | A4 | ui-engineer | [a4-ui-u4.md](a4-ui-u4.md) — Directory (LDAPS) source in the import wizard: form, test bind, preview |
