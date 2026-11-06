@@ -31,7 +31,10 @@ export async function startHarness() {
   await server.listen();
   const base = server.resolvedUrls?.local[0];
   if (!base) throw new Error("vite did not report a local URL");
-  const browser = await chromium.launch();
+  // `MOORING_E2E_BROWSER` names a Chromium / Chrome binary for machines where Playwright's
+  // own download is blocked (a sandbox); CI uses the pinned Playwright Chromium.
+  const executablePath = process.env.MOORING_E2E_BROWSER || undefined;
+  const browser = await chromium.launch({ executablePath });
   return {
     base,
     browser,
