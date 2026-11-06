@@ -13,6 +13,7 @@ members = [
   "crates/mooring-proto-kube",
   "crates/mooring-sync",
   "crates/mooring-secrets", # A3 E1: Vault / OpenBao KV v2 client on mooring-http (ADR-0016)
+  "crates/mooring-net",     # A4 N1: TCP port check, OS ping / traceroute / wg show runners + hostile parsers (ADR-0020)
   "crates/mooring-testsrv", # dev-only loopback RFB/RDP test servers (A2 Q2); never a product dependency
   "src-tauri",
 ]
@@ -31,6 +32,7 @@ default-members = [
   "crates/mooring-proto-kube",
   "crates/mooring-sync",
   "crates/mooring-secrets",
+  "crates/mooring-net",
 ]
 
 [workspace.package]
@@ -81,7 +83,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # async
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time", "process"] } # `process`: ADR-0020 OS ping / traceroute / wg runners (mooring-net); signal-hook-registry was already in the lockfile
 async-trait = "0.1"
 # tests
 proptest = "1"

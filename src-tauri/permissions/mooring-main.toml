@@ -117,4 +117,10 @@ permissions = [
   "allow-update-install",
   "allow-update-settings-get",
   "allow-update-settings-set",
+  # ADR-0020 (A4 N1): network tools
+  "allow-net-tools",
+  "allow-net-port-check",
+  "allow-net-ping",
+  "allow-net-traceroute",
+  "allow-net-wg-show",
 ]

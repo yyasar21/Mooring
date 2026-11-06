@@ -698,4 +698,35 @@ pub enum AuditEvent {
         /// Opt-in background check on or off.
         background_check: bool,
     },
+    /// A TCP port check ran (ADR-0020 §6, `net_tcp_check`). Host and port are inventory;
+    /// `outcome` is `open` | `closed` | `timeout` | `unreachable` | `dns_failed`.
+    NetTcpCheck {
+        /// Target host as typed or taken from the connection.
+        host: String,
+        /// Port.
+        port: u16,
+        /// Outcome.
+        outcome: String,
+    },
+    /// A `ping` run ended (`net_ping`): names and counts only, never the tool output.
+    NetPing {
+        /// Target host.
+        host: String,
+        /// Requests sent.
+        sent: u32,
+        /// Replies received.
+        received: u32,
+    },
+    /// A trace run ended (`net_traceroute`).
+    NetTraceroute {
+        /// Target host.
+        host: String,
+        /// Hops printed.
+        hops: u32,
+    },
+    /// `wg show` status was read (`net_wg_status`): interface names only, never keys.
+    NetWgStatus {
+        /// Interface names.
+        interfaces: Vec<String>,
+    },
 }

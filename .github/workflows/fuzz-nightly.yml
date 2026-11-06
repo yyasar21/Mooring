@@ -72,6 +72,10 @@ jobs:
           - http_json_body
           - jwt_exp_peek
           - kube_pod_list_json
+          # A4 N1 (ADR-0020): OS tool output parsers (ping / traceroute / wg show).
+          - net_ping_output
+          - net_traceroute_output
+          - net_wg_output
           # Still a gated no-op stub (docs/qa/fuzzing.md "A3 targets"): the product parses no S3
           # XML; "Stub notice" flags it.
           - s3_error_xml

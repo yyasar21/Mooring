@@ -127,4 +127,10 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("update_install", Scope::Main),
     ("update_settings_get", Scope::Main),
     ("update_settings_set", Scope::Main),
+    // ADR-0020 (A4 N1): network tools, main only (the card lives in the inspector).
+    ("net_tools", Scope::Main),
+    ("net_port_check", Scope::Main),
+    ("net_ping", Scope::Main),
+    ("net_traceroute", Scope::Main),
+    ("net_wg_show", Scope::Main),
 ];

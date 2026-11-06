@@ -28,6 +28,8 @@ mooring-proto-kube = { path = "../crates/mooring-proto-kube" }
 mooring-vsphere = { path = "../crates/mooring-vsphere" }
 mooring-secrets = { path = "../crates/mooring-secrets" }
 mooring-sync = { path = "../crates/mooring-sync" }
+# A4 (ADR-0020 N1): ping / traceroute / wg show output parsers.
+mooring-net = { path = "../crates/mooring-net" }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
@@ -303,6 +305,28 @@ bench = false
 [[bin]]
 name = "http_json_body"
 path = "fuzz_targets/http_json_body.rs"
+test = false
+doc = false
+bench = false
+
+# A4 N1 (ADR-0020): OS tool output parsers.
+[[bin]]
+name = "net_ping_output"
+path = "fuzz_targets/net_ping_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_traceroute_output"
+path = "fuzz_targets/net_traceroute_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_wg_output"
+path = "fuzz_targets/net_wg_output.rs"
 test = false
 doc = false
 bench = false

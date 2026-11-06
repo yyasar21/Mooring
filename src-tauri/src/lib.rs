@@ -75,6 +75,8 @@ use crate::commands::{vsphere, vsphere_console};
 use crate::commands::{secret_sources, secret_sources_oidc};
 // ADR-0018 §3 (A4 U0)
 use crate::commands::update as update_cmds;
+// ADR-0020 (A4 N1)
+use crate::commands::net as net_cmds;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -103,6 +105,8 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?;
             create_private_dir(&cache_dir)?;
             app.manage(AppState::new(data_dir, Settings::production())?.with_cache_dir(cache_dir));
+            // ADR-0020: fixed OS tool paths, 2 processes at a time, 1 port check / s.
+            app.manage(net_cmds::NetRuntime::production());
             // Review 5 L-29: no ephemeral web profile outlives the window it belonged to.
             web::sweep::ephemeral_profiles(&app.state::<AppState>());
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
@@ -256,6 +260,12 @@ pub fn run() {
             update_cmds::update_install,
             update_cmds::update_settings_get,
             update_cmds::update_settings_set,
+            // ADR-0020 (A4 N1): network tools, main only
+            net_cmds::net_tools,
+            net_cmds::net_port_check,
+            net_cmds::net_ping,
+            net_cmds::net_traceroute,
+            net_cmds::net_wg_show,
         ]))
         .build(context)
         .expect("error while building the Tauri application");

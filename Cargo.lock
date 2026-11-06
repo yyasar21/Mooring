@@ -4047,6 +4047,7 @@ dependencies = [
  "mooring-audit",
  "mooring-core",
  "mooring-http",
+ "mooring-net",
  "mooring-proto-kube",
  "mooring-proto-rdp",
  "mooring-proto-ssh",
@@ -4154,6 +4155,19 @@ dependencies = [
  "tracing-subscriber",
  "x509-parser",
  "zeroize",
+]
+
+[[package]]
+name = "mooring-net"
+version = "0.1.0-rc.2"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

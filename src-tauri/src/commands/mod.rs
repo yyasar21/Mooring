@@ -56,3 +56,5 @@ pub mod vsphere_confirm;
 pub mod vsphere_console;
 pub mod vsphere_login;
 pub mod vsphere_vm;
+// ADR-0020 (A4 N1): network tools.
+pub mod net;
