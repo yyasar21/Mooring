@@ -16,6 +16,7 @@
 # Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
 # APPLE_CERTIFICATE as "sign with this" and fails. Nothing here echoes a secret.
 # No build cache on purpose: release builds must not consume caches written by PR runs.
+# The Rust toolchain is pinned (RUST_TOOLCHAIN) to the version release-repro.yml checks (N-57).
 #
 # Jobs are split by privilege (security review 3, M-7). Third-party code (npm and cargo build
 # scripts, tauri-action, cargo-cyclonedx, syft) only ever runs with `contents: read`:
@@ -53,6 +54,9 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # Same compiler as release-repro.yml (N-57). Bump both together with the `rust-version`
+  # floor in Cargo.toml.
+  RUST_TOOLCHAIN: "1.97.0"
 
 jobs:
   create-release:
@@ -141,7 +145,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.rust }}
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (version from package.json)
@@ -362,7 +366,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Rust SBOM (CycloneDX, cargo-cyclonedx)
         run: |
