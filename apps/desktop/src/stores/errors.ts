@@ -117,6 +117,17 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "import.unsupported_container": "This file is a ZIP archive. Unpack it first and import the export inside.",
   "import.plan_expired": "The preview expired or was already used. Preview the file again.",
   "import.not_found": "Nothing to import at that location on this computer.",
+  // ADR-0019 §4 (I2): the LDAPS directory importer. Content-free: no DN, bind name or host from the server.
+  "ldap.insecure": "Only ldaps:// is supported. Mooring never talks to a directory without TLS from the first byte (StartTLS included); use the LDAPS port, usually 636.",
+  "ldap.invalid": "The server URL or the size limit is not valid. Use ldaps://host[:port] and a limit between 1 and 5 000.",
+  "ldap.dn_invalid": "The base DN is not a valid distinguished name, or the directory has no such entry. Check it against the directory, for example DC=corp,DC=example,DC=test.",
+  "ldap.bind": "The directory refused the sign-in. Check the credential's user, domain and password; the account must be allowed to read the directory.",
+  "ldap.size_limit": "The search matched more entries than the size limit allows, so nothing was imported. Narrow the base DN or the name filter, search one level only, or raise the limit (up to 5 000).",
+  "ldap.timeout": "The directory did not finish answering within 30 seconds. Narrow the search, or try again when the directory is less busy.",
+  "ldap.unavailable": "The directory server did not answer. Check the host, the port (usually 636) and the network, then try again.",
+  "ldap.response": "The directory sent a reply Mooring could not read, so it stopped. Nothing was imported.",
+  "credential.incompatible": "That credential cannot be used here. Pick a Windows domain or a user and password credential.",
+  "credential.not_found": "That credential no longer exists. Pick another one.",
 };
 
 /** The friendly text for a bare error code (status fields carry codes, not messages). */

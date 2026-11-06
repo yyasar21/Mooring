@@ -8,6 +8,9 @@ import type { Protocol } from "./ipc.types";
 export type ImportFormat = "royal_ts" | "rdm" | "termius" | "mremoteng" | "putty" | "openssh";
 export const IMPORT_FORMATS: readonly ImportFormat[] = ["royal_ts", "rdm", "termius", "mremoteng", "putty", "openssh"];
 
+/** A held plan's format: the six file importers, or the I2 directory importer (`ldap_import_preview`). */
+export type ImportPlanFormat = ImportFormat | "ldap";
+
 /** Locations Rust reads without a pick: `~/.ssh/config`, `~/.putty/sessions/`. */
 export type KnownLocation = "openssh" | "putty";
 
@@ -52,7 +55,9 @@ export type ImportWarningCode =
   | "tags_truncated"
   | "port_ignored"
   | "user_ignored"
-  | "notes_truncated";
+  | "notes_truncated"
+  /** I2: an OU path deeper than 8 levels was cut at 8. */
+  | "path_truncated";
 
 /** One folder or connection of the dry run; `parent` null = directly under the import root. */
 export interface ImportItem {
@@ -101,7 +106,7 @@ export interface ImportWarning {
 export interface ImportPreview {
   /** Single use, 10 minutes, dropped on lock (`import.plan_expired` afterwards). */
   planId: string;
-  format: ImportFormat;
+  format: ImportPlanFormat;
   /** "Imported from <format> (<date>)": the new root folder of the apply. */
   rootName: string;
   counts: ImportCounts;
@@ -130,7 +135,51 @@ export interface ImportReport {
   skipped: number;
 }
 
-/** ADR-0019 §5 (I1): formats, the Rust-side pick dialog, preview → apply, discard. */
+// ---------- ADR-0019 §4 (I2): the LDAPS directory importer ----------
+
+export type LdapScope = "base" | "one" | "sub";
+/** Which object classes are computers: AD `computer`, or OpenLDAP `ipHost` / `device`. */
+export type LdapKind = "ad" | "openldap";
+
+export const LDAP_LIMITS = {
+  /** Server `sizeLimit` and client cap; Rust clamps anything above and refuses 0. */
+  maxSizeLimit: 5000,
+  defaultSizeLimit: 5000,
+  /** The name filter is a plain substring; Rust escapes it (RFC 4515). */
+  maxFilterChars: 256,
+  /** `caPem`, as everywhere else. */
+  maxCaPemBytes: 64 * 1024,
+} as const;
+
+/** The only credential kinds that can bind (`credential.incompatible` otherwise). */
+export const LDAP_CREDENTIAL_KINDS = ["domain_user", "user_password"] as const;
+
+export interface LdapImportTestArgs {
+  /** `ldaps://host[:636]` only; `ldap://` → `ldap.insecure`. */
+  url: string;
+  baseDn: string;
+  kind: LdapKind;
+  credentialId: string;
+  caPem?: string;
+}
+
+/** `ldap_import_test`: bind + unbind, no search. `boundAs` is the name used (UPN, `DOMAIN\user` or the username). */
+export interface LdapBindInfo {
+  host: string;
+  port: number;
+  boundAs: string;
+}
+
+export interface LdapImportPreviewArgs extends LdapImportTestArgs {
+  /** Default `sub`. */
+  scope?: LdapScope;
+  /** Substring the `cn` / `dNSHostName` must contain; escaped by Rust, ≤ 256 chars. */
+  filter?: string;
+  /** 1..=5000, clamped; 0 → `ldap.invalid`. */
+  sizeLimit?: number;
+}
+
+/** ADR-0019 §5 (I1): formats, the Rust-side pick dialog, preview → apply, discard; §4 (I2): the directory. */
 export interface ImportIpc {
   /** Static; not vault-gated. */
   importFormats(): Promise<ImportFormatInfo[]>;
@@ -139,4 +188,8 @@ export interface ImportIpc {
   importPreview(args: ImportPreviewArgs): Promise<ImportPreview>;
   importApply(args: ImportApplyArgs): Promise<ImportReport>;
   importDiscard(args: { planId: string }): Promise<void>;
+  /** I2: bind with the credential and unbind; the certificate prompt is a Rust-native dialog. */
+  ldapImportTest(args: LdapImportTestArgs): Promise<LdapBindInfo>;
+  /** I2: bind, paged search, plan held like a file plan (`import_apply` / `import_discard` afterwards). */
+  ldapImportPreview(args: LdapImportPreviewArgs): Promise<ImportPreview>;
 }

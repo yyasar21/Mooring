@@ -6,13 +6,19 @@
 /* eslint-disable @typescript-eslint/require-await */
 import type { ConnectionSummary, CredentialMeta, Folder } from "./ipc.types";
 import type {
-  ImportCredentialItem, ImportFormat, ImportFormatInfo, ImportIpc, ImportItem, ImportPick, ImportPreview, ImportReport, ImportSkipped,
-  ImportWarning, KnownLocation,
+  ImportCredentialItem, ImportFormat, ImportFormatInfo, ImportIpc, ImportItem, ImportPick, ImportPlanFormat, ImportPreview, ImportReport,
+  ImportSkipped, ImportWarning, KnownLocation, LdapImportTestArgs,
 } from "./ipc.types.import";
 import { IMPORT_FORMATS } from "./ipc.types.import";
 import { IpcError } from "./ipc.error";
 import { DEMO_IMPORT_FILES, demoPlan } from "./ipc.mock.import.data";
+import { bindName, checkLdapArgs, checkPreviewArgs, ldapPlan, searchFixture } from "./ipc.mock.ldap";
 import { MockNetBase } from "./ipc.mock.net";
+
+/** What the user answers in the Rust-native certificate dialog; `no_dialog` = it could not be shown. */
+export type LdapTrustAnswer = "trust" | "reject" | "no_dialog";
+/** Transport outcomes the mock directory can fake before the bind. */
+export type LdapFault = "ldap.unavailable" | "ldap.timeout" | "ldap.response" | "http.tls";
 
 /** ADR-0019 §3: a held plan lives at most this long. */
 export const IMPORT_PLAN_TTL_MS = 10 * 60_000;
@@ -110,8 +116,6 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
       }
       format = source.known;
     }
-    if (this.importPlans.size >= IMPORT_PLAN_MAX) throw new IpcError("import.limits", "too many import plans are held; discard one first");
-
     const plan = demoPlan(format);
     const skipped: ImportSkipped[] = [...plan.skipped];
     const warnings: ImportWarning[] = [...plan.warnings];
@@ -129,14 +133,21 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
         }
       } else credentials.push(dto);
     }
+    return this.finishPreview(format, LABELS[format], { items: plan.items, credentials, skipped, warnings });
+  };
+
+  /** I1's `finish_preview`: duplicates against the store, the plan store (cap, TTL), `import_previewed`. */
+  private finishPreview(format: ImportPlanFormat, label: string, plan: { items: ImportItem[]; credentials: ImportCredentialItem[]; skipped: ImportSkipped[]; warnings: ImportWarning[] }): ImportPreview {
+    if (this.importPlans.size >= IMPORT_PLAN_MAX) throw new IpcError("import.limits", "too many import plans are held; discard one first");
     const items = plan.items.map((it): ImportItem => {
       const dup = it.kind === "connection" ? this.duplicateOf(it) : null;
       return dup ? { ...it, duplicateOf: dup } : { ...it };
     });
+    const { credentials, skipped, warnings } = plan;
     const preview: ImportPreview = {
       planId: this.importId("plan"),
       format,
-      rootName: `Imported from ${LABELS[format]} (${new Date().toISOString().slice(0, 10)})`,
+      rootName: `Imported from ${label} (${new Date().toISOString().slice(0, 10)})`,
       counts: {
         folders: items.filter((i) => i.kind === "folder").length,
         connections: items.filter((i) => i.kind === "connection").length,
@@ -150,6 +161,66 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
     this.importPlans.set(preview.planId, { preview, at: Date.now() });
     this.record("import_previewed", { format });
     return structuredClone(preview);
+  }
+
+  // ---------- ADR-0019 §4 (I2): the directory importer ----------
+
+  /** The next certificate decisions for a host that is not pinned yet (Rust-native dialog); empty = trust. */
+  ldapTrust: LdapTrustAnswer[] = [];
+  /** `known_ldap_certs`: `host:port` pins; a pinned host never prompts again. */
+  ldapPinned = new Set<string>();
+  /** Credential ids the directory refuses to bind (wrong password): `ldap.bind`. */
+  ldapRejects = new Set<string>(["cr-legacy"]);
+  /** The next connects fail with this transport fault (`ldap.unavailable`, `ldap.timeout`, ...). */
+  ldapFaults: LdapFault[] = [];
+
+  /** Vault gate, argument checks, trust, bind: everything before a search, with the I2 audit rows. */
+  private async ldapConnect(a: LdapImportTestArgs): Promise<{ host: string; port: number; base: string[]; boundAs: string }> {
+    await this.unlocked();
+    const refuse = (e: unknown): never => {
+      if (e instanceof IpcError) this.record("import_refused", { code: e.code });
+      throw e;
+    };
+    let checked;
+    try {
+      checked = checkLdapArgs(a, this.credentialRows());
+    } catch (e: unknown) {
+      return refuse(e);
+    }
+    const { host, port, base, cred } = checked;
+    const fault = this.ldapFaults.shift();
+    if (fault) return refuse(faultError(fault));
+    const pin = `${host}:${String(port)}`;
+    if (!this.ldapPinned.has(pin) && a.caPem === undefined) {
+      const answer = this.ldapTrust.shift() ?? "trust";
+      if (answer === "no_dialog") return refuse(new IpcError("http.trust_prompt", "the certificate is not trusted yet and no dialog could be shown"));
+      this.record("cert_decision", { protocol: "ldap", host: pin, decision: answer === "trust" ? "trusted" : "rejected" });
+      if (answer === "reject") return refuse(new IpcError("http.trust_rejected", "the certificate was rejected"));
+      this.ldapPinned.add(pin);
+    }
+    const ok = !this.ldapRejects.has(cred.id);
+    this.record("ldap_bind", { host: pin, success: String(ok) });
+    if (!ok) return refuse(new IpcError("ldap.bind", "the directory refused the bind (rc 49)"));
+    return { host, port, base, boundAs: bindName(cred) };
+  }
+
+  ldapImportTest: ImportIpc["ldapImportTest"] = async (a) => {
+    const { host, port, boundAs } = await this.ldapConnect(a);
+    return { host, port, boundAs };
+  };
+
+  ldapImportPreview: ImportIpc["ldapImportPreview"] = async (a) => {
+    const { base } = await this.ldapConnect(a);
+    try {
+      const { scope, filter, sizeLimit } = checkPreviewArgs(a);
+      const entries = searchFixture(base, scope, a.kind, filter);
+      if (entries.length > sizeLimit) throw new IpcError("ldap.size_limit", `more than ${String(sizeLimit)} entries matched`);
+      return this.finishPreview("ldap", "LDAP directory", ldapPlan(entries, base, a.kind));
+    } catch (e: unknown) {
+      // Only the code is audited: nothing about the base, the filter or the entries.
+      if (e instanceof IpcError) this.record("import_refused", { code: e.code });
+      throw e;
+    }
   };
 
   /** I1 rule: `(protocol, host lower-cased, effective port, user)` against the store. */
@@ -232,6 +303,16 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
     await this.unlocked();
     this.importPlans.delete(planId); // unknown or expired: nothing to drop, no error
   };
+}
+
+/** A transport fault before the bind (literal codes: the N-14 guard reads them). */
+function faultError(fault: LdapFault): IpcError {
+  switch (fault) {
+    case "ldap.unavailable": return new IpcError("ldap.unavailable", "the directory did not answer");
+    case "ldap.timeout": return new IpcError("ldap.timeout", "the directory did not answer within 30 s");
+    case "ldap.response": return new IpcError("ldap.response", "the directory sent a malformed reply");
+    case "http.tls": return new IpcError("http.tls", "the TLS handshake failed");
+  }
 }
 
 /** The fixed, content-free reason Rust pairs with a parser refusal (literal codes: the N-14 guard reads them). */

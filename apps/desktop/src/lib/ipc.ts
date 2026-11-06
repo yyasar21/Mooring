@@ -233,6 +233,9 @@ export class TauriTransport implements Ipc {
   importPreview: Ipc["importPreview"] = (a) => call("import_preview", { ...a });
   importApply: Ipc["importApply"] = (a) => call("import_apply", { ...a });
   importDiscard: Ipc["importDiscard"] = (a) => call("import_discard", { ...a });
+  // ---------- ADR-0019 §4 (directory importer, I2) ----------
+  ldapImportTest: Ipc["ldapImportTest"] = (a) => call("ldap_import_test", { ...a });
+  ldapImportPreview: Ipc["ldapImportPreview"] = (a) => call("ldap_import_preview", { ...a });
 
   onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
 
