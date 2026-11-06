@@ -13,6 +13,8 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-n1.md](a4-rust-core-n1.md) — mooring-net: TCP check, ping/traceroute/wg show (fixed paths, no shell), net_* commands, 3 fuzz targets |
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-u0.md](a4-rust-core-u0.md) — in-app updater: update_check/install/settings, install-mode matrix, background check opt-in; Cargo.lock: +tauri-plugin-updater 2.14.1 tree |
 | 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) — updater manifest + config, cosign/SBOM/provenance finalize, release-repro.yml, version 0.1.0-rc.2, owner actions |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-u5.md](a4-ui-u5.md) — F2 contract (downgrade floor, key files only for known location, LDAP sign-in confirmation), LDAPS E2E flow |
+| 2026-11-06 | A4 | security-reviewer | re-review 7b: APPROVE WITH NITS for the merge (N-61..N-64); v0.1.0 tag conditions = owner GitHub settings (release environment, rulesets, environment secrets), L-14 digest, rc.2 dry run, per-OS manual gates |
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-f2.md](a4-rust-core-f2.md) — review 7 fixes: L-39..L-43 (downgrade floor, capped download + URL pin, key files only for known location, LDAP sign-in confirmation), N-50..N-56, N-60 |
 | 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) §R2 — M-17 sign-updater job + `release` environment, toolchain pin, tag-ref cosign identity, tap token out of URLs |
 | 2026-11-06 | A4 | rust-core | [a4-rust-core-f1.md](a4-rust-core-f1.md) — import refusals always audited, rdp_reactivation fuzz target (L-28 closed), audit event.rs split by phase, ldap_bind rows |
