@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)] // golden tuples read better than named structs here
+
 use mooring_core::CredentialKind;
 
 use super::*;
@@ -17,7 +19,14 @@ fn golden_plan() {
         .connections
         .iter()
         .map(|c| {
-            (c.name.as_str(), c.host.as_str(), c.port, c.user.as_deref(), c.credential.as_deref(), c.tags.iter().map(String::as_str).collect())
+            (
+                c.name.as_str(),
+                c.host.as_str(),
+                c.port,
+                c.user.as_deref(),
+                c.credential.as_deref(),
+                c.tags.iter().map(String::as_str).collect(),
+            )
         })
         .collect();
     assert_eq!(
@@ -42,7 +51,8 @@ fn golden_plan() {
         ]
     );
     assert!(plan.credentials.iter().all(|c| !c.has_secret()));
-    let warnings: Vec<(WarningCode, &str)> = plan.warnings.iter().map(|w| (w.code, w.source_ref.as_str())).collect();
+    let warnings: Vec<(WarningCode, &str)> =
+        plan.warnings.iter().map(|w| (w.code, w.source_ref.as_str())).collect();
     assert_eq!(
         warnings,
         vec![
@@ -53,10 +63,15 @@ fn golden_plan() {
             (WarningCode::ProxyJump, "line 12"),
         ]
     );
-    let skipped: Vec<(&str, SkipReason)> = plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
+    let skipped: Vec<(&str, SkipReason)> =
+        plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
     assert_eq!(
         skipped,
-        vec![("line 22", SkipReason::Unsupported), ("line 31", SkipReason::Invalid), ("line 34", SkipReason::Unsupported)]
+        vec![
+            ("line 22", SkipReason::Unsupported),
+            ("line 31", SkipReason::Invalid),
+            ("line 34", SkipReason::Unsupported)
+        ]
     );
 }
 
@@ -83,7 +98,9 @@ fn hostile_shapes() {
     assert!(matches!(parse(b"\xFFHost a"), Err(ImportError::Format { .. })));
     let mut opts = ImportOptions::default();
     opts.limits.max_text = 8;
-    let e = Openssh.parse(ImportSource::File { name: "config", bytes: b"Host aaaaaaaaaaaa\n" }, &opts).expect_err("cap");
+    let e = Openssh
+        .parse(ImportSource::File { name: "config", bytes: b"Host aaaaaaaaaaaa\n" }, &opts)
+        .expect_err("cap");
     assert_eq!(e, ImportError::limits("line length"));
     // A bidi alias is skipped, a bad port falls back with a warning.
     let plan = parse("Host a\u{202E}b\nHost ok\n Port 0\n".as_bytes()).expect("plan");

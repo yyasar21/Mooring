@@ -43,7 +43,10 @@ fn depth_count_and_text_caps_hold() {
     let mut l = lim();
     l.max_xml_depth = 3;
     assert!(parse("<a><b><c/></b></a>", &l, "t").is_ok());
-    assert_eq!(parse("<a><b><c><d/></c></b></a>", &l, "t"), Err(ImportError::limits("nesting depth")));
+    assert_eq!(
+        parse("<a><b><c><d/></c></b></a>", &l, "t"),
+        Err(ImportError::limits("nesting depth"))
+    );
     l = lim();
     l.max_xml_elements = 2;
     assert_eq!(parse("<a><b/><c/></a>", &l, "t"), Err(ImportError::limits("element count")));

@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)] // golden tuples read better than named structs here
+
 use mooring_core::CredentialKind;
 
 use super::*;
@@ -23,7 +25,9 @@ fn check(plan: &crate::ImportPlan) {
     let conns: Vec<(&str, &str, Option<u16>, Option<&str>, Option<&str>)> = plan
         .connections
         .iter()
-        .map(|c| (c.name.as_str(), c.host.as_str(), c.port, c.user.as_deref(), c.credential.as_deref()))
+        .map(|c| {
+            (c.name.as_str(), c.host.as_str(), c.port, c.user.as_deref(), c.credential.as_deref())
+        })
         .collect();
     assert_eq!(
         conns,
@@ -33,12 +37,18 @@ fn check(plan: &crate::ImportPlan) {
         ]
     );
     assert!(plan.credentials.iter().all(|c| c.kind == CredentialKind::Prompt && !c.has_secret()));
-    let skipped: Vec<(&str, SkipReason)> = plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
+    let skipped: Vec<(&str, SkipReason)> =
+        plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
     assert_eq!(
         skipped,
-        vec![("session #1", SkipReason::Unsupported), ("session #4", SkipReason::Unsupported), ("session #5", SkipReason::Invalid)]
+        vec![
+            ("session #1", SkipReason::Unsupported),
+            ("session #4", SkipReason::Unsupported),
+            ("session #5", SkipReason::Invalid)
+        ]
     );
-    let warnings: Vec<(WarningCode, &str)> = plan.warnings.iter().map(|w| (w.code, w.source_ref.as_str())).collect();
+    let warnings: Vec<(WarningCode, &str)> =
+        plan.warnings.iter().map(|w| (w.code, w.source_ref.as_str())).collect();
     assert_eq!(warnings, vec![(WarningCode::PpkKey, "session #2")]);
 }
 
@@ -71,7 +81,13 @@ fn sessions_directory() {
     let reasons: Vec<SkipReason> = plan.skipped.iter().map(|s| s.reason).collect();
     assert_eq!(
         reasons,
-        vec![SkipReason::Unsupported, SkipReason::Unsupported, SkipReason::Invalid, SkipReason::Invalid, SkipReason::Invalid]
+        vec![
+            SkipReason::Unsupported,
+            SkipReason::Unsupported,
+            SkipReason::Invalid,
+            SkipReason::Invalid,
+            SkipReason::Invalid
+        ]
     );
 }
 
@@ -84,8 +100,13 @@ fn hostile_shapes() {
     assert_eq!(only_header.counts(), crate::Counts::default());
     let mut opts = ImportOptions::default();
     opts.limits.max_text = 16;
-    let long = format!("Windows Registry Editor Version 5.00\n[x\\PuTTY\\Sessions\\a]\n\"HostName\"=\"{}\"\n", "h".repeat(40));
-    let e = Putty.parse(ImportSource::File { name: "x.reg", bytes: long.as_bytes() }, &opts).expect_err("cap");
+    let long = format!(
+        "Windows Registry Editor Version 5.00\n[x\\PuTTY\\Sessions\\a]\n\"HostName\"=\"{}\"\n",
+        "h".repeat(40)
+    );
+    let e = Putty
+        .parse(ImportSource::File { name: "x.reg", bytes: long.as_bytes() }, &opts)
+        .expect_err("cap");
     assert_eq!(e, ImportError::limits("line length"));
     assert_eq!(percent_decode("a%20b%zz%4"), Some("a b%zz%4".into()));
     assert_eq!(unescape_reg("C:\\\\k\\\"q\\\"\\"), "C:\\k\"q\"\\");

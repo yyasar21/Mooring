@@ -1,8 +1,8 @@
-//! PuTTY sessions (ADR-0019 §2): a `.reg` export (UTF-16LE BOM or UTF-8) with
+//! `PuTTY` sessions (ADR-0019 §2): a `.reg` export (UTF-16LE BOM or UTF-8) with
 //! `[HKEY_…\PuTTY\Sessions\<%-encoded name>]` sections, or the files of `~/.putty/sessions/`
 //! (`Key=Value` lines, %-encoded file names). `Protocol` must be `ssh`; raw, telnet, rlogin,
 //! serial, supdup and "Default Settings" are skipped. `HostName` may be `user@host`;
-//! `UserName` wins over it. `PublicKeyFile` (PPK) → warning, never read. PuTTY stores no
+//! `UserName` wins over it. `PublicKeyFile` (PPK) → warning, never read. `PuTTY` stores no
 //! passwords, so nothing secret exists here.
 
 use std::collections::BTreeMap;
@@ -39,7 +39,9 @@ impl Importer for Putty {
         match src {
             ImportSource::File { bytes, .. } => {
                 let text = text::decode(bytes, FORMAT)?;
-                for (n, (name, values)) in reg_sessions(&text, &opts.limits)?.into_iter().enumerate() {
+                for (n, (name, values)) in
+                    reg_sessions(&text, &opts.limits)?.into_iter().enumerate()
+                {
                     session(&name, &values, &mut b, &format!("session #{}", n + 1))?;
                 }
             }
@@ -70,7 +72,10 @@ impl Importer for Putty {
 }
 
 /// Sessions of a `.reg` text in file order: `(decoded name, values)`.
-fn reg_sessions(text: &str, limits: &crate::Limits) -> Result<Vec<(String, BTreeMap<String, String>)>> {
+fn reg_sessions(
+    text: &str,
+    limits: &crate::Limits,
+) -> Result<Vec<(String, BTreeMap<String, String>)>> {
     let mut out: Vec<(String, BTreeMap<String, String>)> = Vec::new();
     let mut current: Option<usize> = None;
     let mut seen_header = false;
@@ -130,7 +135,7 @@ fn unescape_reg(s: &str) -> String {
     out
 }
 
-/// PuTTY's `%XX` name encoding; `None` when the result is not UTF-8.
+/// `PuTTY`'s `%XX` name encoding; `None` when the result is not UTF-8.
 fn percent_decode(raw: &str) -> Option<String> {
     let bytes = raw.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -155,7 +160,8 @@ fn session(name: &str, v: &BTreeMap<String, String>, b: &mut PlanBuilder, src: &
         b.skip(src, SkipReason::Unsupported);
         return Ok(());
     }
-    let protocol = v.get("Protocol").map(|p| p.trim().to_ascii_lowercase()).unwrap_or_else(|| "ssh".into());
+    let protocol =
+        v.get("Protocol").map_or_else(|| "ssh".into(), |p| p.trim().to_ascii_lowercase());
     if protocol != "ssh" {
         b.skip(src, SkipReason::Unsupported);
         return Ok(());

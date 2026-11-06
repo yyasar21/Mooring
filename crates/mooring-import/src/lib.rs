@@ -1,5 +1,5 @@
 //! Mooring importers (ADR-0019): Royal TS, Remote Desktop Manager, Termius, mRemoteNG,
-//! PuTTY and OpenSSH exports into a dry-run [`ImportPlan`]. Pure: no I/O, no store; the
+//! `PuTTY` and OpenSSH exports into a dry-run [`ImportPlan`]. Pure: no I/O, no store; the
 //! Tauri shell picks the file, keeps the plan under a `planId` and applies it.
 //!
 //! Every input is hostile (T3). Each parser runs under [`Limits`], refuses `<!DOCTYPE`,
@@ -20,6 +20,7 @@ mod limits;
 mod mremoteng;
 mod openssh;
 mod plan;
+mod plan_input;
 mod putty;
 mod rdm;
 mod royalts;
@@ -32,8 +33,8 @@ use serde::{Deserialize, Serialize};
 pub use error::{ImportError, Result};
 pub use limits::Limits;
 pub use plan::{
-    Counts, ImportPlan, NewConnection, NewCredential, PlanBuilder, PlanConnection,
-    PlanCredential, PlanFolder, SecretBundle, SkipReason, Skipped, Warning, WarningCode,
+    Counts, ImportPlan, NewConnection, NewCredential, PlanBuilder, PlanConnection, PlanCredential,
+    PlanFolder, SecretBundle, SkipReason, Skipped, Warning, WarningCode,
 };
 
 /// The file formats (ADR-0019 §2). Wire names are `snake_case`.
@@ -48,7 +49,7 @@ pub enum ImportFormat {
     Termius,
     /// mRemoteNG `confCons.xml`.
     Mremoteng,
-    /// PuTTY `.reg` export or `~/.putty/sessions/*`.
+    /// `PuTTY` `.reg` export or `~/.putty/sessions/*`.
     Putty,
     /// OpenSSH `~/.ssh/config`.
     Openssh,
@@ -196,7 +197,11 @@ pub(crate) fn check_input_size(src: &ImportSource<'_>, limits: &Limits) -> Resul
 }
 
 /// Parse `src` as `format`.
-pub fn parse(format: ImportFormat, src: ImportSource<'_>, opts: &ImportOptions) -> Result<ImportPlan> {
+pub fn parse(
+    format: ImportFormat,
+    src: ImportSource<'_>,
+    opts: &ImportOptions,
+) -> Result<ImportPlan> {
     check_input_size(&src, &opts.limits)?;
     format.importer().parse(src, opts)
 }
@@ -236,9 +241,15 @@ mod tests {
         let mut opts = ImportOptions::default();
         opts.limits.max_input = 4;
         let big = ImportSource::File { name: "a", bytes: b"12345" };
-        assert_eq!(parse(ImportFormat::Openssh, big, &opts).err(), Some(ImportError::TooLarge { max: 4 }));
+        assert_eq!(
+            parse(ImportFormat::Openssh, big, &opts).err(),
+            Some(ImportError::TooLarge { max: 4 })
+        );
         let files = vec![("a".to_owned(), vec![0; 3]), ("b".to_owned(), vec![0; 3])];
-        assert_eq!(check_input_size(&ImportSource::Dir(&files), &opts.limits), Err(ImportError::TooLarge { max: 4 }));
+        assert_eq!(
+            check_input_size(&ImportSource::Dir(&files), &opts.limits),
+            Err(ImportError::TooLarge { max: 4 })
+        );
         let small = ImportSource::File { name: "a", bytes: b"1234" };
         assert!(parse(ImportFormat::Openssh, small, &opts).is_ok());
     }

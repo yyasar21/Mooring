@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)] // golden tuples read better than named structs here
+
 use std::io::Write;
 
 use mooring_core::{CredentialKind, Protocol};
@@ -21,13 +23,25 @@ fn gz(data: &[u8]) -> Vec<u8> {
 fn golden_plan() {
     let plan = parse(FIXTURE).expect("plan");
     assert!(plan.is_consistent());
-    let folders: Vec<(&str, &str, Option<&str>)> =
-        plan.folders.iter().map(|f| (f.key.as_str(), f.name.as_str(), f.parent.as_deref())).collect();
+    let folders: Vec<(&str, &str, Option<&str>)> = plan
+        .folders
+        .iter()
+        .map(|f| (f.key.as_str(), f.name.as_str(), f.parent.as_deref()))
+        .collect();
     assert_eq!(folders, vec![("f1", "Datacenter", None), ("f2", "Rack 1", Some("f1"))]);
     let conns: Vec<(&str, Protocol, &str, Option<u16>, Option<&str>, Option<&str>)> = plan
         .connections
         .iter()
-        .map(|c| (c.name.as_str(), c.protocol, c.host.as_str(), c.port, c.folder.as_deref(), c.credential.as_deref()))
+        .map(|c| {
+            (
+                c.name.as_str(),
+                c.protocol,
+                c.host.as_str(),
+                c.port,
+                c.folder.as_deref(),
+                c.credential.as_deref(),
+            )
+        })
         .collect();
     assert_eq!(
         conns,
@@ -40,8 +54,15 @@ fn golden_plan() {
     );
     let creds: Vec<(&str, CredentialKind, bool)> =
         plan.credentials.iter().map(|c| (c.name.as_str(), c.kind, c.has_secret())).collect();
-    assert_eq!(creds, vec![("CORP\\admin", CredentialKind::Prompt, false), ("ops", CredentialKind::Prompt, false)]);
-    let skipped: Vec<(&str, SkipReason)> = plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
+    assert_eq!(
+        creds,
+        vec![
+            ("CORP\\admin", CredentialKind::Prompt, false),
+            ("ops", CredentialKind::Prompt, false)
+        ]
+    );
+    let skipped: Vec<(&str, SkipReason)> =
+        plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
     assert_eq!(
         skipped,
         vec![
@@ -60,16 +81,21 @@ fn rtsz_is_gzip_and_zip_is_refused() {
     assert!(RoyalTs.sniff(&z));
     let plan = parse(&z).expect("gzip plan");
     assert_eq!(plan.counts().connections, 4);
-    assert_eq!(parse(b"PK\x03\x04\x14\x00").expect_err("zip"), ImportError::UnsupportedContainer { what: "zip" });
+    assert_eq!(
+        parse(b"PK\x03\x04\x14\x00").expect_err("zip"),
+        ImportError::UnsupportedContainer { what: "zip" }
+    );
     let mut small = ImportOptions::default();
     small.limits.max_decompressed = 64;
-    let e = RoyalTs.parse(ImportSource::File { name: "x.rtsz", bytes: &z }, &small).expect_err("cap");
+    let e =
+        RoyalTs.parse(ImportSource::File { name: "x.rtsz", bytes: &z }, &small).expect_err("cap");
     assert_eq!(e, ImportError::limits("decompressed size"));
 }
 
 #[test]
 fn protected_document_and_bad_roots() {
-    let enc = String::from_utf8_lossy(FIXTURE).replace("<Encrypted>false</Encrypted>", "<Encrypted>true</Encrypted>");
+    let enc = String::from_utf8_lossy(FIXTURE)
+        .replace("<Encrypted>false</Encrypted>", "<Encrypted>true</Encrypted>");
     assert_eq!(parse(enc.as_bytes()).expect_err("encrypted"), ImportError::Encrypted);
     assert!(matches!(parse(b"<Other/>"), Err(ImportError::Format { .. })));
     assert!(matches!(parse(b"<!DOCTYPE r><RTSDocument/>"), Err(ImportError::Doctype { .. })));

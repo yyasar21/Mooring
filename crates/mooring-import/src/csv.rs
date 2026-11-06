@@ -52,16 +52,17 @@ pub fn parse(text: &str, limits: &Limits) -> Result<Table> {
         let n = table.records.len() + 1;
         match (state, c) {
             (State::FieldStart, '"') => state = State::Quoted,
-            (State::FieldStart | State::Unquoted, ',') => {
+            (State::FieldStart | State::Unquoted | State::QuoteInQuoted, ',') => {
                 push_field(&mut record, &mut field)?;
                 state = State::FieldStart;
             }
-            (State::FieldStart | State::Unquoted, '\n') => {
+            (State::FieldStart | State::Unquoted | State::QuoteInQuoted, '\n') => {
                 push_field(&mut record, &mut field)?;
                 end_record(&mut table, &mut record);
                 state = State::FieldStart;
             }
-            (State::FieldStart | State::Unquoted, '\r') if chars.peek() == Some(&'\n') => {}
+            (State::FieldStart | State::Unquoted | State::QuoteInQuoted, '\r')
+                if chars.peek() == Some(&'\n') => {}
             (State::FieldStart | State::Unquoted, '\r') => return Err(err("bare CR", n)),
             (State::Unquoted, '"') => return Err(err("quote inside field", n)),
             (State::FieldStart | State::Unquoted, c) => {
@@ -74,16 +75,6 @@ pub fn parse(text: &str, limits: &Limits) -> Result<Table> {
                 field.push('"');
                 state = State::Quoted;
             }
-            (State::QuoteInQuoted, ',') => {
-                push_field(&mut record, &mut field)?;
-                state = State::FieldStart;
-            }
-            (State::QuoteInQuoted, '\n') => {
-                push_field(&mut record, &mut field)?;
-                end_record(&mut table, &mut record);
-                state = State::FieldStart;
-            }
-            (State::QuoteInQuoted, '\r') if chars.peek() == Some(&'\n') => {}
             (State::QuoteInQuoted, _) => return Err(err("text after closing quote", n)),
         }
         if field.len() > limits.max_text {

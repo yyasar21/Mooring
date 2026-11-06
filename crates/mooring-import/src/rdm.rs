@@ -1,6 +1,6 @@
 //! Remote Desktop Manager `.rdm` XML export (ADR-0019 §2): `ArrayOfConnection` →
 //! `Connection` entries. `Group` holds the folder path `A\B`; `ConnectionType` picks the
-//! protocol (RDP*, SSHShell, VNC, WebBrowser; `Group` entries are folders). Host, port and
+//! protocol (`RDP*`, `SSHShell`, `VNC`, `WebBrowser`; `Group` entries are folders). Host, port and
 //! username are read from the known per-type sub-elements. `SafePassword` is encrypted and
 //! never decrypted (warning); nothing secret is imported.
 
@@ -24,7 +24,8 @@ impl Importer for Rdm {
 
     fn sniff(&self, head: &[u8]) -> bool {
         let s = String::from_utf8_lossy(head);
-        s.contains("<ArrayOfConnection") || (s.contains("<Connection>") && s.contains("<ConnectionType>"))
+        s.contains("<ArrayOfConnection")
+            || (s.contains("<Connection>") && s.contains("<ConnectionType>"))
     }
 
     fn parse(&self, src: ImportSource<'_>, opts: &ImportOptions) -> Result<crate::ImportPlan> {
@@ -45,41 +46,51 @@ impl Importer for Rdm {
     }
 }
 
-fn protocol_of(kind: &str) -> Option<Option<Protocol>> {
+/// What a `ConnectionType` maps to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Folder,
+    Connection(Protocol),
+    Unsupported,
+}
+
+fn kind_of(kind: &str) -> Kind {
     let k = kind.to_ascii_lowercase();
     if k == "group" || k == "folder" {
-        return Some(None);
+        return Kind::Folder;
     }
-    let p = if k.starts_with("rdp") {
-        Protocol::Rdp
+    if k.starts_with("rdp") {
+        Kind::Connection(Protocol::Rdp)
     } else if k == "sshshell" || k == "ssh" {
-        Protocol::Ssh
+        Kind::Connection(Protocol::Ssh)
     } else if k == "vnc" {
-        Protocol::Vnc
+        Kind::Connection(Protocol::Vnc)
     } else if k.starts_with("web") {
-        Protocol::Web
+        Kind::Connection(Protocol::Web)
     } else {
-        return None;
-    };
-    Some(Some(p))
+        Kind::Unsupported
+    }
 }
 
 fn entry(node: &Node, b: &mut PlanBuilder, src: &str) -> Result<()> {
     let kind = node.child_text("ConnectionType").unwrap_or_default();
     let group = node.child_text("Group").unwrap_or_default();
     let name = node.child_text("Name").unwrap_or_default();
-    let Some(protocol) = protocol_of(kind) else {
-        b.skip(src, SkipReason::Unsupported);
-        return Ok(());
-    };
-    let Some(protocol) = protocol else {
-        // A group entry names its own full path in `Group`, or `Name` under `Group`.
-        let mut segs: Vec<&str> = group.split('\\').filter(|s| !s.trim().is_empty()).collect();
-        if segs.last() != Some(&name) {
-            segs.push(name);
+    let protocol = match kind_of(kind) {
+        Kind::Connection(p) => p,
+        Kind::Unsupported => {
+            b.skip(src, SkipReason::Unsupported);
+            return Ok(());
         }
-        b.folder_path(segs, src)?;
-        return Ok(());
+        Kind::Folder => {
+            // A group entry names its own full path in `Group`, or `Name` under `Group`.
+            let mut segs: Vec<&str> = group.split('\\').filter(|s| !s.trim().is_empty()).collect();
+            if segs.last() != Some(&name) {
+                segs.push(name);
+            }
+            b.folder_path(segs, src)?;
+            return Ok(());
+        }
     };
     let folder = b.folder_path(group.split('\\'), src)?;
     let host = match protocol {
@@ -110,7 +121,9 @@ fn entry(node: &Node, b: &mut PlanBuilder, src: &str) -> Result<()> {
         b.warn(WarningCode::SecretEncrypted, src);
     }
     let credential = match (user, protocol) {
-        (Some(u), Protocol::Rdp | Protocol::Ssh | Protocol::Vnc) => b.credential(creds::prompt(u, domain), src)?,
+        (Some(u), Protocol::Rdp | Protocol::Ssh | Protocol::Vnc) => {
+            b.credential(creds::prompt(u, domain), src)?
+        }
         _ => None,
     };
     b.connection(

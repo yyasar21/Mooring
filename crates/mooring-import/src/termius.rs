@@ -35,7 +35,9 @@ impl Importer for Termius {
             return t.contains("\"hosts\"") || t.contains("\"address\"");
         }
         let header = t.lines().next().unwrap_or_default().to_ascii_lowercase();
-        header.contains(',') && (header.contains("hostname") || header.contains("address")) && header.contains("label")
+        header.contains(',')
+            && (header.contains("hostname") || header.contains("address"))
+            && header.contains("label")
     }
 
     fn parse(&self, src: ImportSource<'_>, opts: &ImportOptions) -> Result<crate::ImportPlan> {
@@ -72,8 +74,11 @@ struct Host {
     protocol: Option<String>,
 }
 
-fn emit(h: Host, b: &mut PlanBuilder, opts: &ImportOptions, src: &str) -> Result<()> {
-    if h.protocol.as_deref().is_some_and(|p| !p.trim().is_empty() && !p.trim().eq_ignore_ascii_case("ssh")) {
+fn emit(h: &Host, b: &mut PlanBuilder, opts: &ImportOptions, src: &str) -> Result<()> {
+    if h.protocol
+        .as_deref()
+        .is_some_and(|p| !p.trim().is_empty() && !p.trim().eq_ignore_ascii_case("ssh"))
+    {
         b.skip(src, SkipReason::Unsupported);
         return Ok(());
     }
@@ -159,7 +164,9 @@ fn parse_csv(bytes: &[u8], opts: &ImportOptions) -> Result<crate::ImportPlan> {
     let mut b = PlanBuilder::new(&opts.limits);
     for (i, row) in rows.iter().enumerate() {
         let src = format!("record {}", i + 2);
-        let get = |c: Option<usize>| c.and_then(|c| row.get(c)).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let get = |c: Option<usize>| {
+            c.and_then(|c| row.get(c)).map(|s| s.trim()).filter(|s| !s.is_empty())
+        };
         let h = Host {
             label: get(col_label).unwrap_or_default().to_owned(),
             address: get(Some(col_host)).unwrap_or_default().to_owned(),
@@ -171,7 +178,7 @@ fn parse_csv(bytes: &[u8], opts: &ImportOptions) -> Result<crate::ImportPlan> {
             tags: get(col_tags).map(|t| split_list(t, &[',', ';'])).unwrap_or_default(),
             protocol: get(col_proto).map(str::to_owned),
         };
-        emit(h, &mut b, opts, &src)?;
+        emit(&h, &mut b, opts, &src)?;
     }
     Ok(b.finish())
 }
@@ -197,7 +204,13 @@ fn list_of(v: &Value, key: &str, max: usize) -> Result<Vec<String>> {
         Some(Value::Array(items)) => items
             .iter()
             .filter_map(Value::as_str)
-            .map(|s| if s.len() > max { Err(ImportError::limits("json string length")) } else { Ok(s.to_owned()) })
+            .map(|s| {
+                if s.len() > max {
+                    Err(ImportError::limits("json string length"))
+                } else {
+                    Ok(s.to_owned())
+                }
+            })
             .collect(),
         Some(Value::String(s)) => Ok(split_list(s, &[',', ';', '/'])),
         _ => Ok(Vec::new()),
@@ -210,7 +223,7 @@ fn parse_json(bytes: &[u8], opts: &ImportOptions) -> Result<crate::ImportPlan> {
         .map_err(|e| ImportError::format(FORMAT_JSON, "malformed JSON", e.line() as u64))?;
     let hosts: &[Value] = match &doc {
         Value::Array(a) => a,
-        Value::Object(_) => doc.get("hosts").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]),
+        Value::Object(_) => doc.get("hosts").and_then(Value::as_array).map_or(&[], Vec::as_slice),
         _ => return Err(ImportError::format(FORMAT_JSON, "not an object or array", 0)),
     };
     let max = opts.limits.max_text;
@@ -223,7 +236,8 @@ fn parse_json(bytes: &[u8], opts: &ImportOptions) -> Result<crate::ImportPlan> {
                 .filter_map(|g| {
                     let id = str_of(g, &["id", "uuid"], max).ok()??;
                     let label = str_of(g, &["label", "name"], max).ok()??;
-                    let parent = str_of(g, &["parent_group_id", "parent_id", "parent"], max).ok()?;
+                    let parent =
+                        str_of(g, &["parent_group_id", "parent_id", "parent"], max).ok()?;
                     Some((id, label, parent))
                 })
                 .collect()
@@ -241,7 +255,9 @@ fn parse_json(bytes: &[u8], opts: &ImportOptions) -> Result<crate::ImportPlan> {
             path = group_path(&groups, &group);
         }
         let key = match h.get("ssh_key").or_else(|| h.get("key")) {
-            Some(Value::Object(k)) => str_of(&Value::Object(k.clone()), &["private_key", "privateKey"], max)?,
+            Some(Value::Object(k)) => {
+                str_of(&Value::Object(k.clone()), &["private_key", "privateKey"], max)?
+            }
             Some(Value::String(s)) if s.contains("PRIVATE KEY") => Some(s.clone()),
             _ => None,
         };
@@ -256,7 +272,7 @@ fn parse_json(bytes: &[u8], opts: &ImportOptions) -> Result<crate::ImportPlan> {
             tags: list_of(h, "tags", max)?,
             protocol: str_of(h, &["protocol", "type"], max)?,
         };
-        emit(host, &mut b, opts, &src)?;
+        emit(&host, &mut b, opts, &src)?;
     }
     Ok(b.finish())
 }

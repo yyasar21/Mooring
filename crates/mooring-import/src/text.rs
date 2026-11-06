@@ -1,5 +1,5 @@
 //! Text decoding shared by the importers: UTF-8 (with or without BOM) and UTF-16 with a BOM
-//! (PuTTY `.reg` exports). Anything else is `import.format`, never transcoded by guessing.
+//! (`PuTTY` `.reg` exports). Anything else is `import.format`, never transcoded by guessing.
 
 use std::borrow::Cow;
 
@@ -21,13 +21,13 @@ pub fn decode<'a>(bytes: &'a [u8], format: &'static str) -> Result<Cow<'a, str>>
 }
 
 fn utf8<'a>(bytes: &'a [u8], format: &'static str) -> Result<Cow<'a, str>> {
-    std::str::from_utf8(bytes).map(Cow::Borrowed).map_err(|e| {
-        ImportError::format(format, "not UTF-8 text", e.valid_up_to() as u64)
-    })
+    std::str::from_utf8(bytes)
+        .map(Cow::Borrowed)
+        .map_err(|e| ImportError::format(format, "not UTF-8 text", e.valid_up_to() as u64))
 }
 
 fn utf16(bytes: &[u8], format: &'static str, unit: fn([u8; 2]) -> u16) -> Result<String> {
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(ImportError::format(format, "odd UTF-16 length", bytes.len() as u64));
     }
     let units = bytes.chunks_exact(2).map(|c| unit([c[0], c[1]]));
@@ -40,14 +40,14 @@ fn utf16(bytes: &[u8], format: &'static str, unit: fn([u8; 2]) -> u16) -> Result
 }
 
 /// Split into lines on `\n`, `\r\n` or `\r`, refusing a line longer than `max` bytes.
-pub fn lines<'a>(
-    text: &'a str,
-    max: usize,
-) -> impl Iterator<Item = Result<(usize, &'a str)>> + 'a {
-    text.lines()
-        .flat_map(|l| l.split('\r'))
-        .enumerate()
-        .map(move |(i, l)| if l.len() > max { Err(ImportError::limits("line length")) } else { Ok((i + 1, l)) })
+pub fn lines(text: &str, max: usize) -> impl Iterator<Item = Result<(usize, &str)>> {
+    text.lines().flat_map(|l| l.split('\r')).enumerate().map(move |(i, l)| {
+        if l.len() > max {
+            Err(ImportError::limits("line length"))
+        } else {
+            Ok((i + 1, l))
+        }
+    })
 }
 
 #[cfg(test)]

@@ -37,9 +37,9 @@ pub fn inflate(bytes: &[u8], limits: &Limits) -> Result<Vec<u8>> {
     let mut dec = GzDecoder::new(bytes);
     let mut buf = [0u8; 16 * 1024];
     loop {
-        let n = dec
-            .read(&mut buf)
-            .map_err(|_| ImportError::format("royal_ts", "corrupt gzip stream", out.len() as u64))?;
+        let n = dec.read(&mut buf).map_err(|_| {
+            ImportError::format("royal_ts", "corrupt gzip stream", out.len() as u64)
+        })?;
         if n == 0 {
             break;
         }

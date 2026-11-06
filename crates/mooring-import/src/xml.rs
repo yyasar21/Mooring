@@ -1,11 +1,11 @@
 //! Guarded XML reading on `quick-xml` (ADR-0019 §3): any `<!DOCTYPE` is refused (no DTD,
-//! no custom entities, no XInclude), only the five predefined and numeric character
+//! no custom entities, no `XInclude`), only the five predefined and numeric character
 //! references resolve, and depth, element count and text / attribute length are capped
 //! before anything is stored. The result is a small owned tree of local names.
 
 use quick_xml::events::{BytesStart, Event};
-use quick_xml::XmlVersion;
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 
 use crate::error::{ImportError, Result};
 use crate::limits::Limits;
@@ -68,20 +68,16 @@ fn local(name: &str) -> &str {
     name.rsplit(':').next().unwrap_or(name)
 }
 
-fn start(
-    e: &BytesStart<'_>,
-    limits: &Limits,
-    format: &'static str,
-    at: u64,
-) -> Result<Node> {
+fn start(e: &BytesStart<'_>, limits: &Limits, format: &'static str, at: u64) -> Result<Node> {
     let mut attrs = Vec::new();
     for a in e.attributes() {
         let a = a.map_err(|_| ImportError::format(format, "malformed attribute", at))?;
         if a.value.len() > limits.max_text {
             return Err(ImportError::limits("attribute length"));
         }
-        let value =
-            a.normalized_value(XmlVersion::Implicit1_0).map_err(|_| ImportError::format(format, "unknown entity", at))?;
+        let value = a
+            .normalized_value(XmlVersion::Implicit1_0)
+            .map_err(|_| ImportError::format(format, "unknown entity", at))?;
         attrs.push((local(a.key.into_inner()).to_owned(), value.into_owned()));
     }
     Ok(Node { name: local(e.name().into_inner()).to_owned(), attrs, ..Node::default() })
@@ -105,7 +101,8 @@ pub fn parse(text: &str, limits: &Limits, format: &'static str) -> Result<Node> 
     let mut elements = 0usize;
     loop {
         let at = reader.buffer_position();
-        let event = reader.read_event().map_err(|_| ImportError::format(format, "malformed XML", at))?;
+        let event =
+            reader.read_event().map_err(|_| ImportError::format(format, "malformed XML", at))?;
         match event {
             Event::DocType(_) => return Err(ImportError::Doctype { at }),
             Event::Start(e) => {
@@ -125,7 +122,10 @@ pub fn parse(text: &str, limits: &Limits, format: &'static str) -> Result<Node> 
                 let Some(mut done) = stack.pop() else {
                     return Err(ImportError::format(format, "unmatched end tag", at));
                 };
-                done.text = done.text.trim().to_owned();
+                let trimmed = done.text.trim().len();
+                let start = done.text.len() - done.text.trim_start().len();
+                done.text.truncate(start + trimmed);
+                done.text.drain(..start);
                 match stack.last_mut() {
                     Some(parent) => parent.children.push(done),
                     None => root = Some(done),

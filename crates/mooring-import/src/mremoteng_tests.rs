@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)] // golden tuples read better than named structs here
+
 use mooring_core::{CredentialKind, Protocol};
 
 use super::*;
@@ -44,7 +46,10 @@ fn golden_plan() {
     assert!(plan.connections[3].credential.is_none());
     let skipped: Vec<(&str, SkipReason)> =
         plan.skipped.iter().map(|s| (s.source_ref.as_str(), s.reason)).collect();
-    assert_eq!(skipped, vec![("Node #5", SkipReason::Unsupported), ("Node #8", SkipReason::Invalid)]);
+    assert_eq!(
+        skipped,
+        vec![("Node #5", SkipReason::Unsupported), ("Node #8", SkipReason::Invalid)]
+    );
     let warnings: Vec<(WarningCode, &str)> =
         plan.warnings.iter().map(|w| (w.code, w.source_ref.as_str())).collect();
     assert_eq!(
@@ -52,15 +57,22 @@ fn golden_plan() {
         vec![(WarningCode::PasswordDropped, "Node #2"), (WarningCode::PortIgnored, "Node #9")]
     );
     let counts = plan.counts();
-    assert_eq!((counts.folders, counts.connections, counts.credentials, counts.secrets), (2, 5, 2, 0));
+    assert_eq!(
+        (counts.folders, counts.connections, counts.credentials, counts.secrets),
+        (2, 5, 2, 0)
+    );
 }
 
 #[test]
 fn encrypted_file_and_wrong_root_are_refused() {
-    let enc = String::from_utf8_lossy(FIXTURE).replace("FullFileEncryption=\"false\"", "FullFileEncryption=\"true\"");
+    let enc = String::from_utf8_lossy(FIXTURE)
+        .replace("FullFileEncryption=\"false\"", "FullFileEncryption=\"true\"");
     assert_eq!(parse(enc.as_bytes(), false).expect_err("encrypted"), ImportError::Encrypted);
     assert!(matches!(parse(b"<Other/>", false), Err(ImportError::Format { .. })));
-    assert!(matches!(parse(b"<!DOCTYPE x><Connections/>", false), Err(ImportError::Doctype { .. })));
+    assert!(matches!(
+        parse(b"<!DOCTYPE x><Connections/>", false),
+        Err(ImportError::Doctype { .. })
+    ));
     let dir = vec![("confCons.xml".to_owned(), FIXTURE.to_vec())];
     assert!(Mremoteng.parse(ImportSource::Dir(&dir), &ImportOptions::default()).is_err());
 }

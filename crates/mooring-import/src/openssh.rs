@@ -89,7 +89,8 @@ impl Importer for Openssh {
         let s = String::from_utf8_lossy(head);
         s.lines().any(|l| {
             let l = l.trim_start();
-            l.len() > 5 && l[..5].eq_ignore_ascii_case("host ") || l.len() > 9 && l[..9].eq_ignore_ascii_case("hostname ")
+            l.len() > 5 && l[..5].eq_ignore_ascii_case("host ")
+                || l.len() > 9 && l[..9].eq_ignore_ascii_case("hostname ")
         })
     }
 
@@ -109,8 +110,11 @@ impl Importer for Openssh {
             let Some((key, value)) = split_line(line) else { continue };
             match key.to_ascii_lowercase().as_str() {
                 "host" => {
-                    let mut hb =
-                        HostBlock { line: no, is_star: value.trim() == "*", ..HostBlock::default() };
+                    let mut hb = HostBlock {
+                        line: no,
+                        is_star: value.trim() == "*",
+                        ..HostBlock::default()
+                    };
                     for alias in value.split_whitespace() {
                         if is_pattern(alias) {
                             hb.patterns += 1;

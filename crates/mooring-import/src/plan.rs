@@ -6,13 +6,13 @@ use std::collections::HashMap;
 
 use mooring_core::credential::{validate_secret, CredentialFields};
 use mooring_core::{
-    validate_host, validate_name, validate_tag, CredentialKind, Protocol, SecretName, MAX_TAGS,
+    validate_host, validate_name, validate_tag, CredentialKind, Protocol, MAX_TAGS,
 };
 use serde::Serialize;
-use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::{ImportError, Result};
 use crate::limits::Limits;
+pub use crate::plan_input::{NewConnection, NewCredential, SecretBundle};
 
 /// Longest username (bytes), as the credential schema allows.
 pub const MAX_USER: usize = 256;
@@ -55,46 +55,6 @@ pub struct PlanConnection {
     pub credential: Option<String>,
     /// Validated, de-duplicated tags.
     pub tags: Vec<String>,
-}
-
-/// Plaintext secrets of one credential, only for plaintext sources with the opt-in
-/// (owner decision 16). Zeroized on drop, never serialised, `Debug` prints names only.
-#[derive(Default, PartialEq, Eq)]
-pub struct SecretBundle {
-    entries: Vec<(SecretName, Zeroizing<Vec<u8>>)>,
-}
-
-impl SecretBundle {
-    /// Add one secret.
-    pub fn push(&mut self, name: SecretName, value: Zeroizing<Vec<u8>>) {
-        self.entries.push((name, value));
-    }
-
-    /// `(name, bytes)` pairs.
-    pub fn iter(&self) -> impl Iterator<Item = (SecretName, &[u8])> {
-        self.entries.iter().map(|(n, v)| (*n, v.as_slice()))
-    }
-
-    /// Whether any secret is held.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
-
-impl std::fmt::Debug for SecretBundle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let names: Vec<&str> = self.entries.iter().map(|(n, _)| n.as_str()).collect();
-        f.debug_struct("SecretBundle").field("names", &names).finish()
-    }
-}
-
-impl Drop for SecretBundle {
-    fn drop(&mut self) {
-        for (_, v) in &mut self.entries {
-            v.zeroize();
-        }
-    }
 }
 
 /// A credential of the plan.
@@ -163,7 +123,7 @@ pub enum WarningCode {
     IncludeIgnored,
     /// `ProxyJump` kept as a `jump:` tag only.
     ProxyJump,
-    /// PuTTY PPK key file referenced, not read.
+    /// `PuTTY` PPK key file referenced, not read.
     PpkKey,
     /// A password the source held was not imported (mRemoteNG, or opt-in off).
     PasswordDropped,
@@ -254,44 +214,6 @@ impl ImportPlan {
                         .is_none_or(|k| self.credentials.iter().any(|x| &x.key == k))
             })
     }
-}
-
-/// Input of [`PlanBuilder::connection`]; everything raw, validated by the builder.
-#[derive(Debug, Clone, Default)]
-pub struct NewConnection {
-    /// Display name.
-    pub name: String,
-    /// Protocol.
-    pub protocol: Option<Protocol>,
-    /// Host or URL.
-    pub host: String,
-    /// Port, already parsed by [`PlanBuilder::port`].
-    pub port: Option<u16>,
-    /// Username.
-    pub user: Option<String>,
-    /// Domain.
-    pub domain: Option<String>,
-    /// Folder key.
-    pub folder: Option<String>,
-    /// Credential key.
-    pub credential: Option<String>,
-    /// Tags.
-    pub tags: Vec<String>,
-}
-
-/// Input of [`PlanBuilder::credential`].
-#[derive(Debug)]
-pub struct NewCredential {
-    /// Display name.
-    pub name: String,
-    /// Kind.
-    pub kind: CredentialKind,
-    /// Plaintext fields.
-    pub fields: serde_json::Value,
-    /// Secrets.
-    pub secrets: Option<SecretBundle>,
-    /// OpenSSH key file path.
-    pub key_file: Option<String>,
 }
 
 /// Fills an [`ImportPlan`] under the caps.
