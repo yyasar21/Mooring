@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use mooring_core::CredentialKind;
 use mooring_import::{ImportFormat, ImportOptions, ImportSource};
@@ -270,6 +271,76 @@ fn picked_ssh_config_ignores_the_key_file_opt_in_with_a_warning() {
     let p = preview(st, home.path(), known).expect("known");
     assert_eq!(p.counts.secrets, 1);
     assert!(!p.warnings.iter().any(|w| w.code == mooring_import::WarningCode::KeyFilesOnlyForKnownLocation));
+}
+
+/// Review 7 N-60: `import_preview` / `import_apply` are `async` commands whose work runs on
+/// the blocking pool. On a single-threaded runtime a 16 MiB preview and an apply through
+/// `off_thread` leave the runtime free: a 10 ms ticker keeps ticking while they run, and the
+/// parse runs on another thread than the caller. (A `#[tauri::command]` wrapper can only be
+/// `async` when it returns a future; the type assertion below pins that for both.)
+#[tokio::test]
+async fn preview_and_apply_run_off_the_ipc_thread() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use crate::picks::PickMode;
+    fn assert_async<F: std::future::Future>(_: &F) {}
+    let f = Arc::new(testing::unlocked());
+    let home = tempfile::tempdir().expect("home");
+    // 16 MiB at the input cap: one real host, the rest comment lines.
+    let mut big = Vec::with_capacity(mooring_import::Limits::DEFAULT.max_input);
+    big.extend_from_slice(b"Host big01\n  HostName big01.example.test\n  User deploy\n");
+    let line = b"# padding padding padding padding padding padding padding padding\n";
+    while big.len() + line.len() <= mooring_import::Limits::DEFAULT.max_input {
+        big.extend_from_slice(line);
+    }
+    let path = home.path().join("big_ssh_config");
+    std::fs::write(&path, &big).expect("fixture");
+    let pick_id = f
+        .state
+        .picks
+        .insert(f.state.picks.epoch(), import_source::IMPORT_PICK_SESSION, PickMode::File, path, Instant::now())
+        .expect("pick");
+    let caller = std::thread::current().id();
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let ticker = {
+        let ticks = Arc::clone(&ticks);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                ticks.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+    };
+    let fx = Arc::clone(&f);
+    let home_path = home.path().to_path_buf();
+    let fut = super::super::off_thread(fx, move |fx| {
+        // Make the parse observably long on the blocking thread, whatever the machine.
+        std::thread::sleep(Duration::from_millis(100));
+        let input = PreviewInput {
+            source: SourceInput { pick_id: Some(pick_id), known: None },
+            include_plaintext_secrets: false,
+            import_key_files: false,
+        };
+        preview(&fx.state, &home_path, input).map(|p| (p, std::thread::current().id()))
+    });
+    assert_async(&fut);
+    let (p, worker) = fut.await.expect("preview");
+    assert_ne!(worker, caller, "the parse ran on the blocking pool");
+    assert_eq!(p.counts.connections, 1);
+    assert!(ticks.load(Ordering::SeqCst) >= 5, "the runtime kept ticking: {} ticks", ticks.load(Ordering::SeqCst));
+    let before = ticks.load(Ordering::SeqCst);
+    let fx = Arc::clone(&f);
+    let plan_id = p.plan_id.clone();
+    let fut = super::super::off_thread(fx, move |fx| {
+        std::thread::sleep(Duration::from_millis(60));
+        apply(&fx.state, ApplyInput { plan_id, exclude: vec![], duplicates: None })
+    });
+    assert_async(&fut);
+    let r = fut.await.expect("apply");
+    assert_eq!(r.connections, 1);
+    assert!(ticks.load(Ordering::SeqCst) > before, "the runtime kept ticking during the apply");
+    ticker.abort();
+    assert!(f.state.import_plans.is_empty());
 }
 
 /// F1: every `import.*` refusal before the parser (missing source) is audited as

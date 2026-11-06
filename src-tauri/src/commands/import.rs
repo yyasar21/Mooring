@@ -383,27 +383,32 @@ pub async fn import_pick<R: Runtime>(
     import_source::pick(&state, &picker, autolock.as_deref(), format).await
 }
 
-/// `import_preview({ source, includePlaintextSecrets, importKeyFiles })`.
+/// `import_preview({ source, includePlaintextSecrets, importKeyFiles })`. Review 7 N-60: the
+/// read, the parse (up to 16 MiB) and the duplicate scan run on the blocking pool, so a large
+/// hostile file never freezes the thread that serves IPC.
 #[tauri::command]
-pub fn import_preview(
-    state: State<'_, AppState>,
+pub async fn import_preview(
+    app: AppHandle,
     source: SourceInput,
     include_plaintext_secrets: bool,
     import_key_files: bool,
 ) -> IpcResult<ImportPreview> {
     let home = import_source::home_dir()?;
-    preview(&state, &home, PreviewInput { source, include_plaintext_secrets, import_key_files })
+    let input = PreviewInput { source, include_plaintext_secrets, import_key_files };
+    super::off_thread(app, move |app| preview(&app.state::<AppState>(), &home, input)).await
 }
 
-/// `import_apply({ planId, exclude, duplicates })`.
+/// `import_apply({ planId, exclude, duplicates })`. Review 7 N-60: up to 2 000 seals in one
+/// transaction run on the blocking pool.
 #[tauri::command]
-pub fn import_apply(
-    state: State<'_, AppState>,
+pub async fn import_apply(
+    app: AppHandle,
     plan_id: String,
     exclude: Vec<String>,
     duplicates: Option<String>,
 ) -> IpcResult<ImportReport> {
-    apply(&state, ApplyInput { plan_id, exclude, duplicates })
+    let input = ApplyInput { plan_id, exclude, duplicates };
+    super::off_thread(app, move |app| apply(&app.state::<AppState>(), input)).await
 }
 
 /// `import_discard({ planId })`.
