@@ -31,6 +31,11 @@ export interface UpdateSettings {
   channel: "stable";
   /** RFC 3339 of the last network check (manual or background), null = never. */
   lastCheck: string | null;
+  /**
+   * Review 7 L-39 (F2): the semver of the highest package this install verified; an offer below
+   * it is refused with `update.downgrade` by check and install. Null until the first verified install.
+   */
+  lastVerified: string | null;
 }
 
 export type UpdateAvailableHandler = (info: UpdateInfo) => void;

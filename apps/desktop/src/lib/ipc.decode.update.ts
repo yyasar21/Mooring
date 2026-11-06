@@ -1,7 +1,8 @@
 // Wire decoding of `update_check` / `update:available` (ADR-0018 §3, U0): optional manifest
 // fields (`date`, `size`) arrive absent or null and are normalised to null; `notes` is kept as the
-// plain text Rust sanitised. Nothing else is interpreted.
-import type { UpdateAvailable, UpdateInfo, UpdateInstallMode, UpdateManualReason } from "./ipc.types.update";
+// plain text Rust sanitised. `update_settings_get` / `_set` (F2) carry `lastVerified`, a semver
+// or null, normalised the same way. Nothing else is interpreted.
+import type { UpdateAvailable, UpdateInfo, UpdateInstallMode, UpdateManualReason, UpdateSettings } from "./ipc.types.update";
 
 type Wire = Record<string, unknown>;
 
@@ -33,5 +34,16 @@ export function decodeUpdateInfo(raw: unknown): UpdateInfo {
     installMode: mode,
     ...(mode === "manual" && reason ? { manualReason: reason } : {}),
     checkedAt: typeof w.checkedAt === "string" ? w.checkedAt : "",
+  };
+}
+
+/** `update_settings_get` / `update_settings_set`: the two timestamps and the verified floor are strings or null. */
+export function decodeUpdateSettings(raw: unknown): UpdateSettings {
+  const w = rec(raw);
+  return {
+    backgroundCheck: w.backgroundCheck === true,
+    channel: "stable",
+    lastCheck: typeof w.lastCheck === "string" ? w.lastCheck : null,
+    lastVerified: typeof w.lastVerified === "string" && w.lastVerified !== "" ? w.lastVerified : null,
   };
 }

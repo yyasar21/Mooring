@@ -38,7 +38,7 @@ export interface ImportPreviewArgs {
   source: ImportSource;
   /** Owner decision 16: carry a plaintext secret the source documents as such. Off by default. */
   includePlaintextSecrets: boolean;
-  /** ADR-0019 §3: read OpenSSH `IdentityFile`s under `~/.ssh/` into `ssh_key` credentials. */
+  /** ADR-0019 §3: read OpenSSH `IdentityFile`s under `~/.ssh/` into `ssh_key` credentials. Honoured only for `{ known: "openssh" }` (F2 L-41). */
   importKeyFiles: boolean;
 }
 
@@ -57,7 +57,9 @@ export type ImportWarningCode =
   | "user_ignored"
   | "notes_truncated"
   /** I2: an OU path deeper than 8 levels was cut at 8. */
-  | "path_truncated";
+  | "path_truncated"
+  /** F2 (review 7 L-41): `importKeyFiles` was set on a picked file; it only applies to `{ known: "openssh" }`. `sourceRef: "importKeyFiles"`. */
+  | "key_files_only_for_known_location";
 
 /** One folder or connection of the dry run; `parent` null = directly under the import root. */
 export interface ImportItem {

@@ -92,6 +92,9 @@ export function DirectoryForm({ value, errors, bind, busy, onChange, onTest }: {
         <p id="ldap-cred-hint" className={hintClass("credentialId")}>
           {problem("credentialId") ?? "A Windows domain or a user and password credential that may read the directory. Its password is read from the vault for the bind and dropped; the directory never hands a credential back."}
         </p>
+        <p className="field-hint" data-testid="ldap-signin-note">
+          The first sign-in to a server with this credential asks you to confirm in a Mooring dialog (“Sign in to host:port”) before the password is sent. Cancelling sends nothing. The confirmation is remembered until the vault locks.
+        </p>
       </div>
 
       <CaPemField id="ldap-ca" value={value.caPem} error={problem("caPem")} onChange={(caPem) => { onChange({ caPem }); }} />
@@ -114,7 +117,7 @@ export function DirectoryForm({ value, errors, bind, busy, onChange, onTest }: {
             <span className="imp-dock-size">Bound as <span className="mono select-text">{bind.boundAs}</span>, then disconnected. Nothing was searched.</span>
           </div>
         ) : (
-          <span className="imp-dock-empty">Not tested yet. A test binds and disconnects without searching.</span>
+          <span className="imp-dock-empty">Not tested yet. A test binds and disconnects without searching; the first bind asks for your confirmation.</span>
         )}
         <button type="button" className="btn" disabled={busy} onClick={onTest}>Test bind</button>
       </div>

@@ -39,12 +39,17 @@ pinned, the sync proceeds), and a click on "Trust and remember" pins.
 | 4a | Sync storage trust, dialog 1 (`sync_gate`, "Trust once (this sync only)") | Settings → Vault sync → Sync now against an S3 endpoint with an unknown certificate | | | | |
 | 4b | Sync storage trust, dialog 2 ("Trust and remember"; "Not now" = trust once) | Click "Trust once (this sync only)" on 4a | | | (keeps trust once, pins nothing) | |
 | 5 | Fork / rollback resolution (`sync_resolve_fork`) | Fork banner → Resolve: keep local / keep remote | | | | |
+| 6 | Directory sign-in ("Mooring · Directory sign-in", `ldap_import_test` / `ldap_import_preview`; Cancel / "Sign in to <host:port>" / Not now; review 7 L-43, F2) | Import → Directory (LDAPS) → fill the form → Test bind (or Preview) against a host not yet confirmed for that credential this session; after the certificate dialog (row 3 shape) on first contact | (refused `ldap.bind_declined`, audited `confirm_refused { kind: ldap_bind, reason: declined }`, no `ldap_bind` row) | | | (binds; the pair is silent until the vault locks) |
 
 Additional checks on each OS, once:
 
 - **Focus steal while typing.** Open an SSH terminal, start typing, raise dialog 1 from a second
   window (or through `make dev` with the mock) and keep typing Enter: the dialog must stay on
   the refusing choice and the typed Enter must not confirm.
+- **Row 6 scope.** Lock and unlock the vault, raise row 6 again with the same credential and host:
+  the dialog must appear again (confirmed pairs live in memory until lock). A second credential or
+  a second host:port asks on its own; the dialog text names the credential's display name and the
+  host only, never the bind DN or a password.
 - **Single-flight.** Raise dialog 1 twice in a row without answering: the second call must fail
   `confirm.busy` and no second dialog may appear.
 - **Cooldown.** Cancel dialog 1, retry at once: `confirm.cooldown` for 10 s, audited.

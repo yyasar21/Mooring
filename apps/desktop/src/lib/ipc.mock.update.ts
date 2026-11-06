@@ -20,6 +20,22 @@ export type UpdateFailure = "update.network" | "update.manifest" | "update.signa
 
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
+/** `a < b` on major.minor.patch; a pre-release sorts below the same release (enough for the floor). */
+export function semverBelow(a: string, b: string): boolean {
+  const parse = (v: string) => {
+    const core = v.split("+")[0] ?? "";
+    const [nums = "", pre] = core.split("-", 2);
+    return { nums: nums.split(".").map(Number), pre: pre ?? null };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < 3; i++) {
+    const d = (x.nums[i] ?? 0) - (y.nums[i] ?? 0);
+    if (d !== 0) return d < 0;
+  }
+  return x.pre !== null && y.pre === null;
+}
+
 export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIpc {
   /** False = the build has no `plugins.updater.pubkey`: every command answers `update.unconfigured`. */
   updateConfigured = true;
@@ -34,7 +50,8 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
   updateRateWindowMs = 60_000;
   /** Set once an install "restarted" the app (the mock never exits). */
   restarted: string | null = null;
-  updateSettings: UpdateSettings = { backgroundCheck: false, channel: "stable", lastCheck: null };
+  /** `lastVerified` is the L-39 floor (F2): set it to make the next offer a downgrade. */
+  updateSettings: UpdateSettings = { backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: null };
   private updateHandlers = new Set<UpdateAvailableHandler>();
   private updateInFlight = false;
   private lastNetworkCheckMs: number | null = null;
@@ -57,6 +74,15 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
     };
   }
 
+  /** L-39: an offer below the verified floor is refused and audited `update.refused`, by check and install alike. */
+  private checkFloor(offered: string): void {
+    const floor = this.updateSettings.lastVerified;
+    if (floor !== null && semverBelow(offered, floor)) {
+      this.record("update.refused", { code: "update.downgrade" });
+      throw new IpcError("update.downgrade", "the offered version is older than a release this install already verified");
+    }
+  }
+
   private async networkCheck(manual: boolean): Promise<UpdateInfo> {
     if (this.updateInFlight) throw new IpcError("update.busy", "an update check or install is already running");
     const now = Date.now();
@@ -76,6 +102,7 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
       if (fail === "update.signature") throw new IpcError("update.signature", "the update signature did not verify");
       if (fail === "update.install_failed") throw new IpcError("update.install_failed", "the update could not be written");
       const info = this.info(now);
+      if (info.available) this.checkFloor(info.available.version);
       this.record("update.check", { current: info.current, available: info.available?.version ?? "" });
       return info;
     } finally {
@@ -122,9 +149,13 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
       await new Promise((r) => setTimeout(r, this.delayMs));
       const offer = this.updateOffer;
       if (!offer || offer.version !== version) return refuse(new IpcError("update.none", "that version is no longer offered"));
+      this.checkFloor(offer.version);
       const fail = this.updateInstallFails;
       this.updateInstallFails = null;
       if (fail === "update.signature") refuse(new IpcError("update.signature", "the update signature did not verify"));
+      // The package verified: the floor rises before anything is written (monotonic), even if the write then fails.
+      const floor = this.updateSettings.lastVerified;
+      if (floor === null || semverBelow(floor, offer.version)) this.updateSettings = { ...this.updateSettings, lastVerified: offer.version };
       if (fail === "update.install_failed") refuse(new IpcError("update.install_failed", "the update could not be written"));
       if (fail === "update.network") throw new IpcError("update.network", "the update server did not answer");
       if (fail === "update.manifest") throw new IpcError("update.manifest", "the update manifest could not be read");
