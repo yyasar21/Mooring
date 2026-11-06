@@ -76,11 +76,23 @@ pub struct UpdateSettings {
     pub channel: String,
     /// RFC 3339 time of the last network check (manual or background).
     pub last_check: Option<String>,
+    /// Review 7 L-39: the highest version whose package this install verified (signature
+    /// and signed version) — the floor below which no later offer is accepted
+    /// (`update.downgrade`), so a manifest cannot walk the user back to an older signed
+    /// release after a failed or reverted install.
+    pub last_verified: Option<String>,
 }
 
 impl Default for UpdateSettings {
     fn default() -> Self {
-        Self { background_check: false, channel: CHANNEL.to_owned(), last_check: None }
+        Self { background_check: false, channel: CHANNEL.to_owned(), last_check: None, last_verified: None }
+    }
+}
+
+impl UpdateSettings {
+    /// The stored floor as a version (an unparsable value is ignored, not trusted).
+    fn verified_floor(&self) -> Option<Version> {
+        self.last_verified.as_deref().and_then(|v| Version::parse(v).ok())
     }
 }
 
@@ -134,6 +146,39 @@ fn store(state: &AppState, settings: &UpdateSettings) -> IpcResult<()> {
     state.with_ready(|_, store| Ok(store.set_app_setting(KEY, &json)?))
 }
 
+/// L-39: refuse an offer below the verified floor (`update.downgrade`, audited as a refusal).
+/// The running version is checked separately (`is_newer`); this guards the window in which
+/// `current < last_verified` (an install that failed after verification, a manual downgrade).
+fn check_floor(state: &AppState, offered: &Version) -> IpcResult<()> {
+    if stored(state).verified_floor().is_some_and(|floor| *offered < floor) {
+        return Err(refused(state, "update.downgrade", "older than a release this install already verified"));
+    }
+    Ok(())
+}
+
+/// L-39: raise the verified floor to `version` once its package verified. Runs from the
+/// source's `before_install` hook with the store handle only (the state is not `'static`).
+pub(crate) fn raise_floor(store_slot: &std::sync::Mutex<crate::state::StoreSlot>, version: &Version) {
+    let Ok(slot) = store_slot.lock() else { return };
+    let Some(store) = slot.store.as_ref() else { return };
+    let mut settings = match store.app_setting(KEY) {
+        Ok(Some(json)) => serde_json::from_str::<UpdateSettings>(&json).unwrap_or_default(),
+        _ => UpdateSettings::default(),
+    };
+    if settings.verified_floor().is_some_and(|floor| floor >= *version) {
+        return;
+    }
+    settings.last_verified = Some(version.to_string());
+    match serde_json::to_string(&settings) {
+        Ok(json) => {
+            if let Err(e) = store.set_app_setting(KEY, &json) {
+                tracing::warn!(error = %e, "update floor not stored");
+            }
+        }
+        Err(_) => tracing::warn!("update floor not stored"),
+    }
+}
+
 /// `update_settings_get()`.
 pub fn settings_get(state: &AppState) -> IpcResult<UpdateSettings> {
     state.with_ready(|_, _| Ok(()))?;
@@ -173,6 +218,9 @@ pub async fn check(
     let offered = source.check().await.map_err(|e| IpcError::new(e.code(), e.message()))?;
     // Downgrades and re-offers of the running version are "nothing new" (ADR-0018 §3).
     let offered = offered.filter(|r| rt.is_newer(&r.version));
+    if let Some(r) = &offered {
+        check_floor(state, &r.version)?;
+    }
     let available = offered.as_ref().map(AvailableUpdate::from);
     rt.set_last_available(offered);
     let checked_at = ts(OffsetDateTime::now_utc());
@@ -218,6 +266,7 @@ pub async fn install(
     if !rt.is_newer(&version) {
         return Err(refused(state, "update.none", "not newer than the running version"));
     }
+    check_floor(state, &version)?;
     if let InstallMode::Manual(reason) = rt.install_mode() {
         return Err(refused(state, reason.code(), reason.message()));
     }
@@ -241,7 +290,11 @@ pub async fn install(
     let from = rt.current().to_string();
     let to = version.to_string();
     let audit = state.audit.clone();
+    let store_slot = state.store.clone();
+    let verified = version.clone();
     let before_install: crate::updater::source::BeforeInstall = Box::new(move || {
+        // The package verified (signature + signed version): raise the floor, then the row.
+        raise_floor(&store_slot, &verified);
         crate::state::record_audit(&audit, AuditEvent::UpdateInstall { from, to });
     });
     source.install(&version, before_install).await.map_err(|e| {
