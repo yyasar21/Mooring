@@ -54,6 +54,16 @@ On first start Mooring shows the unlock screen in *create* mode.
 > **There is no password recovery.** The master password is never stored anywhere. If you
 > forget it, the secrets in the vault cannot be recovered by you or anyone else.
 
+### First run
+
+An empty vault shows the **First run** card, "Nothing is moored here yet", with three paths:
+**Start from scratch** opens the new-connection dialog in the root folder; **Import from
+another tool** opens the import wizard for Royal TS, Remote Desktop Manager, Termius,
+mRemoteNG, PuTTY, an ssh config or an LDAPS directory (see [Importing connections](importing.md));
+**Read the user guide** copies this guide's address for your browser. **Not now** hides the
+card for this vault; it never comes back once the tree has a connection, and the same wizard
+stays available under Settings → **Import**.
+
 ## 3. Build your tree
 
 The left pane is the **connection tree**. *All connections* is the root folder.
@@ -100,3 +110,4 @@ Select **Lock** in the top bar or press `Ctrl+Shift+L` (`⌘⇧L`). Locking:
 - Read the plain-language [security model](vault-and-security.md).
 - Learn the [keyboard shortcuts](keyboard-shortcuts.md).
 - Review activity in the [audit log](audit-log.md).
+- Keep Mooring current with Settings → [Updates](updates.md).

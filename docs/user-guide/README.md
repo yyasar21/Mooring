@@ -2,7 +2,7 @@
 
 Mooring is a secure remote-access manager: an encrypted vault for your credentials, a tree of
 connections, and sessions in tabs. This guide describes what works in the current pre-release
-(Phases A1–A3). Features marked *planned* are on the [roadmap](../roadmap.md).
+(Phases A1–A4). Features marked *planned* are on the [roadmap](../roadmap.md).
 
 1. [Getting started](getting-started.md) — install or build, create the vault, first SSH
    connection.
@@ -14,10 +14,16 @@ connections, and sessions in tabs. This guide describes what works in the curren
    SFTP, supported algorithms.
 5. [External secrets: HashiCorp Vault and OpenBao](external-secrets.md) — keep passwords and
    keys in your own secret manager and let Mooring fetch them at connect time.
-6. [Keyboard shortcuts](keyboard-shortcuts.md)
-7. [Audit log](audit-log.md) — what is recorded and how to verify the chain.
-8. [Troubleshooting](troubleshooting.md)
-9. [FAQ](faq.md)
+6. [Importing connections](importing.md) — bring your tree from Royal TS, Remote Desktop
+   Manager, Termius, mRemoteNG, PuTTY or `~/.ssh/config`, or from an LDAPS directory.
+7. [Updates](updates.md) — checking for new versions, what is installed in-app and what by
+   hand, the signature trust chain, downgrade protection.
+8. [Network tools](network-tools.md) — port check, ping, traceroute and WireGuard status from
+   the inspector, without raw sockets or elevation.
+9. [Keyboard shortcuts](keyboard-shortcuts.md)
+10. [Audit log](audit-log.md) — what is recorded and how to verify the chain.
+11. [Troubleshooting](troubleshooting.md)
+12. [FAQ](faq.md)
 
 Examples in this guide use placeholder hosts such as `web01.example.test`. Replace them with
 your own.

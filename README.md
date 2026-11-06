@@ -181,6 +181,7 @@ make bundle  # unsigned local installers in target/release/bundle
    running, new ones need the password. Review what happened under *Audit log*.
 
 The [user guide](docs/user-guide/README.md) covers each step in detail.
+Coming from another tool? See [Importing connections](docs/user-guide/importing.md).
 
 ## Screenshots
 
