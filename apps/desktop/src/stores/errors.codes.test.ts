@@ -71,6 +71,16 @@ describe("error codes match Rust (N-14)", () => {
     },
   );
 
+  it.skipIf(RUST_CODES === null)("the F2 codes (review 7 L-39 / L-43) have friendly text and are Rust codes", () => {
+    for (const c of ["update.downgrade", "ldap.bind_declined", "ldap.confirm_required"]) {
+      expect({ code: c, inRust: RUST_CODES?.has(c), text: typeof FRIENDLY[c] }).toEqual({ code: c, inRust: true, text: "string" });
+      expect(FRIENDLY[c]).not.toMatch(/[çğıöşüÇĞİÖŞÜ]/);
+    }
+    expect(FRIENDLY["update.downgrade"]).toMatch(/older than/);
+    expect(FRIENDLY["ldap.bind_declined"]).toMatch(/did not send the credential/);
+    expect(FRIENDLY["ldap.confirm_required"]).toMatch(/main window/);
+  });
+
   it("every A3 code the mock throws is either in Rust or listed as pending", () => {
     for (const c of mockCodes()) if (RUST_CODES && !RUST_CODES.has(c)) expect({ code: c, pending: c in PENDING_A3_CODES }).toEqual({ code: c, pending: true });
   });

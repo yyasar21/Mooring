@@ -101,6 +101,8 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "update.not_writable": "The installed application is not writable by your user, so Mooring cannot replace it. Reinstall from the release page.",
   "update.sessions_open": "Sessions are still open. Close them, or confirm closing them, before installing.",
   "update.install_failed": "The update was verified but could not be written. Nothing changed; try again or install from the release page.",
+  // Security review 7, L-39 (F2): the offered version is below the highest package this install already verified.
+  "update.downgrade": "The offered version is older than an update this install already verified, so Mooring refused it. Nothing was installed; check again later.",
   // ADR-0020 (N1): network tools.
   "net.invalid_host": "That is not a valid host name or address, or this connection has no network host to probe.",
   "net.tool_missing": "That tool was not found on this system. Mooring only runs the OS tools at their usual paths.",
@@ -126,6 +128,9 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "ldap.timeout": "The directory did not finish answering within 30 seconds. Narrow the search, or try again when the directory is less busy.",
   "ldap.unavailable": "The directory server did not answer. Check the host, the port (usually 636) and the network, then try again.",
   "ldap.response": "The directory sent a reply Mooring could not read, so it stopped. Nothing was imported.",
+  // Security review 7, L-43 (F2): the native "Directory sign-in" confirmation before the first bind.
+  "ldap.bind_declined": "You did not confirm the sign-in to the directory, so Mooring did not send the credential. Nothing was searched; try again and choose \"Sign in\" to continue.",
+  "ldap.confirm_required": "The sign-in to the directory needs a confirmation dialog, and none could be shown here. Run the import again from the main window.",
   "credential.incompatible": "That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
 };
