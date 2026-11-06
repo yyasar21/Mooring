@@ -11,21 +11,18 @@ pub const MAX_NOTES: usize = 4 * 1024;
 /// zero-width joiners, word joiner and friends, variation selectors, tag characters —
 /// plus the C0/C1 controls other than `\n` / `\t`).
 fn is_dropped(c: char) -> bool {
-    matches!(
-        c,
-        '\u{00AD}'                // soft hyphen
-        | '\u{061C}'              // Arabic letter mark
-        | '\u{180B}'..='\u{180F}' // Mongolian free variation selectors + vowel separator
-        | '\u{200B}'..='\u{200F}' // zero-width space/joiners, LRM, RLM
-        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
-        | '\u{2060}'..='\u{2064}' // word joiner, invisible operators
-        | '\u{2066}'..='\u{206F}' // LRI, RLI, FSI, PDI, deprecated format controls
-        | '\u{FE00}'..='\u{FE0F}' // variation selectors 1-16
-        | '\u{FEFF}'              // BOM / ZWNBSP
-        | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation
-        | '\u{E0000}'..='\u{E007F}' // tag characters
-        | '\u{E0100}'..='\u{E01EF}' // variation selectors 17-256
-    ) || (c.is_control() && c != '\n' && c != '\t')
+    // The core helper is the single list of bidi / invisible format characters (review 7b
+    // N-56); the variation selectors and tag characters are notes-specific extras.
+    mooring_core::model::is_bidi_or_invisible(c)
+        || matches!(
+            c,
+            '\u{180B}'..='\u{180F}' // Mongolian free variation selectors + vowel separator
+            | '\u{FE00}'..='\u{FE0F}' // variation selectors 1-16
+            | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation
+            | '\u{E0000}'..='\u{E007F}' // tag characters
+            | '\u{E0100}'..='\u{E01EF}' // variation selectors 17-256
+        )
+        || (c.is_control() && c != '\n' && c != '\t')
 }
 
 /// The Unicode line and paragraph separators become plain newlines (they would otherwise

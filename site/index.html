@@ -93,7 +93,7 @@
         <a class="btn btn-primary" id="cta-download" href="#download">Download for your OS</a>
         <a class="btn btn-ghost" href="https://github.com/yyasar21/Mooring">View on GitHub</a>
       </div>
-      <p class="status-note" id="hero-status">Pre-release. Phases A1 to A3 are complete: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes, vSphere sync with power and consoles, Vault / OpenBao secret references and encrypted vault sync all work on <code>main</code> after six security reviews. Signed installers, the updater and importers arrive with v0.1.0, which is <a href="#roadmap">in progress</a>.</p>
+      <p class="status-note" id="hero-status">Pre-release. Phases A1 to A3 are complete: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes, vSphere sync with power and consoles, Vault / OpenBao secret references and encrypted vault sync all work on <code>main</code> after six security reviews. Installers with Sigstore-signed checksums, the in-app updater and importers arrive with v0.1.0, which is <a href="#roadmap">in progress</a>.</p>
     </div>
     <div class="wrap wrap-wide">
       <figure class="bezel">
@@ -215,7 +215,7 @@
           <li data-status="available"><span>Pre-release dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed <code>SHA256SUMS</code>, SBOM and provenance</span></li>
           <li data-status="available"><span>37 fuzz targets for protocol parsers and API responses, run nightly</span></li>
           <li data-status="planned"><span>Notarized / Authenticode-signed installers (after v0.1.0, once certificates exist)</span></li>
-          <li data-status="planned" data-phase="A4"><span>In-app updater with signed manifests</span></li>
+          <li data-status="planned" data-phase="A4"><span>In-app updater (update packages signed with the project key, verified before install)</span></li>
           <li data-status="planned" data-phase="A4"><span>Homebrew tap; winget after v0.1.0</span></li>
         </ul></section>
       </div>
@@ -308,7 +308,7 @@
           </ul>
         </section>
       </div>
-      <p class="fine">Each release ships <code>SHA256SUMS</code> signed with Sigstore (cosign keyless), SLSA provenance and a CycloneDX SBOM: <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/release.md">how to verify a download</a>. Notarized and Authenticode-signed installers, the Homebrew tap and the updater land with v0.1.0. Prefer to build it yourself? Follow the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/building.md">build guide</a>.</p>
+      <p class="fine">Each release ships <code>SHA256SUMS</code> signed with Sigstore (cosign keyless), SLSA provenance and a CycloneDX SBOM: <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/release.md">how to verify a download</a>. Notarized and Authenticode-signed installers follow after v0.1.0, once the certificates exist; until then verify downloads with cosign and the checksums. Prefer to build it yourself? Follow the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/building.md">build guide</a>.</p>
     </div>
   </section>
 
