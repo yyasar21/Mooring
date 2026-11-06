@@ -8,6 +8,7 @@ import { useUi } from "./ui";
 import { useTransfers } from "./transfers";
 import { useSync } from "./sync";
 import { adoptWeb } from "./web";
+import { useOnboarding } from "./onboarding";
 
 interface AppState {
   info: AppInfo | null;
@@ -57,6 +58,7 @@ function wipe(): void {
   useUi.getState().reset();
   useTransfers.getState().reset();
   useSync.getState().reset();
+  useOnboarding.getState().reset();
 }
 
 export const useApp = create<AppState>((set, get) => ({
