@@ -1,7 +1,7 @@
 //! [`SecretsError`]: the ADR-0016 error codes and failure categories. No variant carries a
 //! token, a secret value or server-controlled text; shape errors name fields only.
 
-use mooring_http::{HttpError, StatusCode, TrustDecision};
+use mooring_http::{HttpError, StatusCode, TrustDecision, TrustVerdict};
 
 /// `credential.external_unavailable` category (ADR-0016 §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -125,13 +125,23 @@ impl SecretsError {
         }
     }
 
-    /// The certificate decision for the trust prompt, if any.
+    /// The certificate decision behind a [`Self::Trust`] error, whatever its verdict (for
+    /// audit rows and messages). Never the input of a dialog: use [`Self::prompt_decision`].
     #[must_use]
     pub fn trust_decision(&self) -> Option<&TrustDecision> {
         match self {
             Self::Trust(d) => Some(d),
             _ => None,
         }
+    }
+
+    /// The decision a trust **prompt** may be opened for (review 6c N-50): only
+    /// [`TrustVerdict::Prompt`], i.e. no pin and an invalid chain. A pinned mismatch, a
+    /// conflicting pin store (review 6b L-35) and an anchored rejection are hard stops and
+    /// never reach a dialog, so they answer `None` here.
+    #[must_use]
+    pub fn prompt_decision(&self) -> Option<&TrustDecision> {
+        self.trust_decision().filter(|d| d.verdict == TrustVerdict::Prompt)
     }
 
     /// Whether a fresh login could help (the cached token was refused).
@@ -197,6 +207,54 @@ impl From<HttpError> for SecretsError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn decision(verdict: TrustVerdict) -> TrustDecision {
+        use mooring_http::{CertProtocol, CertTrust, CertificateInfo};
+        TrustDecision {
+            protocol: CertProtocol::Vault,
+            host: "vault.example.test".into(),
+            port: 8200,
+            fingerprint: [7; 32],
+            trust: CertTrust::Unknown,
+            verdict,
+            info: CertificateInfo {
+                subject: "CN=vault.example.test".into(),
+                issuer: "CN=vault.example.test".into(),
+                not_before: time::OffsetDateTime::UNIX_EPOCH,
+                not_after: time::OffsetDateTime::UNIX_EPOCH,
+                sha256: "07".repeat(32),
+                san: vec![],
+                problems: vec![],
+            },
+        }
+    }
+
+    /// Review 6c N-50: every `http.trust_*` folds into `Trust`, but only the `Prompt` verdict
+    /// may open a dialog; a conflicting store, a mismatch and an anchored rejection are hard
+    /// stops with no prompt decision.
+    #[test]
+    fn only_the_prompt_verdict_offers_a_dialog() {
+        let rows = [
+            (HttpError::TrustPrompt(Box::new(decision(TrustVerdict::Prompt))), true),
+            (HttpError::TrustConflict(Box::new(decision(TrustVerdict::Conflict))), false),
+            (
+                HttpError::TrustMismatch(Box::new(decision(TrustVerdict::Mismatch {
+                    expected: [1; 32],
+                }))),
+                false,
+            ),
+            (HttpError::TrustRejected(Box::new(decision(TrustVerdict::Rejected))), false),
+        ];
+        for (e, promptable) in rows {
+            let s = SecretsError::from(e);
+            assert!(matches!(s, SecretsError::Trust(_)));
+            assert_eq!(s.code(), "credential.external_unavailable");
+            assert_eq!(s.category(), Category::Tls);
+            assert!(s.trust_decision().is_some(), "the decision is kept for the audit row");
+            assert_eq!(s.prompt_decision().is_some(), promptable, "{s}");
+        }
+        assert!(SecretsError::NotFound.prompt_decision().is_none());
+    }
 
     #[test]
     fn statuses_map_to_categories() {
