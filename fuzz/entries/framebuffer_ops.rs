@@ -27,7 +27,7 @@ pub fn run(data: &[u8]) {
     let [w0, h0, rest @ ..] = data else { return };
     let Ok(mut fb) = Framebuffer::new(1 + u16::from(*w0), 1 + u16::from(*h0)) else { return };
     let mut seq = 0u32;
-    for op in rest.chunks_exact(8) {
+    for op in rest.as_chunks::<8>().0 {
         let r = Rect::new(scale(op[1]), scale(op[2]), scale(op[3]), scale(op[4]));
         let fits = r.fits(fb.width(), fb.height());
         match op[0] % 6 {

@@ -30,7 +30,7 @@ fn utf16(bytes: &[u8], format: &'static str, unit: fn([u8; 2]) -> u16) -> Result
     if !bytes.len().is_multiple_of(2) {
         return Err(ImportError::format(format, "odd UTF-16 length", bytes.len() as u64));
     }
-    let units = bytes.chunks_exact(2).map(|c| unit([c[0], c[1]]));
+    let units = bytes.as_chunks::<2>().0.iter().map(|c| unit(*c));
     char::decode_utf16(units)
         .enumerate()
         .map(|(i, r)| {

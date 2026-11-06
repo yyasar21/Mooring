@@ -1,0 +1,4 @@
+# Test fixtures that deliberately look like secrets (e.g. an OpenSSH private key in a Termius export)
+crates/*/tests/fixtures/
+fuzz/corpus/
+fuzz/regressions/

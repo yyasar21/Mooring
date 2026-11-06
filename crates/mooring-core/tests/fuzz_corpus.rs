@@ -156,7 +156,7 @@ fn framebuffer_ops_seed_coalesces_into_a_full_update() {
         .expect("seed");
     let mut fb = Framebuffer::new(1 + u16::from(seed[0]), 1 + u16::from(seed[1])).expect("fb");
     let _ = fb.take_update();
-    for op in seed[2..].chunks_exact(8).filter(|op| op[0] % 6 == 3) {
+    for op in seed[2..].as_chunks::<8>().0.iter().filter(|op| op[0] % 6 == 3) {
         let r = Rect::new(u16::from(op[1]) * 2, u16::from(op[2]) * 2, 2, 2);
         fb.fill(r, [op[5], op[6], op[7], 255]).expect("fill inside");
     }
