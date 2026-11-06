@@ -5,16 +5,24 @@
 //!
 //! * Every user-supplied filter value is RFC 4515-escaped ([`filter::escape_value`], fuzzed);
 //!   the base DN is parsed per RFC 4514 and re-serialised, never interpolated.
-//! * [`client`] is the only module that talks to the server and exposes bind, search,
-//!   abandon and unbind alone (a test greps for the write operations).
-//! * Responses are hostile: entries are walked by [`entry::extract`] (caps, no panics);
-//!   anything the `ldap3` codec panics on is contained in a task and becomes
+//! * [`client`] is the only module that talks to the server; [`wire`] holds the only four
+//!   requests it can send: bind, search, abandon, unbind (a test greps for the write
+//!   operations). The transport is ours (tokio-rustls + `lber` for BER), not `ldap3`'s: its
+//!   codec recurses per nesting level and `expect`s on malformed frames, so a few KiB of
+//!   nested SEQUENCEs from a hostile server would overflow the stack (see
+//!   `docs/handoff/a4-rust-core-i2.md`).
+//! * Responses are hostile: every frame passes the iterative [`frame::scan`] (≤ 256 KiB,
+//!   depth ≤ 32) before the recursive parser; entries are walked by [`entry::extract`]
+//!   (caps, no panics); the run is one task under a deadline, so even a panic becomes
 //!   [`LdapError::Response`]; size, page and time caps bound the run.
 
 mod client;
 pub mod entry;
 pub mod filter;
+pub mod frame;
+pub mod fuzz;
 mod plan;
+pub mod wire;
 
 use std::time::Duration;
 
@@ -114,8 +122,10 @@ pub struct Prepared {
     pub scope: SearchScope,
     /// Kind.
     pub kind: DirectoryKind,
-    /// The complete filter string.
+    /// The complete filter in text form (display and audit; the wire form is BER).
     pub filter: String,
+    /// The trimmed substring value, if any (the BER filter is built from it).
+    pub name_contains: Option<String>,
     /// Effective entry cap.
     pub size_limit: usize,
 }
@@ -127,12 +137,26 @@ impl LdapQuery {
         let target = LdapTarget::parse(&self.url)?;
         let base = Dn::parse(&self.base_dn)?;
         let filter = search_filter(self.kind, self.name_contains.as_deref())?;
+        let name_contains = self
+            .name_contains
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
         let size_limit = match self.size_limit {
             Some(0) => return Err(LdapError::Invalid("sizeLimit must be positive")),
             Some(n) => n.min(limits.max_entries),
             None => limits.max_entries,
         };
-        Ok(Prepared { target, base, scope: self.scope, kind: self.kind, filter, size_limit })
+        Ok(Prepared {
+            target,
+            base,
+            scope: self.scope,
+            kind: self.kind,
+            filter,
+            name_contains,
+            size_limit,
+        })
     }
 }
 
@@ -141,7 +165,7 @@ impl LdapQuery {
 pub struct BindCredential {
     /// Bind name.
     pub name: String,
-    /// Password (zeroized on drop; handed to `ldap3` as `&str`, R-LDAP-STR).
+    /// Password (zeroized on drop; copied once into the bind frame, R-LDAP-STR).
     pub password: Zeroizing<String>,
 }
 
@@ -221,6 +245,9 @@ pub async fn preview(
     build_plan(&entries, &opts).map_err(|e| LdapError::Unavailable(e.to_string()))
 }
 
+#[cfg(test)]
+#[path = "mock_tests.rs"]
+mod mock_tests;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;

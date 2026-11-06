@@ -21,6 +21,10 @@ mod import_ssh_config;
 mod import_termius_csv;
 #[path = "../../../fuzz/entries/import_termius_json.rs"]
 mod import_termius_json;
+#[path = "../../../fuzz/entries/ldap_ber_response.rs"]
+mod ldap_ber_response;
+#[path = "../../../fuzz/entries/ldap_filter_escape.rs"]
+mod ldap_filter_escape;
 #[path = "../../../fuzz/entries/replay.rs"]
 mod replay;
 
@@ -41,6 +45,8 @@ fn corpora_replay() {
     assert!(replay::replay("import_putty_session", import_putty_session::run) >= 1);
     assert!(replay::replay("import_ssh_config", import_ssh_config::run) >= 3);
     assert!(replay::replay("import_detect", import_detect::run) >= 8);
+    assert!(replay::replay("ldap_filter_escape", ldap_filter_escape::run) >= 5);
+    assert!(replay::replay("ldap_ber_response", ldap_ber_response::run) >= 6);
 }
 
 /// Every `fixture-plain` seed (opt-in byte stripped) parses to a plan with connections, and

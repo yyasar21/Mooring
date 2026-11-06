@@ -4197,7 +4197,9 @@ dependencies = [
 name = "mooring-import"
 version = "0.1.0-rc.2"
 dependencies = [
+ "bytes",
  "flate2",
+ "lber",
  "ldap3",
  "mooring-core",
  "mooring-http",
@@ -4211,6 +4213,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "zeroize",
 ]
@@ -4432,6 +4435,7 @@ dependencies = [
  "ironrdp-session",
  "ironrdp-svc",
  "ironrdp-tokio",
+ "lber",
  "rand_core 0.6.4",
  "rcgen",
  "rustls",

@@ -2,7 +2,8 @@
 //! and the plan mapping. The network path is covered by `tests/ldap_mock.rs` against the
 //! `mooring-testsrv` LDAP mock.
 
-use ldap3::asn1::{StructureTag, TagClass, PL};
+use lber::common::TagClass;
+use lber::structure::{StructureTag, PL};
 use mooring_core::{CredentialKind, Protocol};
 
 use super::entry::{extract, EntryLimits};
@@ -68,8 +69,9 @@ fn escape_covers_the_rfc_4515_set_and_control_bytes() {
 fn escaped_values_re_parse_as_one_literal() {
     for v in ["web01", "a*b", ")(", "\\", "(cn=x)", "ünï", "\0\x01", "*"] {
         let f = format!("(cn={})", escape_value(v));
+        // Independent oracle: the ldap3 filter parser (dev-dependency only).
         let tag = ldap3::parse_filter(&f).expect("parses");
-        let st = ldap3::asn1::ASNTag::into_structure(tag);
+        let st = lber::structures::ASNTag::into_structure(tag);
         assert_eq!((st.class, st.id), (TagClass::Context, 3), "{v:?} is an equality match");
         let PL::C(items) = st.payload else { panic!("constructed") };
         let PL::P(val) = &items[1].payload else { panic!("value") };
@@ -342,10 +344,7 @@ fn plan_mirrors_ou_path_and_picks_protocol_by_os() {
 #[test]
 fn plan_caps_depth_and_openldap_falls_back_to_cn() {
     let base = Dn::parse("dc=example,dc=test").expect("base");
-    let deep = format!(
-        "cn=h,{}dc=example,dc=test",
-        "ou=l,".repeat(10)
-    );
+    let deep = format!("cn=h,{}dc=example,dc=test", "ou=l,".repeat(10));
     let entries = vec![
         raw(&deep, &[("cn", &["h"]), ("ipHostNumber", &["192.0.2.7"])]),
         raw("cn=sw1,ou=net,dc=example,dc=test", &[("cn", &["sw1"])]),
@@ -402,24 +401,22 @@ fn query_prepare_validates_and_clamps() {
 #[test]
 fn write_ops_are_absent_from_the_reader() {
     let src = include_str!("client.rs");
-    for op in [
-        ".add(",
-        ".modify(",
-        ".delete(",
-        ".modifydn(",
-        ".extended(",
-        ".compare(",
-        "sasl_",
-        "set_no_tls_verify",
-        "set_starttls",
-    ] {
-        assert!(!src.contains(op), "{op} must not appear in the directory reader");
+    let wire = include_str!("wire.rs");
+    for op in ["modify", "delete", "moddn", "compare", "sasl", "starttls", "ldap3"] {
+        assert!(!src.to_lowercase().contains(op), "{op} must not appear in the directory reader");
     }
+    for op in ["fn add", "fn modify", "fn delete", "fn moddn", "fn compare", "fn extended"] {
+        assert!(!wire.contains(op), "{op} must not be encodable");
+    }
+    for req in ["fn bind_request", "fn search_request", "fn abandon_request", "fn unbind_request"] {
+        assert!(wire.contains(req), "{req} missing");
+    }
+    assert_eq!(wire.matches("_request(").count(), 4, "exactly four request encoders");
     assert!(
-        src.contains(".simple_bind(")
-            && src.contains(".streaming_search(")
-            && src.contains(".abandon(")
-            && src.contains(".unbind(")
+        src.contains("bind_request(")
+            && src.contains("search_request(")
+            && src.contains("abandon_request(")
+            && src.contains("unbind_request(")
     );
 }
 

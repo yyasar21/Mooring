@@ -174,8 +174,22 @@ plaintext secrets (Termius, OpenSSH) — never for mRemoteNG, PuTTY, Royal TS or
 The XML targets share `mooring_import::xml` (quick-xml 0.42 under the ADR caps: `<!DOCTYPE`
 refused, depth ≤ 64, ≤ 200 000 elements, attribute / text ≤ 4 KiB, five predefined and
 numeric references only). The fuzz-time caps lower the input to 1 MiB and the decompressed
-size to 8 MiB (`FUZZ_LIMITS`) so a run stays fast. `ldap_ber_response` and
-`ldap_filter_escape` belong to I2 and are not here yet.
+size to 8 MiB (`FUZZ_LIMITS`) so a run stays fast.
+
+## A4 targets (ADR-0019 §4, I2: LDAPS directory importer)
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `ldap_filter_escape` | `ldap_filter_escape.rs` | `mooring_import::ldap::fuzz::fuzz_filter_escape` (`escape_value`, `search_filter`, `Dn::parse`, `LdapTarget::parse`) | 0019 §4 | mooring-import |
+| `ldap_ber_response` | `ldap_ber_response.rs` | `mooring_import::ldap::fuzz::fuzz_ber_response` (`frame::scan` → `lber::parse_tag` → `wire::decode_message` / `result_code` / `paging_cookie` → `entry::extract` → `build_plan`) | 0019 §4 | mooring-import |
+
+Oracles: the escaped value holds no raw `( ) * \` or control byte and unescapes back to the
+input; a filter built from it is one balanced expression no deeper than the fixed shape; a
+parsed DN round-trips through its wire form. For responses: every frame the iterative scan
+accepts (≤ 256 KiB, depth ≤ 32, definite lengths) is parsed by `lber` to exactly that length,
+nothing below panics, and a plan built from a decoded entry passes the importer oracle. Seeds:
+a bind response, an entry, a result with a paged-results control, `30 00`, a 4 GiB length
+claim, 40 nested SEQUENCEs, a referral and a `sizeLimitExceeded` result (`fuzz/corpus/ldap_ber_response/`).
 
 ## Layout
 

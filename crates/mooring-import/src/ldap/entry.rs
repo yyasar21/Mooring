@@ -1,9 +1,10 @@
-//! Safe extraction of a `SearchResultEntry` from the BER structure `ldap3` hands back. The
-//! library's own `SearchEntry::construct` panics on a malformed entry; this walk returns an
-//! error instead, caps every value and keeps only the attributes the importer asked for.
-//! Fuzzed through `ldap_ber_response` (raw BER → [`extract`] → plan).
+//! Safe extraction of a `SearchResultEntry` from a parsed BER structure (`ldap3`'s own
+//! `SearchEntry::construct` panics on a malformed entry). This walk returns an error
+//! instead, caps every value and keeps only the attributes the importer asked for. Fuzzed
+//! through `ldap_ber_response` (raw BER → scan → parse → [`extract`] → plan).
 
-use ldap3::asn1::{StructureTag, TagClass, PL};
+use lber::common::TagClass;
+use lber::structure::{StructureTag, PL};
 
 /// Attributes the importer requests (case-insensitive on the wire).
 pub const ATTRIBUTES: [&str; 6] =

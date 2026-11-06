@@ -1,6 +1,6 @@
 [package]
 name = "mooring-testsrv"
-description = "Dev-only loopback RFB 3.8, RDP and mock API (Kubernetes, vCenter, Vault, S3) test servers for Mooring integration tests"
+description = "Dev-only loopback RFB 3.8, RDP, mock API (Kubernetes, vCenter, Vault, S3) and LDAPS test servers for Mooring integration tests"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -55,6 +55,8 @@ serde_json = { workspace = true }
 sha1 = { workspace = true }
 hmac = { workspace = true }
 base64 = { workspace = true }
+# A4 I2 LDAP mock: the BER codec ldap3 itself uses (MIT, in the tree through ldap3).
+lber = { workspace = true }
 
 [dev-dependencies]
 # Verification client for the RDP self-test only (decodes the bitmap updates we send).

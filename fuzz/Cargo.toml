@@ -30,8 +30,9 @@ mooring-secrets = { path = "../crates/mooring-secrets" }
 mooring-sync = { path = "../crates/mooring-sync" }
 # A4 (ADR-0020 N1): ping / traceroute / wg show output parsers.
 mooring-net = { path = "../crates/mooring-net" }
-# A4 (ADR-0019, I1): the six file importers plus `detect`.
-mooring-import = { path = "../crates/mooring-import" }
+# A4 (ADR-0019, I1): the six file importers plus `detect`; I2: the directory importer's
+# escaping and BER response entries (feature `directory`).
+mooring-import = { path = "../crates/mooring-import", features = ["directory"] }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
@@ -383,6 +384,20 @@ bench = false
 [[bin]]
 name = "import_detect"
 path = "fuzz_targets/import_detect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ldap_filter_escape"
+path = "fuzz_targets/ldap_filter_escape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ldap_ber_response"
+path = "fuzz_targets/ldap_ber_response.rs"
 test = false
 doc = false
 bench = false
