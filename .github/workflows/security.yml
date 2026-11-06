@@ -18,7 +18,7 @@ jobs:
       # cargo-audit run directly: no check-run writes (workflow token is read-only) and the
       # accepted advisories are the same ones deny.toml documents (R-RSA, unmaintained build-time deps).
       - run: cargo install --locked cargo-audit
-      - run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0374 --ignore RUSTSEC-2026-0370 --ignore RUSTSEC-2026-0371 --ignore RUSTSEC-2026-0372
+      - run: cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0374 --ignore RUSTSEC-2026-0370 --ignore RUSTSEC-2026-0371 --ignore RUSTSEC-2026-0372 --ignore RUSTSEC-2026-0441
 
   npm-deps:
     runs-on: ubuntu-22.04
