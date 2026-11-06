@@ -121,6 +121,9 @@ pub fn run() {
             // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
             commands::syslog::install_heartbeat(app);
             autolock::install(app);
+            // Review 7 N-53: expired import plans (possibly holding secrets) are swept every
+            // minute, not only on the next preview.
+            import_plans::install(app);
             // ADR-0013: web and detached windows hide while the vault is locked.
             window_lock::install(app);
             // ADR-0017 (A3 S2): sync hub + interval runner (runs only while unlocked).
