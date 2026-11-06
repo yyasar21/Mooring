@@ -2,16 +2,34 @@
 
 ## 1. Install Mooring
 
-Signed installers are published from v0.1.0 on the
-[releases page](https://github.com/yyasar21/Mooring/releases); see
-[docs/release.md](../release.md) for verification.
+Installers are published from v0.1.0 on the
+[releases page](https://github.com/yyasar21/Mooring/releases); every file is listed in a
+`SHA256SUMS` that the release pipeline signs with Sigstore. [docs/release.md](../release.md)
+has the per-OS install steps and the verification commands.
 
 | OS | Recommended | Alternatives |
 | --- | --- | --- |
-| macOS 12 or later | `brew install --cask yyasar21/mooring/mooring` | `.dmg` or `.pkg` (universal) |
+| macOS 11 or later | `brew install --cask yyasar21/mooring/mooring` | `.dmg` or `.pkg` (universal) |
 | Windows 10/11 | `.exe` installer | `.msi`; winget after v0.1.0 |
 | Debian, Ubuntu | `.deb` | AppImage |
 | Fedora, RHEL | `.rpm` | AppImage |
+
+### Installing an unsigned build
+
+v0.1.0 ships without an Apple Developer ID or a Windows code-signing certificate: macOS builds
+are ad-hoc signed and not notarized, Windows builds are unsigned. Gatekeeper and SmartScreen
+will therefore warn. Treat the warning as a prompt to **verify the download first**, then
+override it:
+
+1. Verify: `cosign verify-blob` on `SHA256SUMS` and `sha256sum --check` on your file
+   ([commands](../release.md#verify-a-download)), or
+   `scripts/release/verify-release.sh v<version>` from a checkout.
+2. macOS: System Settings → Privacy & Security → "Mooring was blocked" → **Open Anyway**
+   (or Control-click → Open on macOS 14 and earlier).
+3. Windows: SmartScreen "Windows protected your PC" → **More info** → **Run anyway**.
+4. Linux: no OS gate; the checksum verification is the only check, so do not skip it.
+
+Later releases with certificates need no override and no change on your side.
 
 Until the first release, build from source with the
 [build guide](../developer-guide/building.md):

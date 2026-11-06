@@ -1,7 +1,7 @@
 {
   "name": "mooring-remote",
   "private": true,
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"

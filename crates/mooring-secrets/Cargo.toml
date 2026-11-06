@@ -13,8 +13,8 @@ workspace = true
 # No new third-party crate (ADR-0016 §6): everything below is already in the workspace and the
 # lockfile through mooring-http / mooring-core.
 [dependencies]
-mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
-mooring-http = { path = "../mooring-http", version = "0.1.0-rc.1" }
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.2" }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.2" }
 bytes = "1"
 hex = { workspace = true }
 rand_core = { workspace = true }
