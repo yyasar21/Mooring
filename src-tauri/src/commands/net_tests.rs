@@ -1,7 +1,7 @@
 //! ADR-0020 §6: target resolution, vault gate, port check + rate limit, OS tools through the
 //! `mooring-net` shell shims (Unix), process cap, permission refusal, audit rows.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde_json::json;
@@ -175,6 +175,7 @@ async fn missing_tools_are_reported_not_searched() {
 #[cfg(unix)]
 mod shims {
     use super::*;
+    use std::path::Path;
 
     fn shim_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/mooring-net/tests/shims")

@@ -192,7 +192,9 @@ impl OsProbe {
 impl InstallProbe for OsProbe {
     fn facts(&self) -> Option<InstallFacts> {
         let bundle = Self::bundle();
-        let exe = std::env::current_exe().ok()?;
+        // The path only picks the install *mode* (in-app vs manual); it never decides whether
+        // an update is trusted — the plugin verifies the signature regardless (ADR-0018 §3).
+        let exe = std::env::current_exe().ok()?; // nosemgrep
         let install_path = Self::install_path(bundle, &exe)?;
         // A symlinked `.app` resolves to its Caskroom target; a moved one is caught by
         // `cask_present` (N-55).
