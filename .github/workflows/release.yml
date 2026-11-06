@@ -1,11 +1,16 @@
-# Release pipeline (docs/release.md). A `vX.Y.Z` tag builds every installer into a DRAFT
-# GitHub Release; a maintainer reviews and publishes it by hand.
+# Release pipeline (docs/release.md, ADR-0018). A `vX.Y.Z` tag builds every installer into a
+# DRAFT GitHub Release; a maintainer reviews and publishes it by hand. Pre-release tags
+# (`v0.1.0-rc.2`) build a draft pre-release: Linux ships the .deb only (the rpm and AppImage
+# bundlers reject `-` in a version), the MSI carries the numeric version, and GitHub never
+# serves a pre-release as `releases/latest`, so the updater channel does not see it.
 #
 #   macOS   .dmg + .app (+ .pkg via pkgbuild/productbuild): aarch64, x86_64, universal
 #   Windows .exe (NSIS, per-user) + .msi (WiX): x64
 #   Linux   .deb + .rpm + .AppImage: x86_64 (ubuntu-22.04), aarch64 (ubuntu-22.04-arm)
-#   All     SHA256SUMS + Sigstore bundle (cosign keyless), CycloneDX SBOMs, SLSA provenance,
-#           Tauri updater artifacts + latest.json only when TAURI_SIGNING_PRIVATE_KEY is set.
+#   All     SHA256SUMS + Sigstore bundle (cosign keyless), CycloneDX SBOMs, SLSA provenance.
+#           Tauri updater artifacts (`.sig`) only when TAURI_SIGNING_PRIVATE_KEY is set;
+#           `finalize` then writes latest.json from them (scripts/release/updater-manifest.sh),
+#           so no tauri-action job races another for the manifest.
 #
 # Signing is opt-in per secret: a fork without secrets still produces unsigned installers.
 # Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
@@ -14,15 +19,17 @@
 #
 # Jobs are split by privilege (security review 3, M-7). Third-party code (npm and cargo build
 # scripts, tauri-action, cargo-cyclonedx, syft) only ever runs with `contents: read`:
-#   create-release  contents: write   creates the draft; runs no project or third-party code
+#   create-release  contents: write   creates the draft; runs no project or third-party code;
+#                                     hands scripts/release/*.sh to finalize as an artifact
 #   build           contents: read    builds and uploads workflow artifacts only
 #   sbom            contents: read    cargo-cyclonedx + syft, pinned; no id-token
 #   publish         contents: write   uploads the build artifacts to the draft; no checkout
 #   finalize        contents: write + id-token: write + attestations: write
 #                   no checkout, no cargo install; only cosign-installer (pinned cosign release,
-#                   checksum-verified by the installer) and attest-build-provenance. It hashes the
-#                   workflow artifacts (not the draft), signs, attests, uploads, then fails if the
-#                   draft holds any file that SHA256SUMS does not cover.
+#                   checksum-verified by the installer), attest-build-provenance and the
+#                   updater-manifest script from the tag's checkout. It hashes the workflow
+#                   artifacts (not the draft), signs, attests, uploads, then fails if the draft
+#                   holds any file that SHA256SUMS does not cover.
 name: release
 
 on:
@@ -99,6 +106,14 @@ jobs:
               --jq "[.[] | select(.tag_name == \"$TAG\")][0].id")
           fi
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+      # finalize has no checkout; it gets the release scripts from this job's checkout of the tag.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-scripts
+          path: scripts/release/*.sh
+          if-no-files-found: error
+          retention-days: 7
 
   build:
     name: ${{ matrix.name }}
@@ -233,9 +248,11 @@ jobs:
         run: |
           import json, os, pathlib
           env = os.environ.get
-          bundle = {}
-          if env("TAURI_SIGNING_PRIVATE_KEY"):
-              bundle["createUpdaterArtifacts"] = True
+          # tauri.conf.json says createUpdaterArtifacts: true (ADR-0018). The bundler refuses to
+          # run that without TAURI_SIGNING_PRIVATE_KEY, so jobs without the key (forks, the
+          # per-arch macOS builds) turn it off and ship no `.sig`. With the key, the Tauri CLI
+          # checks that it matches plugins.updater.pubkey and fails the build otherwise.
+          bundle = {"createUpdaterArtifacts": bool(env("TAURI_SIGNING_PRIVATE_KEY"))}
           # The rpm and AppImage bundlers reject '-' in a version and Tauri rejects '~' (not
           # semver), so pre-releases ship the .deb only on Linux; stable releases add rpm + AppImage.
           bundles = env("BUNDLES")
@@ -262,9 +279,8 @@ jobs:
               out.write(f"path={path.as_posix()}\n")
               out.write(f"bundles={bundles}\n")
 
-      # Build only: no releaseId/tagName and no token, so tauri-action cannot touch the release.
-      # (latest.json is therefore not produced; it was unused, and enabling the updater needs its
-      # own security review.)
+      # Build only: no releaseId/tagName and no token, so tauri-action cannot touch the release
+      # and writes no latest.json; finalize builds the manifest from the `.sig` files.
       - name: Build with tauri-action
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -418,11 +434,23 @@ jobs:
         with:
           cosign-release: v3.1.4
 
+      - name: Release scripts from the tag's checkout (create-release job)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-scripts
+          path: tools
+
       - name: Workflow artifacts (not the draft) are what gets signed
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: bundles-*
           path: artifacts
           merge-multiple: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom
+          path: artifacts/sbom
 
       - name: Flatten
         shell: bash
@@ -435,6 +463,16 @@ jobs:
             cp -- "$f" "dist/$name"
           done < <(find artifacts -type f -print0)
           ls -la dist
+
+      # Written before SHA256SUMS so the manifest is hashed, signed and attested like every other
+      # file. Without `.sig` files (no updater key) the script writes nothing and the release has
+      # no in-app update channel. pub_date is the tagged commit's time, stable across re-runs.
+      - name: Updater manifest (latest.json) from the .sig files
+        shell: bash
+        run: |
+          set -euo pipefail
+          committed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .commit.committer.date)
+          SOURCE_DATE_EPOCH=$(date -u -d "$committed" +%s) bash tools/updater-manifest.sh dist "$TAG" "$GITHUB_REPOSITORY"
 
       - name: SHA256SUMS + cosign keyless signature
         working-directory: dist
@@ -449,12 +487,14 @@ jobs:
         with:
           subject-checksums: dist/SHA256SUMS
 
-      - name: Upload checksums, signature and SBOMs
+      - name: Upload checksums, signature, SBOMs and the updater manifest
         shell: bash
         run: |
           set -euo pipefail
+          extra=()
+          [[ -f dist/latest.json ]] && extra+=(dist/latest.json)
           gh release upload "$TAG" --clobber --repo "$GITHUB_REPOSITORY" \
-            dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json
+            dist/SHA256SUMS dist/SHA256SUMS.sigstore.json dist/*.cdx.json "${extra[@]}"
 
       - name: The draft holds exactly the signed files
         shell: bash
