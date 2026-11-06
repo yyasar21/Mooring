@@ -276,7 +276,7 @@ pub fn argv(tool: &Tool, target: Option<&Target>, os: Os, flavour: TraceFlavour)
             let w = (*wait_secs).clamp(1, MAX_PING_WAIT_SECS);
             match os {
                 Os::Linux => {
-                    a.extend(["-n", "-c", &n, "-W", &w.to_string(), "--"].map(String::from))
+                    a.extend(["-n", "-c", &n, "-W", &w.to_string(), "--"].map(String::from));
                 }
                 Os::MacOs => {
                     // `-t` is the overall deadline on BSD ping: count × wait.

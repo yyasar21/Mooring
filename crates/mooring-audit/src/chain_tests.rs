@@ -275,6 +275,31 @@ fn confirm_refused_has_a_stable_wire_name() {
     );
 }
 
+/// ADR-0020 §6: the network-tool rows carry names and counts only.
+#[test]
+fn net_events_serialize_names_and_counts() {
+    let v = serde_json::to_value(AuditEvent::NetTcpCheck {
+        host: "h.example.test".into(),
+        port: 22,
+        outcome: "open".into(),
+    })
+    .expect("json");
+    assert_eq!(v["event"], "net_tcp_check");
+    assert_eq!((v["port"].clone(), v["outcome"].clone()), (22.into(), "open".into()));
+    let v = serde_json::to_value(AuditEvent::NetPing { host: "h".into(), sent: 4, received: 3 })
+        .expect("json");
+    assert_eq!((v["event"].clone(), v["received"].clone()), ("net_ping".into(), 3.into()));
+    let v = serde_json::to_value(AuditEvent::NetTraceroute { host: "h".into(), hops: 9 })
+        .expect("json");
+    assert_eq!(v["event"], "net_traceroute");
+    let v = serde_json::to_value(AuditEvent::NetWgStatus { interfaces: vec!["wg0".into()] })
+        .expect("json");
+    assert_eq!(
+        (v["event"].clone(), v["interfaces"][0].clone()),
+        ("net_wg_status".into(), "wg0".into())
+    );
+}
+
 #[test]
 fn trust_conflict_has_a_stable_wire_name() {
     let e = AuditEvent::TrustConflict {
