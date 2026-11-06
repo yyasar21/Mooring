@@ -12,6 +12,7 @@
 //!   asked, so its elevation paths (pkexec / sudo / `AppleScript`) are never reached.
 
 pub mod background;
+pub mod download;
 pub mod install_mode;
 pub mod notes;
 pub mod source;

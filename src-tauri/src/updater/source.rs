@@ -5,9 +5,16 @@
 //!
 //! 1. `plugins.updater.pubkey` is compiled into the binary (release-engineer, `tauri.conf.json`).
 //! 2. `latest.json` is fetched over HTTPS from the configured endpoint; it is **not** signed,
-//!    so it can only name a version, a URL and a signature.
-//! 3. The asset is downloaded and `Update::verify` checks the minisign signature of the bytes
-//!    against the pubkey; a tampered asset, a wrong key or a swapped URL fails here.
+//!    so it can only name a version, a URL and a signature. Its parsed body is bounded by
+//!    [`download::MANIFEST_CAP`] and the URL must sit under
+//!    [`download::RELEASE_DOWNLOAD_PREFIX`] for the offered version (review 7 L-40).
+//! 3. The asset is downloaded through [`download::capped`] (256 MiB, 10 min) and
+//!    `Update::verify` checks the minisign signature of the bytes against the pubkey; a
+//!    tampered asset, a wrong key or a swapped URL fails here. Review 7 L-39: the update is
+//!    rebuilt with `Updater::restore_update`, which **requires** the signature's trusted
+//!    comment to carry the version it was signed for and to equal the announced one — so a
+//!    manifest cannot pair a higher version with an older, validly signed package, whatever
+//!    `requireSignedVersion` says in the config (it is set there too).
 //! 4. [`UpdateSource::install`] re-runs the check and installs only when the offered version
 //!    equals the one the user confirmed (no renderer-supplied URL or bytes, no TOCTOU swap).
 
@@ -16,6 +23,8 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use semver::Version;
+
+use super::download;
 
 /// Boxed future (no `async_trait` dependency).
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -93,8 +102,8 @@ pub trait UpdateSource: Send + Sync {
     ) -> BoxFuture<'a, Result<(), SourceError>>;
 }
 
-/// Request timeout for the manifest and the download (same as `mooring-http`'s request
-/// deadline; the download itself is streamed, so this bounds the whole transfer).
+/// Request timeout for the manifest (same as `mooring-http`'s request deadline). The
+/// download has its own [`download::DOWNLOAD_DEADLINE`].
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The plugin-backed source. Built only when the plugin is registered (pubkey configured).
@@ -136,8 +145,17 @@ impl PluginSource {
             })
     }
 
+    /// Fetch the manifest and rebuild the update with the signed-version binding forced on
+    /// (L-39), the manifest cap applied (L-40).
     async fn check_inner(&self) -> Result<Option<tauri_plugin_updater::Update>, SourceError> {
-        self.updater()?.check().await.map_err(|e| map_err(&e))
+        let updater = self.updater()?;
+        let Some(update) = updater.check().await.map_err(|e| map_err(&e))? else {
+            return Ok(None);
+        };
+        download::manifest_within_cap(&update.raw_json)?;
+        // `restore_update` applies the same target and comparator and sets
+        // `require_signed_version` on the result unconditionally.
+        updater.restore_update(update.raw_json).map_err(|e| map_err(&e))
     }
 }
 
@@ -153,9 +171,11 @@ fn map_err(e: &tauri_plugin_updater::Error) -> SourceError {
         | E::TargetNotFound(_)
         | E::TargetsNotFound(_)
         | E::FormatDate => SourceError::Manifest,
-        E::Minisign(_) | E::Base64(_) | E::SignatureUtf8(_) | E::SignedVersionMismatch { .. } => {
-            SourceError::Signature
-        }
+        E::Minisign(_)
+        | E::Base64(_)
+        | E::SignatureUtf8(_)
+        | E::SignedVersionMismatch { .. }
+        | E::MissingSignedVersion => SourceError::Signature,
         E::EmptyEndpoints | E::UnsupportedArch | E::UnsupportedOs | E::InsecureTransportProtocol => {
             SourceError::Unconfigured
         }
@@ -182,13 +202,22 @@ impl UpdateSource for PluginSource {
         before_install: BeforeInstall,
     ) -> BoxFuture<'a, Result<(), SourceError>> {
         Box::pin(async move {
-            let update = self.check_inner().await?.ok_or(SourceError::None)?;
+            let mut update = self.check_inner().await?.ok_or(SourceError::None)?;
             if remote(&update)?.version != *version {
                 return Err(SourceError::None);
             }
-            // `download` verifies the signature before returning the bytes.
-            let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| map_err(&e))?;
+            // L-40: only this repository's release asset for exactly this version.
+            download::check_download_url(update.download_url.as_str(), version)?;
+            update.timeout = Some(download::DOWNLOAD_DEADLINE);
+            // `download` verifies the signature (version-bound, L-39) before returning the
+            // bytes; the capped reader drops it as soon as it runs past the package cap.
+            let u = &update;
+            let bytes = download::capped(download::PACKAGE_CAP, download::DOWNLOAD_DEADLINE, |mut on_chunk| async move {
+                u.download(|len, declared| on_chunk(len, declared), || {}).await.map_err(|e| map_err(&e))
+            })
+            .await?;
             before_install();
+            // `install` verifies again; the bytes are the verified ones.
             update.install(bytes).map_err(|e| map_err(&e))?;
             // Windows: the NSIS installer relaunches the app and the plugin has exited the
             // process already. macOS / Linux: relaunch the replaced binary.
