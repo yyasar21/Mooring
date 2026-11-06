@@ -286,5 +286,12 @@ fn source_errors_map_to_codes() {
     ] {
         assert_eq!(e.code(), code);
         assert!(!e.message().is_empty());
+        // F1: the UI sentence is a fixed string per class; the plugin's own text (URLs,
+        // bundle paths, temp dirs) stays in the warn log and never reaches an `IpcError`.
+        let m = e.message();
+        assert!(
+            !m.contains('/') && !m.contains('\\') && !m.contains("://") && !m.contains("..") && !m.contains('%'),
+            "{code}: {m}"
+        );
     }
 }

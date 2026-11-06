@@ -188,6 +188,10 @@ async fn install_refusals_are_audited_with_their_code() {
         let rt = runtime(src, in_app_probe());
         let e = install(&f.state, &rt, now, install_input("0.2.0", false)).await.expect_err("fail");
         assert_eq!(e.code, code);
+        // F1: static text per class, no path or URL (`SourceError::message`), nothing from
+        // the source's own error.
+        assert_eq!(e.message, err.message());
+        assert!(!e.message.contains('/') && !e.message.contains("://"), "{}", e.message);
         assert!(!rt.busy());
     }
     let text = audit_text(&f);

@@ -134,7 +134,7 @@ async fn hostile_files_are_refused_by_code_and_audited_without_names() {
     assert!(audit_rows(st, "import_previewed").is_empty());
     assert_audit_free_of(st, MARKERS);
     // A file no importer recognises is refused as `import.format` too, with nothing of it in
-    // the message (its audit row is the `#[ignore]`d case below).
+    // the message (its audit row is pinned by `undetected_format_is_audited_as_a_refusal`).
     let path = files.write("hostile-unknown.bin", &[0, 1, 2, 3, 4, 5, 6, 7]);
     let err = preview_file(st, &path, ImportFormat::Termius, false).await.expect_err("unknown");
     assert_eq!(err.code, "import.format");
@@ -142,12 +142,10 @@ async fn hostile_files_are_refused_by_code_and_audited_without_names() {
     assert_audit_free_of(st, MARKERS);
 }
 
-/// Q1 finding (low): `import_preview` of a file `detect` does not recognise answers
-/// `import.format` **without** an `import_refused { code }` row, unlike every parser refusal
-/// (`preview` returns before the audit branch). ADR-0019 §5 says every refusal is audited.
-/// Decision needed in `docs/handoff/a4-qa-q1.md`; un-ignore when rust-core audits that path.
+/// Q1 finding (low, fixed in F1): `import_preview` of a file `detect` does not recognise
+/// answers `import.format` **with** an `import_refused { code }` row, like every parser
+/// refusal (ADR-0019 §5: every refusal is audited).
 #[tokio::test]
-#[ignore = "product gap: undetected format is not audited as import_refused (a4-qa-q1 decision 1)"]
 async fn undetected_format_is_audited_as_a_refusal() {
     let f = testing::unlocked();
     let st = &f.state;
@@ -158,6 +156,8 @@ async fn undetected_format_is_audited_as_a_refusal() {
     let refused = audit_rows(st, "import_refused");
     assert_eq!(refused.len(), 1, "{refused:?}");
     assert_eq!(refused[0]["code"], "import.format");
+    assert_refusals_carry_only_a_code(st, "import_refused");
+    assert_audit_free_of(st, MARKERS);
 }
 
 #[tokio::test]

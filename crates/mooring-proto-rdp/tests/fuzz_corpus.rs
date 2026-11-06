@@ -1,5 +1,5 @@
 //! Stable replay of the RDP fuzz corpora (`rdp_fastpath`, `rdp_certificate_info`,
-//! `rdp_cliprdr_text`, `rdp_input`) and crash regressions through the same entry points the
+//! `rdp_cliprdr_text`, `rdp_input`, `rdp_reassembly`, `rdp_reactivation`) and crash regressions through the same entry points the
 //! cargo-fuzz targets use (docs/qa/fuzzing.md).
 
 #[path = "../../../fuzz/entries/rdp_certificate_info.rs"]
@@ -10,6 +10,8 @@ mod cliprdr_text;
 mod fastpath;
 #[path = "../../../fuzz/entries/rdp_input.rs"]
 mod input;
+#[path = "../../../fuzz/entries/rdp_reactivation.rs"]
+mod reactivation;
 #[path = "../../../fuzz/entries/rdp_reassembly.rs"]
 mod reassembly;
 #[path = "../../../fuzz/entries/replay.rs"]
@@ -54,4 +56,25 @@ fn rdp_input_corpus() {
 #[test]
 fn rdp_reassembly_corpus() {
     assert!(replay::replay("rdp_reassembly", reassembly::run) >= 4);
+}
+
+#[test]
+fn rdp_reactivation_corpus() {
+    assert!(replay::replay("rdp_reactivation", reactivation::run) >= 5);
+}
+
+/// The full-sequence seeds must keep finalizing (Demand Active → Synchronize → Control ×2 →
+/// Font Map), or the fuzzer never reaches `check_desktop` / `ActiveStage::reactivate`; the
+/// oversized desktop must be refused there, and a hostile prefix must stop the sequence.
+#[test]
+fn rdp_reactivation_seeds_reach_the_reactivation_branch() {
+    let seed = |name: &str| {
+        std::fs::read(replay::fuzz_dir().join("corpus/rdp_reactivation").join(name)).expect("seed")
+    };
+    let outcome = mooring_proto_rdp::fuzz::reactivation_outcome;
+    assert_eq!(outcome(&seed("demand-active-finalized")), Some((1024, 768)));
+    assert_eq!(outcome(&seed("deactivate-then-demand")), Some((1280, 800)));
+    assert_eq!(outcome(&seed("oversize-desktop")), None);
+    assert_eq!(outcome(&seed("truncated")), None);
+    assert_eq!(outcome(&seed("error-info")), None);
 }

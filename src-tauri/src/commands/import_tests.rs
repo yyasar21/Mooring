@@ -218,3 +218,28 @@ fn parser_codes_are_listed_for_the_golden() {
     }
     assert_eq!(PARSER_CODES.len(), 6);
 }
+
+/// F1: every `import.*` refusal before the parser (missing source) is audited as
+/// `import_refused { code }`; a malformed request (`input.invalid`) is not.
+#[test]
+fn read_stage_refusals_are_audited_and_malformed_requests_are_not() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let home = tempfile::tempdir().expect("home");
+    let known = |k: &str| PreviewInput {
+        source: SourceInput { pick_id: None, known: Some(k.into()) },
+        include_plaintext_secrets: false,
+        import_key_files: false,
+    };
+    assert_eq!(preview(st, home.path(), known("openssh")).expect_err("no config").code, "import.not_found");
+    assert_eq!(preview(st, home.path(), known("putty")).expect_err("no sessions").code, "import.not_found");
+    assert_eq!(preview(st, home.path(), known("nope")).expect_err("bad known").code, "input.invalid");
+    let both = PreviewInput {
+        source: SourceInput { pick_id: Some("x".into()), known: Some("openssh".into()) },
+        include_plaintext_secrets: false,
+        import_key_files: false,
+    };
+    assert_eq!(preview(st, home.path(), both).expect_err("both").code, "input.invalid");
+    let events = testing::audit_events(st);
+    assert_eq!(events.iter().filter(|e| *e == "import_refused").count(), 2, "{events:?}");
+}

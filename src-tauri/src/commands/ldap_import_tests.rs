@@ -164,6 +164,38 @@ async fn test_binds_and_unbinds_only_and_locked_vault_refuses() {
     assert_eq!(srv.recorder().ops().len(), 2, "no traffic while locked");
 }
 
+/// F1 (Q1 observation b): a run that dies on a hostile frame after the server accepted the
+/// bind writes `ldap_bind { success: true }` and then the refusal, so the chain reads
+/// bind → refused; a refused bind is `success: false` and nothing else.
+#[tokio::test]
+async fn bind_rows_bracket_a_run_that_dies_after_the_bind() {
+    let f = testing::unlocked();
+    let st = &f.state;
+    let srv = mock(LdapKnobs { hostile: Some(ldap::Hostile::Garbage), ..LdapKnobs::default() }).await;
+    let cred = domain_user(st);
+    let confirm = FixedConfirm::new(true);
+    let err = preview(st, Some(Prompt::new(&confirm)), input(&srv, &cred)).await.expect_err("hostile");
+    assert_eq!(err.code, "ldap.response");
+    let events = testing::audit_events(st);
+    let tail: Vec<&str> = events.iter().rev().take(2).rev().map(String::as_str).collect();
+    assert_eq!(tail, ["ldap_bind", "import_refused"], "{events:?}");
+    let text = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("audit");
+    assert!(text.contains("\"success\":true"));
+    assert!(!text.contains("\"success\":false"));
+
+    let wrong_pw = credentials::create(st, NewCredential::user_password("bad", "svc-mooring@corp.example.test", "nope")).expect("c");
+    let err = test(st, Some(Prompt::new(&confirm)), LdapInput { credential_id: wrong_pw.id, ..input(&srv, &cred) })
+        .await
+        .expect_err("bind");
+    assert_eq!(err.code, "ldap.bind");
+    let events = testing::audit_events(st);
+    assert_eq!(events.last().map(String::as_str), Some("ldap_bind"));
+    assert_eq!(events.iter().filter(|e| *e == "ldap_bind").count(), 2);
+    let text = std::fs::read_to_string(st.data_dir.join(AppState::AUDIT_FILE)).expect("audit");
+    assert!(text.contains("\"success\":false"));
+    assert!(!text.contains("nope") && !text.contains("DC=corp"));
+}
+
 #[tokio::test]
 async fn server_limits_surface_as_ldap_codes() {
     let f = testing::unlocked();
