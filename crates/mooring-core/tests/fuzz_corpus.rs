@@ -1,9 +1,11 @@
 //! Stable replay of the `kubeconfig_parse`, `kubeconfig_resolve`, `external_ref_parse`, `jwt_exp_peek`,
-//! `mfr1_decode` and `known_certs_parse` fuzz corpora and crash regressions through the same
-//! entry points the cargo-fuzz targets use (docs/qa/fuzzing.md).
+//! `mfr1_decode`, `framebuffer_ops` and `known_certs_parse` fuzz corpora and crash regressions
+//! through the same entry points the cargo-fuzz targets use (docs/qa/fuzzing.md).
 
 #[path = "../../../fuzz/entries/external_ref_parse.rs"]
 mod external_ref_parse;
+#[path = "../../../fuzz/entries/framebuffer_ops.rs"]
+mod framebuffer_ops;
 #[path = "../../../fuzz/entries/jwt_exp_peek.rs"]
 mod jwt_exp_peek;
 #[path = "../../../fuzz/entries/known_certs.rs"]
@@ -139,6 +141,29 @@ fn mfr1_full_seed_is_accepted() {
     assert!(frame.is_full() && !frame.records.is_empty());
 }
 
+/// Review 5 L-28: the shared framebuffer under hostile protocol operations.
+#[test]
+fn framebuffer_ops_corpus() {
+    assert!(replay::replay("framebuffer_ops", framebuffer_ops::run) >= 4);
+}
+
+/// The coalescing seed must keep producing a full frame (40 one-pixel fills exceed the
+/// 32-rect cap), or the fuzzer never reaches the full-update encoder.
+#[test]
+fn framebuffer_ops_seed_coalesces_into_a_full_update() {
+    use mooring_core::frame::{Framebuffer, Rect};
+    let seed = std::fs::read(replay::fuzz_dir().join("corpus/framebuffer_ops/coalesce-full"))
+        .expect("seed");
+    let mut fb = Framebuffer::new(1 + u16::from(seed[0]), 1 + u16::from(seed[1])).expect("fb");
+    let _ = fb.take_update();
+    for op in seed[2..].chunks_exact(8).filter(|op| op[0] % 6 == 3) {
+        let r = Rect::new(u16::from(op[1]) * 2, u16::from(op[2]) * 2, 2, 2);
+        fb.fill(r, [op[5], op[6], op[7], 255]).expect("fill inside");
+    }
+    let update = fb.take_update();
+    assert!(update.full && update.rects.len() == 1, "{update:?}");
+}
+
 #[test]
 fn known_certs_parse_corpus() {
     assert!(replay::replay("known_certs_parse", known_certs::run) >= 2);
@@ -203,4 +228,24 @@ fn jwt_seed_has_an_exp() {
     };
     assert!(parser::peek_exp(read("jwt-exp").trim()).is_some());
     assert!(parser::peek_exp(read("not-jwt").trim()).is_none());
+}
+
+/// A few thousand pseudo-random inputs through the entry on stable (a cheap stand-in for a
+/// nightly run; the seeds above cover the interesting paths). Deterministic xorshift, so a
+/// failure reproduces.
+#[test]
+fn framebuffer_ops_random_smoke() {
+    let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    // 400 inputs: a resize up to 512² per op makes this the costliest replay (~3 s debug).
+    for _ in 0..400 {
+        let len = usize::try_from(next() % 200).expect("usize");
+        let data: Vec<u8> = (0..len).map(|_| (next() & 0xFF) as u8).collect();
+        framebuffer_ops::run(&data);
+    }
 }

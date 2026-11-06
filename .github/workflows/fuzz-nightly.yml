@@ -51,6 +51,9 @@ jobs:
           - rfb_handshake
           - vencrypt_negotiation
           - rdp_reassembly
+          # Review 5 L-28 remainder (A4 Q1): ServerCutText + Latin-1, framebuffer operations.
+          - cut_text
+          - framebuffer_ops
           # A3 (ADR-0014..0017, Q2): kubeconfig resolve, kube frames / logs / guard, vCenter
           # bodies, Vault bodies + OIDC URLs, MSY1 blob + snapshot, mooring-http parsers.
           - kubeconfig_resolve
@@ -125,7 +128,7 @@ jobs:
           # A3: API body / frame / blob parsers carry the same allocation-before-check rule.
           # A4: importers check the input, decompressed and structure caps before allocating.
           case "$TARGET" in
-            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*|import_*|ldap_*)
+            rdp_*|rfb_*|vnc_*|vencrypt_*|cut_text|framebuffer_ops|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*|import_*|ldap_*)
               MALLOC="-malloc_limit_mb=1024";;
           esac
           cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "fuzz/regressions/$TARGET" -- \
