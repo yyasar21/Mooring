@@ -11,7 +11,7 @@ import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick
 import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 import { decodeSyncStatus } from "./ipc.decode.sync";
-import { decodeUpdateInfo } from "./ipc.decode.update";
+import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
 
 export * from "./ipc.types";
 
@@ -243,8 +243,8 @@ export class TauriTransport implements Ipc {
 
   updateCheck: Ipc["updateCheck"] = () => call<unknown>("update_check").then(decodeUpdateInfo);
   updateInstall: Ipc["updateInstall"] = (a) => call("update_install", { ...a });
-  updateSettingsGet: Ipc["updateSettingsGet"] = () => call("update_settings_get");
-  updateSettingsSet: Ipc["updateSettingsSet"] = (a) => call("update_settings_set", { ...a });
+  updateSettingsGet: Ipc["updateSettingsGet"] = () => call<unknown>("update_settings_get").then(decodeUpdateSettings);
+  updateSettingsSet: Ipc["updateSettingsSet"] = (a) => call<unknown>("update_settings_set", { ...a }).then(decodeUpdateSettings);
   onUpdateAvailable: Ipc["onUpdateAvailable"] = (handler) => subscribe("update:available", (payload) => { handler(decodeUpdateInfo(payload)); });
 
   // ---------- ADR-0020 (network tools, N1) ----------

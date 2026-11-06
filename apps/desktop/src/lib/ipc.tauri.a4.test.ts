@@ -40,8 +40,11 @@ describe("TauriTransport · ADR-0018 §3 + ADR-0020", () => {
     expect(await t.updateCheck()).toEqual({ current: "0.1.0", available: null, installMode: "manual", manualReason: "homebrew", checkedAt: "t" });
     reply = undefined;
     await t.updateInstall({ version: "0.2.0", closeSessions: true });
-    await t.updateSettingsGet();
-    await t.updateSettingsSet({ backgroundCheck: true });
+    reply = { backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: "0.2.0" };
+    expect(await t.updateSettingsGet()).toEqual({ backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: "0.2.0" });
+    reply = { backgroundCheck: true, channel: "stable", lastCheck: "t" }; // an older Rust without the F2 field decodes to null
+    expect(await t.updateSettingsSet({ backgroundCheck: true })).toEqual({ backgroundCheck: true, channel: "stable", lastCheck: "t", lastVerified: null });
+    reply = undefined;
     await t.netTools();
     await t.netPortCheck({ target: { connectionId: "c-1" }, timeoutMs: 2000 });
     await t.netPing({ target: { host: "web01.example.test" }, count: 3 });

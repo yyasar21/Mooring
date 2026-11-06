@@ -1,9 +1,9 @@
 // ADR-0018 §3 mock contract as rust-core U0 serves it: check (rate limit, busy, failures), the
 // install matrix (manual reasons, open sessions, re-check), settings and the background event.
 import { IpcError, type UpdateInfo } from "./ipc";
-import { decodeUpdateInfo } from "./ipc.decode.update";
+import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
 import { MockTransport } from "./ipc.mock";
-import { MOCK_CURRENT_VERSION, MOCK_UPDATE_OFFER } from "./ipc.mock.update";
+import { MOCK_CURRENT_VERSION, MOCK_UPDATE_OFFER, semverBelow } from "./ipc.mock.update";
 
 const code = async (p: Promise<unknown>) => {
   try {
@@ -76,7 +76,7 @@ describe("mock · updater (ADR-0018 §3, U0)", () => {
     const m = new MockTransport();
     const seen: UpdateInfo[] = [];
     const off = m.onUpdateAvailable((i) => seen.push(i));
-    expect(await m.updateSettingsGet()).toEqual({ backgroundCheck: false, channel: "stable", lastCheck: null });
+    expect(await m.updateSettingsGet()).toEqual({ backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: null });
     await m.simulateBackgroundCheck();
     expect(seen).toHaveLength(0); // opt-in only
     const n = m.audit.length;
@@ -104,5 +104,45 @@ describe("mock · updater (ADR-0018 §3, U0)", () => {
     expect(decodeUpdateInfo({ current: "0.1.0", available: null, installMode: "manual", manualReason: "homebrew", checkedAt: "t" })).toMatchObject({ installMode: "manual", manualReason: "homebrew" });
     expect(decodeUpdateInfo({ installMode: "in_app", manualReason: "homebrew" }).manualReason).toBeUndefined();
     expect(decodeUpdateInfo(null)).toEqual({ current: "", available: null, installMode: "manual", checkedAt: "" });
+  });
+
+  it("L-39 (F2): the verified floor refuses a later downgrade offer from check and install, audited update.refused", async () => {
+    const m = new MockTransport();
+    m.updateRateWindowMs = 0;
+    expect((await m.updateSettingsGet()).lastVerified).toBeNull();
+    expect(await code(m.updateInstall({ version: "0.2.0" }))).toBe("ok");
+    expect((await m.updateSettingsGet()).lastVerified).toBe("0.2.0");
+    m.updateOffer = { ...MOCK_UPDATE_OFFER, version: "0.1.5" };
+    expect(await code(m.updateCheck())).toBe("update.downgrade");
+    expect(await code(m.updateInstall({ version: "0.1.5" }))).toBe("update.downgrade");
+    expect(m.audit.filter((e) => e.event === "update.refused" && e.details.code === "update.downgrade")).toHaveLength(2);
+    expect(m.audit.filter((e) => e.event === "update.check")).toHaveLength(0);
+    // The floor is monotonic: a higher offer raises it, a failed write after verification still raises it.
+    m.updateOffer = { ...MOCK_UPDATE_OFFER, version: "0.3.0" };
+    m.updateInstallFails = "update.install_failed";
+    expect(await code(m.updateInstall({ version: "0.3.0" }))).toBe("update.install_failed");
+    expect((await m.updateSettingsGet()).lastVerified).toBe("0.3.0");
+    m.updateOffer = { ...MOCK_UPDATE_OFFER, version: "0.4.0" };
+    m.updateInstallFails = "update.signature";
+    expect(await code(m.updateInstall({ version: "0.4.0" }))).toBe("update.signature");
+    expect((await m.updateSettingsGet()).lastVerified).toBe("0.3.0"); // an unverified package never moves it
+    expect(await m.updateSettingsSet({ backgroundCheck: true })).toMatchObject({ lastVerified: "0.3.0" });
+  });
+
+  it("semverBelow orders releases and pre-releases", () => {
+    expect(semverBelow("0.1.5", "0.2.0")).toBe(true);
+    expect(semverBelow("0.2.0", "0.2.0")).toBe(false);
+    expect(semverBelow("1.0.0", "0.9.9")).toBe(false);
+    expect(semverBelow("0.2.0-rc.1", "0.2.0")).toBe(true);
+    expect(semverBelow("0.2.0", "0.2.0-rc.1")).toBe(false);
+    expect(semverBelow("0.2.0+build.3", "0.2.0")).toBe(false);
+  });
+
+  it("decodeUpdateSettings normalises lastVerified (string, empty, absent, wrong type)", () => {
+    expect(decodeUpdateSettings({ backgroundCheck: true, channel: "stable", lastCheck: "t", lastVerified: "0.2.0" })).toEqual({ backgroundCheck: true, channel: "stable", lastCheck: "t", lastVerified: "0.2.0" });
+    expect(decodeUpdateSettings({ backgroundCheck: false, lastCheck: null, lastVerified: null })).toEqual({ backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: null });
+    expect(decodeUpdateSettings({ lastVerified: "" }).lastVerified).toBeNull();
+    expect(decodeUpdateSettings({ lastVerified: 3 }).lastVerified).toBeNull();
+    expect(decodeUpdateSettings(null)).toEqual({ backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: null });
   });
 });

@@ -128,6 +128,11 @@ export function UpdatesCard() {
             <span className="field-label">Installed version</span>
             <p className="update-current tnum" data-testid="update-current">{current}</p>
             <p className="field-hint">Last checked: {fmtStamp(settings?.lastCheck ?? null)}</p>
+            {settings?.lastVerified && (
+              <p className="field-hint" data-testid="update-last-verified">
+                Last verified update: <span className="tnum">{settings.lastVerified}</span>. Older versions are refused from now on.
+              </p>
+            )}
           </div>
           <button type="button" className="btn" disabled={busy || unconfigured} onClick={() => void useUpdate.getState().check()}>
             {checking ? "Checking…" : "Check for updates"}

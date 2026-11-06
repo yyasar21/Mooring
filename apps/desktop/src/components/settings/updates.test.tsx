@@ -29,6 +29,7 @@ describe("Settings → Updates (ADR-0018 §3, U0)", () => {
     const c = await card();
     expect(screen.getByTestId("update-current")).toHaveTextContent("dev"); // app_info before any check
     expect(c).toHaveTextContent("Last checked: never");
+    expect(screen.queryByTestId("update-last-verified")).toBeNull(); // F2: null until the first verified install
     expect(within(c).getByRole("switch", { name: /^Check for updates in the background \(daily\)/ })).not.toBeChecked();
     expect(within(c).queryByLabelText("Available update")).toBeNull();
   });
@@ -140,6 +141,18 @@ describe("Settings → Updates (ADR-0018 §3, U0)", () => {
     await settle();
     expect(within(c).getByRole("alert")).toHaveTextContent("The update's signature did not verify, so nothing was installed.");
     expect(mock.restarted).toBeNull();
+  });
+
+  it("F2 (L-39): the verified floor is shown once set and a downgrade offer is refused as friendly text", async () => {
+    mock.updateSettings = { ...mock.updateSettings, lastVerified: "0.2.0" };
+    mock.updateOffer = { ...MOCK_UPDATE_OFFER, version: "0.1.5" };
+    const c = await card();
+    expect(within(c).getByTestId("update-last-verified")).toHaveTextContent("Last verified update: 0.2.0");
+    fireEvent.click(within(c).getByRole("button", { name: "Check for updates" }));
+    await settle();
+    expect(within(c).getByRole("alert")).toHaveTextContent("older than an update this install already verified");
+    expect(within(c).queryByLabelText("Available update")).toBeNull();
+    expect(mock.audit.at(-1)).toMatchObject({ event: "update.refused", details: { code: "update.downgrade" } });
   });
 
   it("the background toggle writes update_settings_set and reverts on failure", async () => {
