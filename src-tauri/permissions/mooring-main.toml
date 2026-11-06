@@ -129,4 +129,7 @@ permissions = [
   "allow-import-preview",
   "allow-import-apply",
   "allow-import-discard",
+  # ADR-0019 §4 (A4 I2): LDAPS directory importer
+  "allow-ldap-import-preview",
+  "allow-ldap-import-test",
 ]

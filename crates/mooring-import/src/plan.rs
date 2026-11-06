@@ -137,6 +137,8 @@ pub enum WarningCode {
     UserIgnored,
     /// The skipped / warning lists hit their cap; further notes were counted only.
     NotesTruncated,
+    /// A directory entry sits deeper than the folder depth cap; it landed at the cap.
+    PathTruncated,
 }
 
 /// A warning entry.

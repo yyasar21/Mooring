@@ -62,3 +62,5 @@ pub mod net;
 pub mod import;
 pub mod import_dto;
 pub mod import_source;
+// ADR-0019 §4 (A4 I2): LDAPS directory importer.
+pub mod ldap_import;

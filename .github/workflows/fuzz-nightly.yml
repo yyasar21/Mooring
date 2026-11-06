@@ -90,6 +90,8 @@ jobs:
           - import_putty_session
           - import_ssh_config
           - import_detect
+          - ldap_filter_escape
+          - ldap_ber_response
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -123,7 +125,7 @@ jobs:
           # A3: API body / frame / blob parsers carry the same allocation-before-check rule.
           # A4: importers check the input, decompressed and structure caps before allocating.
           case "$TARGET" in
-            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*|import_*)
+            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*|import_*|ldap_*)
               MALLOC="-malloc_limit_mb=1024";;
           esac
           cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "fuzz/regressions/$TARGET" -- \

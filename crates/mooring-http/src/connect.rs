@@ -26,7 +26,52 @@ use crate::verify::{
     HttpVerifier, TrustDecision, TrustVerdict,
 };
 
-type Chain = Option<Arc<WebPkiServerVerifier>>;
+pub(crate) type Chain = Option<Arc<WebPkiServerVerifier>>;
+
+/// The chain verifier of one client: system roots (unless anchored) plus `extra_ca_pem`.
+/// Blocking work runs on the blocking pool. Shared with [`crate::tls`].
+pub(crate) async fn build_chain(
+    use_system_roots: bool,
+    ca_exclusive: bool,
+    extra_ca_pem: Option<String>,
+) -> Result<Chain, HttpError> {
+    tokio::task::spawn_blocking(move || {
+        let use_system = use_system_roots && !ca_exclusive;
+        let system = if use_system { system_roots() } else { &[] };
+        let (roots, added) = root_store(system, extra_ca_pem.as_deref());
+        if ca_exclusive && added == 0 {
+            return Err(HttpError::InvalidConfig("extra_ca_pem holds no certificate"));
+        }
+        Ok(chain_verifier(roots))
+    })
+    .await
+    .map_err(|_| HttpError::TrustStore)?
+}
+
+/// The pin store for one connect, reloaded every time (the Gate may have written a pin since)
+/// and failing closed when unreadable; `trusted_once` is added as a pin of this load only
+/// unless the host already has one. Shared with [`crate::tls`].
+pub(crate) async fn load_known(
+    path: std::path::PathBuf,
+    host: String,
+    port: u16,
+    trusted_once: Option<[u8; 32]>,
+) -> Result<KnownCerts, HttpError> {
+    tokio::task::spawn_blocking(move || {
+        let mut known = KnownCerts::load(&path).map_err(|e| {
+            tracing::warn!(error = %e, "certificate trust store unreadable");
+            HttpError::TrustStore
+        })?;
+        if let Some(fp) = trusted_once {
+            if !known.has_pin(&host, port) {
+                known.add(&host, port, &fp, time::OffsetDateTime::now_utc());
+            }
+        }
+        Ok(known)
+    })
+    .await
+    .map_err(|_| HttpError::TrustStore)?
+}
 
 struct Inner {
     cfg: HttpConfig,
@@ -72,40 +117,25 @@ impl Connector {
         self.0
             .chain
             .get_or_try_init(|| async move {
-                tokio::task::spawn_blocking(move || {
-                    let use_system = inner.cfg.use_system_roots && !inner.cfg.ca_exclusive;
-                    let system = if use_system { system_roots() } else { &[] };
-                    let (roots, added) = root_store(system, inner.cfg.extra_ca_pem.as_deref());
-                    if inner.cfg.ca_exclusive && added == 0 {
-                        return Err(HttpError::InvalidConfig("extra_ca_pem holds no certificate"));
-                    }
-                    Ok(chain_verifier(roots))
-                })
+                build_chain(
+                    inner.cfg.use_system_roots,
+                    inner.cfg.ca_exclusive,
+                    inner.cfg.extra_ca_pem.clone(),
+                )
                 .await
-                .map_err(|_| HttpError::TrustStore)?
             })
             .await
             .cloned()
     }
 
     async fn load_known(&self) -> Result<KnownCerts, HttpError> {
-        let path = self.0.cfg.known_certs_path.clone();
-        let (host, port, once) =
-            (self.0.base.host.clone(), self.0.base.port, self.0.cfg.trusted_once);
-        tokio::task::spawn_blocking(move || {
-            let mut known = KnownCerts::load(&path).map_err(|e| {
-                tracing::warn!(error = %e, "certificate trust store unreadable");
-                HttpError::TrustStore
-            })?;
-            if let Some(fp) = once {
-                if !known.has_pin(&host, port) {
-                    known.add(&host, port, &fp, time::OffsetDateTime::now_utc());
-                }
-            }
-            Ok(known)
-        })
+        load_known(
+            self.0.cfg.known_certs_path.clone(),
+            self.0.base.host.clone(),
+            self.0.base.port,
+            self.0.cfg.trusted_once,
+        )
         .await
-        .map_err(|_| HttpError::TrustStore)?
     }
 
     async fn tcp(&self) -> Result<TcpStream, HttpError> {
@@ -169,17 +199,22 @@ impl Connector {
                 }
                 Ok(MaybeTls { io: Io::Tls(Box::new(stream)), decision })
             }
-            Err(e) => Err(match take_decision(&slot) {
-                Some(d) => match d.verdict {
-                    TrustVerdict::Prompt => HttpError::TrustPrompt(Box::new(d)),
-                    TrustVerdict::Mismatch { .. } => HttpError::TrustMismatch(Box::new(d)),
-                    TrustVerdict::Rejected => HttpError::TrustRejected(Box::new(d)),
-                    TrustVerdict::Conflict => HttpError::TrustConflict(Box::new(d)),
-                    TrustVerdict::Pinned { .. } | TrustVerdict::CaValid => tls_error(&e),
-                },
-                None => tls_error(&e),
-            }),
+            Err(e) => {
+                Err(take_decision(&slot).and_then(trust_error).unwrap_or_else(|| tls_error(&e)))
+            }
         }
+    }
+}
+
+/// The `Trust*` error of a failed handshake whose verifier recorded `d`, or `None` when the
+/// verifier accepted (the failure is elsewhere). Shared with [`crate::tls`].
+pub(crate) fn trust_error(d: TrustDecision) -> Option<HttpError> {
+    match d.verdict {
+        TrustVerdict::Prompt => Some(HttpError::TrustPrompt(Box::new(d))),
+        TrustVerdict::Mismatch { .. } => Some(HttpError::TrustMismatch(Box::new(d))),
+        TrustVerdict::Rejected => Some(HttpError::TrustRejected(Box::new(d))),
+        TrustVerdict::Conflict => Some(HttpError::TrustConflict(Box::new(d))),
+        TrustVerdict::Pinned { .. } | TrustVerdict::CaValid => None,
     }
 }
 

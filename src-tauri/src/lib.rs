@@ -275,6 +275,8 @@ pub fn run() {
             import::import_preview,
             import::import_apply,
             import::import_discard,
+            commands::ldap_import::ldap_import_preview,
+            commands::ldap_import::ldap_import_test,
         ]))
         .build(context)
         .expect("error while building the Tauri application");

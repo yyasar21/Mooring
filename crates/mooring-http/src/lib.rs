@@ -13,6 +13,7 @@
 //!   plaintext behind an option), no proxy and no environment variables.
 //! * Credentials in headers are marked sensitive and redacted in every `Debug`; `tracing`
 //!   sees method and status only.
+//! * [`tls`] lends the same verifier to a non-HTTP TLS client (ADR-0019 §4 LDAPS).
 
 #![forbid(unsafe_code)]
 
@@ -27,6 +28,7 @@ mod headers;
 mod parse;
 mod policy;
 mod service;
+pub mod tls;
 mod verify;
 mod ws;
 
@@ -41,6 +43,7 @@ pub use error::{HttpError, StatusClass};
 pub use headers::{is_sensitive, Headers, Redacted, SENSITIVE};
 pub use parse::{content_length, decode_json, retry_after, MAX_PATH};
 pub use service::HttpService;
+pub use tls::{TlsClient, TlsTarget};
 pub use verify::{TrustDecision, TrustVerdict};
 pub use ws::{Message, WsIo, WsLimits, WsStream};
 

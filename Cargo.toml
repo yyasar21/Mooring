@@ -80,6 +80,14 @@ sha2-next = { package = "sha2", version = "0.11" }         # TOTP HMAC-SHA256/51
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] } # RFC 5425 syslog over TLS; rustls is the only allowed TLS stack (ADR-0001)
 rustls-native-certs = "0.8"                                # OS trust store for syslog TLS (enterprise CAs honoured); no C build, platform APIs only
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] } # tests only: self-signed cert for the loopback TLS collector
+# LDAPS directory importer (ADR-0019 §4, A4 I2). `lber` (MIT, no unsafe) is ldap3's BER codec:
+# the product encodes its four requests with it and parses frames that passed an iterative
+# size / depth scan. `ldap3` itself is a dev-dependency only (independent RFC 4515 parser as the
+# escaping oracle): its transport recurses per BER nesting level and `expect`s on malformed
+# frames, so it never sees server bytes in the product. rustls + ring only (the `tls-rustls`
+# feature alone does not compile: a provider feature is mandatory); no sync / GSSAPI / NTLM.
+ldap3 = { version = "=0.12.1", default-features = false, features = ["tls-rustls-ring"] }
+lber = "=0.5.1"
 # errors / logging
 thiserror = "2"
 tracing = "0.1"
