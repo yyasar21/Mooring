@@ -4,10 +4,11 @@ import { SyslogCard } from "./SyslogCard";
 import { KnownCertsCard } from "./KnownCertsCard";
 import { SecretSourcesCard } from "./SecretSourcesCard";
 import { SyncCard } from "./SyncCard";
+import { AboutCard } from "./AboutCard";
 
 /**
  * Application settings: auto-lock policy, the audit syslog mirror (ADR-0010), the trusted
- * certificates (ADR-0011), secret sources (ADR-0016) and vault sync (ADR-0017).
+ * certificates (ADR-0011), secret sources (ADR-0016), vault sync (ADR-0017) and About.
  */
 export function SettingsView() {
   const setView = useUi((s) => s.setView);
@@ -25,6 +26,7 @@ export function SettingsView() {
         <KnownCertsCard />
         <SecretSourcesCard />
         <SyncCard />
+        <AboutCard />
       </div>
     </section>
   );
