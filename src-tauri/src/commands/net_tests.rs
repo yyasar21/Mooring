@@ -182,15 +182,22 @@ mod shims {
     }
 
     /// Executable copies of the shims (git may not keep the mode bit).
-    fn install() -> tempfile::TempDir {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tmp");
-        for name in ["ping.sh", "traceroute.sh", "tracepath.sh", "wg.sh", "slow.sh"] {
-            let to = dir.path().join(name);
-            std::fs::copy(shim_dir().join(name), &to).expect("copy");
-            std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        }
-        dir
+    /// Copied once per test process (see `mooring-net/tests/shim_runner.rs`: a concurrent copy
+    /// plus a fork in another test thread makes `execve` fail with `ETXTBSY` on Linux).
+    fn install() -> &'static Path {
+        static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        DIR.get_or_init(|| {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().expect("tmp");
+            for name in ["ping.sh", "traceroute.sh", "tracepath.sh", "wg.sh", "slow.sh"] {
+                let to = dir.path().join(name);
+                std::fs::copy(shim_dir().join(name), &to).expect("copy");
+                std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755))
+                    .expect("chmod");
+            }
+            dir
+        })
+        .path()
     }
 
     fn runtime(dir: &Path, ping: &str) -> NetRuntime {
@@ -211,7 +218,7 @@ mod shims {
         let f = unlocked();
         let st = &f.state;
         let dir = install();
-        let rt = runtime(dir.path(), "ping.sh");
+        let rt = runtime(dir, "ping.sh");
         let t = tools(st, &rt).expect("tools");
         assert!(t.ping && t.traceroute == Some("traceroute") && t.wg);
         let id = conn(&f, "rdp", "192.0.2.1");
@@ -222,7 +229,7 @@ mod shims {
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0]["host"].clone(), rows[0]["sent"].clone(), rows[0]["received"].clone()), (json!("192.0.2.1"), json!(4), json!(3)));
         assert!(rows[0].get("lines").is_none(), "tool output never reaches the audit log");
-        let argv = std::fs::read_to_string(dir.path().join("ping.sh.argv")).expect("argv");
+        let argv = std::fs::read_to_string(dir.join("ping.sh.argv")).expect("argv");
         assert_eq!(argv.lines().collect::<Vec<_>>(), ["-n", "-c", "3", "-W", "2", "--", "192.0.2.1"]);
 
         let run = traceroute(st, &rt, &host("192.0.2.1", None), Some(7)).await.expect("trace");
@@ -239,11 +246,11 @@ mod shims {
         let f = unlocked();
         let st = &f.state;
         let dir = install();
-        let rt = runtime(dir.path(), "ping.sh");
+        let rt = runtime(dir, "ping.sh");
         let e = wg_show(st, &rt).await.expect_err("wg");
         assert_eq!(e.code, "net.permission_denied");
         assert!(e.message.contains("does not elevate"), "{}", e.message);
-        let argv = std::fs::read_to_string(dir.path().join("wg.sh.argv")).expect("argv");
+        let argv = std::fs::read_to_string(dir.join("wg.sh.argv")).expect("argv");
         for forbidden in ["dump", "showconf", "private-key", "preshared-keys", "sudo", "pkexec"] {
             assert!(!argv.contains(forbidden), "{argv}");
         }
@@ -255,7 +262,7 @@ mod shims {
         let f = unlocked();
         let st = &f.state;
         let dir = install();
-        let rt = runtime(dir.path(), "slow.sh");
+        let rt = runtime(dir, "slow.sh");
         let target = host("192.0.2.1", None);
         let slow = |_: u8| tokio::time::timeout(Duration::from_secs(2), ping(st, &rt, &target, None));
         let probe = async {
@@ -268,7 +275,7 @@ mod shims {
         assert!(a.is_err() && b.is_err(), "the two slow runs were still in flight");
         assert_eq!(codes, ("net.busy", "net.busy"));
         // Permits are released with the dropped runs: a later call is accepted again.
-        let rt2 = runtime(dir.path(), "ping.sh");
+        let rt2 = runtime(dir, "ping.sh");
         assert!(ping(st, &rt2, &target, None).await.is_ok());
         assert_eq!(rt.permit().map(|_| ()).expect("permit free"), ());
     }

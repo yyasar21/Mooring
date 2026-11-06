@@ -13,21 +13,29 @@ use mooring_net::run::run_tool;
 use mooring_net::{NetError, Os, Runner, Target, ToolPaths, TraceFlavour, WgQuery};
 
 struct Shims {
-    _dir: tempfile::TempDir,
     root: PathBuf,
 }
 
 impl Shims {
+    /// The shims are copied once per test process: a copy running in one test thread while
+    /// another thread forks leaves the write descriptor open in the child and `execve` fails
+    /// with `ETXTBSY` (Linux; rust-lang/rust#114554). One writer, before any spawn, avoids it.
     fn install() -> Self {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tmp");
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/shims");
-        for name in ["ping.sh", "traceroute.sh", "tracepath.sh", "wg.sh", "slow.sh", "flood.sh"] {
-            let to = dir.path().join(name);
-            std::fs::copy(src.join(name), &to).expect("copy shim");
-            std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        }
-        Self { root: dir.path().to_path_buf(), _dir: dir }
+        static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let dir = DIR.get_or_init(|| {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().expect("tmp");
+            let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/shims");
+            for name in ["ping.sh", "traceroute.sh", "tracepath.sh", "wg.sh", "slow.sh", "flood.sh"]
+            {
+                let to = dir.path().join(name);
+                std::fs::copy(src.join(name), &to).expect("copy shim");
+                std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755))
+                    .expect("chmod");
+            }
+            dir
+        });
+        Self { root: dir.path().to_path_buf() }
     }
 
     fn path(&self, name: &str) -> PathBuf {
