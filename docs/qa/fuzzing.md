@@ -110,7 +110,22 @@ branch).
 | `kube_pod_list_json` | `kube_pod_list_json.rs` | `mooring_proto_kube::fuzz::fuzz_pod_list_json` | 0014 §5 | mooring-proto-kube |
 
 Selector-prefixed targets take the first byte as the model / header selector and the rest as
-the body (see the crate's `fuzz.rs`); their seeds carry that byte. `sync_blob_parse` seeds
+the body (see the crate's `fuzz.rs`); their seeds carry that byte.
+
+## A4 targets (ADR-0020 network tools, N1)
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `net_ping_output` | `net_ping_output.rs` | `mooring_net::fuzz::fuzz_ping_output` (`parse_ping`) | 0020 §3 | mooring-net |
+| `net_traceroute_output` | `net_traceroute_output.rs` | `mooring_net::fuzz::fuzz_traceroute_output` (`parse_traceroute`) | 0020 §3 | mooring-net |
+| `net_wg_output` | `net_wg_output.rs` | `mooring_net::fuzz::fuzz_wg_output` (`[query selector, body]`, `parse_wg`) | 0020 §4 | mooring-net |
+
+Oracle for all three: no panic, the caps hold (64 KiB in, 200 lines × 512 bytes out, ≤ 64
+replies / hop rows, ≤ 32 interfaces, ≤ 256 peers), every produced line is free of control,
+ANSI, bidi and other `Cf` characters, numbers are finite and `received ≤ sent`. Seeds cover
+iputils, BSD, Windows en-US and tr-TR `ping`, Linux `traceroute`, `tracepath`, `tracert`
+and each `wg show` subcommand plus a hostile sample (ANSI, bidi, overlong numbers);
+`crates/mooring-net/tests/fuzz_corpus.rs` pins that the well-formed seeds keep parsing. `sync_blob_parse` seeds
 include the committed `test-vectors/blob-v1.hex` blob so the fuzzer starts past the header
 checks. The seed under `http_certificate_info` is a throwaway self-signed EC certificate for
 `k.example.test` (no key is committed; kubeconfig seeds use token auth for the same reason).
