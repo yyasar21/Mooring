@@ -80,7 +80,7 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "confirm.busy": "Another confirmation dialog is already open. Answer it first.",
   "confirm.cooldown": "You cancelled this action a moment ago. Wait a few seconds before asking again.",
   // Shared by the vCenter (ADR-0015) and sync (ADR-0017) HTTP clients.
-  "http.trust_prompt": "The server's certificate is not trusted yet. Run Refresh now or Sync now to review and trust it; background runs cannot ask.",
+  "http.trust_prompt": "The server's certificate is not trusted yet. Run the action again from the app (Refresh now, Sync now or Test bind) to review and trust it; background runs cannot ask.",
   "http.trust_rejected": "You rejected the server's certificate, so Mooring did not connect. Nothing was stored.",
   "http.trust_mismatch":
     "The server's certificate changed since you trusted it, so Mooring stopped. Confirm the new fingerprint with its owner, then remove the stored certificate in Settings → Trust and try again.",
@@ -89,6 +89,50 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
     "This host has two different trusted certificates (synced from another device). Remove one in Settings → Trust before connecting.",
   "http.trust_store": "Mooring could not read or write its certificate trust store.",
   "http.tls": "The TLS handshake with the server failed.",
+  // ADR-0018 §3 (U0): in-app updater.
+  "update.unconfigured": "Updates are not configured in this build.",
+  "update.busy": "An update check or install is already running. Wait for it to finish.",
+  "update.rate_limited": "You checked a moment ago. Wait a minute before checking again.",
+  "update.network": "The update server did not answer. Check the network and try again.",
+  "update.manifest": "The update manifest could not be read. Try again later.",
+  "update.signature": "The update's signature did not verify, so nothing was installed.",
+  "update.none": "There is no newer version, or the offered version changed. Check again.",
+  "update.manual_only": "This install is managed by a package manager or Homebrew. Update it there.",
+  "update.not_writable": "The installed application is not writable by your user, so Mooring cannot replace it. Reinstall from the release page.",
+  "update.sessions_open": "Sessions are still open. Close them, or confirm closing them, before installing.",
+  "update.install_failed": "The update was verified but could not be written. Nothing changed; try again or install from the release page.",
+  // Security review 7, L-39 (F2): the offered version is below the highest package this install already verified.
+  "update.downgrade": "The offered version is older than an update this install already verified, so Mooring refused it. Nothing was installed; check again later.",
+  // ADR-0020 (N1): network tools.
+  "net.invalid_host": "That is not a valid host name or address, or this connection has no network host to probe.",
+  "net.tool_missing": "That tool was not found on this system. Mooring only runs the OS tools at their usual paths.",
+  "net.permission_denied": "WireGuard status needs elevated rights; Mooring does not elevate.",
+  "net.busy": "Two network tools are already running. Wait for one to finish.",
+  "net.rate_limited": "One port check per second. Try again in a moment.",
+  "net.spawn": "The tool could not be started.",
+  // ADR-0019 (I1): file importers. Every message is content-free; the file stays on disk untouched.
+  "import.too_large": "This file is larger than 16 MiB, which is more than Mooring imports. Export a smaller set.",
+  "import.format": "Mooring could not read this file as that tool's export. Check that the right tool is selected and the export is complete.",
+  "import.encrypted": "This file is encrypted. Export it unencrypted from the source tool, then import it again.",
+  "import.doctype": "This XML file declares a DOCTYPE, which Mooring refuses. Export it again without one.",
+  "import.limits": "This file exceeds an import limit (20 000 connections, 5 000 folders, 2 000 credentials, or the decompressed size). Split the export.",
+  "import.unsupported_container": "This file is a ZIP archive. Unpack it first and import the export inside.",
+  "import.plan_expired": "The preview expired or was already used. Preview the file again.",
+  "import.not_found": "Nothing to import at that location on this computer.",
+  // ADR-0019 §4 (I2): the LDAPS directory importer. Content-free: no DN, bind name or host from the server.
+  "ldap.insecure": "Only ldaps:// is supported. Mooring never talks to a directory without TLS from the first byte (StartTLS included); use the LDAPS port, usually 636.",
+  "ldap.invalid": "The server URL or the size limit is not valid. Use ldaps://host[:port] and a limit between 1 and 5 000.",
+  "ldap.dn_invalid": "The base DN is not a valid distinguished name, or the directory has no such entry. Check it against the directory, for example DC=corp,DC=example,DC=test.",
+  "ldap.bind": "The directory refused the sign-in. Check the credential's user, domain and password; the account must be allowed to read the directory.",
+  "ldap.size_limit": "The search matched more entries than the size limit allows, so nothing was imported. Narrow the base DN or the name filter, search one level only, or raise the limit (up to 5 000).",
+  "ldap.timeout": "The directory did not finish answering within 30 seconds. Narrow the search, or try again when the directory is less busy.",
+  "ldap.unavailable": "The directory server did not answer. Check the host, the port (usually 636) and the network, then try again.",
+  "ldap.response": "The directory sent a reply Mooring could not read, so it stopped. Nothing was imported.",
+  // Security review 7, L-43 (F2): the native "Directory sign-in" confirmation before the first bind.
+  "ldap.bind_declined": "You did not confirm the sign-in to the directory, so Mooring did not send the credential. Nothing was searched; try again and choose \"Sign in\" to continue.",
+  "ldap.confirm_required": "The sign-in to the directory needs a confirmation dialog, and none could be shown here. Run the import again from the main window.",
+  "credential.incompatible": "That credential cannot be used here. Pick a Windows domain or a user and password credential.",
+  "credential.not_found": "That credential no longer exists. Pick another one.",
 };
 
 /** The friendly text for a bare error code (status fields carry codes, not messages). */

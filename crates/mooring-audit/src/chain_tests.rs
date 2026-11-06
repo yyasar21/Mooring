@@ -273,6 +273,57 @@ fn confirm_refused_has_a_stable_wire_name() {
         (v["event"].clone(), v["count"].clone()),
         ("confirm_refused_suppressed".into(), 7.into())
     );
+    let v = serde_json::to_value(AuditEvent::NetSuppressed { count: 9 }).expect("json");
+    assert_eq!((v["event"].clone(), v["count"].clone()), ("net_suppressed".into(), 9.into()));
+}
+
+/// ADR-0018 §3: the four updater rows carry versions and codes only.
+#[test]
+fn update_events_have_stable_wire_names() {
+    let s = |x: &str| x.to_owned();
+    let cases = [
+        (AuditEvent::UpdateCheck { current: s("0.1.0"), available: None }, "update.check"),
+        (AuditEvent::UpdateInstall { from: s("0.1.0"), to: s("0.2.0") }, "update.install"),
+        (AuditEvent::UpdateRefused { code: s("update.manual_only") }, "update.refused"),
+        (AuditEvent::UpdateSettingsChanged { background_check: true }, "update.settings_changed"),
+    ];
+    for (e, name) in cases {
+        let v = serde_json::to_value(&e).expect("json");
+        assert_eq!(v["event"], name);
+        let back: AuditEvent = serde_json::from_value(v).expect("round trip");
+        assert_eq!(back, e);
+    }
+    let v = serde_json::to_value(AuditEvent::UpdateCheck {
+        current: s("0.1.0"),
+        available: Some(s("0.2.0")),
+    })
+    .expect("json");
+    assert_eq!(v["available"], "0.2.0");
+}
+
+/// ADR-0020 §6: the network-tool rows carry names and counts only.
+#[test]
+fn net_events_serialize_names_and_counts() {
+    let v = serde_json::to_value(AuditEvent::NetTcpCheck {
+        host: "h.example.test".into(),
+        port: 22,
+        outcome: "open".into(),
+    })
+    .expect("json");
+    assert_eq!(v["event"], "net_tcp_check");
+    assert_eq!((v["port"].clone(), v["outcome"].clone()), (22.into(), "open".into()));
+    let v = serde_json::to_value(AuditEvent::NetPing { host: "h".into(), sent: 4, received: 3 })
+        .expect("json");
+    assert_eq!((v["event"].clone(), v["received"].clone()), ("net_ping".into(), 3.into()));
+    let v = serde_json::to_value(AuditEvent::NetTraceroute { host: "h".into(), hops: 9 })
+        .expect("json");
+    assert_eq!(v["event"], "net_traceroute");
+    let v = serde_json::to_value(AuditEvent::NetWgStatus { interfaces: vec!["wg0".into()] })
+        .expect("json");
+    assert_eq!(
+        (v["event"].clone(), v["interfaces"][0].clone()),
+        ("net_wg_status".into(), "wg0".into())
+    );
 }
 
 #[test]

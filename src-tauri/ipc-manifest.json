@@ -92,6 +92,21 @@
   "forward_open": [
     "main"
   ],
+  "import_apply": [
+    "main"
+  ],
+  "import_discard": [
+    "main"
+  ],
+  "import_formats": [
+    "main"
+  ],
+  "import_pick": [
+    "main"
+  ],
+  "import_preview": [
+    "main"
+  ],
   "known_certs_list": [
     "main"
   ],
@@ -123,6 +138,27 @@
     "main"
   ],
   "kube_pods": [
+    "main"
+  ],
+  "ldap_import_preview": [
+    "main"
+  ],
+  "ldap_import_test": [
+    "main"
+  ],
+  "net_ping": [
+    "main"
+  ],
+  "net_port_check": [
+    "main"
+  ],
+  "net_tools": [
+    "main"
+  ],
+  "net_traceroute": [
+    "main"
+  ],
+  "net_wg_show": [
     "main"
   ],
   "secret_source_create": [
@@ -236,6 +272,18 @@
     "main"
   ],
   "tree_list": [
+    "main"
+  ],
+  "update_check": [
+    "main"
+  ],
+  "update_install": [
+    "main"
+  ],
+  "update_settings_get": [
+    "main"
+  ],
+  "update_settings_set": [
     "main"
   ],
   "vault_change_password": [

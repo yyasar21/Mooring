@@ -1,6 +1,8 @@
-import { Kbd } from "@mooring/ui";
+import { useEffect } from "react";
+import { BrandMark, Kbd } from "@mooring/ui";
 import { useApp } from "../stores/app";
 import { INSPECTOR, SIDEBAR, useUi } from "../stores/ui";
+import { useUpdate } from "../stores/update";
 import { Sidebar } from "./tree/Sidebar";
 import { Workspace } from "./Workspace";
 import { Inspector } from "./inspector/Inspector";
@@ -11,7 +13,7 @@ import { SettingsView } from "./settings/SettingsView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
 import { Telemetry } from "./Telemetry";
-import { SyncBanner, SyncIndicator } from "./SyncBanner";
+import { openSettingsCard, SyncBanner, SyncIndicator } from "./SyncBanner";
 import { useShortcuts } from "./useShortcuts";
 
 /** Main window once the vault is unlocked: title bar, sync alarm (if any), tree | tabs (or audit) | inspector, telemetry strip. */
@@ -87,6 +89,7 @@ function TitleBar() {
         <Kbd>mod K</Kbd>
       </button>
       <SyncIndicator />
+      <UpdateIndicator />
       <nav aria-label="Views" className="ml-auto flex items-center gap-1">
         <button
           type="button"
@@ -133,13 +136,27 @@ function TitleBar() {
   );
 }
 
+/**
+ * Subtle title-bar notice of the opt-in background update check (ADR-0018 §3): the shell holds
+ * the one `update:available` subscription for the unlocked session; the notice only names the
+ * version and jumps to Settings → Updates, where installing is a separate, confirmed step.
+ */
+function UpdateIndicator() {
+  const badge = useUpdate((s) => s.badge);
+  const view = useUi((s) => s.view);
+
+  useEffect(() => useUpdate.getState().watch(), []);
+
+  if (badge === null || view === "settings") return null;
+  return (
+    <button type="button" className="update-indicator" onClick={() => { openSettingsCard("updates-title"); }} aria-label={`Update ${badge} available. Open update settings`}>
+      <span aria-hidden className="state-dot" data-state="connected" />
+      Update {badge}
+    </button>
+  );
+}
+
 /** Brand mark: a bollard seen from above, with a line made fast to it. */
 function Mark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-      <path d="M9 1.5 15.5 5v8L9 16.5 2.5 13V5z" />
-      <circle cx="9" cy="9" r="2.4" />
-      <path d="M11.2 9h5.3" />
-    </svg>
-  );
+  return <BrandMark size={18} />;
 }

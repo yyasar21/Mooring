@@ -11,8 +11,8 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
-mooring-http = { path = "../mooring-http", version = "0.1.0-rc.1" }
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.2" }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.2" }
 base64 = { workspace = true }
 bytes = "1"
 secrecy = { workspace = true }

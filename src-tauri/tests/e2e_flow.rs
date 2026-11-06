@@ -12,8 +12,20 @@
 
 #![allow(clippy::doc_markdown)]
 
-use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_server};
+use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_server, updater};
 
+// A4 Q1 (ADR-0018 / 0019 / 0020): hostile imports, LDAPS mock knobs + TOFU, network shims,
+// the updater's Rust-side matrix.
+#[path = "e2e_flow/a4_import.rs"]
+mod a4_import;
+#[path = "e2e_flow/a4_ldap.rs"]
+mod a4_ldap;
+#[path = "e2e_flow/a4_net.rs"]
+mod a4_net;
+#[path = "e2e_flow/a4_support.rs"]
+mod a4_support;
+#[path = "e2e_flow/a4_update.rs"]
+mod a4_update;
 #[path = "e2e_flow/credential_kinds.rs"]
 mod credential_kinds;
 // Review 6 L-38: the locked-vault matrix is checked against ipc-manifest.json.

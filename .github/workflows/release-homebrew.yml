@@ -62,9 +62,11 @@ jobs:
           version="${BASH_REMATCH[1]}"
           mkdir sums && cd sums
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS -p SHA256SUMS.sigstore.json
+          # Same identity rule as scripts/release/verify-release.sh (N-58): release.yml at the
+          # tag ref, never a branch.
           repo_re="${GITHUB_REPOSITORY//./\\.}"; tag_re="${TAG//./\\.}"
           cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-            --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/(tags/${tag_re}|heads/main)\$" \
+            --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/tags/${tag_re}\$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
           sha() { awk -v f="$1" '{n=$2; sub(/^\*/,"",n)} n==f {print $1}' SHA256SUMS; }
           arm=$(sha "Mooring_${version}_aarch64.dmg"); intel=$(sha "Mooring_${version}_x64.dmg")
@@ -80,13 +82,28 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           cat "$RUNNER_TEMP/mooring.rb"
 
+      # The token never goes into a URL (N-8): a clone URL with credentials is persisted in
+      # tap/.git/config and shows up in `git remote -v`. The public tap clones anonymously; the
+      # push authenticates through GIT_ASKPASS, which hands git the token from this step's
+      # environment only (no credential helper, no prompt, nothing written to disk or logs).
       - name: Push to the tap
         if: steps.gate.outputs.run == 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GIT_TERMINAL_PROMPT: "0"
         run: |
           set -euo pipefail
-          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/${TAP}.git" tap
+          askpass="$RUNNER_TEMP/askpass.sh"
+          cat > "$askpass" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            Username*) echo "x-access-token" ;;
+            Password*) printf '%s\n' "$TAP_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          git -c credential.helper= clone --depth 1 "https://github.com/${TAP}.git" tap
           mkdir -p tap/Casks
           cp "$RUNNER_TEMP/mooring.rb" tap/Casks/mooring.rb
           cd tap
@@ -95,5 +112,7 @@ jobs:
           git add Casks/mooring.rb
           if git diff --cached --quiet; then echo "cask already at $VERSION"; exit 0; fi
           git commit -m "mooring ${VERSION}"
-          git push origin HEAD
+          GIT_ASKPASS="$askpass" git -c credential.helper= push origin HEAD
+          rm -f "$askpass"
+          ! grep -q 'x-access-token' .git/config || { echo "::error::credentials leaked into .git/config"; exit 1; }
           echo "### Homebrew tap updated: mooring ${VERSION}" >> "$GITHUB_STEP_SUMMARY"

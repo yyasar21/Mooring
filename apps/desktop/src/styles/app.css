@@ -10,6 +10,7 @@
 @import "./remote.css" layer(components);
 @import "./kube.css" layer(components);
 @import "./vsphere.css" layer(components);
+@import "./import.css" layer(components);
 
 @theme {
   --color-bg: var(--bg);

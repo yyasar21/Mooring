@@ -36,6 +36,12 @@ test_util_pub!(scheduler, vsphere_sync);
 test_util_pub!(oidc_window, secrets_runtime);
 // Review 6 M-16: one native confirmation at a time, cool-down after a cancel.
 test_util_pub!(confirm_gate);
+// Review 7 N-52: per-process audit-row budget of the net_* commands.
+test_util_pub!(audit_budget);
+// ADR-0018 §3 (A4 U0): in-app updates, Rust-side plugin use only.
+test_util_pub!(updater);
+// ADR-0019 (A4 I1): import plans held between preview and apply.
+test_util_pub!(import_plans);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -71,6 +77,12 @@ use crate::commands::{sync as sync_cmds, sync_join};
 use crate::commands::{vsphere, vsphere_console};
 // ADR-0016 E2
 use crate::commands::{secret_sources, secret_sources_oidc};
+// ADR-0018 §3 (A4 U0)
+use crate::commands::update as update_cmds;
+// ADR-0020 (A4 N1)
+use crate::commands::net as net_cmds;
+// ADR-0019 (A4 I1): importers.
+use crate::commands::import;
 use crate::state::{AppState, Settings};
 
 /// Build and run the application.
@@ -81,16 +93,26 @@ use crate::state::{AppState, Settings};
 #[allow(clippy::too_many_lines)]
 pub fn run() {
     init_tracing();
-    let app = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    // ADR-0018 §3: the updater plugin exists only when a pubkey is compiled in; its JS commands
+    // are unreachable anyway (no `updater:*` permission in any capability).
+    let updater_configured = updater::configured_pubkey(context.config()).is_some();
+    let mut builder = tauri::Builder::default()
         // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`, ADR-0015 power /
         // certificate / VMRC confirmations); the `main` capability grants no dialog permission.
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
+        .plugin(tauri_plugin_dialog::init());
+    if updater_configured {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    let app = builder
+        .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             create_private_dir(&data_dir)?;
             let cache_dir = app.path().app_cache_dir()?;
             create_private_dir(&cache_dir)?;
             app.manage(AppState::new(data_dir, Settings::production())?.with_cache_dir(cache_dir));
+            // ADR-0020: fixed OS tool paths, 2 processes at a time, 1 port check / s.
+            app.manage(net_cmds::NetRuntime::production());
             // Review 5 L-29: no ephemeral web profile outlives the window it belonged to.
             web::sweep::ephemeral_profiles(&app.state::<AppState>());
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
@@ -101,12 +123,28 @@ pub fn run() {
             // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
             commands::syslog::install_heartbeat(app);
             autolock::install(app);
+            // Review 7 N-53: expired import plans (possibly holding secrets) are swept every
+            // minute, not only on the next preview.
+            import_plans::install(app);
             // ADR-0013: web and detached windows hide while the vault is locked.
             window_lock::install(app);
             // ADR-0017 (A3 S2): sync hub + interval runner (runs only while unlocked).
             sync_runner::install(app);
             // ADR-0016 E2: OIDC window backend + Vault token renewer.
             oidc_window::install(app);
+            // ADR-0018 §3 (A4 U0): update runtime + opt-in background check.
+            let current = app.package_info().version.clone();
+            app.manage(if updater_configured {
+                let source = updater::source::PluginSource::new(app.handle().clone());
+                updater::UpdateRuntime::new(
+                    std::sync::Arc::new(source),
+                    std::sync::Arc::new(updater::install_mode::OsProbe),
+                    current,
+                )
+            } else {
+                updater::UpdateRuntime::unconfigured(current)
+            });
+            updater::background::install(app);
             tracing::info!("mooring started");
             Ok(())
         })
@@ -226,8 +264,26 @@ pub fn run() {
             secret_sources::credential_external_test,
             secret_sources_oidc::secret_source_oidc_begin,
             secret_sources_oidc::secret_source_oidc_status,
+            // ADR-0018 §3 (A4 U0): in-app updates
+            update_cmds::update_check,
+            update_cmds::update_install,
+            update_cmds::update_settings_get,
+            update_cmds::update_settings_set,
+            // ADR-0020 (A4 N1): network tools, main only
+            net_cmds::net_tools,
+            net_cmds::net_port_check,
+            net_cmds::net_ping,
+            net_cmds::net_traceroute,
+            net_cmds::net_wg_show,
+            import::import_formats,
+            import::import_pick,
+            import::import_preview,
+            import::import_apply,
+            import::import_discard,
+            commands::ldap_import::ldap_import_preview,
+            commands::ldap_import::ldap_import_test,
         ]))
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building the Tauri application");
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {

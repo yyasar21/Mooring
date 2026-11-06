@@ -19,7 +19,8 @@ administer. Open source, cross-platform, built in Rust.**
 > sessions, read-only Kubernetes sessions, vSphere inventory sync with VM power and consoles,
 > HashiCorp Vault / OpenBao secret references, encrypted vault sync to S3, auto-lock, the audit
 > log and its syslog mirror all work on `main` and have passed six security reviews. Signed
-> installers, importers and the auto-updater are on the [roadmap](docs/roadmap.md) for v0.1.0.
+> installers (cosign-signed checksums; notarization later), importers and the in-app updater are on the
+> [roadmap](docs/roadmap.md) for v0.1.0.
 > Pre-release builds are on the [releases page](https://github.com/yyasar21/Mooring/releases).
 
 ## Contents
@@ -102,7 +103,7 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | Integrations | Encrypted vault sync to S3-compatible storage (three-way merge, fork/rollback hard stops, join flow) | ✅ [ADR-0017](docs/adr/0017-vault-sync-and-signin.md) |
 | Import | Royal TS, Termius, mRemoteNG, PuTTY sessions | 🗓 A4 |
 | Release | dmg/pkg, exe/msi, deb with cosign-signed checksums, SBOM and provenance | ✅ pre-release |
-| Release | Code-signed installers, Homebrew tap, auto-update | 🗓 A4 |
+| Release | Installers with Sigstore-signed checksums and provenance, Homebrew tap, in-app updater (opt-in checks); notarization / Authenticode once certificates exist | 🗓 A4 |
 | QA | 37 cargo-fuzz targets (protocol parsers, kubeconfig, Vault/vCenter/S3 responses, sync blobs) + nightly | ✅ |
 
 ## How Mooring compares
@@ -132,7 +133,7 @@ cryptography, an auditable Rust core and no account or cloud service required.
 
 ## Install
 
-Signed installers ship with **v0.1.0** (Phase A4). Until then, [build from source](#build-from-source).
+Installers ship with **v0.1.0** (Phase A4), with Sigstore-signed checksums and build provenance; they are not notarized or Authenticode-signed yet. Until then, [build from source](#build-from-source).
 Release details and verification steps live in [docs/release.md](docs/release.md).
 
 | OS | Package | Command / file |
@@ -145,8 +146,11 @@ Release details and verification steps live in [docs/release.md](docs/release.md
 | Fedora, RHEL | Package | `sudo dnf install ./mooring-<version>.x86_64.rpm` |
 | Any Linux | AppImage | `chmod +x Mooring_<version>_amd64.AppImage && ./Mooring_<version>_amd64.AppImage` |
 
-All artefacts will be signed (macOS notarized, Windows Authenticode, Linux minisign-signed
-`SHA256SUMS`) and come with a CycloneDX SBOM. See [SECURITY.md](SECURITY.md).
+Every release ships `SHA256SUMS` signed with Sigstore (cosign keyless), SLSA build provenance and a
+CycloneDX SBOM; in-app update packages are signed with the project's updater key and verified
+before install. The first releases are **not** notarized or Authenticode-signed (no certificates
+yet) — see [docs/release.md](docs/release.md) for how to verify a download. See
+[SECURITY.md](SECURITY.md).
 
 ### Build from source
 

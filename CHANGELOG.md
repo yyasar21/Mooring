@@ -6,7 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until v1.0 a
 minor version may contain breaking changes; they are called out under **Changed**.
 
-## [Unreleased]
+## [Unreleased] — 0.1.0-rc.2 (Phase A4, release engineering)
+
+### Added
+
+- **Importers**: Royal TS, Remote Desktop Manager, Termius (CSV/JSON), mRemoteNG, PuTTY and
+  OpenSSH `~/.ssh/config` into a dry-run plan you review before anything is written; plaintext
+  secrets only with an explicit opt-in, passwords that the source stores reversibly encrypted are
+  never imported ([ADR-0019](docs/adr/0019-importers-and-onboarding.md)).
+- **Directory import over LDAPS**: read-only search of computer objects (Active Directory or
+  OpenLDAP) into folders mirroring the OU tree, with Mooring's own bounded LDAP v3 reader,
+  certificate pinning and a native sign-in confirmation per directory host.
+- **Network tools** in the inspector: TCP port check, ping, traceroute and read-only WireGuard
+  status, with the OS tools run from fixed paths and no shell
+  ([ADR-0020](docs/adr/0020-network-tools.md)).
+- **In-app updates**: on-demand (background check is opt-in), packages signed with the project
+  key and verified before install, never auto-installed, never elevated; package-manager and
+  Homebrew installs are told to update there ([ADR-0018](docs/adr/0018-release-v0-1-0.md)).
+- First-run onboarding card, Settings → Import / Updates / About, a new app icon, and the
+  landing site refreshed to the shipped feature set.
+- Release pipeline: Sigstore-signed `SHA256SUMS`, SLSA provenance, CycloneDX SBOMs, a
+  reproducible-build check for the Rust crates, and a separate updater-signing job that runs in
+  a protected GitHub environment.
+
+### Security
+
+- Security review 7 ([docs/security/a4-review-7.md](docs/security/a4-review-7.md)): APPROVE
+  WITH NITS after two fix rounds. The updater signing key never enters a build job (M-17);
+  update offers below the last verified version are refused (L-39); update downloads are pinned
+  to the project's release URL and capped (L-40); key files are imported only from the user's own
+  `~/.ssh/config` (L-41); the first LDAPS sign-in to a host needs a native confirmation (L-43).
+- `ldap3`'s BER decoder crashes on hostile input, so it is not in the product; the LDAP reader
+  is Mooring's own and fuzzed. 18 more fuzz targets (importers, LDAP, network tools, RDP
+  reactivation, VNC cut text, framebuffer ops); first green nightly fuzz run.
+
+## [0.1.0-rc.2-a3] - 2026-11-05 (A3, unreleased tag)
 
 ### Added
 

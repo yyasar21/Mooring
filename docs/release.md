@@ -32,11 +32,12 @@ Each release on <https://github.com/yyasar21/Mooring/releases> carries:
 | `Mooring_<v>_amd64.AppImage`, `_aarch64.AppImage` | Portable Linux build |
 | `SHA256SUMS`, `SHA256SUMS.sigstore.json` | Checksums of every file plus their Sigstore (cosign keyless) signature |
 | `mooring-<v>-cargo.cdx.json`, `mooring-<v>-source.cdx.json` | CycloneDX SBOMs (Rust tree; full source tree incl. npm) |
-| `*.app.tar.gz` | macOS app archives per architecture (updater manifest is not produced yet — see Update channel) |
+| `Mooring_universal.app.tar.gz`, `*-setup.exe`, `*.AppImage` + `.sig` | In-app updater artifacts and their signatures (the `.sig` files and `latest.json` only when the release was signed with the updater key) |
+| `latest.json` | In-app updater manifest: per platform the URL and signature of the artifact above (see Updates) |
 
 Every file also has a GitHub build-provenance (SLSA) attestation.
 
-Note: the rpm and AppImage bundlers do not accept pre-release versions such as `0.1.0-rc.1`,
+Note: the rpm and AppImage bundlers do not accept pre-release versions such as `0.1.0-rc.2`,
 so pre-releases ship the `.deb` only on Linux; stable releases add `.rpm` and the AppImage.
 
 ## Install
@@ -151,20 +152,31 @@ gh attestation verify Mooring_<v>_amd64.deb --repo yyasar21/Mooring
 ```
 
 Maintainers can check a whole release in one go with
-`scripts/release/verify-release.sh v<v>` (or `make verify-release TAG=v<v>`).
+`scripts/release/verify-release.sh v<v>` (or `make verify-release TAG=v<v>`): cosign signature,
+every hash, no unlisted asset, provenance per file and, when the release carries `latest.json`,
+that every manifest entry points at this release and matches its `.sig`; with `minisign`
+installed it also verifies each updater artifact against the app's public key.
 
-If a release was rebuilt by hand (workflow_dispatch), its certificate identity ends in
-`@refs/heads/main` instead of the tag. The script accepts both; nothing else is valid.
+The certificate identity is always `release.yml@refs/tags/v<v>`, also for a release rebuilt by
+hand (the workflow is then run from the tag). The script accepts nothing else and prints which
+run signed (workflow commit, source commit, run URL).
 
 ## Updates
 
-In-app updates are **not enabled yet**: the updater plugin, its public key and the capability change need a security review (tracked in the roadmap). Until then, install new releases from the Releases page or your package manager. When enabled, the manifest will be published at
-`https://github.com/yyasar21/Mooring/releases/latest/download/latest.json`. Each update is
-verified against the public key compiled into the app before it is installed, independently of
-TLS. Pre-releases (`v1.2.0-rc.1`) never reach that channel.
+Mooring checks for updates **only when you ask** (Settings → Updates), or, if you opt in, once
+a day in the background; a background check only shows a badge and never downloads anything.
+The app reads `https://github.com/yyasar21/Mooring/releases/latest/download/latest.json`, which
+GitHub resolves to the newest published stable release: drafts and pre-releases
+(`v0.1.0-rc.2`) never appear there. Every update is verified against the public key compiled
+into the app (`plugins.updater.pubkey`) before a byte is written, independently of TLS, and a
+downgrade is refused.
 
-The in-app updater (Tauri updater plugin) is not wired up in 0.1.x. Until it is, update with
-the package manager you installed from, or install the new release over the old one.
+In-app installation is offered only where it needs no elevation: a macOS `.app` in a folder you
+can write to, the Windows per-user installer and the Linux AppImage. Everything else (`.msi`,
+`.deb`, `.rpm`, Homebrew, an `/Applications` owned by root) shows the new version and sends you
+to this page or your package manager; Mooring never asks for an administrator password.
+
+A release without `latest.json` (built without the updater key) has no in-app channel.
 
 ## Making a release (maintainers)
 
@@ -183,29 +195,38 @@ the vault or storage format; the CHANGELOG says so and includes the migration.
      draft GitHub Release with generated notes (or reuses the tag's existing draft);
    - **build** (6 runners in parallel): macOS arm64/x64/universal on `macos-14`, Windows x64 on
      `windows-2022`, Linux x64 on `ubuntu-22.04` and arm64 on `ubuntu-22.04-arm`. `tauri-action`
-     builds and uploads the bundles; macOS jobs add the `.pkg`. Each signing step runs only if its
-     secrets exist;
-   - **finalize**: downloads every asset, adds the two SBOMs, writes `SHA256SUMS`, signs it with
-     cosign keyless, attests provenance for every file and uploads the lot.
+     builds the bundles; macOS jobs add the `.pkg`, the universal one also the updater archive
+     of the `.app`. Each platform signing step runs only if its secrets exist. The build never
+     holds the updater key;
+   - **sign updater artifacts**: waits for the owner's approval of the `release` environment,
+     then signs the updater archive, the Windows per-user installer and the AppImages with the
+     Tauri CLI (pinned, checksum-verified) and the environment's `TAURI_SIGNING_PRIVATE_KEY`.
+     No project code runs in that job. Without the secret the release gets no `.sig` files and
+     no `latest.json`;
+   - **finalize**: downloads every asset, adds the two SBOMs, writes `latest.json` and
+     `SHA256SUMS`, signs it with cosign keyless, attests provenance for every file and uploads
+     the lot.
 4. Review the draft: notes (edit freely), asset list, the job summaries ("signed: true/false").
    Run `scripts/release/verify-release.sh vx.y.z`, then install it on at least one machine.
 5. Click **Publish release**. That triggers `release-homebrew.yml`, which re-verifies
    `SHA256SUMS` and pushes the new Cask to `yyasar21/homebrew-mooring`.
 
 To fix a failed build, re-run the failed jobs from the Actions page, or run the workflow
-manually with the tag. It uploads into the same draft with `--clobber`. A published release is
+manually **from the tag** (Use workflow from → Tags → `vx.y.z`, with the same tag as input); a
+manual run from a branch is refused. It uploads into the same draft with `--clobber`. A published release is
 never rebuilt: cut a new patch version instead. Pre-release tags (`x.y.z-rc.1`) become
 GitHub pre-releases and skip Homebrew.
 
 ## Secrets and variables
 
-Configure under Settings → Secrets and variables → Actions. Each one is optional: without it
-the matching step is skipped and the build stays unsigned, so forks work as-is.
+Configure under Settings → Secrets and variables → Actions, except the two updater secrets,
+which belong to the **environment `release`** (Settings → Environments). Each one is optional:
+without it the matching step is skipped and the build stays unsigned, so forks work as-is.
 
 | Name | Kind | Used for |
 | --- | --- | --- |
-| `TAURI_SIGNING_PRIVATE_KEY` | secret | Updater signatures + `latest.json`. Generate with `pnpm tauri signer generate -w mooring-updater.key`; the content of the file, not the path. |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | Password of that key |
+| `TAURI_SIGNING_PRIVATE_KEY` | **environment secret** (`release`) | Updater signatures + `latest.json`. Generate with `pnpm tauri signer generate -w mooring-updater.key`; the content of the file, not the path. Never a repository secret: only the `sign-updater` job, gated by the environment's required reviewer and its `v*` tag policy, may read it. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | **environment secret** (`release`) | Password of that key; create the secret with an empty value for a key without one |
 | `APPLE_CERTIFICATE` | secret | Base64 of the "Developer ID Application" `.p12` (`openssl base64 -A -in cert.p12`) |
 | `APPLE_CERTIFICATE_PASSWORD` | secret | `.p12` export password |
 | `APPLE_SIGNING_IDENTITY` | secret | e.g. `Developer ID Application: Yunus Yaşar (TEAMID)` |
@@ -221,9 +242,14 @@ the matching step is skipped and the build stays unsigned, so forks work as-is.
 The Sigstore signature and the provenance attestations need no secret: they use the workflow's
 short-lived OIDC token (`id-token: write`, finalize job only).
 
+The environment `release` needs: required reviewer = the owner, *Deployment branches and tags*
+limited to the tag rule `v*`. Recommended with it: a tag ruleset for `v*` (create/update/delete
+by the owner only) and a branch ruleset on `main` (pull request + review, no force push).
+
 ## Local builds
 
-`make bundle` builds unsigned installers for the current OS into
-`target/release/bundle/`. `make icons` regenerates `src-tauri/icons/` from
+`pnpm tauri build --no-sign` builds unsigned installers for the current OS into
+`target/release/bundle/` (`--no-sign` skips the updater signature, which needs the private key
+only CI has; without it the bundler refuses to run with `createUpdaterArtifacts: true`). `make icons` regenerates `src-tauri/icons/` from
 `packaging/icon.svg`. Package-manager templates for later (winget, Scoop) live in
 `packaging/winget/` and `packaging/scoop/`.

@@ -122,4 +122,23 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("credential_external_test", Scope::Main),
     ("secret_source_oidc_begin", Scope::Main),
     ("secret_source_oidc_status", Scope::Main),
+    // ADR-0018 §3 (A4 U0): in-app updates, main only, all vault-gated.
+    ("update_check", Scope::Main),
+    ("update_install", Scope::Main),
+    ("update_settings_get", Scope::Main),
+    ("update_settings_set", Scope::Main),
+    // ADR-0020 (A4 N1): network tools, main only (the card lives in the inspector).
+    ("net_tools", Scope::Main),
+    ("net_port_check", Scope::Main),
+    ("net_ping", Scope::Main),
+    ("net_traceroute", Scope::Main),
+    ("net_wg_show", Scope::Main),
+    // ADR-0019 §5 (A4 I1): importers, main only.
+    ("import_formats", Scope::Main),
+    ("import_pick", Scope::Main),
+    ("import_preview", Scope::Main),
+    ("import_apply", Scope::Main),
+    ("import_discard", Scope::Main),
+    ("ldap_import_preview", Scope::Main),
+    ("ldap_import_test", Scope::Main),
 ];

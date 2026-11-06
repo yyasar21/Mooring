@@ -13,6 +13,8 @@ members = [
   "crates/mooring-proto-kube",
   "crates/mooring-sync",
   "crates/mooring-secrets", # A3 E1: Vault / OpenBao KV v2 client on mooring-http (ADR-0016)
+  "crates/mooring-net",     # A4 N1: TCP port check, OS ping / traceroute / wg show runners + hostile parsers (ADR-0020)
+  "crates/mooring-import",  # A4 I1: file importers into a dry-run plan (ADR-0019)
   "crates/mooring-testsrv", # dev-only loopback RFB/RDP test servers (A2 Q2); never a product dependency
   "src-tauri",
 ]
@@ -31,10 +33,12 @@ default-members = [
   "crates/mooring-proto-kube",
   "crates/mooring-sync",
   "crates/mooring-secrets",
+  "crates/mooring-net",
+  "crates/mooring-import",
 ]
 
 [workspace.package]
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 edition = "2021"
 rust-version = "1.95"  # sysinfo 0.40 floor; rusqlite 0.41 / keyring 4 need ≥ 1.89
 license = "MIT"
@@ -76,12 +80,20 @@ sha2-next = { package = "sha2", version = "0.11" }         # TOTP HMAC-SHA256/51
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] } # RFC 5425 syslog over TLS; rustls is the only allowed TLS stack (ADR-0001)
 rustls-native-certs = "0.8"                                # OS trust store for syslog TLS (enterprise CAs honoured); no C build, platform APIs only
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] } # tests only: self-signed cert for the loopback TLS collector
+# LDAPS directory importer (ADR-0019 §4, A4 I2). `lber` (MIT, no unsafe) is ldap3's BER codec:
+# the product encodes its four requests with it and parses frames that passed an iterative
+# size / depth scan. `ldap3` itself is a dev-dependency only (independent RFC 4515 parser as the
+# escaping oracle): its transport recurses per BER nesting level and `expect`s on malformed
+# frames, so it never sees server bytes in the product. rustls + ring only (the `tls-rustls`
+# feature alone does not compile: a provider feature is mandatory); no sync / GSSAPI / NTLM.
+ldap3 = { version = "=0.12.1", default-features = false, features = ["tls-rustls-ring"] }
+lber = "=0.5.1"
 # errors / logging
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # async
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "net", "time", "process"] } # `process`: ADR-0020 OS ping / traceroute / wg runners (mooring-net); signal-hook-registry was already in the lockfile
 async-trait = "0.1"
 # tests
 proptest = "1"

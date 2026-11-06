@@ -1,0 +1,7 @@
+Groups,Label,Tags,Hostname/IP,Protocol,Port,Username,Password
+Prod/Web,web01,"prod, web",web01.example.test,ssh,22,deploy,test-only-pw
+Prod,db01,,192.0.2.31,ssh,2201,dba,
+,"quoted ""name""",,198.51.100.50,ssh,,,
+Lab,router,lab,198.51.100.1,telnet,23,admin,
+Lab,badport,,198.51.100.2,ssh,70000,ops,
+Lab,nohost,,,ssh,22,ops,

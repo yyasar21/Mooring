@@ -1,0 +1,51 @@
+[package]
+name = "mooring-import"
+description = "Mooring importers: Royal TS, RDM, Termius, mRemoteNG, PuTTY and OpenSSH exports into a dry-run ImportPlan (ADR-0019)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+# ADR-0019 §4: the LDAPS directory importer (network I/O: tokio-rustls with mooring-http's
+# verifier, lber for BER; see docs/handoff/a4-rust-core-i2.md for why not ldap3's transport).
+directory = ["dep:bytes", "dep:lber", "dep:mooring-http", "dep:rustls", "dep:tokio", "dep:tokio-rustls"]
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.1.0-rc.1" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+# Royal TS / RDM / mRemoteNG XML (ADR-0019 §1): streaming, forbid(unsafe), MIT, already in the
+# tree via plist; DOCTYPE, depth and size caps are enforced in `xml.rs` on top of it.
+quick-xml = { version = "0.42", default-features = false }
+# Royal TS `.rtsz` (gzip-compressed `.rtsx`): pure-Rust inflate with a decompressed-size and
+# ratio cap (ADR-0019 §3); same backend selection as mooring-proto-vnc's test dependency.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+
+# Feature `directory` (A4 I2): lber (MIT, ldap3's BER codec, no unsafe) encodes the four requests
+# and parses frames that passed our iterative scan; bytes is lber's output buffer; the verifier /
+# pin store come from mooring-http; tokio-rustls (ring) carries the connection; rustls for
+# ServerName and to classify a handshake failure; tokio for the task + deadline. All in the tree.
+bytes = { version = "1", optional = true }
+lber = { workspace = true, optional = true }
+mooring-http = { path = "../mooring-http", version = "0.1.0-rc.2", optional = true }
+rustls = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+# The crate's own tests run with the directory importer on.
+mooring-import = { path = ".", features = ["directory"] }
+# Independent RFC 4515 parser as the oracle of the escaping tests (never a product dependency).
+ldap3 = { workspace = true }
+mooring-testsrv = { path = "../mooring-testsrv" } # LDAP mock (dev-only crate)
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

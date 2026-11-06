@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-net-wg-show"
+description = "Enables the net_wg_show command without any pre-configured scope."
+commands.allow = ["net_wg_show"]
+
+[[permission]]
+identifier = "deny-net-wg-show"
+description = "Denies the net_wg_show command without any pre-configured scope."
+commands.deny = ["net_wg_show"]

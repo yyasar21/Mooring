@@ -5,13 +5,15 @@ release criterion, not a feature.
 
 ## Supported versions
 
-Mooring is pre-release. Until v1.0, only the latest release line receives security fixes.
+Until v1.0, only the latest minor line receives security fixes. Fixes ship as a new patch
+release of that line, never as a change to an existing release.
 
 | Version | Supported |
 | --- | --- |
 | `main` (unreleased) | ✅ fixes land here first |
-| latest `0.x` release | ✅ once v0.1.0 is published |
-| older `0.x` releases | ❌ upgrade to the latest release |
+| `0.1.x` | ✅ current line, from the publication of v0.1.0 |
+| pre-releases (`0.1.0-rc.*`) | ❌ dry runs; install v0.1.0 or later |
+| older `0.x` lines (once `0.2` exists) | ❌ upgrade to the latest release |
 
 ## Reporting a vulnerability
 
@@ -65,7 +67,11 @@ In scope:
   others as they land), the certificate trust stores and the frame path to the UI.
 - Release artefacts, signatures, SBOMs and provenance, the release workflows
   (`.github/workflows/release*.yml`, `scripts/release/`) and the update channel (from v0.1.0).
-- Credential import parsers (kubeconfig, PEM, OpenSSH keys and certificates, TOTP seeds).
+- Credential import parsers (kubeconfig, PEM, OpenSSH keys and certificates, TOTP seeds), the
+  connection importers (Royal TS, RDM, Termius, mRemoteNG, PuTTY, OpenSSH) and the LDAPS
+  directory reader.
+- The in-app updater (manifest handling, signature check, install modes) and the network tools
+  (`ping` / `traceroute` / `wg show` runners, TCP check).
 - The HTTPS API clients and their trust stores: Kubernetes (the read-only request guard,
   exec, logs, port-forward), vCenter (inventory sync, power actions, consoles), Vault /
   OpenBao secret sources (token, AppRole, OIDC sign-in window), and vault sync to
@@ -95,15 +101,85 @@ Out of scope:
 <!-- Maintainer: GitHub private vulnerability reporting must be enabled
      (Settings → Code security → Private vulnerability reporting) or the link above 404s. -->
 
-- From v0.1.0, every release ships a `SHA256SUMS` signed with Sigstore cosign (keyless, bound to
-  this repository's `release.yml` and logged in Rekor), SLSA build provenance for each file and
-  CycloneDX SBOMs. Verify a download with
-  [`scripts/release/verify-release.sh`](scripts/release/verify-release.sh) before installing.
-  Platform signing (macOS Developer ID + notarization, Windows Authenticode, RPM GPG) applies
-  where the release notes say so. Until then, macOS builds are ad-hoc signed and Windows builds
-  are unsigned; the checksum signature is the authority.
 - Releases are drafts until a maintainer publishes them by hand. Known medium-severity findings
   at release time are listed in the release notes and in this file.
+
+## Verifying a download
+
+Every release from v0.1.0 ships:
+- `SHA256SUMS`, signed with Sigstore cosign (keyless). The signature is bound to this
+  repository's `release.yml` workflow and logged in Rekor (`SHA256SUMS.sigstore.json`).
+- SLSA build provenance for every file, and CycloneDX SBOMs (Rust and source).
+- For the in-app updater, `latest.json` and one `.sig` per updater artifact. Both are listed
+  in `SHA256SUMS`.
+
+**v0.1.0 installers are not platform-signed.** The macOS build is ad-hoc signed and not
+notarized. The Windows `.exe` / `.msi` carry no Authenticode signature. Linux packages carry no
+GPG signature unless the release notes say so. Gatekeeper and SmartScreen will warn. **Verify
+before you override the warning:**
+
+```sh
+scripts/release/verify-release.sh v0.1.0            # needs gh, cosign >= 3, python3; minisign optional
+```
+
+The script fails closed. It checks, in order:
+1. the cosign signature (identity
+   `https://github.com/yyasar21/Mooring/.github/workflows/release.yml@refs/tags/v0.1.0`, or
+   `@refs/heads/main` for a maintainer re-run; issuer
+   `https://token.actions.githubusercontent.com`);
+2. every hash;
+3. that no file on the release is missing from `SHA256SUMS`;
+4. the provenance of each file;
+5. that `latest.json` points only at this release's own files, and, with `minisign`
+   installed, every updater signature against the public key below.
+
+Without the script:
+
+```sh
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/yyasar21/Mooring/\.github/workflows/release\.yml@refs/tags/v0\.1\.0$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing SHA256SUMS        # macOS: shasum -a 256 -c
+```
+
+Platform signing (Developer ID + notarization, Authenticode, RPM GPG) is added without a code
+change once certificates exist; until then the cosign-signed checksums are the authority.
+
+## In-app updates and their trust
+
+- **Off by default and never automatic.** Mooring checks for an update only when you press
+  "Check for updates", or once a day if you turn on the background check. The background check
+  only shows a badge. Nothing is downloaded or installed until you confirm. A check sends one
+  HTTPS request to `github.com`, which redirects it to GitHub's download host. The app version
+  is in the user agent. There is no telemetry.
+- **What is trusted.** The manifest (`latest.json`, from this repository's latest published
+  release) is not signed. It can only name a version and a file. The file must carry a
+  minisign signature from the Mooring updater key, whose public half is compiled into the app:
+  `plugins.updater.pubkey`, key id `9F4EDAC489D4B86D`. The signature is checked before
+  anything is written. Only a strictly newer version is offered; pre-releases and downgrades
+  never are.
+- **No elevation, ever.** In-app install is offered only where your user can replace the app
+  without administrator rights: an AppImage, a `.app` in a folder you can write, or a per-user
+  Windows (NSIS) install. Packages (`.deb`, `.rpm`, `.msi`), Homebrew and root-owned installs
+  show "update manually" with the release link. Mooring never asks for a sudo, UAC or macOS
+  administrator password to update.
+- **Second trust root.** Whoever holds the updater private key, and can also make the
+  manifest point at their file, can ship code to in-app installs. The key lives only in the
+  repository's release secrets and the maintainer's password manager. Rotating it needs a new
+  release. Open hardening before the key is created: [review 7](docs/security/a4-review-7.md)
+  M-17, L-39, L-40.
+
+## Importers, directory import and network tools (A4)
+
+- **Import files** are parsed locally under size, depth and count caps; XML with a `DOCTYPE` is
+  refused. Nothing is merged into existing folders. Plaintext passwords or keys are imported
+  only from Termius, and only when you tick the option. Passwords stored in mRemoteNG files are
+  never read. The source file stays on disk: delete it yourself if it holds secrets.
+- **LDAPS directory import** uses `ldaps://` only. It binds with a vault credential after the
+  server certificate is trusted (CA, pin, or a native dialog on first use), runs one read-only
+  search and never follows referrals.
+- **Network tools** run the operating system's own `ping`, `traceroute` and `wg show` from
+  fixed paths, and a TCP connect check. They never use elevated rights.
 
 ## Security-relevant design summary
 
@@ -200,6 +276,8 @@ WebView (WebView2, Safari/WebKit, WebKitGTK) updated.
   certificates you trust on one device are trusted on all devices of the vault.
 
 Known gaps before the A3 tag are listed in [review 6](docs/security/a3-review-6.md#conditions-before-the-a3-tag).
+Conditions before the v0.1.0 tag are listed in
+[review 7](docs/security/a4-review-7.md#conditions-before-the-v010-tag).
 
 ## Syslog mirror
 

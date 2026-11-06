@@ -51,6 +51,10 @@ jobs:
           - rfb_handshake
           - vencrypt_negotiation
           - rdp_reassembly
+          # Review 5 L-28 remainder (A4 Q1): ServerCutText + Latin-1, framebuffer operations.
+          - cut_text
+          - framebuffer_ops
+          - rdp_reactivation
           # A3 (ADR-0014..0017, Q2): kubeconfig resolve, kube frames / logs / guard, vCenter
           # bodies, Vault bodies + OIDC URLs, MSY1 blob + snapshot, mooring-http parsers.
           - kubeconfig_resolve
@@ -72,9 +76,26 @@ jobs:
           - http_json_body
           - jwt_exp_peek
           - kube_pod_list_json
+          # A4 N1 (ADR-0020): OS tool output parsers (ping / traceroute / wg show).
+          - net_ping_output
+          - net_traceroute_output
+          - net_wg_output
           # Still a gated no-op stub (docs/qa/fuzzing.md "A3 targets"): the product parses no S3
           # XML; "Stub notice" flags it.
           - s3_error_xml
+          # A4 (ADR-0019, I1): file importers, one per parser plus detect
+          # (crates/mooring-import/src/fuzz.rs).
+          - import_royalts
+          - import_rdm
+          - import_termius_csv
+          - import_termius_json
+          - import_mremoteng
+          - import_putty_reg
+          - import_putty_session
+          - import_ssh_config
+          - import_detect
+          - ldap_filter_escape
+          - ldap_ber_response
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -106,8 +127,9 @@ jobs:
           # Review 5 L-28: RDP/VNC parsers must never make one 1 GiB allocation (B-5/M-14 class).
           MALLOC=""
           # A3: API body / frame / blob parsers carry the same allocation-before-check rule.
+          # A4: importers check the input, decompressed and structure caps before allocating.
           case "$TARGET" in
-            rdp_*|rfb_*|vnc_*|vencrypt_*|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*)
+            rdp_*|rfb_*|vnc_*|vencrypt_*|cut_text|framebuffer_ops|kube_*|kubeconfig_resolve|jwt_*|vsphere_*|vault_kv_*|vault_login_*|external_ref_*|oidc_*|sync_*|s3_*|http_*|import_*|ldap_*)
               MALLOC="-malloc_limit_mb=1024";;
           esac
           cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "fuzz/regressions/$TARGET" -- \

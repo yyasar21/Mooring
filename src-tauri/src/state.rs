@@ -162,14 +162,13 @@ pub struct AppState {
     /// cleared yet. Taken by the 30 s timer, by [`AppState::shutdown`] and by `vault_lock`, so
     /// the clear also happens when the process exits before the timer fires (review 2, M-1).
     pub pending_clipboard: Arc<Mutex<Option<ValueDigest>>>,
-    /// Local paths chosen in the Rust-side file dialog, by `pickId` (review 4, B-4). Cleared
-    /// by `vault_lock`.
+    /// Local paths chosen in the Rust-side file dialog, by `pickId` (review 4, B-4); cleared on lock.
     pub picks: Picks,
-    /// Digest of the text a remote session last wrote to the OS clipboard (ADR-0011
-    /// clipboard): cleared on vault lock and on exit when still unchanged.
+    /// Digest of the text a remote session last wrote to the OS clipboard (ADR-0011): cleared
+    /// on vault lock and on exit when still unchanged.
     pub remote_clipboard: Arc<Mutex<Option<ValueDigest>>>,
-    /// Size of the last `session_screenshot` image put on the OS clipboard: cleared on vault
-    /// lock and on exit when still there (remote screen content does not outlive a lock).
+    /// Size of the last `session_screenshot` image on the OS clipboard: cleared on vault lock
+    /// and on exit when still there (remote screen content does not outlive a lock).
     pub screenshot_clipboard: Arc<Mutex<Option<(u32, u32)>>>,
     /// Digest and credential id of the last secret `credential_copy_*` placed, so a
     /// `ClipboardOffer` of that text is audited `credential_sent_to_remote` (L-25).
@@ -184,8 +183,11 @@ pub struct AppState {
     pub secrets: Arc<crate::secrets_runtime::SecretsRuntime>,
     /// Review 6 M-16: single flight and cool-down of the Rust-native confirmations.
     pub confirm: Arc<crate::confirm_gate::ConfirmGate>,
+    /// ADR-0019 §3: previewed import plans by `planId` (secrets never reach the UI); cleared on lock.
+    pub import_plans: crate::import_plans::ImportPlans,
+    /// Review 7 L-43: confirmed directory sign-ins (credential, `host:port`); cleared on lock.
+    pub ldap_binds: crate::commands::ldap_import::ConfirmedBinds,
 }
-
 /// Errors while loading state at startup.
 #[derive(Debug, thiserror::Error)]
 pub enum StateError {
@@ -255,6 +257,8 @@ impl AppState {
             web: crate::web::WebRegistry::default(),
             lock_observer: crate::window_lock::LockObserver::default(),
             vsphere: crate::vsphere_sync::VsphereHub::default(),
+            import_plans: crate::import_plans::ImportPlans::default(),
+            ldap_binds: crate::commands::ldap_import::ConfirmedBinds::default(),
         })
     }
 

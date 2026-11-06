@@ -98,3 +98,7 @@
 .airlock-steps li { flex: 1; padding: 6px 8px; border-top: 2px solid var(--line-strong); font: 500 var(--fs-2xs)/1.4 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--text-faint); }
 .airlock-steps li[data-state="active"] { border-top-color: var(--accent); color: var(--accent); }
 .airlock-steps li[data-state="done"] { border-top-color: var(--accent-dim); color: var(--text-muted); }
+
+/* The mark beside the kicker: ink post, live ring; the one place the brand glows at rest. */
+.airlock-brand { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
+.airlock-brand .brand-mark { filter: drop-shadow(0 0 5px var(--accent-dim)); }

@@ -11,6 +11,7 @@ import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick
 import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 import { decodeSyncStatus } from "./ipc.decode.sync";
+import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
 
 export * from "./ipc.types";
 
@@ -225,7 +226,34 @@ export class TauriTransport implements Ipc {
   vaultJoin: Ipc["vaultJoin"] = (a) => call("vault_join", { ...a });
   onSyncStatus: Ipc["onSyncStatus"] = (handler) => subscribe("sync:status", (payload) => { handler(decodeSyncStatus(payload)); });
 
+  // ---------- ADR-0019 (importers, I1) ----------
+
+  importFormats: Ipc["importFormats"] = () => call("import_formats");
+  importPick: Ipc["importPick"] = (a) => call("import_pick", { ...a });
+  importPreview: Ipc["importPreview"] = (a) => call("import_preview", { ...a });
+  importApply: Ipc["importApply"] = (a) => call("import_apply", { ...a });
+  importDiscard: Ipc["importDiscard"] = (a) => call("import_discard", { ...a });
+  // ---------- ADR-0019 §4 (directory importer, I2) ----------
+  ldapImportTest: Ipc["ldapImportTest"] = (a) => call("ldap_import_test", { ...a });
+  ldapImportPreview: Ipc["ldapImportPreview"] = (a) => call("ldap_import_preview", { ...a });
+
   onVaultLocked: Ipc["onVaultLocked"] = (handler) => subscribe("vault:locked", (payload) => { handler({ reason: decodeLockReason(payload) }); });
+
+  // ---------- ADR-0018 §3 (updater, U0) ----------
+
+  updateCheck: Ipc["updateCheck"] = () => call<unknown>("update_check").then(decodeUpdateInfo);
+  updateInstall: Ipc["updateInstall"] = (a) => call("update_install", { ...a });
+  updateSettingsGet: Ipc["updateSettingsGet"] = () => call<unknown>("update_settings_get").then(decodeUpdateSettings);
+  updateSettingsSet: Ipc["updateSettingsSet"] = (a) => call<unknown>("update_settings_set", { ...a }).then(decodeUpdateSettings);
+  onUpdateAvailable: Ipc["onUpdateAvailable"] = (handler) => subscribe("update:available", (payload) => { handler(decodeUpdateInfo(payload)); });
+
+  // ---------- ADR-0020 (network tools, N1) ----------
+
+  netTools: Ipc["netTools"] = () => call("net_tools");
+  netPortCheck: Ipc["netPortCheck"] = (a) => call("net_port_check", { ...a });
+  netPing: Ipc["netPing"] = (a) => call("net_ping", { ...a });
+  netTraceroute: Ipc["netTraceroute"] = (a) => call("net_traceroute", { ...a });
+  netWgShow: Ipc["netWgShow"] = () => call("net_wg_show");
 }
 
 /** Subscribe to a Tauri event; the returned function unsubscribes, also when called before `listen` resolved. */

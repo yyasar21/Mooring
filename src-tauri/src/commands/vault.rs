@@ -136,6 +136,11 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     state.clear_pending_clipboard();
     // Review 4 B-4: local paths picked before the lock cannot be used after it.
     state.picks.clear();
+    // ADR-0019 §3: a previewed import plan (possibly holding plaintext secrets) does not
+    // outlive the lock.
+    state.import_plans.clear();
+    // Review 7 L-43: a confirmed directory sign-in does not outlive the unlocked session.
+    state.ldap_binds.clear();
     // Review 4 M-10: no LAN-exposed listener keeps running behind a locked UI.
     crate::commands::forward::close_external(state);
     // ADR-0014 K4: Kubernetes tokens live in memory only; every cluster, exec shell, log

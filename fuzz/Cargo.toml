@@ -28,6 +28,11 @@ mooring-proto-kube = { path = "../crates/mooring-proto-kube" }
 mooring-vsphere = { path = "../crates/mooring-vsphere" }
 mooring-secrets = { path = "../crates/mooring-secrets" }
 mooring-sync = { path = "../crates/mooring-sync" }
+# A4 (ADR-0020 N1): ping / traceroute / wg show output parsers.
+mooring-net = { path = "../crates/mooring-net" }
+# A4 (ADR-0019, I1): the six file importers plus `detect`; I2: the directory importer's
+# escaping and BER response entries (feature `directory`).
+mooring-import = { path = "../crates/mooring-import", features = ["directory"] }
 # Same versions / features as the root workspace (entries name them directly).
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 secrecy = { version = "0.10", features = ["serde"] }
@@ -39,6 +44,12 @@ saphyr-parser = "=0.3.3"
 # target stays a compiling no-op flagged by the nightly "Stub notice" step until an ADR drops it.
 [features]
 s1 = [] # s3_error_xml: rusty-s3 presign + raw PUT/GET/HEAD/DELETE only
+
+# Mirrors the root workspace's patch (Cargo.toml): age 0.12.1 on crates.io pins ml-kem 0.2,
+# which no longer builds next to russh's ml-kem 0.3 / kem 0.3 (`cargo check --bins` failed on
+# `ml-kem 0.2.1` before this, A4 Q1). Same commit, same reason; drop both when age 0.13 ships.
+[patch.crates-io]
+age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }
 
 [[bin]]
 name = "known_hosts_parse"
@@ -138,13 +149,6 @@ test = false
 doc = false
 bench = false
 
-[profile.release]
-debug = 1
-
-# Mirror of the root workspace patch (patches only apply from the workspace root).
-[patch.crates-io]
-age = { git = "https://github.com/str4d/rage", rev = "b5b68c4" }
-
 [[bin]]
 name = "rfb_handshake"
 path = "fuzz_targets/rfb_handshake.rs"
@@ -162,6 +166,12 @@ bench = false
 [[bin]]
 name = "rdp_reassembly"
 path = "fuzz_targets/rdp_reassembly.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "rdp_reactivation"
+path = "fuzz_targets/rdp_reactivation.rs"
 test = false
 doc = false
 bench = false
@@ -271,7 +281,6 @@ test = false
 doc = false
 bench = false
 
-# A3 Q2: entries the crates already expose but no target named (crate `fuzz` modules).
 [[bin]]
 name = "kube_portforward_frames"
 path = "fuzz_targets/kube_portforward_frames.rs"
@@ -303,6 +312,120 @@ bench = false
 [[bin]]
 name = "http_json_body"
 path = "fuzz_targets/http_json_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_ping_output"
+path = "fuzz_targets/net_ping_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_royalts"
+path = "fuzz_targets/import_royalts.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_traceroute_output"
+path = "fuzz_targets/net_traceroute_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_rdm"
+path = "fuzz_targets/import_rdm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_wg_output"
+path = "fuzz_targets/net_wg_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_termius_csv"
+path = "fuzz_targets/import_termius_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_termius_json"
+path = "fuzz_targets/import_termius_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_mremoteng"
+path = "fuzz_targets/import_mremoteng.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_putty_reg"
+path = "fuzz_targets/import_putty_reg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_putty_session"
+path = "fuzz_targets/import_putty_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_ssh_config"
+path = "fuzz_targets/import_ssh_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "import_detect"
+path = "fuzz_targets/import_detect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ldap_filter_escape"
+path = "fuzz_targets/ldap_filter_escape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ldap_ber_response"
+path = "fuzz_targets/ldap_ber_response.rs"
+test = false
+doc = false
+bench = false
+
+# Review 5 L-28 remainder (A4 Q1): `ServerCutText` + Latin-1 converters (mooring-proto-vnc)
+# and the shared framebuffer operations (mooring-core).
+[[bin]]
+name = "cut_text"
+path = "fuzz_targets/cut_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "framebuffer_ops"
+path = "fuzz_targets/framebuffer_ops.rs"
 test = false
 doc = false
 bench = false

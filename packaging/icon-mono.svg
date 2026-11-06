@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mooring monochrome mark (menu bar / tray template image). Same silhouette as icon.svg,
+     one ink, no plate: the OS tints it. Original artwork for this project (MIT, see LICENSE). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Mooring</title>
+  <g fill="none" stroke="#000" stroke-linecap="round" stroke-width="56">
+    <!-- the line from the quay -->
+    <path d="M330 566 C 262 600, 200 700, 130 830"/>
+    <!-- loop: back half -->
+    <path d="M322 560 A190 66 0 0 1 702 560"/>
+  </g>
+  <defs>
+    <!-- knocks a clear band out of the post where the front half of the loop crosses it -->
+    <mask id="gap">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="#000" stroke-width="112" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <g fill="#000" mask="url(#gap)">
+    <path d="M296 356 v-52 a216 112 0 0 1 432 0 v52 a24 24 0 0 1 -24 24 h-384 a24 24 0 0 1 -24 -24 z"/>
+    <path d="M432 370 h160 l8 300 c2 30 18 40 44 44 h8 a22 22 0 0 1 22 22 v22 a22 22 0 0 1 -22 22 h-280 a22 22 0 0 1 -22 -22 v-22 a22 22 0 0 1 22 -22 h8 c26 -4 42 -14 44 -44 z"/>
+  </g>
+  <!-- loop: front half, with a clear gap so it reads in front of the post -->
+  <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="#000" stroke-width="56" stroke-linecap="round"/>
+</svg>

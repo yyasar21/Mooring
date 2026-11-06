@@ -59,15 +59,15 @@ pub(crate) fn normalise_tags(tags: &[String]) -> Result<Vec<String>> {
     Ok(out.into_iter().collect())
 }
 
-struct Validated {
-    name: String,
-    host: String,
-    tags: Vec<String>,
-    username_override: Option<String>,
-    domain_override: Option<String>,
+pub(crate) struct Validated {
+    pub(crate) name: String,
+    pub(crate) host: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) username_override: Option<String>,
+    pub(crate) domain_override: Option<String>,
 }
 
-fn validate(c: &Connection) -> Result<Validated> {
+pub(crate) fn validate(c: &Connection) -> Result<Validated> {
     if c.port == Some(0) {
         return Err(invalid("port", "must be 1..=65535"));
     }
@@ -287,7 +287,11 @@ impl Store {
 }
 
 /// Replace tags inside the caller's transaction. Triggers keep the FTS row in sync.
-fn write_tags(conn: &rusqlite::Connection, id: ConnectionId, tags: &[String]) -> Result<()> {
+pub(crate) fn write_tags(
+    conn: &rusqlite::Connection,
+    id: ConnectionId,
+    tags: &[String],
+) -> Result<()> {
     let id = id.to_string();
     conn.execute("DELETE FROM connection_tag WHERE connection_id = ?1", [&id])?;
     let mut stmt =

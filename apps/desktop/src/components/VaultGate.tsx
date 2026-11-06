@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BrandMark } from "@mooring/ui";
 import type { LockReason } from "../lib/ipc";
 import { useApp } from "../stores/app";
 import { VaultJoin } from "./VaultJoin";
@@ -59,7 +60,10 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
         data-active
       >
         <div className="airlock-kicker">
-          <span className="m-micro">Mooring vault</span>
+          <span className="m-micro airlock-brand">
+            <BrandMark size={16} />
+            Mooring vault
+          </span>
           <span className="m-micro">{mode === "create" ? "Not initialised" : "Sealed"}</span>
         </div>
         {mode === "unlock" && reason && (

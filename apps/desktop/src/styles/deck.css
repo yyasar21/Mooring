@@ -38,7 +38,7 @@
 }
 .wordmark { display: flex; align-items: center; gap: 9px; padding-right: 6px; }
 .wordmark-text { font: 600 13px/1 var(--font-display); letter-spacing: 0.32em; color: var(--text); }
-.wordmark svg { color: var(--accent); filter: drop-shadow(0 0 4px var(--accent-dim)); }
+.wordmark svg { color: var(--text); filter: drop-shadow(0 0 4px var(--accent-dim)); }
 .seek {
   display: flex; align-items: center; gap: 10px; height: 26px; width: 400px; min-width: 0; padding: 0 4px 0 10px;
   border: 1px solid var(--line-strong); background: var(--bg); color: var(--text-faint); text-align: left;
@@ -198,3 +198,34 @@
 .tele-val[data-tone="ok"] { color: var(--accent); }
 .tele-val[data-tone="hot"] { color: var(--hot); }
 .tele-spacer { flex: 1; }
+
+/* ---------- inspector → Network (ADR-0020): tool rows, result lines, hop tables, raw output ---------- */
+.net-card { display: flex; flex-direction: column; gap: 10px; padding-bottom: 4px; }
+.net-card > .m-hud-label { margin-bottom: 0; }
+.net-target { display: flex; flex-direction: column; gap: 4px; }
+.net-tool { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 0; border-top: 1px solid var(--line); }
+.net-tool[data-missing] .btn { opacity: 0.45; }
+.net-tool-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.net-param { display: inline-flex; align-items: center; gap: 6px; }
+.net-num { width: 58px; height: 26px; padding: 0 6px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.net-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 4px; margin: 0; font-size: var(--fs-s); line-height: 1.4; }
+.net-outcome { font: 600 var(--fs-2xs)/1.6 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
+.net-line[data-outcome="open"] .net-outcome { color: var(--accent); }
+.net-line[data-outcome="closed"] .net-outcome, .net-line[data-outcome="unreachable"] .net-outcome, .net-line[data-outcome="dns_failed"] .net-outcome { color: var(--hot); }
+.net-line[data-outcome="timeout"] .net-outcome { color: var(--warn); }
+.net-running { color: var(--text-muted); align-items: center; }
+.net-result { display: flex; flex-direction: column; gap: 6px; }
+.net-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.net-table th { text-align: left; padding: 2px 6px; font: 500 var(--fs-2xs)/1.6 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--text-faint); border-bottom: 1px solid var(--line); }
+.net-table td { padding: 2px 6px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.net-table tr[data-timeout] td { color: var(--text-faint); }
+.net-output-wrap { border: 1px solid var(--line); background: var(--bg-sunken); }
+.net-output-summary { cursor: pointer; padding: 4px 8px; font: 500 var(--fs-2xs)/1.6 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--text-muted); }
+.net-output-summary:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.net-output { margin: 0; max-height: 220px; overflow: auto; padding: 6px 8px; border-top: 1px solid var(--line); font: 400 var(--fs-xs)/1.45 var(--font-mono); color: var(--text); white-space: pre; }
+.net-wg { display: flex; flex-direction: column; gap: 4px; }
+.net-peers { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; border: 1px solid var(--line); }
+.net-peer { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1px 10px; padding: 5px 8px; font-size: var(--fs-xs); }
+.net-peer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-peer > span:nth-child(2) { white-space: normal; overflow-wrap: anywhere; }
+.net-peer + .net-peer { border-top: 1px solid var(--line); }

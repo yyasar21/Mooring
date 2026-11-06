@@ -112,4 +112,24 @@ permissions = [
   "allow-credential-external-test",
   "allow-secret-source-oidc-begin",
   "allow-secret-source-oidc-status",
+  # ADR-0018 U0: in-app updates
+  "allow-update-check",
+  "allow-update-install",
+  "allow-update-settings-get",
+  "allow-update-settings-set",
+  # ADR-0020 (A4 N1): network tools
+  "allow-net-tools",
+  "allow-net-port-check",
+  "allow-net-ping",
+  "allow-net-traceroute",
+  "allow-net-wg-show",
+  # ADR-0019 (A4 I1): importers
+  "allow-import-formats",
+  "allow-import-pick",
+  "allow-import-preview",
+  "allow-import-apply",
+  "allow-import-discard",
+  # ADR-0019 §4 (A4 I2): LDAPS directory importer
+  "allow-ldap-import-preview",
+  "allow-ldap-import-test",
 ]

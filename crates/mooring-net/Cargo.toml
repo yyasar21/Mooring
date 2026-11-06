@@ -1,0 +1,25 @@
+[package]
+name = "mooring-net"
+description = "Mooring network tools: TCP port check, OS ping / traceroute / wg show with fixed argv and hostile output parsers (ADR-0020)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+# No new third-party crate (ADR-0020 §1): tokio gains the `process` feature at the workspace
+# level; everything else is already in the lockfile.
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RTSDocument xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <RoyalTSDocument>
+    <ID>00000000-0000-4000-8000-000000000001</ID>
+    <Name>Lab document</Name>
+    <Encrypted>false</Encrypted>
+  </RoyalTSDocument>
+  <RoyalFolder>
+    <ID>00000000-0000-4000-8000-000000000010</ID>
+    <ParentID>00000000-0000-4000-8000-000000000001</ParentID>
+    <Name>Datacenter</Name>
+    <RoyalFolder>
+      <ID>00000000-0000-4000-8000-000000000011</ID>
+      <Name>Rack 1</Name>
+    </RoyalFolder>
+  </RoyalFolder>
+  <RoyalCredential>
+    <ID>00000000-0000-4000-8000-000000000020</ID>
+    <Name>Domain admin</Name>
+    <UserName>admin</UserName>
+    <Domain>CORP</Domain>
+    <Password>ZW5jcnlwdGVkLW5ldmVyLXVzZWQ=</Password>
+  </RoyalCredential>
+  <RoyalRDSConnection>
+    <ID>00000000-0000-4000-8000-000000000030</ID>
+    <ParentID>00000000-0000-4000-8000-000000000011</ParentID>
+    <Name>ts01</Name>
+    <URI>ts01.example.test</URI>
+    <Port>3390</Port>
+    <CredentialID>00000000-0000-4000-8000-000000000020</CredentialID>
+  </RoyalRDSConnection>
+  <RoyalSSHConnection>
+    <ID>00000000-0000-4000-8000-000000000031</ID>
+    <ParentID>00000000-0000-4000-8000-000000000010</ParentID>
+    <Name>bastion</Name>
+    <URI>192.0.2.20</URI>
+    <Port>22</Port>
+    <CredentialUsername>ops</CredentialUsername>
+  </RoyalSSHConnection>
+  <RoyalTerminalConnection>
+    <ID>00000000-0000-4000-8000-000000000032</ID>
+    <Name>serial-old</Name>
+    <URI>198.51.100.3</URI>
+    <TerminalConnectionType>Telnet</TerminalConnectionType>
+  </RoyalTerminalConnection>
+  <RoyalVNCConnection>
+    <ID>00000000-0000-4000-8000-000000000033</ID>
+    <Name>kvm</Name>
+    <URI>198.51.100.4</URI>
+    <Port>5900</Port>
+  </RoyalVNCConnection>
+  <RoyalWebConnection>
+    <ID>00000000-0000-4000-8000-000000000034</ID>
+    <ParentID>00000000-0000-4000-8000-000000000999</ParentID>
+    <Name>Grafana</Name>
+    <URL>https://grafana.example.test/d/abc</URL>
+  </RoyalWebConnection>
+  <RoyalFileTransferConnection>
+    <ID>00000000-0000-4000-8000-000000000035</ID>
+    <Name>sftp box</Name>
+    <URI>198.51.100.5</URI>
+  </RoyalFileTransferConnection>
+  <RoyalRDSConnection>
+    <ID>00000000-0000-4000-8000-000000000036</ID>
+    <Name>bidi&#x200E;name</Name>
+    <URI>203.0.113.9</URI>
+  </RoyalRDSConnection>
+</RTSDocument>

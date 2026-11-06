@@ -205,10 +205,7 @@ where
     if input_bytes < OFFLOAD_BYTES {
         return f(handle);
     }
-    tokio::task::spawn_blocking(move || f(handle)).await.unwrap_or_else(|_| {
-        tracing::error!("credential command task failed");
-        Err(IpcError::new("internal", "internal error"))
-    })
+    super::off_thread(handle, f).await
 }
 
 // ------------------------------------------------------------------ Tauri wrappers

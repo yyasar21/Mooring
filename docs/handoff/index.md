@@ -8,6 +8,25 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |
 | 2026-11-04 | A3 | rust-core | [a3-rust-core-k1.md](a3-rust-core-k1.md) · [k2](a3-rust-core-k2.md) · [k3](a3-rust-core-k3.md) · [k4](a3-rust-core-k4.md) · [v1](a3-rust-core-v1.md) · [v2](a3-rust-core-v2.md) · [e1](a3-rust-core-e1.md) · [e2](a3-rust-core-e2.md) · [s1](a3-rust-core-s1.md) · [s2 + integration](a3-rust-core-s2.md) |
 | 2026-11-04 | A3 | ui-engineer | [a3-ui-u1.md](a3-ui-u1.md) — typed IPC, Kubernetes cluster browser, exec, logs, pod forwards |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-i2.md](a4-rust-core-i2.md) — LDAPS importer with its own bounded LDAP v3 reader (ldap3 parser crashes on hostile BER → dev-only oracle), mock LDAP server, 2 fuzz targets |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-i1.md](a4-rust-core-i1.md) — mooring-import: 6 file importers, dry-run plan, import_* commands, 9 fuzz targets |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-n1.md](a4-rust-core-n1.md) — mooring-net: TCP check, ping/traceroute/wg show (fixed paths, no shell), net_* commands, 3 fuzz targets |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-u0.md](a4-rust-core-u0.md) — in-app updater: update_check/install/settings, install-mode matrix, background check opt-in; Cargo.lock: +tauri-plugin-updater 2.14.1 tree |
+| 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) — updater manifest + config, cosign/SBOM/provenance finalize, release-repro.yml, version 0.1.0-rc.2, owner actions |
+| 2026-11-06 | A4 | orchestrator | [a4-orchestrator.md](a4-orchestrator.md) — A4 code complete; review 7 → 7b APPROVE WITH NITS; v0.1.0 tag conditions (owner GitHub settings, L-14, rc.2 dry run, per-OS gates) |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-u5.md](a4-ui-u5.md) — F2 contract (downgrade floor, key files only for known location, LDAP sign-in confirmation), LDAPS E2E flow |
+| 2026-11-06 | A4 | security-reviewer | re-review 7b: APPROVE WITH NITS for the merge (N-61..N-64); v0.1.0 tag conditions = owner GitHub settings (release environment, rulesets, environment secrets), L-14 digest, rc.2 dry run, per-OS manual gates |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-f2.md](a4-rust-core-f2.md) — review 7 fixes: L-39..L-43 (downgrade floor, capped download + URL pin, key files only for known location, LDAP sign-in confirmation), N-50..N-56, N-60 |
+| 2026-11-06 | A4 | release-engineer | [a4-release-engineer.md](a4-release-engineer.md) §R2 — M-17 sign-updater job + `release` environment, toolchain pin, tag-ref cosign identity, tap token out of URLs |
+| 2026-11-06 | A4 | rust-core | [a4-rust-core-f1.md](a4-rust-core-f1.md) — import refusals always audited, rdp_reactivation fuzz target (L-28 closed), audit event.rs split by phase, ldap_bind rows |
+| 2026-11-06 | A4 | security-reviewer | [../security/a4-review-7.md](../security/a4-review-7.md) — review 7: APPROVE WITH NITS (M-17 updater key in build env, L-39..L-43, N-51..N-60); threat model A4; SECURITY.md 0.1.x; [handoff](a4-security-reviewer.md) |
+| 2026-11-06 | A4 | qa-engineer | [a4-qa-q1.md](a4-qa-q1.md) — 14 A4 fuzz targets + L-28 cut_text/framebuffer_ops, hostile importer/LDAP/net/updater suites (+17 app tests), 10 E2E flows; fuzz lock fix (age patch) |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-u4.md](a4-ui-u4.md) — Directory (LDAPS) source in the import wizard: form, test bind, preview |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-site.md](a4-ui-site.md) — landing site refreshed to A1–A3 complete / A4 in progress; new icon, 12-shot gallery, FAQ |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-u1.md](a4-ui-u1.md) — Settings → Import card, 3-step import wizard, first-run onboarding card |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-u2.md](a4-ui-u2.md) — Settings → Updates card + title-bar indicator, inspector Network card |
+| 2026-11-06 | A4 | ui-engineer | [a4-ui-u3.md](a4-ui-u3.md) — app icon (bollard + line), BrandMark, favicon, About card |
+| 2026-11-06 | A4 | architect | [a4-architect.md](a4-architect.md) — ADR-0018 release v0.1.0 (cosign keyless, updater on demand, repro job), ADR-0019 importers + LDAPS, ADR-0020 network tools; task split |
 | 2026-11-05 | A3 | orchestrator | [a3-orchestrator.md](a3-orchestrator.md) — Kubernetes, vSphere, external secrets, vault sync; review 6 → B-6 → fix 8 → re-review 6c APPROVE WITH NITS |
 | 2026-11-05 | A3 | security-reviewer | re-review 6b (BLOCKER B-6: Escape confirmed native dialogs via the plugin's cancel-slot remap) → fix round 8 → re-review 6c APPROVE WITH NITS (N-50); see [a3-review-6.md](../security/a3-review-6.md) |
 | 2026-11-05 | A3 | rust-core | [a3-rust-core-fix-7.md](a3-rust-core-fix-7.md) · [fix-8](a3-rust-core-fix-8.md) — M-16 confirm gate, L-33/L-34/L-35 (fail closed, `http.trust_conflict`)/L-37, N-39..N-49, B-6 three-slot dialogs |

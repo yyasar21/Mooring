@@ -76,8 +76,44 @@ parser and is replayed on stable by the owning crate's `tests/fuzz_corpus.rs`.
 
 Seeds are in `fuzz/corpus/<target>/` (synthetic, fake hosts only); the RFB test server
 (`mooring-testsrv`, docs/qa/test-servers.md) can record more RFB seeds for every encoding.
-Still Q1: `framebuffer_ops`, `rfb_handshake`, `raw_copyrect_bounds`, `vencrypt_negotiation`,
-`cut_text` as separate targets, and the pinned upstream IronRDP targets.
+
+### Review 5 L-28 (pre-TLS RFB, reassembly, cut text, framebuffer)
+
+| Target | Entry (`fuzz/entries/`) | Parser | Stable replay |
+| --- | --- | --- | --- |
+| `rfb_handshake` | `rfb_handshake.rs` | `mooring_proto_vnc::fuzz::handshake` (version, security list, `SecurityResult`, `ServerInit`) | mooring-proto-vnc |
+| `vencrypt_negotiation` | `vencrypt_negotiation.rs` | `mooring_proto_vnc::fuzz::vencrypt` | mooring-proto-vnc |
+| `rdp_reassembly` | `rdp_reassembly.rs` | `mooring_proto_rdp::fuzz::reassembly` (M-14 caps) | mooring-proto-rdp |
+| `cut_text` | `cut_text.rs` | `mooring_proto_vnc::{parse_server_message, messages::latin1_to_string / string_to_latin1}` | mooring-proto-vnc |
+| `framebuffer_ops` | `framebuffer_ops.rs` | `mooring_core::frame::Framebuffer` (resize / blit / copy / fill / cursor / `take_update` → `encode_update` → `decode_mfr1`) | mooring-core |
+| `rdp_reactivation` | `rdp_reactivation.rs` | `mooring_proto_rdp::fuzz::reactivation` (`ConnectionActivationSequence` → `check_desktop` → `ActiveStage::reactivate`) | mooring-proto-rdp |
+
+`cut_text` (A4 Q1): byte 0 even frames the rest as a `ServerCutText` with the real length (or,
+for `sel % 4 == 2`, a tripled claim, so `Need` and `CutTextTooLong` are reached); the oracle
+is "no control character except tab / newline survives, the text re-encodes to the filtered
+input, a claim over 1 MiB is reported without reading the body". `framebuffer_ops` (A4 Q1):
+bytes 0–1 pick the size, then 8-byte ops whose rectangles are never clamped by the harness;
+the oracle is "a rectangle is refused exactly when it lies outside the framebuffer, the pixel
+buffer stays `w·h·4`, the dirty area never exceeds the framebuffer, an invalid sprite never
+reaches an update, every update's `MFR1` encoding decodes back". `raw_copyrect_bounds` is
+covered by `rfb_server_msg` (every encoding through `parse_rect` + `FrameSink`), so it is not
+a separate target.
+
+`rdp_reactivation` (A4 F1, the last L-28 item): each `[len16, bytes]` frame is one hostile
+server PDU stepped through a fresh `ConnectionActivationSequence` built from the product
+connector config (same ids as the other RDP entries), with `step_no_input` on the client's
+own turns exactly as `single_sequence_step_read` does; a finalized sequence then goes through
+`check_desktop` and `ActiveStage::reactivate` like `active::reactivate` after a server
+`DeactivateAll`. The oracle is "never panics, a desktop outside `MAX_DIM` is refused before
+`DecodedImage` allocates for it". Seeds: the full sequence (Demand Active → Synchronize →
+Control ×2 → Font Map) at 1024×768, the same behind a leading `DeactivateAll` at 1280×800,
+a 60000×60000 desktop, a truncated Demand Active and an error-info disconnect;
+`rdp_reactivation_seeds_reach_the_reactivation_branch` pins that the two full sequences
+still finalize (so the fuzzer starts past the refusal branches) and the other three do not.
+The
+pinned upstream IronRDP targets (`pdu_decoding`, `rle_decompression`, `bitmap_stream`,
+`cliprdr_format`, `channel_processing`) are run by the IronRDP project on the locked
+versions; they are not duplicated here.
 
 ## A3 targets (ADR-0014..0017)
 
@@ -133,6 +169,64 @@ targets: an API body, frame or blob parser must not allocate before it checks th
 `ASan` on `kubeconfig_parse` (the R-YAML-DEQ gate, ADR-0014 test plan) is not run: the hostile
 kubeconfig cases are plain `cargo test`s in `crates/mooring-core/tests/hostile_kubeconfig.rs`.
 
+## A4 targets (ADR-0020 network tools, N1)
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `net_ping_output` | `net_ping_output.rs` | `mooring_net::fuzz::fuzz_ping_output` (`parse_ping`) | 0020 §3 | mooring-net |
+| `net_traceroute_output` | `net_traceroute_output.rs` | `mooring_net::fuzz::fuzz_traceroute_output` (`parse_traceroute`) | 0020 §3 | mooring-net |
+| `net_wg_output` | `net_wg_output.rs` | `mooring_net::fuzz::fuzz_wg_output` (`[query selector, body]`, `parse_wg`) | 0020 §4 | mooring-net |
+
+Oracle for all three: no panic, the caps hold (64 KiB in, 200 lines × 512 bytes out, ≤ 64
+replies / hop rows, ≤ 32 interfaces, ≤ 256 peers), every produced line is free of control,
+ANSI, bidi and other `Cf` characters, numbers are finite and `received ≤ sent`. Seeds cover
+iputils, BSD, Windows en-US and tr-TR `ping`, Linux `traceroute`, `tracepath`, `tracert`
+and each `wg show` subcommand plus a hostile sample (ANSI, bidi, overlong numbers);
+`crates/mooring-net/tests/fuzz_corpus.rs` pins that the well-formed seeds keep parsing.
+
+## A4 targets (ADR-0019, I1)
+
+Every import file is hostile (T3). Each importer in `crates/mooring-import` has one target;
+the entries live in `mooring_import::fuzz` and are replayed on stable by
+`crates/mooring-import/tests/fuzz_corpus.rs`, which also pins that every `fixture-plain` seed
+still parses (≥ 2 connections) and that `detect` names its format. The first byte of every
+input is the plaintext-secret opt-in flag (odd = on); the oracle asserts the item caps, that
+every emitted item re-passes the `mooring-core` validators, that folder / credential keys
+resolve, and that no plan carries a secret unless the flag is set **and** the format can hold
+plaintext secrets (Termius, OpenSSH) — never for mRemoteNG, PuTTY, Royal TS or RDM.
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `import_royalts` | `import_royalts.rs` | `mooring_import::fuzz::fuzz_royalts` (`.rtsx`, gzip `.rtsz`; ZIP refused) | 0019 §2 | mooring-import |
+| `import_rdm` | `import_rdm.rs` | `mooring_import::fuzz::fuzz_rdm` | 0019 §2 | mooring-import |
+| `import_termius_csv` | `import_termius_csv.rs` | `mooring_import::fuzz::fuzz_termius_csv` (in-house RFC 4180 reader) | 0019 §2 | mooring-import |
+| `import_termius_json` | `import_termius_json.rs` | `mooring_import::fuzz::fuzz_termius_json` | 0019 §2 | mooring-import |
+| `import_mremoteng` | `import_mremoteng.rs` | `mooring_import::fuzz::fuzz_mremoteng` | 0019 §2 | mooring-import |
+| `import_putty_reg` | `import_putty_reg.rs` | `mooring_import::fuzz::fuzz_putty_reg` (UTF-16LE / UTF-8) | 0019 §2 | mooring-import |
+| `import_putty_session` | `import_putty_session.rs` | `mooring_import::fuzz::fuzz_putty_session` (`name NUL content NUL …`) | 0019 §2 | mooring-import |
+| `import_ssh_config` | `import_ssh_config.rs` | `mooring_import::fuzz::fuzz_ssh_config` | 0019 §2 | mooring-import |
+| `import_detect` | `import_detect.rs` | `mooring_import::fuzz::fuzz_detect` (`[name selector, file]`, then the detected parser) | 0019 §1 | mooring-import |
+
+The XML targets share `mooring_import::xml` (quick-xml 0.42 under the ADR caps: `<!DOCTYPE`
+refused, depth ≤ 64, ≤ 200 000 elements, attribute / text ≤ 4 KiB, five predefined and
+numeric references only). The fuzz-time caps lower the input to 1 MiB and the decompressed
+size to 8 MiB (`FUZZ_LIMITS`) so a run stays fast.
+
+## A4 targets (ADR-0019 §4, I2: LDAPS directory importer)
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `ldap_filter_escape` | `ldap_filter_escape.rs` | `mooring_import::ldap::fuzz::fuzz_filter_escape` (`escape_value`, `search_filter`, `Dn::parse`, `LdapTarget::parse`) | 0019 §4 | mooring-import |
+| `ldap_ber_response` | `ldap_ber_response.rs` | `mooring_import::ldap::fuzz::fuzz_ber_response` (`frame::scan` → `lber::parse_tag` → `wire::decode_message` / `result_code` / `paging_cookie` → `entry::extract` → `build_plan`) | 0019 §4 | mooring-import |
+
+Oracles: the escaped value holds no raw `( ) * \` or control byte and unescapes back to the
+input; a filter built from it is one balanced expression no deeper than the fixed shape; a
+parsed DN round-trips through its wire form. For responses: every frame the iterative scan
+accepts (≤ 256 KiB, depth ≤ 32, definite lengths) is parsed by `lber` to exactly that length,
+nothing below panics, and a plan built from a decoded entry passes the importer oracle. Seeds:
+a bind response, an entry, a result with a paged-results control, `30 00`, a 4 GiB length
+claim, 40 nested SEQUENCEs, a referral and a `sizeLimitExceeded` result (`fuzz/corpus/ldap_ber_response/`).
+
 ## Layout
 
 ```
@@ -181,7 +275,7 @@ Without nightly, the stable side still works and is what CI runs on every push:
 ```sh
 cargo test -p mooring-proto-ssh -p mooring-core -p mooring-vault -p mooring-proto-rdp \
   -p mooring-proto-vnc -p mooring-http -p mooring-proto-kube -p mooring-vsphere \
-  -p mooring-secrets -p mooring-sync --test fuzz_corpus
+  -p mooring-secrets -p mooring-sync -p mooring-net -p mooring-import --test fuzz_corpus
 cd fuzz && cargo check --bins     # the targets compile on stable; only running them needs nightly
 ```
 

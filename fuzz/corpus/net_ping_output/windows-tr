@@ -1,0 +1,10 @@
+
+192.0.2.1 için Ping atılıyor 32 bayt veri ile:
+192.0.2.1 yanıtı: bayt=32 süre=1ms TTL=64
+192.0.2.1 yanıtı: bayt=32 süre<1ms TTL=64
+İstek zaman aşımına uğradı.
+
+192.0.2.1 için Ping istatistikleri:
+    Paketler: Gönderilen = 3, Alınan = 2, Kaybolan = 1 (%33 kayıp),
+Mili saniye türünden yaklaşık tur süreleri:
+    En Az = 0ms, En Çok = 1ms, Ortalama = 0ms

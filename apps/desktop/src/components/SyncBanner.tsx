@@ -72,7 +72,7 @@ export function bannerText(s: SyncStatus): string {
 }
 
 /** Settings view, then the named card's heading gets focus so its controls are one Tab away. */
-export function openSettingsCard(headingId: "sync-title" | "trust-title"): void {
+export function openSettingsCard(headingId: "sync-title" | "trust-title" | "updates-title"): void {
   useUi.getState().setView("settings");
   requestAnimationFrame(() => {
     const h = document.getElementById(headingId);
