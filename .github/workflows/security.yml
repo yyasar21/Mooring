@@ -48,7 +48,7 @@ jobs:
     # (the multi-arch index digest; pin the tag that `docker run semgrep/semgrep:latest semgrep --version`
     # reports next to it, so a reader knows which release the digest is). Renovate/Dependabot
     # can bump a digest-pinned `image:`; a floating tag is what L-14 rejects.
-    container: { image: semgrep/semgrep } # TODO(L-14): digest — replace with semgrep/semgrep:<version>@sha256:<digest>
+    container: { image: semgrep/semgrep:latest@sha256:2e45517a85e13a9cca14a2a00df6bb48affd66b8ebfae1b0991cd57578362fb0 } # L-14: pinned 2026-11-06 (index digest of :latest)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
