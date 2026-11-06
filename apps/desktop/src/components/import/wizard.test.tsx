@@ -111,6 +111,29 @@ describe("ImportWizard", () => {
     expect(within(dialog()).getByRole("alert")).toHaveTextContent("Nothing to import at that location on this computer.");
   });
 
+  it("F2 (L-41): a picked ssh config never offers the key-file opt-in, and a plan's warning for it reads as text", async () => {
+    const { mock } = await toPreview("openssh");
+    expect(within(dialog()).getByRole("listitem", { current: "step" })).toHaveTextContent("Preview");
+    expect(within(dialog()).queryByRole("switch", { name: /^Import private keys from ~\/\.ssh/ })).toBeNull();
+    expect(within(dialog()).queryByRole("switch", { name: /plaintext/ })).toBeNull(); // no opt-in at all on a picked OpenSSH file
+    expect(within(dialog()).queryByText(/key-file option was ignored/)).toBeNull();
+    // Rust answering the warning anyway (an older plan, a hand-built call): it shows under Warnings.
+    click("Back");
+    mock.importPicks.push({});
+    click("Choose another file"); // the first pick was consumed by the preview
+    await settle();
+    const preview = mock.importPreview.bind(mock);
+    mock.importPreview = async (a) => {
+      const p = await preview({ ...a, importKeyFiles: true });
+      return p;
+    };
+    click("Preview");
+    await settle();
+    expect(within(dialog()).getByRole("region", { name: "Warnings" })).toHaveTextContent("Private keys are only read when importing from ~/.ssh/config itself, not from a chosen file; the key-file option was ignored.");
+    expect(within(dialog()).getByRole("region", { name: "Warnings" })).toHaveTextContent("importKeyFiles");
+    expect(within(dialog()).queryByRole("switch", { name: /^Import private keys/ })).toBeNull();
+  });
+
   it("shows the mRemoteNG banner and the password_dropped warnings", async () => {
     await toPreview("mremoteng");
     expect(within(dialog()).getByRole("note")).toHaveTextContent("mRemoteNG passwords are never imported");

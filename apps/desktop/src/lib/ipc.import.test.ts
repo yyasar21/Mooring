@@ -99,6 +99,13 @@ describe("MockImportBase", () => {
     expect(keys.credentials.map((c) => [c.kind, c.hasSecret])).toEqual([["ssh_key", true], ["ssh_agent", false], ["prompt", false]]);
     expect(keys.skipped).toEqual([{ sourceRef: "deploy · id_rsa_old", reason: "key_unreadable" }]);
     expect(keys.warnings.map((w) => w.code)).toEqual(["host_pattern", "match_block", "include_ignored", "proxy_jump"]);
+    // F2 (L-41): a picked ssh config ignores the opt-in and says so; nothing under ~/.ssh is read.
+    const picked = await previewOf(mock, "openssh", { keys: true });
+    expect(picked.credentials.map((c) => [c.kind, c.hasSecret])).toEqual([["ssh_agent", false], ["ssh_agent", false], ["prompt", false]]);
+    expect(picked.skipped).toEqual([]);
+    expect(picked.warnings.at(-1)).toEqual({ code: "key_files_only_for_known_location", sourceRef: "importKeyFiles" });
+    expect(picked.counts.warnings).toBe(5);
+    expect((await previewOf(mock, "openssh", { keys: false })).warnings.map((w) => w.code)).not.toContain("key_files_only_for_known_location");
     mock.importKnown.openssh = false;
     expect(await code(mock.importPreview({ source: { known: "openssh" }, includePlaintextSecrets: false, importKeyFiles: false }))).toBe("import.not_found");
     expect(mock.audit.at(-1)).toMatchObject({ event: "import_refused", details: { code: "import.not_found" } });

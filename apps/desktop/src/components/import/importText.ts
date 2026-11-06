@@ -53,6 +53,7 @@ export const WARNING_TEXT: Record<ImportWarningCode, string> = {
   user_ignored: "A user name or domain that failed validation was dropped.",
   notes_truncated: "The lists of skipped items and warnings hit their cap; the counts are complete, the lists are not.",
   path_truncated: "An OU path deeper than eight levels was cut at eight; the computer sits in the eighth folder.",
+  key_files_only_for_known_location: "Private keys are only read when importing from ~/.ssh/config itself, not from a chosen file; the key-file option was ignored.",
 };
 
 /** "1.3 KB", "48 KB", "2.1 MB": enough for a caption. */

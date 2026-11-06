@@ -29,16 +29,23 @@ export function PreviewCounts({ preview }: { preview: ImportPreview }) {
   );
 }
 
-/** The opt-ins of ADR-0019 §3 and owner decision 16; each change re-runs the preview. */
-export function PreviewOptions({ preview, secretsPossible, options, busy, onOption }: {
+/**
+ * The opt-ins of ADR-0019 §3 and owner decision 16; each change re-runs the preview. The key-file
+ * switch exists only on the known-location path (`~/.ssh/config`): Rust ignores it for a picked
+ * file (F2, review 7 L-41), so a picked file never shows it.
+ */
+export function PreviewOptions({ preview, secretsPossible, known, options, busy, onOption }: {
   preview: ImportPreview;
   secretsPossible: boolean;
+  /** The preview came from a known location, not a picked file. */
+  known: boolean;
   options: ImportOptions;
   busy: boolean;
   onOption: (key: keyof ImportOptions, on: boolean) => void;
 }) {
   if (!secretsPossible) return null;
   const openssh = preview.format === "openssh";
+  if (openssh && !known) return null;
   return (
     <div className="imp-options" data-on={options.plaintextSecrets || options.keyFiles || undefined}>
       {!openssh && (

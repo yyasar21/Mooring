@@ -119,13 +119,16 @@ export abstract class MockImportBase extends MockNetBase implements ImportIpc {
     const plan = demoPlan(format);
     const skipped: ImportSkipped[] = [...plan.skipped];
     const warnings: ImportWarning[] = [...plan.warnings];
+    // F2 (L-41): the key-file opt-in is honoured only for the known location; a picked file ignores it with a warning.
+    const keyFiles = importKeyFiles && "known" in source && source.known === "openssh";
+    if (importKeyFiles && !keyFiles) warnings.push({ code: "key_files_only_for_known_location", sourceRef: "importKeyFiles" });
     const credentials: ImportCredentialItem[] = [];
     for (const c of plan.credentials) {
       const { plaintext, keyFile, ...dto } = c;
       if (plaintext && !includePlaintextSecrets) {
         credentials.push({ ...dto, kind: "prompt", hasSecret: false });
         warnings.push({ code: "password_dropped", sourceRef: dto.name });
-      } else if (keyFile && importKeyFiles) {
+      } else if (keyFile && keyFiles) {
         if (keyFile === "readable") credentials.push({ ...dto, kind: "ssh_key", hasSecret: true });
         else {
           credentials.push(dto);

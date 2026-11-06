@@ -108,7 +108,7 @@ export function ImportWizard({ format, known = null, onClose }: { format: Source
         {w.step === "preview" && w.preview && (
           <>
             <PreviewCounts preview={w.preview} />
-            <PreviewOptions preview={w.preview} secretsPossible={w.info?.secretsPossible ?? false} options={w.options} busy={w.busy} onOption={(k, on) => void w.setOption(k, on)} />
+            <PreviewOptions preview={w.preview} secretsPossible={w.info?.secretsPossible ?? false} known={w.known !== null} options={w.options} busy={w.busy} onOption={(k, on) => void w.setOption(k, on)} />
             {w.preview.items.some((i) => i.duplicateOf !== undefined) && (
               <Toggle
                 checked={w.skipDuplicates}
