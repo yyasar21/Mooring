@@ -97,3 +97,10 @@ pnpm test       → Test Files 73 passed (73) · Tests 559 passed | 1 expected f
 grep -nE "fs::read|read_to_string|parse|from_str|serde_json::from" src-tauri/src/{dirs,startup,portable_acl}.rs
                 → only doc comments and `from_utf8_lossy` on capped icacls output (no parser)
 ```
+
+## Manual gates (owner)
+
+- 2026-11-07 Windows 11, non-admin, NTFS Desktop, `Mooring_0.1.1-rc.2_x64_portable.zip`:
+  started after the SmartScreen prompt, no WebView2 warning, `Mooring Data\data` created next to
+  `Mooring.exe`, About shows "Portable build — data in …", no error dialogs. **PASS.**
+- macOS 15 (M-18 translocation refusal, Finder move, exFAT/FAT32 stick): pending.
