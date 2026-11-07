@@ -60,11 +60,6 @@ macro_rules! vault_variants {
             /// Connection id.
             connection: String,
         },
-        /// Vault exported (`format`: `age`, `json`, ...).
-        VaultExported {
-            /// Export format.
-            format: String,
-        },
         /// Trust decision (host key / certificate) recorded.
         TrustDecision {
             /// Host.

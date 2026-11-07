@@ -10,6 +10,7 @@
 //!   `test-vectors/`.
 //! * [`snapshot`] — what is synced, [`snapshot::from_store`] / [`snapshot::apply`].
 //! * [`merge`] — three-way merge, both copies on true conflicts.
+//! * [`export`] — the passphrase-protected backup document v2 (ADR-0023).
 //! * [`backend`] — [`ObjectStore`] (S3 via `rusty-s3` + `mooring-http`, or in memory),
 //!   [`Remote`] layout and the conditional-write probe.
 //! * [`SyncEngine`] — run / resolve, rollback and fork hard stops, audit events.
@@ -20,6 +21,7 @@ pub mod backend;
 pub mod blob;
 mod engine;
 mod error;
+pub mod export;
 mod fixup;
 pub mod fuzz;
 mod local;
@@ -33,6 +35,7 @@ pub use backend::{Cond, Object, ObjectStore, PutMeta, PutOutcome, Remote, Remote
 pub use blob::{decode_msy1, BlobHeader, Msy1};
 pub use engine::{SyncEngine, SyncPolicy};
 pub use error::{Result, SyncError};
+pub use export::{ExportDocument, ExportError, Imported};
 pub use local::{
     clear_state, header_object, load_base, load_state, reseal_secret, save_state, StoreLocal,
 };

@@ -2,6 +2,7 @@
   "app_info",
   "audit_verify",
   "autolock_get",
+  "biometric_status",
   "forward_list",
   "kube_access",
   "kube_namespaces",

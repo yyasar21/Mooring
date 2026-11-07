@@ -5,6 +5,7 @@
 
 mod blob_tests;
 mod engine_tests;
+mod export_tests;
 mod merge_tests;
 mod s3_mock;
 mod s3_tests;

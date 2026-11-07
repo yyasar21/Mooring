@@ -129,8 +129,9 @@ impl Header {
         Ok(h)
     }
 
-    /// Structural checks shared by [`Header::from_bytes`] and export import.
-    pub(crate) fn check(&self) -> Result<(), VaultError> {
+    /// Structural checks shared by [`Header::from_bytes`] and export import (ADR-0023: the
+    /// header of a foreign backup goes through the same floor / ceiling before any KDF).
+    pub fn check(&self) -> Result<(), VaultError> {
         if self.magic != MAGIC {
             return Err(VaultError::Format("bad magic".into()));
         }

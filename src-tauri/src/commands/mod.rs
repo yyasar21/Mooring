@@ -64,6 +64,11 @@ pub mod import_dto;
 pub mod import_source;
 // ADR-0019 §4 (A4 I2): LDAPS directory importer.
 pub mod ldap_import;
+// ADR-0022 / ADR-0023 (A5 R2): biometric unlock, `age` backup export / import.
+pub mod vault_biometric;
+pub mod vault_export;
+pub mod vault_import;
+pub mod vault_import_hold;
 
 /// Run `f` on Tokio's blocking pool and await it: a command whose work is CPU- or file-bound
 /// (a 16 MiB import parse, 2 000 seals, a large kubeconfig) must never run on the thread that

@@ -25,6 +25,15 @@ use crate::vault::{rewrap_password, Vault, VaultState};
 pub trait WrapKeyStore {
     /// Store (or replace) the wrap key for `vault_id`.
     fn put(&self, vault_id: Uuid, key: &Zeroizing<[u8; KEY_LEN]>) -> Result<(), VaultError>;
+    /// Make a fresh wrap key for `vault_id` and keep it: the default draws 32 random bytes and
+    /// [`put`](Self::put)s them. A store that *derives* the key from a gesture-gated OS
+    /// primitive instead of holding it (Windows Hello, ADR-0022) overrides this and never
+    /// receives a key through `put`.
+    fn create(&self, vault_id: Uuid) -> Result<Zeroizing<[u8; KEY_LEN]>, VaultError> {
+        let key = Zeroizing::new(random::<KEY_LEN>());
+        self.put(vault_id, &key)?;
+        Ok(key)
+    }
     /// Fetch the wrap key; `Ok(None)` when there is no item.
     fn get(&self, vault_id: Uuid) -> Result<Option<Zeroizing<[u8; KEY_LEN]>>, VaultError>;
     /// Delete the wrap key. Deleting a missing item is not an error.
@@ -128,12 +137,11 @@ impl Vault {
         password: &SecretString,
     ) -> Result<(), VaultError> {
         self.with_password_kek(password, |v, kek, dek| {
-            let wrap_key = Zeroizing::new(random::<KEY_LEN>());
             let mut header = v.header.clone();
+            // Store first: if the OS keyring refuses, the header is not replaced.
+            let wrap_key = store.create(header.vault_id)?;
             header.keyring_wrap = Some(seal_with(&wrap_key, &keyring_aad(&header), dek)?);
             rewrap_password(&mut header, kek, dek)?;
-            // Store first: if the OS keyring refuses, the header is not replaced.
-            store.put(header.vault_id, &wrap_key)?;
             v.header = header;
             Ok(())
         })?;
@@ -379,6 +387,34 @@ mod tests {
         v.change_password(&pw(PW), &pw("another long password"), KdfParams::TEST).expect("chg");
         assert!(!v.header().keyring_enabled());
         assert_eq!(v.unlock_with_keyring(&store), Err(VaultError::KeyringUnavailable));
+    }
+
+    /// ADR-0022 (Windows Hello): a store that derives the key never receives one through
+    /// `put`, and the wrap it produced opens with the same derived key later.
+    #[test]
+    fn deriving_store_is_never_handed_a_key() {
+        struct Derived;
+        impl WrapKeyStore for Derived {
+            fn put(&self, _: Uuid, _: &Zeroizing<[u8; KEY_LEN]>) -> Result<(), VaultError> {
+                panic!("put must not be called on a deriving store")
+            }
+            fn create(&self, id: Uuid) -> Result<Zeroizing<[u8; KEY_LEN]>, VaultError> {
+                self.get(id).map(|k| k.expect("derived"))
+            }
+            fn get(&self, id: Uuid) -> Result<Option<Zeroizing<[u8; KEY_LEN]>>, VaultError> {
+                let mut k = [0x5au8; KEY_LEN];
+                k[..16].copy_from_slice(id.as_bytes());
+                Ok(Some(Zeroizing::new(k)))
+            }
+            fn delete(&self, _: Uuid) -> Result<(), VaultError> {
+                Ok(())
+            }
+        }
+        let mut v = Vault::create(&pw(PW), KdfParams::TEST).expect("create");
+        v.enable_keyring_unlock(&Derived, &pw(PW)).expect("enable");
+        v.lock();
+        v.unlock_with_keyring(&Derived).expect("derived unlock");
+        assert_eq!(v.state(), VaultState::Unlocked);
     }
 
     #[test]

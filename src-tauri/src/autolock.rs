@@ -70,6 +70,8 @@ pub const PASSIVE_COMMANDS: &[&str] = &[
     "vsphere_vm_power",
     // ADR-0016 E2: polled while the OIDC window is open.
     "secret_source_oidc_status",
+    // ADR-0022: the Settings toggle and the unlock screen read it.
+    "biometric_status",
 ];
 
 /// Payload of [`LOCKED_EVENT`].

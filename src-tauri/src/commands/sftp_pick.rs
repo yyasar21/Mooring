@@ -37,6 +37,12 @@ pub trait LocalPicker: Send + Sync {
     fn pick_filtered(&self, mode: PickMode, _label: &str, _extensions: &[&str], reply: PickReply) {
         self.pick(mode, reply);
     }
+
+    /// A native *save* dialog suggesting `file_name` (`vault_export_pick`, ADR-0023 §2). The
+    /// default answers like a file pick (test pickers).
+    fn pick_save(&self, _file_name: &str, _label: &str, _extensions: &[&str], reply: PickReply) {
+        self.pick(PickMode::File, reply);
+    }
 }
 
 /// The production picker: the OS dialog, parented to the main window.
@@ -78,6 +84,18 @@ impl<R: Runtime> LocalPicker for DialogPicker<R> {
             PickMode::Folder => builder.pick_folder(done),
             PickMode::File => builder.pick_file(done),
         }
+    }
+
+    fn pick_save(&self, file_name: &str, label: &str, extensions: &[&str], reply: PickReply) {
+        use tauri_plugin_dialog::DialogExt;
+        let mut builder = self.app.dialog().file().set_file_name(file_name);
+        if let Some(main) = self.app.get_webview_window(crate::navigation::MAIN_WINDOW) {
+            builder = builder.set_parent(&main);
+        }
+        if !extensions.is_empty() {
+            builder = builder.add_filter(label, extensions);
+        }
+        builder.save_file(move |p| reply(p.and_then(|p| p.into_path().ok())));
     }
 }
 

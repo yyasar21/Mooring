@@ -72,11 +72,37 @@ pub(crate) fn export_age_inner(
     passphrase: &SecretString,
     log_n: Option<u8>,
 ) -> Result<Vec<u8>, VaultError> {
-    check_passphrase(passphrase)?;
     doc.header.check().map_err(|_| VaultError::Export("invalid vault header in export"))?;
     let json = Zeroizing::new(
         serde_json::to_vec(doc).map_err(|_| VaultError::Export("could not serialise export"))?,
     );
+    let out = export_age_bytes_inner(&json, passphrase, log_n)?;
+    tracing::info!(records = doc.credentials.len(), bytes = out.len(), "vault exported");
+    Ok(out)
+}
+
+/// Encrypt an arbitrary payload (a document v2 of `mooring-sync`, ADR-0023) to an armored
+/// `age` file with scrypt work factor [`EXPORT_SCRYPT_LOG_N`]. The payload must stay under
+/// half of [`MAX_EXPORT_BYTES`]; the caller zeroizes it.
+pub fn export_age_bytes(payload: &[u8], passphrase: &SecretString) -> Result<Vec<u8>, VaultError> {
+    export_age_bytes_inner(payload, passphrase, Some(EXPORT_SCRYPT_LOG_N))
+}
+
+/// [`export_age_bytes`] with a chosen work factor (tests and vectors).
+pub fn export_age_bytes_with_work_factor(
+    payload: &[u8],
+    passphrase: &SecretString,
+    log_n: u8,
+) -> Result<Vec<u8>, VaultError> {
+    export_age_bytes_inner(payload, passphrase, Some(log_n))
+}
+
+fn export_age_bytes_inner(
+    json: &[u8],
+    passphrase: &SecretString,
+    log_n: Option<u8>,
+) -> Result<Vec<u8>, VaultError> {
+    check_passphrase(passphrase)?;
     if json.len() > MAX_EXPORT_BYTES / 2 {
         return Err(VaultError::Export("export too large"));
     }
@@ -97,9 +123,8 @@ pub(crate) fn export_age_inner(
     let mut out = Vec::with_capacity(json.len() * 4 / 3 + 512);
     let armor = ArmoredWriter::wrap_output(&mut out, Format::AsciiArmor).map_err(io)?;
     let mut writer = encryptor.wrap_output(armor).map_err(io)?;
-    writer.write_all(&json).map_err(io)?;
+    writer.write_all(json).map_err(io)?;
     writer.finish().and_then(ArmoredWriter::finish).map_err(io)?;
-    tracing::info!(records = doc.credentials.len(), bytes = out.len(), "vault exported");
     Ok(out)
 }
 
@@ -107,6 +132,21 @@ pub(crate) fn export_age_inner(
 /// [`MAX_EXPORT_BYTES`], scrypt work factors over [`MAX_IMPORT_SCRYPT_LOG_N`], and headers that
 /// fail the structural / KDF-floor checks.
 pub fn import_age(bytes: &[u8], passphrase: &SecretString) -> Result<ExportDocument, VaultError> {
+    let json = import_age_bytes(bytes, passphrase)?;
+    let doc: ExportDocument = serde_json::from_slice(&json)
+        .map_err(|_| VaultError::Export("export payload is not a Mooring document"))?;
+    doc.header.check().map_err(|_| VaultError::Export("invalid vault header in export"))?;
+    tracing::info!(records = doc.credentials.len(), "vault export imported");
+    Ok(doc)
+}
+
+/// Decrypt an `age` export (armored or binary) to its raw payload, zeroized on drop. The
+/// same caps and refusals as [`import_age`]; the caller parses the payload (document v2,
+/// ADR-0023).
+pub fn import_age_bytes(
+    bytes: &[u8],
+    passphrase: &SecretString,
+) -> Result<Zeroizing<Vec<u8>>, VaultError> {
     check_passphrase(passphrase)?;
     if bytes.len() > MAX_EXPORT_BYTES {
         return Err(VaultError::Export("export file too large"));
@@ -139,11 +179,7 @@ pub fn import_age(bytes: &[u8], passphrase: &SecretString) -> Result<ExportDocum
     if json.len() > MAX_EXPORT_BYTES {
         return Err(VaultError::Export("export payload too large"));
     }
-    let doc: ExportDocument = serde_json::from_slice(&json)
-        .map_err(|_| VaultError::Export("export payload is not a Mooring document"))?;
-    doc.header.check().map_err(|_| VaultError::Export("invalid vault header in export"))?;
-    tracing::info!(records = doc.credentials.len(), "vault export imported");
-    Ok(doc)
+    Ok(json)
 }
 
 #[cfg(test)]
@@ -317,6 +353,29 @@ mod tests {
         // the same path accepts a sane header
         let ok = raw_age(&serde_json::to_vec(&d).expect("json"));
         assert_eq!(import_age(&ok, &s(PASS)).expect("import"), d);
+    }
+
+    /// ADR-0023: the byte-level API round-trips an opaque payload under the same caps.
+    #[test]
+    fn byte_api_round_trips_and_caps() {
+        let pass = s(PASS);
+        let bytes = export_age_bytes_with_work_factor(b"{\"version\":2}", &pass, 10).expect("e");
+        assert_eq!(import_age_bytes(&bytes, &pass).expect("i").as_slice(), b"{\"version\":2}");
+        assert_eq!(
+            import_age_bytes(&bytes, &s("not the passphrase")).expect_err("wrong"),
+            VaultError::Export("wrong passphrase or corrupted export")
+        );
+        let big = vec![b'x'; MAX_EXPORT_BYTES / 2 + 1];
+        assert_eq!(export_age_bytes(&big, &pass), Err(VaultError::Export("export too large")));
+        assert_eq!(
+            export_age_bytes(b"x", &s("short")),
+            Err(VaultError::WeakPassword { min: MIN_EXPORT_PASSPHRASE_CHARS })
+        );
+        // a v1 document through the byte API is still a v1 document through `import_age`
+        let (_, d) = doc();
+        let raw = serde_json::to_vec(&d).expect("json");
+        let bytes = export_age_bytes_with_work_factor(&raw, &pass, 10).expect("e");
+        assert_eq!(import_age(&bytes, &pass).expect("v1"), d);
     }
 
     #[test]
