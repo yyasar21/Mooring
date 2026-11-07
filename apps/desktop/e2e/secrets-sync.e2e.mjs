@@ -68,7 +68,8 @@ async function createApiToken(page, name) {
   await form.getByLabel("Name", { exact: true }).fill(name);
   await form.getByLabel(/^Token/).fill("test-only token value");
   await form.getByRole("button", { name: "Create credential" }).click();
-  await view.getByRole("form", { name: `Edit ${name}` }).waitFor();
+  // Saving returns to the credential's detail card (owner feedback 2026-11-07).
+  await view.getByRole("article", { name: `${name} details` }).waitFor();
 }
 
 /** Settings → Vault sync → Set up… with the seeded `team bucket key`. */
@@ -186,6 +187,8 @@ test("external_ref credential: edit the reference, Test lists names only, no val
     await views(page).getByRole("button", { name: "Credentials" }).click();
     const view = page.getByRole("region", { name: "Credentials" });
     await view.getByRole("list", { name: "Stored credentials" }).getByRole("button", { name: /^Secret manager reference db via vault/ }).click();
+    await view.getByRole("article", { name: "db via vault details" }).waitFor();
+    await view.getByRole("button", { name: "Edit", exact: true }).click();
     const form = view.getByRole("form", { name: "Edit db via vault" });
     assert.equal(await form.getByLabel("Secret source").inputValue(), "src-ops");
     assert.equal(await form.getByLabel(/^Reference/).inputValue(), "kv/ops/db");
@@ -194,6 +197,8 @@ test("external_ref credential: edit the reference, Test lists names only, no val
     await form.getByRole("button", { name: "Map" }).click();
     await form.getByLabel("KV key for password").fill("pass");
     await form.getByRole("button", { name: "Save credential" }).click();
+    await view.getByRole("article", { name: "db via vault details" }).waitFor();
+    await view.getByRole("button", { name: "Edit", exact: true }).click();
 
     const edited = view.getByRole("form", { name: "Edit db via vault" });
     await edited.getByRole("button", { name: "Test reference" }).click();
