@@ -128,3 +128,33 @@ amendment block is 40 lines). Crate facts from crates.io (2026-11-07) and source
 `tauri` 2.12.5 (`proxy_url`), `ironrdp-mstsgu` 0.1.0, `ironrdp-tls` 0.3.0, `ironrdp-rdpdr` 0.9.0,
 `ctap-hid-fido2` 3.6.1, `pcsc` 2.9.0, `winscard` 0.4.0, `webauthn-authenticator-rs` 0.6.2,
 `bitwarden` 2.1.0 / `bitwarden-core` 4.0.0 / `bws` 2.1.0 licences.
+
+## ADR-0028 — Build identity and macOS install hygiene (added 2026-11-07, wave W3)
+Trigger: owner report of "many Mooring versions" on macOS 26.7.3; one real install, the rest
+LaunchServices records of dev/CI bundles and mounted DMGs, all sharing the release identifier
+and therefore the release data dir, keyring service and WebKit storage. Docs only, nothing
+committed. Owner decisions 43–48 are inline in the ADR.
+
+| Owner | Task |
+| --- | --- |
+| release-engineer | `tauri.conf.json` → dev identity (`.dev`, "Mooring Dev", `icons-dev/`, new dev WiX upgradeCode, no updater keys); new `src-tauri/tauri.release.conf.json` (release id, productName, icons, pubkey, endpoints, `createUpdaterArtifacts`, release upgradeCode byte-identical); release.yml cfg step merge-patches the overlay into `tauri.ci.json` + post-build id asserts (`Info.plist`, `dpkg-deb -f Package`); ci.yml macOS debug `.app` bundle asserting `.dev`; `lint-workflows.sh` rule 4; `packaging/icon-dev.svg` + `gen-icons.sh` both sets; `bundle.macOS.dmg` layout + `dmg-background.png`; per-version volume rename in the A1 dmg rebuild (decision 46); `macos-pkg.sh` refuses `.dev` on a tag; troubleshooting "Clean up duplicate Mooring entries" (with the docs owner) |
+| rust-core | `build.rs` `cfg(mooring_release)` from the effective identifier (`TAURI_CONFIG` merge); `build_identity.rs` `Channel` + `app.build_identity` refusal; `app_info.channel`; `ManualReason::DevBuild` first in `decide`; `keyring_store::SERVICE` from the identifier; `Dirs::root_name(channel)`; `install_location.rs` (`classify`, dialog, replace guard, ditto/codesign/open/hdiutil runners per ADR-0020, `--mooring-moved`, audit events) replacing the bare M-18 box on translocation; `plist` as a direct macOS dep (orchestrator edits Cargo.toml); ipc-codes.json |
+| ui-engineer | "Mooring — Dev" title + DEV badge, About channel line, Settings → Updates dev text (English only) |
+| qa-engineer | E2E/manual macOS gate below; config test fixtures |
+
+Test plan (from the ADR): unit tests for `classify` (`/Volumes/Mooring/…`, `/Volumes/Mooring 1/…`,
+`AppTranslocation`, `~/Downloads`, `/Applications`, portable marker → never offered, cask,
+declined version), the replace guard (foreign id, newer/same version, running), `DevBuild`
+before `Portable`, channel/identifier mismatch, keyring service; a config test over both JSON
+files; manual/E2E on macOS 26 for every dialog slot from a DMG, Downloads and a translocated
+launch, replace of 0.1.2, `~/Applications` fallback as a standard user, volume detach, audit
+events; `lint-workflows.sh` fails if release.yml builds without the overlay; ci.yml fails if a
+non-tag build's `Info.plist` lacks the `.dev` identifier.
+
+Left open: whether a `ditto` copy that keeps quarantine is translocated again on macOS 26 (the
+manual gate decides; fallback is the Finder-guided path, never stripping quarantine); whether
+the owner's release data dir was already migrated by earlier `make dev` runs (rust-core checks
+the installed 0.1.2 against the current schema before the first 0.2.0 dev build runs); exact
+deb/rpm package and binary names for "Mooring Dev" (`mainBinaryName` if needed) confirmed in the
+rc dry run. Correction to the brief: M-18 refuses every translocated run today (portable is
+unknowable there); ADR-0028 keeps that and only adds the move offer in front of it.

@@ -91,6 +91,7 @@ phases are listed where they now live.
 | Dynamic Vault engines (`database`, `ssh/sign`, `ssh/creds`, `pki`) with lease renew/revoke; 1Password Connect; Bitwarden Secrets Manager via `bws` | [ADR-0026](adr/0026-dynamic-secrets-1password-bitwarden.md) | 🚧 |
 | RD Gateway over MS-TSGU WebSocket (NTLM/Basic over TLS, own pin store); `smart_card` kind with a Rust-side PIN dialog; SSH PIV via the agent — RDP smart-card logon and direct PKCS#11 wait for the Kerberos ADR | [ADR-0027](adr/0027-rd-gateway-and-smart-card.md) | 🚧 |
 | Signing hooks: notarization (`notarytool`) and Authenticode (Azure Trusted Signing) in the `release` environment, inert until certificates exist; winget submission once Windows builds are signed | [ADR-0018 A1–A2](adr/0018-release-v0-1-0.md) | 🚧 |
+| Build identity and macOS install hygiene: every non-release build is "Mooring Dev" (`.dev` identifier, own data dirs, DEV icon, no updater) via a release-only config overlay; "Move to Applications" from a DMG, Downloads or translocation; DMG layout; duplicate-entry cleanup guide (wave W3: release-engineer, rust-core, ui) | [ADR-0028](adr/0028-build-identity-and-macos-install-hygiene.md) | 🚧 |
 | Carried from A1: SFTP drag-and-drop | — | 🗓 |
 | Carried from A2/A3: Kerberos (KDC discovery), EGFX H.264 via WebCodecs, VeNCrypt X.509, DEK rotation / password-change rework (owner decision 11) | own ADRs after A5 | 🗓 |
 
