@@ -44,12 +44,11 @@ test_util_pub!(updater);
 test_util_pub!(import_plans);
 // ADR-0021 (0.1.1): data / cache directories, portable marker, start-up refusals, Windows ACL.
 test_util_pub!(dirs, portable_acl, startup);
-// Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
+// ADR-0022 (A5 R2): Touch ID / Windows Hello wrap-key stores; replaces `keyring_store`.
+test_util_pub!(biometric);
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
 mod golden;
-#[allow(dead_code)]
-mod keyring_store;
 pub(crate) mod navigation;
 /// Scripted RDP/VNC session and factory for the graphical tests.
 #[cfg(test)]
@@ -311,6 +310,15 @@ pub fn run() {
             import::import_discard,
             commands::ldap_import::ldap_import_preview,
             commands::ldap_import::ldap_import_test,
+            commands::vault_biometric::biometric_status,
+            commands::vault_biometric::biometric_enroll,
+            commands::vault_biometric::biometric_unlock,
+            commands::vault_biometric::biometric_disable,
+            commands::vault_export::vault_export_pick,
+            commands::vault_export::vault_export_age,
+            commands::vault_import::vault_import_pick,
+            commands::vault_import::vault_import_inspect,
+            commands::vault_import::vault_import_age,
         ]))
         .build(context)
         .expect("error while building the Tauri application");

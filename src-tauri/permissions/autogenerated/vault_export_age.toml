@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vault-export-age"
+description = "Enables the vault_export_age command without any pre-configured scope."
+commands.allow = ["vault_export_age"]
+
+[[permission]]
+identifier = "deny-vault-export-age"
+description = "Denies the vault_export_age command without any pre-configured scope."
+commands.deny = ["vault_export_age"]

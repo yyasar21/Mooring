@@ -98,6 +98,18 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
         state.save_header_bytes(header).map_err(IpcError::from)
     })?;
     drop(guard);
+    after_unlock(state)?;
+    state.audit(AuditEvent::VaultUnlocked);
+    // ADR-0022: a stale (suspended) or legacy keyring wrap goes now that the KEK is known.
+    super::vault_biometric::on_password_unlock(state, &password);
+    Ok(VaultStatus::Unlocked)
+}
+
+/// What every successful unlock does after the DEK is in memory (password or biometric,
+/// ADR-0022): drop the header backup, bind the store, re-seal legacy secrets, sweep web
+/// stores, show the hidden windows, start the vCenter schedulers. On a bind failure the
+/// vault is locked again and the error returned.
+pub fn after_unlock(state: &AppState) -> IpcResult<()> {
     // The current header has just proven it unlocks: the backup is no longer needed (L2).
     state.drop_header_backup();
     // Bind the store now (A1-QA-2: only after unlock, when a v1 header has its real id) so a
@@ -108,7 +120,6 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
         }
         return Err(e);
     }
-    state.audit(AuditEvent::VaultUnlocked);
     reseal_legacy(state);
     // Review 5 L-30: persistent web stores without a persistent web connection go.
     crate::web::sweep::orphan_stores(state);
@@ -116,7 +127,7 @@ pub fn unlock(state: &AppState, password: SecretString) -> IpcResult<VaultStatus
     state.lock_observer.notify(false);
     // ADR-0015: scheduled vCenter refreshes run only while unlocked.
     crate::scheduler::start_all(&crate::vsphere_sync::VsCtx::of(state));
-    Ok(VaultStatus::Unlocked)
+    Ok(())
 }
 
 /// Re-seal secrets migrated from schema v2 under their ADR-0009 names (ADR-0009 §4). Runs on
@@ -151,6 +162,8 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
     state.import_plans.clear();
     // Review 7 L-43: a confirmed directory sign-in does not outlive the unlocked session.
     state.ldap_binds.clear();
+    // ADR-0023 §2: a decrypted import document does not outlive the lock.
+    state.imports.clear();
     // Review 4 M-10: no LAN-exposed listener keeps running behind a locked UI.
     crate::commands::forward::close_external(state);
     // ADR-0014 K4: Kubernetes tokens live in memory only; every cluster, exec shell, log
@@ -177,8 +190,8 @@ pub fn lock(state: &AppState, reason: Option<&str>) -> IpcResult<VaultStatus> {
 }
 
 /// Change the master password: re-wrap under a freshly calibrated KDF, persist durably, drop
-/// the old-password backup. `change_password` clears any keyring wrap (review ruling c);
-/// keyring commands are not wired in A1, so there is no keyring item to delete yet.
+/// the old-password backup. `change_password` clears any keyring wrap (review ruling c); the
+/// OS biometric item follows with reason `password_changed` (ADR-0022 §2).
 pub fn change_password(
     state: &AppState,
     current: SecretString,
@@ -189,6 +202,7 @@ pub fn change_password(
     let vault = guard.as_mut().ok_or_else(|| IpcError::new("vault.missing", "no vault yet"))?;
     let was = vault.state();
     let before = vault.header().clone();
+    let had_wrap = before.keyring_enabled();
     if let Err(e) = vault.change_password(&current, &next, params) {
         if was == VaultState::Locked {
             vault.lock();
@@ -203,6 +217,7 @@ pub fn change_password(
     drop(guard);
     state.drop_header_backup();
     state.audit(AuditEvent::PasswordChanged);
+    super::vault_biometric::on_password_changed(state, had_wrap);
     Ok(VaultStatus::Unlocked)
 }
 

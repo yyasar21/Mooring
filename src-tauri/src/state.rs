@@ -64,6 +64,11 @@ pub struct Settings {
     pub graphical: Arc<dyn SessionFactory>,
     /// Unit of the reconnect backoff (1 s in production: 1, 2, 4, 8, 16, 30 units).
     pub reconnect_unit: Duration,
+    /// ADR-0022: the OS biometric store (Touch ID / Windows Hello); tests inject a memory one.
+    pub biometric: Arc<dyn crate::biometric::BiometricStore>,
+    /// ADR-0023: write backups with a low scrypt work factor (tests only; always `false` in
+    /// production, where `age` uses log N = 18).
+    pub fast_exports: bool,
 }
 
 impl std::fmt::Debug for Settings {
@@ -87,6 +92,8 @@ impl Settings {
             clipboard_clear_after: Duration::from_secs(30),
             graphical: Arc::new(BuiltinFactory),
             reconnect_unit: Duration::from_secs(1),
+            biometric: crate::biometric::BiometricRuntime::production_store(),
+            fast_exports: false,
         }
     }
 }
@@ -191,6 +198,10 @@ pub struct AppState {
     pub import_plans: crate::import_plans::ImportPlans,
     /// Review 7 L-43: confirmed directory sign-ins (credential, `host:port`); cleared on lock.
     pub ldap_binds: crate::commands::ldap_import::ConfirmedBinds,
+    /// ADR-0022: biometric store + failure window (3 in 10 min → suspended).
+    pub biometric: crate::biometric::BiometricRuntime,
+    /// ADR-0023: decrypted import documents held between inspect and apply, by `pickId`.
+    pub imports: crate::commands::vault_import_hold::HeldImports,
 }
 /// Errors while loading state at startup.
 #[derive(Debug, thiserror::Error)]
@@ -245,8 +256,11 @@ impl AppState {
         let audit = Arc::new(Mutex::new(audit));
         let secrets =
             Arc::new(crate::secrets_runtime::SecretsRuntime::new(&data_dir, Arc::clone(&audit)));
+        let biometric = crate::biometric::BiometricRuntime::new(Arc::clone(&settings.biometric));
         Ok(Self {
             secrets,
+            biometric,
+            imports: crate::commands::vault_import_hold::HeldImports::default(),
             confirm: Arc::new(crate::confirm_gate::ConfirmGate::new(Arc::clone(&audit))),
             cache_dir,
             portable_root,

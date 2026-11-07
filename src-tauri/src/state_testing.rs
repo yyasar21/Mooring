@@ -28,7 +28,23 @@ pub fn settings(clipboard: Arc<MemoryClipboard>) -> Settings {
         clipboard_clear_after: Duration::from_millis(200),
         graphical: Arc::new(crate::session_factory::BuiltinFactory),
         reconnect_unit: Duration::from_millis(1),
+        biometric: Arc::new(crate::biometric::memory::MemoryBiometricStore::new("macos")),
+        fast_exports: true,
     }
+}
+
+/// Fresh state (no vault) whose biometric store is a scriptable memory store reporting
+/// `platform` (ADR-0022 tests).
+pub fn with_biometric(
+    platform: &'static str,
+) -> (Fixture, Arc<crate::biometric::memory::MemoryBiometricStore>) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let clipboard = Arc::new(MemoryClipboard::default());
+    let bio = Arc::new(crate::biometric::memory::MemoryBiometricStore::new(platform));
+    let mut s = settings(Arc::clone(&clipboard));
+    s.biometric = Arc::clone(&bio) as Arc<dyn crate::biometric::BiometricStore>;
+    let state = AppState::new(dirs(dir.path()), s).expect("state");
+    (Fixture { dir, state, clipboard }, bio)
 }
 
 /// Non-portable [`Dirs`] rooted at `data` (cache under it), as the OS layout gives them.

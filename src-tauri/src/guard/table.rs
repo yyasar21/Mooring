@@ -141,4 +141,14 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("import_discard", Scope::Main),
     ("ldap_import_preview", Scope::Main),
     ("ldap_import_test", Scope::Main),
+    // ADR-0022 / ADR-0023 (A5 R2): biometric unlock and `age` backups, main only.
+    ("biometric_status", Scope::Main),
+    ("biometric_enroll", Scope::Main),
+    ("biometric_unlock", Scope::Main),
+    ("biometric_disable", Scope::Main),
+    ("vault_export_pick", Scope::Main),
+    ("vault_export_age", Scope::Main),
+    ("vault_import_pick", Scope::Main),
+    ("vault_import_inspect", Scope::Main),
+    ("vault_import_age", Scope::Main),
 ];

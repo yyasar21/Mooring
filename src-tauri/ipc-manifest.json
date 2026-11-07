@@ -14,6 +14,18 @@
   "autolock_set": [
     "main"
   ],
+  "biometric_disable": [
+    "main"
+  ],
+  "biometric_enroll": [
+    "main"
+  ],
+  "biometric_status": [
+    "main"
+  ],
+  "biometric_unlock": [
+    "main"
+  ],
   "connection_create": [
     "main"
   ],
@@ -290,6 +302,21 @@
     "main"
   ],
   "vault_create": [
+    "main"
+  ],
+  "vault_export_age": [
+    "main"
+  ],
+  "vault_export_pick": [
+    "main"
+  ],
+  "vault_import_age": [
+    "main"
+  ],
+  "vault_import_inspect": [
+    "main"
+  ],
+  "vault_import_pick": [
     "main"
   ],
   "vault_join": [

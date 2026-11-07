@@ -146,7 +146,38 @@ pub async fn vault_gated_codes(
     out.extend(vault_gated_codes_a3(st, folder, cred, conn).await);
     out.extend(vault_gated_codes_a4_update(st).await);
     out.extend(vault_gated_codes_a4_import(st).await);
+    out.extend(vault_gated_codes_a5_vault(st).await);
     out
+}
+
+/// ADR-0022 / ADR-0023 (A5 R2): enrolment, the backup pickers, export, inspect and import all
+/// check the vault before a dialog, a file, a prompt or a password check.
+async fn vault_gated_codes_a5_vault(st: &AppState) -> Vec<(&'static str, &'static str)> {
+    use crate::commands::{vault_biometric, vault_export, vault_import};
+    let pw = || secrecy::SecretString::from("test-only master pw".to_owned());
+    let pick = "0".repeat(32);
+    let export = vault_export::ExportInput {
+        pick_id: pick.clone(),
+        password: "test-only master pw".into(),
+        export_passphrase: "a long export passphrase".into(),
+    };
+    let import = vault_import::ImportInput {
+        pick_id: pick.clone(),
+        password: "test-only master pw".into(),
+        source_password: None,
+        mode: "merge".into(),
+        confirm: None,
+    };
+    let passphrase = secrecy::SecretString::from("a long export passphrase".to_owned());
+    let picker = FixedPicker(None);
+    vec![
+        ("biometric_enroll", code(vault_biometric::enroll(st, pw()))),
+        ("vault_export_pick", code(vault_export::pick(st, &picker, None).await)),
+        ("vault_export_age", code(vault_export::export(st, export))),
+        ("vault_import_pick", code(vault_import::pick(st, &picker, None).await)),
+        ("vault_import_inspect", code(vault_import::inspect(st, &pick, &passphrase))),
+        ("vault_import_age", code(vault_import::apply(st, import))),
+    ]
 }
 
 /// ADR-0018 §3 (A4 U0): the four `update_*` commands check the vault before anything else

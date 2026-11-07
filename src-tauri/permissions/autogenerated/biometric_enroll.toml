@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-biometric-enroll"
+description = "Enables the biometric_enroll command without any pre-configured scope."
+commands.allow = ["biometric_enroll"]
+
+[[permission]]
+identifier = "deny-biometric-enroll"
+description = "Denies the biometric_enroll command without any pre-configured scope."
+commands.deny = ["biometric_enroll"]

@@ -57,6 +57,13 @@ pub const NOT_GATED: &[(&str, &str)] = &[
     // `update_settings_set` are rows of the matrix (`support::vault_gated_codes_a4_update`).
     // ADR-0019 (A4 I1): the other four import commands are in the matrix (`vault_gated_codes_a4`).
     ("import_formats", "static catalogue of importers, no store, no I/O"),
+    // ADR-0022 (A5 R2): the backup and enrolment commands are rows (`vault_gated_codes_a5_vault`).
+    ("biometric_status", "passive: platform, availability and enrolment marker; the unlock screen reads it"),
+    ("biometric_unlock", "vault lifecycle: an unlock method, the way out of the locked state (ADR-0022 §2)"),
+    (
+        "biometric_disable",
+        "re-proves the master password (`disable_needs_the_password_and_removes_everything`); works locked",
+    ),
 ];
 
 /// The command names of `src-tauri/ipc-manifest.json` (the golden copy of `guard::COMMANDS`).

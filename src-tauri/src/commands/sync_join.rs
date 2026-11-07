@@ -288,6 +288,8 @@ pub async fn join_with(
     if let Err(e) = writer.commit(state) {
         tracing::error!(code = e.code, "join: the joined header stays staged until the next start");
     }
+    // ADR-0022 §2 `vault_rotated`: an enrolment of the bootstrap vault goes with it.
+    super::vault_biometric::on_vault_rotated(state);
     *state.vault()? = Some(joined);
     state.drop_header_backup();
     let id = state.with_ready(|v, s| install_credential(v, s, &boot))?;
