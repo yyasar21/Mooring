@@ -58,6 +58,17 @@ check "pre-release without AppImage: three platforms" bash -c 'bash "$1" "$2" v1
 arch=$(dist arch -- Mooring_universal.app.tar.gz Mooring_aarch64.app.tar.gz)
 check "arch-specific macOS archive wins over universal" bash -c 'bash "$1" "$2" v1.2.3 >/dev/null 2>&1 && [[ "$(python3 -I -c "import json,sys;d=json.load(open(sys.argv[1]))[\"platforms\"];print(d[\"darwin-aarch64\"][\"url\"].rsplit(\"/\",1)[1], d[\"darwin-x86_64\"][\"url\"].rsplit(\"/\",1)[1])" "$2/latest.json")" == "Mooring_aarch64.app.tar.gz Mooring_universal.app.tar.gz" ]]' _ "$SCRIPT" "$arch"
 
+# ADR-0021: portable zips are not updater artifacts. Without a .sig they are ignored like
+# every other plain asset; with a .sig the manifest is refused outright.
+port=$(dist port Mooring_1.2.3_x64_portable.zip Mooring_1.2.3_universal_portable.zip -- \
+  Mooring_universal.app.tar.gz Mooring_1.2.3_x64-setup.exe)
+check "portable zips without .sig are ignored" bash -c 'bash "$1" "$2" v1.2.3 >/dev/null 2>&1 && [[ "$(python3 -I -c "import json,sys;print(len(json.load(open(sys.argv[1]))[\"platforms\"]))" "$2/latest.json")" == 3 ]] && ! grep -q portable "$2/latest.json"' _ "$SCRIPT" "$port"
+portsig=$(dist portsig -- Mooring_universal.app.tar.gz Mooring_1.2.3_x64_portable.zip)
+check "a .sig for a portable zip fails" runfails "$portsig" v1.2.3
+check "  and writes no manifest" [ ! -e "$portsig/latest.json" ]
+anyzip=$(dist anyzip -- Mooring_universal.app.tar.gz Mooring_1.2.3_x64.zip)
+check "a .sig for any other zip fails" runfails "$anyzip" v1.2.3
+
 # unsigned build (fork, no key): no manifest, exit 0
 none=$(dist none a.dmg b.msi)
 check "no .sig files: exit 0 and no latest.json" bash -c 'bash "$1" "$2" v1.2.3 >/dev/null 2>&1 && [[ ! -e "$2/latest.json" ]]' _ "$SCRIPT" "$none"

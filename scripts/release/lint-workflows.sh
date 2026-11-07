@@ -8,6 +8,9 @@
 #      other workflow file must not name it, so the updater key never reaches their environment.
 #   2. N-57: release.yml and release-repro.yml declare the same `RUST_TOOLCHAIN`, so the
 #      reproducibility check compiles with the compiler that ships.
+#   3. ADR-0021 §2: every `find` in `sign-updater` that selects updater artifacts carries
+#      `! -name '*_portable.zip'` and no positive `-name '*.zip'`-like pattern, so the portable
+#      zips can never be signed with the updater key, whatever the other patterns become.
 # Pure bash + python3 -I (line-based, no YAML library). Exit 1 with one `error:` per finding.
 set -euo pipefail
 
@@ -61,6 +64,48 @@ if [[ -f "$DIR/release-repro.yml" ]]; then
     echo "error: release.yml uses 'toolchain: stable'; use \${{ env.RUST_TOOLCHAIN }} (N-57)" >&2; rc=1
   fi
 fi
+
+# 3. Portable zips never reach the updater signer. Lines of the sign-updater job with their
+#    `\` continuations joined; every `find` that uses `-name` is an artifact selector.
+mapfile -t findings < <(python3 -I - "$DIR/release.yml" <<'PY'
+import re, sys
+lines, job, in_jobs, buf = [], None, False, []
+with open(sys.argv[1], encoding="utf-8") as fh:
+    for n, raw in enumerate(fh, 1):
+        line = raw.rstrip("\n")
+        if re.match(r"^jobs:\s*$", line):
+            in_jobs, job = True, None
+        elif re.match(r"^\S", line):
+            in_jobs = False
+        elif in_jobs:
+            m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+            if m:
+                job = m.group(1)
+        if job != "sign-updater":
+            continue
+        if buf:
+            buf[1] += " " + line.strip()
+        else:
+            buf = [n, line.strip()]
+        if buf[1].endswith("\\"):
+            buf[1] = buf[1][:-1]
+            continue
+        lines.append(tuple(buf)); buf = []
+selectors = [(n, l) for n, l in lines if re.search(r"\bfind\b", l) and "-name" in l]
+if not selectors:
+    print("release.yml: sign-updater has no `find ... -name` artifact selector")
+for n, l in selectors:
+    if "! -name '*_portable.zip'" not in l:
+        print(f"release.yml:{n}: sign-updater find without `! -name '*_portable.zip'`")
+    for m in re.finditer(r"(!\s*)?-i?name\s+'([^']*)'", l):
+        if not m.group(1) and m.group(2).lower().endswith("zip"):
+            print(f"release.yml:{n}: sign-updater find selects zip files ({m.group(2)})")
+PY
+)
+for f in "${findings[@]}"; do
+  [[ -n "$f" ]] || continue
+  echo "error: $f (portable zips are never updater artifacts, ADR-0021 §2)" >&2; rc=1
+done
 
 ((rc == 0)) && echo "lint-workflows: ok ($DIR)"
 exit "$rc"

@@ -8,8 +8,8 @@ that a download is genuine. Pipeline: `.github/workflows/release.yml` (build) an
 
 | OS | Architectures | Minimum | Formats |
 | --- | --- | --- | --- |
-| macOS | Apple silicon (arm64), Intel (x86_64), universal | macOS 11 Big Sur | `.dmg`, `.pkg`, Homebrew Cask |
-| Windows | x64 | Windows 10 1809 / Windows 11 | `-setup.exe` (NSIS, per-user), `.msi` (WiX, per-machine) |
+| macOS | Apple silicon (arm64), Intel (x86_64), universal | macOS 11 Big Sur | `.dmg`, `.pkg`, Homebrew Cask, portable `.zip` (universal) |
+| Windows | x64 | Windows 10 1809 / Windows 11 | `-setup.exe` (NSIS, per-user), `.msi` (WiX, per-machine), portable `.zip` |
 | Linux | x86_64, arm64 | glibc 2.35 (Ubuntu 22.04, Debian 12, Fedora 36+, RHEL 9) | `.deb`, `.rpm`, `.AppImage` |
 
 Mooring is a Tauri app. It uses the system WebView (WebKit on macOS, WebView2 on Windows,
@@ -30,12 +30,22 @@ Each release on <https://github.com/yyasar21/Mooring/releases> carries:
 | `Mooring_<v>_amd64.deb`, `_arm64.deb` | Debian / Ubuntu packages |
 | `Mooring-<v>-1.x86_64.rpm`, `-1.aarch64.rpm` | Fedora / RHEL / openSUSE packages |
 | `Mooring_<v>_amd64.AppImage`, `_aarch64.AppImage` | Portable Linux build |
+| `Mooring_<v>_x64_portable.zip` | Portable Windows build: `Mooring.exe` + `portable` marker + `README.txt`; no installer, data in `Mooring Data/` next to the exe (ADR-0021) |
+| `Mooring_<v>_universal_portable.zip` | Portable macOS build: `Mooring.app` (same ad-hoc signed bundle as the dmg) + `portable` + `README.txt`; data in `Mooring Data/` next to the app |
 | `SHA256SUMS`, `SHA256SUMS.sigstore.json` | Checksums of every file plus their Sigstore (cosign keyless) signature |
 | `mooring-<v>-cargo.cdx.json`, `mooring-<v>-source.cdx.json` | CycloneDX SBOMs (Rust tree; full source tree incl. npm) |
 | `Mooring_universal.app.tar.gz`, `*-setup.exe`, `*.AppImage` + `.sig` | In-app updater artifacts and their signatures (the `.sig` files and `latest.json` only when the release was signed with the updater key) |
 | `latest.json` | In-app updater manifest: per platform the URL and signature of the artifact above (see Updates) |
 
 Every file also has a GitHub build-provenance (SLSA) attestation.
+
+The two portable zips are regular release assets (hashed, signed, attested) but **not** updater
+artifacts: they never get a `.sig`, `latest.json` never lists them, and the in-app updater is
+off in portable mode. They are built deterministically by `scripts/release/portable-zip.py`
+(entries in `LC_ALL=C` order, mtimes = the tagged commit's time, Unix modes and symlinks kept),
+so a rebuild from the tag gives the same bytes. Unzip, keep the `portable` file next to the
+app, verify first, then start it; the `README.txt` inside has the per-OS first-run steps.
+Updating a portable copy = download the new zip and replace everything except `Mooring Data`.
 
 Note: the rpm and AppImage bundlers do not accept pre-release versions such as `0.1.0-rc.2`,
 so pre-releases ship the `.deb` only on Linux; stable releases add `.rpm` and the AppImage.
@@ -196,11 +206,12 @@ the vault or storage format; the CHANGELOG says so and includes the migration.
    - **build** (6 runners in parallel): macOS arm64/x64/universal on `macos-14`, Windows x64 on
      `windows-2022`, Linux x64 on `ubuntu-22.04` and arm64 on `ubuntu-22.04-arm`. `tauri-action`
      builds the bundles; macOS jobs add the `.pkg`, the universal one also the updater archive
-     of the `.app`. Each platform signing step runs only if its secrets exist. The build never
-     holds the updater key;
+     of the `.app` and the portable zip; the Windows job adds its portable zip. Each platform
+     signing step runs only if its secrets exist. The build never holds the updater key;
    - **sign updater artifacts**: waits for the owner's approval of the `release` environment,
      then signs the updater archive, the Windows per-user installer and the AppImages with the
      Tauri CLI (pinned, checksum-verified) and the environment's `TAURI_SIGNING_PRIVATE_KEY`.
+     The portable zips are excluded by name (`lint-workflows.sh` keeps it that way).
      No project code runs in that job. Without the secret the release gets no `.sig` files and
      no `latest.json`;
    - **finalize**: downloads every asset, adds the two SBOMs, writes `latest.json` and

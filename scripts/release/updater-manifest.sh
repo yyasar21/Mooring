@@ -19,6 +19,8 @@
 #                                   never offered (per-machine, needs elevation)
 #   linux-x86_64, linux-aarch64     Mooring_<v>_<arch>.AppImage (rpm/deb are manual installs)
 # A platform without a signed artifact is simply absent (pre-releases ship no AppImage).
+# Anything without a `.sig` (MSI, deb, rpm, dmg, pkg, SBOMs, the portable zips) is ignored;
+# a `.sig` for a `*_portable.zip` (ADR-0021: never an updater artifact) is an error.
 # No `*.sig` at all (unsigned/fork build): prints a notice, writes nothing, exits 0.
 # pub_date: SOURCE_DATE_EPOCH when set (UTC), else now.
 set -euo pipefail
@@ -67,6 +69,8 @@ for sig in "${SIGS[@]}"; do
   [[ -f "$DIST/$asset" ]] || { echo "error: $sig has no matching artifact $asset" >&2; exit 1; }
   [[ "$asset" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "error: unexpected characters in asset name '$asset'" >&2; exit 1; }
   case "$asset" in
+    *_portable.zip|*.zip)
+      echo "error: $asset is a portable build, never an updater artifact (ADR-0021); refusing its $sig" >&2; exit 1 ;;
     *_universal.app.tar.gz)
       claim darwin-aarch64 "$asset" 1; claim darwin-x86_64 "$asset" 1 ;;
     *.app.tar.gz)
