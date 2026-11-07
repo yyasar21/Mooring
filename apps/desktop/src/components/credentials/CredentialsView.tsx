@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { CredentialKind, CredentialMeta } from "../../lib/ipc";
 import { accountSummary, schemaFor, usedByCount } from "../../lib/credentials";
 import { useCredentials } from "../../stores/credentials";
+import { useToasts } from "../../stores/toast";
 import { useTree } from "../../stores/tree";
 import { useUi } from "../../stores/ui";
+import { CredentialDetail } from "./CredentialDetail";
 import { CredentialEditor, type Seed } from "./CredentialEditor";
 import { Fingerprint, KindBadge } from "./fields";
 import { KindPicker } from "./KindPicker";
@@ -37,19 +39,33 @@ export function CredentialsView() {
     if (draft?.seed?.paste) setDraft((d) => d && { kind: d.kind, n: d.n, ...(d.seed?.name ? { seed: { name: d.seed.name } } : {}) });
   }, [draft]);
 
-  const selectedId = pane.mode === "edit" ? pane.id : null;
+  const selectedId = pane.mode === "edit" || pane.mode === "view" ? pane.id : null;
   const meta = items.find((c) => c.id === selectedId);
+  // The form that pressed "New…" (U0): a save or a cancel goes back there with its draft intact.
+  const returnTo = pane.mode === "new" ? pane.returnTo : undefined;
   const pick = (kind: CredentialKind, seed?: Seed) => {
     setDraft((d) => ({ kind, ...(seed ? { seed } : {}), n: (d?.n ?? 0) + 1 }));
     if (pane.mode !== "new") show({ mode: "new" });
   };
   const closeEditor = () => {
     setDraft(null);
-    show({ mode: "none" });
+    if (returnTo) useUi.getState().resumeConnectionDialog(returnTo, null);
+    else show(selectedId ? { mode: "view", id: selectedId } : { mode: "none" });
   };
   const saved = (m: CredentialMeta) => {
     setDraft(null);
-    show({ mode: "edit", id: m.id });
+    useToasts.getState().push("Credential saved");
+    if (returnTo) useUi.getState().resumeConnectionDialog(returnTo, m.id);
+    else show({ mode: "view", id: m.id });
+  };
+  const remove = async (id: string): Promise<boolean> => {
+    const ok = await useCredentials.getState().remove(id);
+    setError(ok ? null : useCredentials.getState().error);
+    if (ok) {
+      if (selectedId === id) show({ mode: "none" });
+      void useTree.getState().load();
+    }
+    return ok;
   };
 
   return (
@@ -81,7 +97,7 @@ export function CredentialsView() {
             const used = usedByCount(c.id, connections, defaults);
             return (
               <li key={c.id} className="cred-row" aria-selected={c.id === selectedId} data-selected={c.id === selectedId || undefined}>
-                <button type="button" className="cred-row-main" onClick={() => { setConfirm(null); show({ mode: "edit", id: c.id }); }}>
+                <button type="button" className="cred-row-main" onClick={() => { setConfirm(null); show({ mode: "view", id: c.id }); }}>
                   <KindBadge kind={c.kind} kinds={kinds} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-text">{c.name}</span>
@@ -101,16 +117,7 @@ export function CredentialsView() {
                   <button
                     type="button"
                     className="btn btn-danger"
-                    onClick={() =>
-                      void useCredentials.getState().remove(c.id).then((ok) => {
-                        setConfirm(null);
-                        setError(ok ? null : useCredentials.getState().error);
-                        if (ok) {
-                          if (selectedId === c.id) show({ mode: "none" });
-                          void useTree.getState().load();
-                        }
-                      })
-                    }
+                    onClick={() => void remove(c.id).then(() => { setConfirm(null); })}
                   >
                     Confirm delete
                   </button>
@@ -165,7 +172,16 @@ export function CredentialsView() {
             />
           ) : null;
         })()}
-        {(pane.mode === "none" || (pane.mode === "edit" && !meta)) && <EmptyDetail />}
+        {pane.mode === "view" && meta && (
+          <CredentialDetail
+            key={meta.id}
+            meta={meta}
+            kinds={kinds}
+            onEdit={() => { show({ mode: "edit", id: meta.id }); }}
+            onDelete={() => remove(meta.id)}
+          />
+        )}
+        {(pane.mode === "none" || ((pane.mode === "edit" || pane.mode === "view") && !meta)) && <EmptyDetail />}
       </div>
     </section>
   );
@@ -181,7 +197,7 @@ function EmptyDetail() {
         </svg>
         <p className="m-display text-[length:var(--fs-l)] text-text-muted">Select a credential</p>
         <p className="mt-2 text-text-faint">
-          Pick one on the left to edit it, or create a new one. Secrets are write-only: you can replace or clear them, never read them back.
+          Pick one on the left to see its details, or create a new one. Secrets are write-only: you can replace or clear them, never read them back.
         </p>
       </div>
     </div>

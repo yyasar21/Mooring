@@ -32,8 +32,14 @@ function toInput(s: SecretSource): SecretSourceInput {
 }
 
 /** Create or edit one ADR-0016 secret source. Login material is a credential id; nothing secret is typed here. */
-export function SecretSourceDialog({ source, onClose, onSaved }: { source?: SecretSource | undefined; onClose: () => void; onSaved: (s: SecretSource) => void }) {
-  const [d, setD] = useState<SecretSourceInput>(() => (source ? toInput(source) : BLANK));
+export function SecretSourceDialog({ source, initialCredentialId = null, onClose, onSaved }: {
+  source?: SecretSource | undefined;
+  /** A new AppRole source preselects this login credential (U0: "Create secret source" on an AppRole). */
+  initialCredentialId?: string | null;
+  onClose: () => void;
+  onSaved: (s: SecretSource) => void;
+}) {
+  const [d, setD] = useState<SecretSourceInput>(() => (source ? toInput(source) : { ...BLANK, credentialId: initialCredentialId }));
   const [origin, setOrigin] = useState("");
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);

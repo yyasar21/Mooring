@@ -100,3 +100,6 @@ export const PROVIDERS: { value: string; label: string; placeholder: string; hin
     hint: "The secret id from Bitwarden Secrets Manager.",
   },
 ];
+
+/** One line of relationship guidance for the kinds that never sign in to a connection (ADR-0016/0017). */
+export const APPROLE_HINT = "Use it in Settings → Secret sources, then create a Secret manager reference credential.";

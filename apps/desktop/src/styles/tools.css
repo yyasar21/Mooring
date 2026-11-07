@@ -241,3 +241,4 @@
 .update-indicator { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px; border: 1px solid var(--accent-line); background: var(--accent-soft); font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: var(--track-micro); text-transform: uppercase; color: var(--accent); }
 .update-indicator:hover { box-shadow: var(--glow-accent); }
 .update-indicator .state-dot { border-color: var(--accent); background: var(--accent); box-shadow: var(--glow-accent); }
+.source-row[data-selected] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }

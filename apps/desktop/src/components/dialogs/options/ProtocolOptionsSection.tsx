@@ -22,6 +22,8 @@ export interface OptionsDraft {
   loadError: string | null;
   /** False for protocols without options, and when stored options failed to load and were not edited (never overwrite blind). */
   shouldSave: boolean;
+  /** Every protocol's edited options, so a "New…" credential round trip can carry them (U0). */
+  drafts: Partial<Record<Protocol, ProtocolOptions>>;
 }
 
 /**
@@ -29,10 +31,15 @@ export interface OptionsDraft {
  * `connection_options_get` (tree rows do not carry them); a protocol switch starts from that
  * protocol's defaults, as Rust drops `options_json` when the protocol changes.
  */
-export function useOptionsDraft(connectionId: string | undefined, storedProtocol: Protocol | undefined, protocol: Protocol): OptionsDraft {
+export function useOptionsDraft(
+  connectionId: string | undefined,
+  storedProtocol: Protocol | undefined,
+  protocol: Protocol,
+  initial: Partial<Record<Protocol, ProtocolOptions>> = {},
+): OptionsDraft {
   const [stored, setStored] = useState<ProtocolOptions | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Partial<Record<Protocol, ProtocolOptions>>>({});
+  const [drafts, setDrafts] = useState<Partial<Record<Protocol, ProtocolOptions>>>(initial);
   const loadable = connectionId !== undefined && storedProtocol !== undefined && hasOptions(storedProtocol);
 
   useEffect(() => {
@@ -59,6 +66,7 @@ export function useOptionsDraft(connectionId: string | undefined, storedProtocol
     loading,
     loadError: same ? loadError : null,
     shouldSave: hasOptions(protocol) && !blind,
+    drafts,
   };
 }
 
