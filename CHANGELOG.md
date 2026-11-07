@@ -6,9 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Until v1.0 a
 minor version may contain breaking changes; they are called out under **Changed**.
 
-## [Unreleased] — 0.1.0-rc.2 (Phase A4, release engineering)
+## [Unreleased]
 
-### Added
+## [0.1.0] - 2026-11-07
+
+First release: Phase A of the roadmap (A1 connection manager, A2 graphical protocols and web
+sessions, A3 infrastructure integrations, A4 release engineering). The A1 and early A2 entries
+are under [0.1.0-rc.1] below; the sections here are per phase.
+
+### Phase A4 — release engineering (importers, network tools, updater, pipeline)
+
+#### Added
 
 - **Importers**: Royal TS, Remote Desktop Manager, Termius (CSV/JSON), mRemoteNG, PuTTY and
   OpenSSH `~/.ssh/config` into a dry-run plan you review before anything is written; plaintext
@@ -29,13 +37,13 @@ minor version may contain breaking changes; they are called out under **Changed*
   reproducible-build check for the Rust crates, and a separate updater-signing job that runs in
   a protected GitHub environment.
 
-### Changed
+#### Changed
 
 - Syslog mirror structured-data element is now `[mooring@67553 …]`: 67553 is the Private
   Enterprise Number IANA assigned to the Mooring Project on 2026-11-06. Collectors that
   matched the interim RFC 5612 documentation number `32473` must update their rules.
 
-### Security
+#### Security
 
 - Security review 7 ([docs/security/a4-review-7.md](docs/security/a4-review-7.md)): APPROVE
   WITH NITS after two fix rounds. The updater signing key never enters a build job (M-17);
@@ -46,9 +54,9 @@ minor version may contain breaking changes; they are called out under **Changed*
   is Mooring's own and fuzzed. 18 more fuzz targets (importers, LDAP, network tools, RDP
   reactivation, VNC cut text, framebuffer ops); first green nightly fuzz run.
 
-## [0.1.0-rc.2-a3] - 2026-11-05 (A3, unreleased tag)
+### Phase A3 — Kubernetes, vSphere, external secrets, vault sync (2026-11-05)
 
-### Added
+#### Added
 
 - **Kubernetes sessions**: a read-only cluster browser from a kubeconfig or token credential
   (contexts, namespaces, pods with live watch, RBAC self-review), `exec` shells from an
@@ -68,7 +76,7 @@ minor version may contain breaking changes; they are called out under **Changed*
 - New credential kinds `vault_approle` and `s3_access_key`; mock kube/vCenter/Vault/S3 test
   servers with a request recorder; 17 more fuzz targets; 11 more E2E flows.
 
-### Security
+#### Security
 
 - Security review 6 ([docs/security/a3-review-6.md](docs/security/a3-review-6.md)):
   APPROVE WITH NITS after two fix rounds. Native confirmations are now `Cancel / <action> /
@@ -81,9 +89,9 @@ minor version may contain breaking changes; they are called out under **Changed*
   rate-limited in the audit log (N-43); `wry` is pinned by a test (N-46). Review-5 items
   L-29, L-30 and N-30..N-38 closed.
 
-## [0.1.0-rc.2-a2] - 2026-11-04 (A2, unreleased tag)
+### Phase A2 — RDP, VNC, isolated web sessions (2026-11-04)
 
-### Added
+#### Added
 
 - **RDP sessions** on IronRDP: NLA/CredSSP with domain or plain credentials, TLS through
   Mooring's own rustls verifier with certificate trust-on-first-use (hard stop on a changed
@@ -102,7 +110,7 @@ minor version may contain breaking changes; they are called out under **Changed*
   screenshot to clipboard (cleared on lock), in-process RDP/RFB test servers and nine more
   fuzz targets.
 
-### Security
+#### Security
 
 - Security review 5 ([docs/security/a2-review-5.md](docs/security/a2-review-5.md)): a
   server-chosen desktop size was allocated before validation (B-5, fixed), VNC could be
@@ -126,13 +134,13 @@ minor version may contain breaking changes; they are called out under **Changed*
 - Fuzz targets (`known_hosts`, kubeconfig, vault header, age import, SOCKS5) with a nightly
   job and a stable-toolchain corpus replay in `cargo test`; Playwright UI flows in CI.
 
-### Fixed
+#### Fixed
 
 - Kubeconfig credentials: case variants of the `users` / `clusters` / `contexts` sections and
   mixed-case duplicate keys are now rejected (QA-F2).
 - `known_hosts` files with multiple trailing carriage returns are rewritten byte-identically.
 
-### Security
+#### Security
 
 - Security review 4 ([docs/security/a1-review-4.md](docs/security/a1-review-4.md)): the first
   SFTP design let the WebView name a local directory; it was replaced before release by a
@@ -203,5 +211,6 @@ Details per team role are in [docs/handoff/](docs/handoff/index.md).
 - SFTP local paths reject Windows alternate data streams and reserved device names.
 - Host-key mismatch audit entries record both the expected and the presented fingerprint.
 
-[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.0-rc.1...HEAD
-[0.1.0-rc.1]: https://github.com/yyasar21/Mooring/compare/v0.1.0...v0.1.0-rc.1
+[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/yyasar21/Mooring/compare/v0.1.0-rc.1...v0.1.0
+[0.1.0-rc.1]: https://github.com/yyasar21/Mooring/releases/tag/v0.1.0-rc.1
