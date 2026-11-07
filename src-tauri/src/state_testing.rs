@@ -42,7 +42,7 @@ pub fn portable_dirs(root: &std::path::Path) -> Dirs {
     let cache = root.join("cache");
     std::fs::create_dir_all(&data).expect("data");
     std::fs::create_dir_all(&cache).expect("cache");
-    Dirs { data, cache, portable_root: Some(root.to_path_buf()) }
+    Dirs { data, cache, portable_root: Some(root.to_path_buf()), mode_unavailable: false }
 }
 
 /// Fresh state without a vault.

@@ -72,6 +72,7 @@
   "net.tool_missing",
   "portable.data_dir_invalid",
   "portable.marker_invalid",
+  "portable.translocated",
   "portable.unwritable",
   "portable.webview_missing",
   "protocol.unavailable",

@@ -20,9 +20,14 @@ use std::time::Duration;
 
 /// Wall clock for one `icacls` run.
 pub const DEADLINE: Duration = Duration::from_secs(10);
-/// Output kept from the child (per stream), for the log only.
+/// Output kept from the child (per stream). It names the root path, so it goes to `tracing`
+/// at `debug` only (review 8 N-66): never to the audit log, which records
+/// `portable.acl_unavailable` with no fields, and never into [`AclError`].
 pub const MAX_OUTPUT: usize = 4096;
-/// `icacls`'s fixed location.
+/// `icacls`'s fixed location. Deliberately a literal, not `%SystemRoot%` (review 8 N-66): the
+/// environment is the caller's and must not pick the tool. A Windows installed on another
+/// drive therefore audits `portable.acl_unavailable` at every start (fail-closed; the vault is
+/// encrypted at rest regardless) rather than running a tool named by a variable.
 pub const ICACLS: &str = "C:\\Windows\\System32\\icacls.exe";
 /// `OWNER RIGHTS` (well-known SID `S-1-3-4`) with full control, inherited by children.
 pub const GRANT: &str = "*S-1-3-4:(OI)(CI)F";
@@ -82,7 +87,8 @@ pub fn apply(root: &Path) -> Result<(), AclError> {
     match status {
         Some(s) if s.success() => Ok(()),
         Some(s) => {
-            tracing::warn!(code = ?s.code(), stdout = %out, stderr = %err, "icacls failed");
+            tracing::warn!(code = ?s.code(), "icacls failed");
+            tracing::debug!(stdout = %out, stderr = %err, "icacls output");
             Err(AclError::Failed(s.code()))
         }
         None => {
@@ -144,6 +150,17 @@ mod tests {
         assert_eq!(a[3], "*S-1-3-4:(OI)(CI)F");
         assert_eq!(ICACLS, "C:\\Windows\\System32\\icacls.exe");
         assert_eq!(DEADLINE, Duration::from_secs(10));
+    }
+
+    /// N-66: what reaches the caller (and so the audit path) is the kind and exit code only.
+    #[test]
+    fn errors_carry_no_tool_output() {
+        for e in [AclError::Spawn, AclError::Timeout, AclError::Failed(Some(5)), AclError::Failed(None)] {
+            let text = format!("{e:?}");
+            assert!(!text.contains('\\') && !text.contains("Mooring"), "{text}");
+            assert!(text.len() < 32, "{text}");
+        }
+        assert_eq!(MAX_OUTPUT, 4096);
     }
 
     #[cfg(not(windows))]

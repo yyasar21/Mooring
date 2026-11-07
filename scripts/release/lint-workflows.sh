@@ -97,9 +97,11 @@ if not selectors:
 for n, l in selectors:
     if "! -name '*_portable.zip'" not in l:
         print(f"release.yml:{n}: sign-updater find without `! -name '*_portable.zip'`")
-    for m in re.finditer(r"(!\s*)?-i?name\s+'([^']*)'", l):
-        if not m.group(1) and m.group(2).lower().endswith("zip"):
-            print(f"release.yml:{n}: sign-updater find selects zip files ({m.group(2)})")
+    # N-70: single-quoted, double-quoted and bare `-name` patterns alike.
+    for m in re.finditer(r"""(!\s*)?-i?name\s+(?:'([^']*)'|"([^"]*)"|([^\s'"()]+))""", l):
+        pat = m.group(2) if m.group(2) is not None else (m.group(3) if m.group(3) is not None else m.group(4))
+        if not m.group(1) and pat.lower().endswith("zip"):
+            print(f"release.yml:{n}: sign-updater find selects zip files ({pat})")
 PY
 )
 for f in "${findings[@]}"; do

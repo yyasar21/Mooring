@@ -39,23 +39,33 @@ pub fn webview_missing() -> Refusal {
 }
 
 /// Resolve the directories for this process: the marker next to the executable (or the
-/// `AppImage` / `.app`), the OS directories otherwise. Fails loudly, never falls back.
+/// `AppImage` / `.app`), the OS directories otherwise. Fails loudly, never falls back. The
+/// marker is located first, the Windows `WebView2` check runs on that answer, and only then
+/// is anything created (review 8 N-65), so a refusal leaves the folder as it found it.
 pub fn resolve_dirs<R: Runtime>(app: &tauri::App<R>) -> Result<Dirs, Refusal> {
     // The path only locates the marker; it never decides what is trusted.
     let exe = std::env::current_exe().map_err(|_| Refusal {
         code: "app.data_dir",
         message: "The executable path could not be resolved.".to_owned(),
     })?; // nosemgrep
-    let appimage = std::env::var_os("APPIMAGE").map(PathBuf::from);
+    // L-44: `$APPIMAGE` only on Linux, only when it is a real file and we run from its mount.
+    let appimage = Dirs::appimage_from_env(
+        &exe,
+        std::env::var_os("APPIMAGE").map(PathBuf::from).as_deref(),
+        std::env::var_os("APPDIR").map(PathBuf::from).as_deref(),
+        cfg!(target_os = "linux"),
+    );
+    let located = Dirs::locate(&exe, appimage.as_deref())?;
+    check_webview(located.portable())?;
     let os_default = || Ok((app.path().app_data_dir()?, app.path().app_cache_dir()?));
     let probe = |p: &std::path::Path| crate::updater::install_mode::dir_writable(Some(p));
-    Ok(Dirs::resolve(&exe, appimage.as_deref(), &os_default, &probe)?)
+    Ok(Dirs::create(located, &os_default, &probe)?)
 }
 
-/// Portable mode on Windows: refuse before any window when no `WebView2` runtime is present
-/// (ADR-0021 §3). Elsewhere the toolkit is part of the OS.
-pub fn check_webview(dirs: &Dirs) -> Result<(), Refusal> {
-    if cfg!(windows) && dirs.portable() && tauri::webview_version().is_err() {
+/// Portable mode on Windows: refuse before any window and before any directory exists when
+/// no `WebView2` runtime is present (ADR-0021 §3). Elsewhere the toolkit is part of the OS.
+pub fn check_webview(portable: bool) -> Result<(), Refusal> {
+    if cfg!(windows) && portable && tauri::webview_version().is_err() {
         return Err(webview_missing());
     }
     Ok(())
@@ -91,6 +101,14 @@ mod tests {
         assert_eq!(r.code, "portable.marker_invalid");
         let r: Refusal = DirsError::DataDirInvalid(PathBuf::from("/x/Mooring Data")).into();
         assert_eq!(r.code, "portable.data_dir_invalid");
+        // M-18: the fixed sentence, no path, no `xattr`, a Finder move only.
+        let r: Refusal = DirsError::Translocated(PathBuf::from("/private/var/folders/x/AppTranslocation/u/d/Mooring.app")).into();
+        assert_eq!(r.code, "portable.translocated");
+        assert_eq!(
+            r.message,
+            "Mooring is running from a macOS translocation copy; drag Mooring.app out of its folder and back in with Finder once, then open it again."
+        );
+        assert!(!r.message.contains("xattr") && !r.message.contains("/private/var"));
         let w = webview_missing();
         assert_eq!(w.code, "portable.webview_missing");
         assert!(w.message.contains("WebView2") && w.message.contains("README.txt"));
@@ -100,7 +118,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn webview_check_only_bites_on_windows() {
-        let d = Dirs { data: PathBuf::new(), cache: PathBuf::new(), portable_root: Some(PathBuf::from("/x")) };
-        assert_eq!(check_webview(&d), Ok(()));
+        assert_eq!(check_webview(true), Ok(()));
+        assert_eq!(check_webview(false), Ok(()));
     }
 }
