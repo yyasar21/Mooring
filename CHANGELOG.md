@@ -8,6 +8,15 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
+### Fixed
+
+- SSH (and Kubernetes `exec`) tabs opened a blank window in installed and portable builds on
+  macOS and Windows: xterm.js 6 assigns `toString` on a plain object at module load, which throws
+  under Tauri's `freezePrototype`. A build-time transform rewrites that assignment
+  (`apps/desktop/vite-plugins/frozenPrototype.ts`, counted so an xterm upgrade fails the build instead),
+  every session view now sits in an error boundary so one failing tab can never blank the window,
+  and the Playwright flows run with a frozen `Object.prototype` like the app.
+
 ## [0.1.1] - 2026-11-07
 
 ### Added

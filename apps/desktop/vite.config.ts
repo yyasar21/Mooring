@@ -1,10 +1,14 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { frozenPrototypeCompat } from "./vite-plugins/frozenPrototype";
 
 // Tauri dev server: fixed port, no HMR overlay noise in the WebView, env prefix for TAURI_* only.
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [frozenPrototypeCompat(), react(), tailwindcss()],
+  // xterm is not pre-bundled so the compat transform also runs under `make dev`, where Tauri
+  // freezes Object.prototype exactly as in a release build.
+  optimizeDeps: { exclude: ["@xterm/xterm", "@xterm/addon-webgl", "@xterm/addon-fit"] },
   clearScreen: false,
   server: { port: 1420, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
   envPrefix: ["VITE_", "TAURI_ENV_*"],

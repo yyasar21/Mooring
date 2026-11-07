@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useState } from "react";
+import { TabErrorBoundary } from "../TabErrorBoundary";
 import { ProtocolPip } from "@mooring/ui";
 import type { Size } from "../../lib/ipc";
 import { RemoteCanvas } from "../remote/RemoteCanvas";
@@ -55,9 +56,11 @@ export function DetachedApp({ sessionId }: { sessionId: string }) {
       <div className="session-body remote-body">
         <div className="term-bezel m-hud" data-active={connected ? true : undefined}>
           {live && st.protocol === "ssh" && (
-            <Suspense fallback={<div className="term-host" />}>
-              <TerminalView tabId={key} active={!st.prompt} blocked={st.prompt} onData={onData} onResize={onResize} />
-            </Suspense>
+            <TabErrorBoundary what="the terminal">
+              <Suspense fallback={<div className="term-host" />}>
+                <TerminalView tabId={key} active={!st.prompt} blocked={st.prompt} onData={onData} onResize={onResize} />
+              </Suspense>
+            </TabErrorBoundary>
           )}
           {live && graphical && (
             <RemoteCanvas

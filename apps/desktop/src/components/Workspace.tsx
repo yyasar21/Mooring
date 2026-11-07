@@ -15,6 +15,7 @@ import { ClusterBrowser } from "./kube/ClusterBrowser";
 import { LogsViewer } from "./kube/LogsViewer";
 import { OnboardingCard } from "./onboarding/OnboardingCard";
 import { ImportWizard } from "./import/ImportWizard";
+import { TabErrorBoundary } from "./TabErrorBoundary";
 import { onboardingPending, useOnboarding } from "../stores/onboarding";
 
 // xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
@@ -57,6 +58,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
 
   const bezel = (
     <div className="term-bezel m-hud" data-active={active && tab.state === "connected" && tool === "terminal" ? true : undefined}>
+      <TabErrorBoundary what="the terminal" onClose={() => void useSessions.getState().close(tab.id)}>
       <Suspense fallback={<div className="term-host" />}>
         <TerminalView
           tabId={tab.id}
@@ -67,6 +69,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           resyncKey={tab.attachEpoch}
         />
       </Suspense>
+      </TabErrorBoundary>
     </div>
   );
 
@@ -97,15 +100,15 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </div>
         </>
       ) : kube?.view === "cluster" ? (
-        <ClusterBrowser tab={tab} connection={c} />
+        <TabErrorBoundary what="the cluster browser" onClose={() => void useSessions.getState().close(tab.id)}><ClusterBrowser tab={tab} connection={c} /></TabErrorBoundary>
       ) : kube?.view === "logs" ? (
-        <LogsViewer tab={tab} target={kube.logs} connection={c} active={active} />
+        <TabErrorBoundary what="the log viewer" onClose={() => void useSessions.getState().close(tab.id)}><LogsViewer tab={tab} target={kube.logs} connection={c} active={active} /></TabErrorBoundary>
       ) : terminal ? (
         bezel
       ) : graphical ? (
-        <RemoteSessionTab tab={tab} active={active && !detached} connection={c} />
+        <TabErrorBoundary what="the remote desktop" onClose={() => void useSessions.getState().close(tab.id)}><RemoteSessionTab tab={tab} active={active && !detached} connection={c} /></TabErrorBoundary>
       ) : web ? (
-        <WebSessionTab tab={tab} connection={c} />
+        <TabErrorBoundary what="the web session" onClose={() => void useSessions.getState().close(tab.id)}><WebSessionTab tab={tab} connection={c} /></TabErrorBoundary>
       ) : (
         <div className="panel-note m-hud">
           <div className="max-w-sm">

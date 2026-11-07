@@ -52,6 +52,10 @@ export async function startHarness() {
 export async function freshPage(h) {
   const context = await h.browser.newContext({ viewport: { width: 1280, height: 800 } });
   context.setDefaultTimeout(STEP_TIMEOUT_MS);
+  // Tauri runs the app with `freezePrototype: true`; mirror it so a dependency that writes to an
+  // inherited Object.prototype member fails here, not only in a release build (2026-11-07 blank
+  // SSH window). The Vite dev client is loaded before boot and tolerates it.
+  await context.addInitScript(() => { Object.freeze(Object.prototype); });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
