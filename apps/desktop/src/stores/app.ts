@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { ipc, type AppInfo, type LockReason, type SessionInfo, type VaultStatus } from "../lib/ipc";
-import { errorText } from "./errors";
+import { describeError, errorText } from "./errors";
+import { suspendedText, useBiometric } from "./biometric";
+import { useToasts } from "./toast";
 import { useTree } from "./tree";
 import { useCredentials } from "./credentials";
 import { useSessions } from "./sessions";
@@ -21,6 +23,8 @@ interface AppState {
   boot: () => Promise<void>;
   createVault: (password: string) => Promise<void>;
   unlock: (password: string) => Promise<void>;
+  /** ADR-0022: Rust runs the OS prompt and unlocks; no secret crosses. Only ever after a click. */
+  unlockBiometric: () => Promise<void>;
   lock: () => Promise<void>;
   adoptJoined: () => Promise<void>;
   /** The backend locked the vault (idle, screen lock, ...): drop everything and show the reason. */
@@ -49,6 +53,18 @@ async function adoptLiveSessions(): Promise<void> {
   useSessions.getState().adopt(live);
   const ssh = live.filter((s) => s.protocol === "ssh" && s.state === "connected");
   await Promise.all(ssh.map((s) => useTransfers.getState().adopt(s.sessionId)));
+}
+
+/** Suspension reasons already shown in this window: ADR-0022 says to show one once. */
+const suspendShown = new Set<string>();
+
+/** After a password unlock: say once that biometric unlock was turned off, and why. */
+async function noticeSuspended(): Promise<void> {
+  const s = await useBiometric.getState().load();
+  const text = s ? suspendedText(s) : null;
+  if (!s?.suspendedReason || !text || suspendShown.has(s.suspendedReason)) return;
+  suspendShown.add(s.suspendedReason);
+  useToasts.getState().push(`${text} See Settings → Security.`);
 }
 
 /** Forget every piece of vault-derived state held in this window. */
@@ -93,9 +109,23 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       const vault = await ipc.vaultUnlock(password);
       set({ vault, lastError: null, lockReason: vault === "unlocked" ? null : get().lockReason });
-      if (vault === "unlocked") await loadVaultData();
+      if (vault === "unlocked") {
+        await loadVaultData();
+        await noticeSuspended();
+      }
     } catch (e: unknown) {
       set({ lastError: errorText(e) });
+    }
+  },
+
+  unlockBiometric: async () => {
+    try {
+      await ipc.biometricUnlock();
+      set({ vault: "unlocked", lastError: null, lockReason: null });
+      await loadVaultData();
+    } catch (e: unknown) {
+      set({ lastError: describeError(e) });
+      void useBiometric.getState().load(); // a suspension hides the button
     }
   },
 

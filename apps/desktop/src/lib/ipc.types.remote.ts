@@ -91,9 +91,14 @@ export type CloseCode =
   | "trust_conflict"
   | "server_ended"
   | "protocol_error"
-  | "vault_locked";
+  | "vault_locked"
+  /** ADR-0025: a jump host never came up; the target was never contacted. */
+  | "hop_failed"
+  /** ADR-0025: a jump host dropped; graphical sessions reconnect and rebuild the chain. */
+  | "hop_lost";
 export const CLOSE_CODES: readonly CloseCode[] = [
   "user", "network", "auth_failed", "trust_rejected", "trust_mismatch", "trust_conflict", "server_ended", "protocol_error", "vault_locked",
+  "hop_failed", "hop_lost",
 ];
 
 export type CertificateProblem = "self_signed" | "unknown_issuer" | "name_mismatch" | "expired" | "not_yet_valid";

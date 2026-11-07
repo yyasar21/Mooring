@@ -8,6 +8,9 @@ import { Modal } from "../dialogs/Modal";
 import { PORTABLE_UPDATE_TEXT, PortableLine } from "./PortableLine";
 import { SettingsCard, Toggle } from "./Toggle";
 
+/** ADR-0028: what Settings → Updates says in Mooring Dev (the updater is never registered there). */
+export const DEV_UPDATE_TEXT = "Updates are disabled in development builds. Install a release from the Releases page.";
+
 /** Where a manual install starts. Always the latest release, never a URL from the manifest. */
 export const RELEASE_PAGE = "https://github.com/yyasar21/Mooring/releases/latest";
 
@@ -17,6 +20,7 @@ export const MANUAL_REASON_TEXT: Record<UpdateManualReason, string> = {
   not_writable: "The installed application is not writable by your user (for example a root-owned /Applications bundle or a per-machine install), and Mooring never asks for elevated rights. Download the new version from the release page and install it the way this one was installed.",
   not_bundled: "This build is not a packaged release, so there is nothing for Mooring to replace. Download a packaged release from the release page.",
   portable: PORTABLE_UPDATE_TEXT,
+  dev_build: DEV_UPDATE_TEXT,
 };
 
 /** Release notes as plain text: Rust stripped controls, ANSI and bidi; the UI only keeps the line breaks. */
@@ -120,6 +124,8 @@ export function UpdatesCard() {
 
   const current = info?.current ?? appInfo?.version ?? "unknown";
   const portableDir = appInfo?.portableDataDir ?? null;
+  // ADR-0028: Mooring Dev never registers the updater; Rust refuses check, install and background.
+  const dev = appInfo?.channel === "dev";
   const busy = checking || installing;
   const offer = info?.available ?? null;
 
@@ -137,11 +143,12 @@ export function UpdatesCard() {
               </p>
             )}
           </div>
-          <button type="button" className="btn" disabled={busy || unconfigured} onClick={() => void useUpdate.getState().check()}>
+          <button type="button" className="btn" disabled={busy || unconfigured || dev} onClick={() => void useUpdate.getState().check()}>
             {checking ? "Checking…" : "Check for updates"}
           </button>
         </div>
         {portableDir !== null && <PortableLine path={portableDir} />}
+        {dev && <p role="status" className="settings-warn" data-testid="update-dev">{DEV_UPDATE_TEXT}</p>}
         {unconfigured && (
           <p role="status" className="settings-warn">Updates are not configured in this build. There is no update key, so Mooring never checks for or installs anything; install new versions the way this one was installed.</p>
         )}
@@ -151,11 +158,13 @@ export function UpdatesCard() {
         {!unconfigured && (
           <div className="settings-toggles">
             <Toggle
-              checked={portableDir === null && (settings?.backgroundCheck ?? false)}
-              disabled={settings === null || portableDir !== null}
+              checked={portableDir === null && !dev && (settings?.backgroundCheck ?? false)}
+              disabled={settings === null || portableDir !== null || dev}
               onChange={(on) => void useUpdate.getState().setBackground(on)}
               label="Check for updates in the background (daily)"
-              hint={portableDir !== null
+              hint={dev
+                ? DEV_UPDATE_TEXT
+                : portableDir !== null
                 ? PORTABLE_UPDATE_TEXT
                 : "One request a day to the release server carrying only the version and platform. It only shows a notice in the title bar; nothing is downloaded or installed until you ask."}
             />

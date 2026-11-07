@@ -3,6 +3,7 @@
 // the safest choice (never the trust dialog, never a known close code).
 import type {
   CertificateInfo,
+  HopState,
   CertificateProblem,
   CloseCode,
   KnownCert,
@@ -15,6 +16,7 @@ import type {
   WebWindowInfo,
 } from "./ipc.types";
 import { CERTIFICATE_PROBLEMS, CLOSE_CODES } from "./ipc.types.remote";
+import { HOP_STATES, MAX_VIA } from "./ipc.types.a5";
 
 type WireRecord = Record<string, unknown>;
 
@@ -59,6 +61,7 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
       return { kind: "bytes", data: base64ToBytes(str(w.data)) };
     case "prompt": {
       const purpose = promptPurpose(w.purpose);
+      const hop = hopIndex(w.hop);
       return {
         kind: "prompt",
         id: num(w.id),
@@ -67,7 +70,18 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
         purpose,
         account: purpose === "credential" ? promptAccount(w.account) : null,
         certificate: purpose === "certificate_trust" ? decodeCertificate(w.certificate) : null,
+        ...(hop !== null ? { hop } : {}),
       };
+    }
+    case "hop_status": {
+      // ADR-0025: an out-of-range hop or unknown state is not a hop we can show: close the tab.
+      const hop = hopIndex(w.hop);
+      const of = num(w.of);
+      const state = HOP_STATES.find((x) => x === w.state);
+      if (hop === null || !state || !Number.isInteger(of) || of < 1 || of > MAX_VIA || hop >= of) {
+        return { kind: "closed", reason: "unrecognised session event", code: "unknown" };
+      }
+      return { kind: "hop_status", hop, of, state: state satisfies HopState, host: str(w.host), peerIdentity: optStr(field(w, "peer_identity", "peerIdentity")) };
     }
     case "desktop_resized":
       return { kind: "desktop_resized", width: num(w.width), height: num(w.height) };
@@ -82,6 +96,11 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
     default:
       return { kind: "closed", reason: "unrecognised session event", code: "unknown" };
   }
+}
+
+/** A 0-based hop index (absent or out of range = the target, null). */
+function hopIndex(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v < MAX_VIA ? v : null;
 }
 
 function closeCode(v: unknown): CloseCode | "unknown" {

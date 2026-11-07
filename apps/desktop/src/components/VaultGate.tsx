@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandMark } from "@mooring/ui";
 import type { LockReason } from "../lib/ipc";
 import { useApp } from "../stores/app";
 import { VaultJoin } from "./VaultJoin";
+import { biometricName, useBiometric } from "../stores/biometric";
 
 const LOCK_TEXT: Record<Exclude<LockReason, "user"> | "unknown", string> = {
   idle: "Locked after a period of inactivity.",
@@ -25,6 +26,7 @@ export function lockReasonText(reason: LockReason | "unknown" | null): string | 
 export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   const createVault = useApp((s) => s.createVault);
   const unlock = useApp((s) => s.unlock);
+  const bio = useBiometric((s) => s.status);
   const lastError = useApp((s) => s.lastError);
   const reason = lockReasonText(useApp((s) => s.lockReason));
   const [password, setPassword] = useState("");
@@ -32,11 +34,22 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   const [busy, setBusy] = useState(false);
   // ADR-0017: a fresh device may pull an existing synced vault instead of creating one.
   const [join, setJoin] = useState(false);
+  // ADR-0022: `biometric_status` is passive; the OS prompt itself only follows the button.
+  useEffect(() => { if (mode === "unlock") void useBiometric.getState().load(); }, [mode]);
   if (join) return <VaultJoin onBack={() => { setJoin(false); }} />;
 
   const mismatch = mode === "create" && confirm.length > 0 && confirm !== password;
   const tooShort = mode === "create" && password.length > 0 && password.length < 12;
   const canSubmit = password.length > 0 && !mismatch && !tooShort && !busy;
+
+  const offerBio = mode === "unlock" && bio !== null && bio.available && bio.enabled && bio.suspendedReason === null;
+
+  async function unlockBio() {
+    if (busy) return;
+    setBusy(true);
+    await useApp.getState().unlockBiometric();
+    setBusy(false);
+  }
 
   async function submit() {
     if (!canSubmit) return;
@@ -120,6 +133,11 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
         <button type="submit" disabled={!canSubmit} className="airlock-submit" data-busy={busy || undefined}>
           {busy ? "Deriving key…" : mode === "create" ? "Create vault" : "Unlock"}
         </button>
+        {offerBio && (
+          <button type="button" className="btn unlock-alt" disabled={busy} onClick={() => void unlockBio()}>
+            Unlock with {biometricName(bio)}
+          </button>
+        )}
 
         <div className="airlock-foot">
           <span className="m-micro">Argon2id · XChaCha20-Poly1305</span>

@@ -4,7 +4,8 @@
 /** `in_app` = the plugin can replace the bundle without elevation; `manual` = release page + package manager. */
 export type UpdateInstallMode = "in_app" | "manual";
 /** Why an install is manual (`update_check.manualReason`, only with `installMode: "manual"`). */
-export type UpdateManualReason = "package_manager" | "homebrew" | "not_writable" | "not_bundled" | "portable";
+/** `dev_build` (ADR-0028): Mooring Dev; updates come from your own builds. */
+export type UpdateManualReason = "package_manager" | "homebrew" | "not_writable" | "not_bundled" | "portable" | "dev_build";
 
 export interface UpdateAvailable {
   version: string;

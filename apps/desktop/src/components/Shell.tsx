@@ -16,6 +16,7 @@ import { Telemetry } from "./Telemetry";
 import { Toasts } from "./Toasts";
 import { openSettingsCard, SyncBanner, SyncIndicator } from "./SyncBanner";
 import { useShortcuts } from "./useShortcuts";
+import { DevBadge } from "./DevBadge";
 
 /** Main window once the vault is unlocked: title bar, sync alarm (if any), tree | tabs (or audit) | inspector, telemetry strip. */
 export function Shell() {
@@ -78,12 +79,14 @@ function TitleBar() {
   const theme = useUi((s) => s.theme);
   const toggleTheme = useUi((s) => s.toggleTheme);
   const lock = useApp((s) => s.lock);
+  const dev = useApp((s) => s.info?.channel === "dev");
 
   return (
     <header className="titlebar" data-tauri-drag-region>
       <span className="wordmark">
         <Mark />
         <span className="wordmark-text">MOORING</span>
+        {dev && <DevBadge />}
       </span>
       <button type="button" onClick={() => { setPalette(true); }} className="seek">
         <span aria-hidden className="seek-caret">&gt;</span>

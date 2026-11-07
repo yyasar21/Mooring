@@ -22,6 +22,17 @@ export const CLOSE_TEXT: Record<CloseCode | "unknown", { title: string; hint: st
   server_ended: { title: "Remote ended the session", hint: null, hot: false },
   protocol_error: { title: "Protocol error", hint: "The server sent data Mooring refuses to parse. The session was stopped.", hot: true },
   vault_locked: { title: "Vault locked", hint: "Unlock the vault to reconnect.", hot: false },
+  // ADR-0025: jump hosts. The reason names the hop; the hint says what it means for the target.
+  hop_failed: {
+    title: "Jump host failed",
+    hint: "A jump host did not come up, so Mooring never contacted the target. Check that jump host's host key and credential.",
+    hot: true,
+  },
+  hop_lost: {
+    title: "Jump host connection lost",
+    hint: "The link through a jump host dropped. Remote desktops reconnect and rebuild the whole chain; a terminal needs Reconnect.",
+    hot: true,
+  },
   unknown: { title: "Disconnected", hint: null, hot: true },
 };
 

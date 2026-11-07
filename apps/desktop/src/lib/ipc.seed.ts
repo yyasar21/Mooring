@@ -61,7 +61,10 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-k8s", "f-staging", "stage-cluster", "kubernetes", "https://k8s.stage.example.test:6443", null, "cr-kube", []),
     c("c-jump", "f-staging", "ask-me", "ssh", "jump.stage.example.test", 22, "cr-prompt", ["prompt"]),
     c("c-vc", "f-staging", "stage-vcenter", "vsphere-console", "vcenter.example.test", null, "cr-vc", []),
+    // ADR-0025: stage-app is reached through this bastion (its own key, its own host key).
+    c("c-bastion", "f-staging", "bastion01", "ssh", "bastion.stage.example.test", 22, "cr-deploy", ["bastion"]),
   ].map((x) => {
+    if (x.id === "c-stg") return { ...x, via: ["c-bastion"] };
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
     if (x.id === "c-dc") return { ...x, usernameOverride: "dc-admin", gatewayCredentialId: "cr-ad", options: { ...DEFAULT_RDP_OPTIONS } };
     if (x.id === "c-kiosk") return { ...x, options: { ...DEFAULT_VNC_OPTIONS, viewOnly: true } };

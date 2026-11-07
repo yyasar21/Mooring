@@ -19,6 +19,8 @@ declare global {
 }
 
 const transport = new MockTransport({ vault: "missing", delayMs: 0 });
+// ADR-0028: `?channel=dev` boots as Mooring Dev (app_info is read once, before any flow step).
+if (new URLSearchParams(location.search).get("channel") === "dev") transport.buildChannel = "dev";
 const probe: Probe = { transport, output: "", events: [] };
 const dec = new TextDecoder();
 

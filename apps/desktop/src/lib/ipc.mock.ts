@@ -1,31 +1,20 @@
 // In-memory implementation of the ADR-0008 / ADR-0009 contract for `vite dev` (no Tauri) and vitest.
 // Hosts are fake (*.example.test); no credential secret is ever stored, only discarded.
 // Session/audit methods stay `async` to mirror the IPC signature even when they do not await.
+// The tree and credential commands live in `ipc.mock.tree.ts`; this file keeps app/vault and SSH.
 /* eslint-disable @typescript-eslint/require-await */
-import type {
-  CloseCode,
-  ConnectionFields,
-  ConnectionSummary,
-  CredentialRole,
-  Folder,
-  Ipc,
-  SessionEventHandler,
-  SessionInfo,
-} from "./ipc.types";
+import type { CloseCode, ConnectionSummary, CredentialMeta, Ipc, SessionEventHandler, SessionInfo } from "./ipc.types";
 import { IpcError } from "./ipc.error";
-import { bestScore } from "./fuzzy";
-import { MockCredentials, parseAccountOrThrow } from "./ipc.mock.creds";
 import { echo } from "./ipc.mock.shell";
-import { credentialValidFor, supportsOverride } from "./credentials";
-
-import { seedConnections, seedCredentials, seedFolders } from "./ipc.seed";
 import type { MockOptions } from "./ipc.mock.exit";
-import { MockImportBase } from "./ipc.mock.import";
 import type { RemoteTarget } from "./ipc.mock.remote";
+import { MockTreeBase } from "./ipc.mock.tree";
+import { MockHopChain, type MockHop } from "./ipc.mock.hops";
 
 export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
+const str = (v: unknown) => (typeof v === "string" ? v : null);
 
 interface MockSession {
   info: SessionInfo;
@@ -36,15 +25,19 @@ interface MockSession {
   /** The connection's effective credential is `prompt`: ask for the account after TOFU. */
   askCredential: { username: string | null; domain: string | null; needsDomain: boolean } | null;
   line: string;
+  /** ADR-0025: the jump hosts brought up before the target (null = direct). */
+  chain: MockHopChain | null;
 }
 
-export class MockTransport extends MockImportBase implements Ipc {
-  folders = seedFolders();
-  connections = seedConnections();
-  creds = new MockCredentials(seedCredentials());
+/** The `prompt` credential pre-fills of a connection (null = it stores its own secret). */
+function askOf(c: ConnectionSummary, cred: CredentialMeta | null): { username: string | null; domain: string | null } | null {
+  if (cred?.kind !== "prompt") return null;
+  return { username: c.usernameOverride ?? str(cred.fields.username), domain: c.domainOverride ?? str(cred.fields.domain) };
+}
+
+export class MockTransport extends MockTreeBase implements Ipc {
   trustedHosts = new Set<string>();
   sessions = new Map<string, MockSession>();
-  private ids = 0;
 
   constructor(opts: MockOptions = {}) {
     super(opts);
@@ -57,50 +50,12 @@ export class MockTransport extends MockImportBase implements Ipc {
 
   // ---------- helpers ----------
 
-  private id(prefix: string): string {
-    this.ids += 1;
-    return `${prefix}-${this.ids.toString(16).padStart(4, "0")}`;
-  }
-
   protected requireSsh(sessionId: string): void {
     const s = this.sessions.get(sessionId);
     if (!s && this.remote.has(sessionId)) throw new IpcError("input.invalid", "invalid sessionId: not an SSH session");
     if (!s) throw new IpcError("session.not_found", "session not found");
     if (s.info.protocol !== "ssh") throw new IpcError("input.invalid", "invalid sessionId: not an SSH session");
     if (s.info.state !== "connected") throw new IpcError("session.not_connected", "the session is not connected yet");
-  }
-
-  private folder(id: string): Folder {
-    const f = this.folders.find((x) => x.id === id);
-    if (!f) throw new IpcError("tree.not_found", "folder not found");
-    return f;
-  }
-
-  private connection(id: string): ConnectionSummary {
-    const c = this.connections.find((x) => x.id === id);
-    if (!c) throw new IpcError("tree.not_found", "connection not found");
-    return c;
-  }
-
-  private name(n: string): string {
-    const t = n.trim();
-    if (t.length === 0 || t.length > 200) throw new IpcError("input.invalid", "name must be 1 to 200 characters");
-    return t;
-  }
-
-  private effective(credentialId: string | null, folderId: string): string | null {
-    let cred = credentialId;
-    let fid: string | null = folderId;
-    while (!cred && fid) {
-      const f = this.folders.find((x) => x.id === fid);
-      cred = f?.defaultCredentialId ?? null;
-      fid = f?.parentId ?? null;
-    }
-    return cred;
-  }
-
-  private resolve(c: ConnectionSummary): ConnectionSummary {
-    return { ...c, tags: [...c.tags], effectiveCredentialId: this.effective(c.credentialId, c.folderId) };
   }
 
   protected target(connectionId: string): RemoteTarget {
@@ -124,22 +79,43 @@ export class MockTransport extends MockImportBase implements Ipc {
     return this.sessions.get(sessionId) ?? null;
   }
 
-  private isDescendant(id: string, of: string): boolean {
-    let cur: string | null = id;
-    while (cur) {
-      if (cur === of) return true;
-      cur = this.folders.find((f) => f.id === cur)?.parentId ?? null;
-    }
-    return false;
+  /** The resolved jump hosts of a connection, in chain order. */
+  private hopsOf(c: ConnectionSummary): MockHop[] {
+    return (c.via ?? []).map((id) => {
+      const h = this.resolve(this.connection(id));
+      const cred = h.effectiveCredentialId ? this.creds.get(h.effectiveCredentialId) : null;
+      return { connectionId: h.id, name: h.name, host: h.host, port: h.port ?? 22, fail: h.tags.includes("hop-fail"), ask: askOf(h, cred) };
+    });
+  }
+
+  private hopEnv(emit: SessionEventHandler, done: () => void, fail: (reason: string) => void) {
+    return {
+      emit,
+      trusted: this.trustedHosts,
+      record: (e: string, d: Record<string, string>) => { this.record(e, d); },
+      later: (fn: () => void) => { this.later(fn); },
+      done,
+      fail,
+    };
   }
 
   // ---------- app / vault ----------
 
   appInfo: Ipc["appInfo"] = () =>
-    Promise.resolve({ name: "Mooring", version: "dev", os: "browser", arch: "mock", debug: true, portableDataDir: this.portableDataDir });
+    Promise.resolve({
+      name: this.buildChannel === "dev" ? "Mooring Dev" : "Mooring",
+      version: "dev",
+      os: "browser",
+      arch: "mock",
+      debug: true,
+      portableDataDir: this.portableDataDir,
+      channel: this.buildChannel,
+      identifier: this.buildChannel === "dev" ? "io.github.yyasar21.mooring.dev" : "io.github.yyasar21.mooring",
+    });
   vaultStatus: Ipc["vaultStatus"] = () => Promise.resolve(this.vault);
-  vaultCreate: Ipc["vaultCreate"] = () => {
+  vaultCreate: Ipc["vaultCreate"] = (password) => {
     this.vault = "unlocked";
+    this.masterPassword = password;
     this.record("vault_created", {});
     return Promise.resolve(this.vault);
   };
@@ -157,203 +133,11 @@ export class MockTransport extends MockImportBase implements Ipc {
   };
   vaultChangePassword: Ipc["vaultChangePassword"] = ({ next }) => {
     if (next.length < 12) return Promise.reject(new IpcError("vault.weak_password", "use at least 12 characters"));
+    if (this.masterPassword !== null) this.masterPassword = next;
+    this.suspendBiometric("password_changed");
     this.record("password_changed", {});
     return Promise.resolve(this.vault);
   };
-
-  // ---------- tree ----------
-
-  treeList: Ipc["treeList"] = async () => {
-    await this.unlocked();
-    return {
-      folders: this.folders.map((f) => ({ ...f })),
-      connections: this.connections.map((c) => this.resolve(c)),
-    };
-  };
-
-  folderCreate: Ipc["folderCreate"] = async ({ parentId, name }) => {
-    await this.unlocked();
-    this.folder(parentId);
-    const sort = this.folders.filter((f) => f.parentId === parentId).length;
-    const f: Folder = { id: this.id("f"), parentId, name: this.name(name), defaultCredentialId: null, sort };
-    this.folders.push(f);
-    return { ...f };
-  };
-
-  folderRename: Ipc["folderRename"] = async ({ id, name }) => {
-    await this.unlocked();
-    const f = this.folder(id);
-    f.name = this.name(name);
-    return { ...f };
-  };
-
-  folderMove: Ipc["folderMove"] = async ({ id, parentId }) => {
-    await this.unlocked();
-    const f = this.folder(id);
-    if (f.parentId === null) throw new IpcError("tree.root", "the root folder cannot move");
-    this.folder(parentId);
-    if (this.isDescendant(parentId, id)) throw new IpcError("tree.cycle", "a folder cannot move into itself");
-    f.parentId = parentId;
-    return { ...f };
-  };
-
-  folderSetDefaultCredential: Ipc["folderSetDefaultCredential"] = async ({ id, credentialId }) => {
-    await this.unlocked();
-    const f = this.folder(id);
-    if (credentialId) this.creds.get(credentialId);
-    f.defaultCredentialId = credentialId;
-    return { ...f };
-  };
-
-  folderDelete: Ipc["folderDelete"] = async ({ id }) => {
-    await this.unlocked();
-    const f = this.folder(id);
-    if (f.parentId === null) throw new IpcError("tree.root", "the root folder cannot be deleted");
-    const doomed = new Set(this.folders.filter((x) => this.isDescendant(x.id, id)).map((x) => x.id));
-    this.folders = this.folders.filter((x) => !doomed.has(x.id));
-    this.connections = this.connections.filter((c) => !doomed.has(c.folderId));
-  };
-
-  private checkFields(a: ConnectionFields): void {
-    this.folder(a.folderId);
-    this.name(a.name);
-    if (a.host.trim().length === 0) throw new IpcError("input.invalid", "host is required");
-    if (a.port !== null && (a.port < 1 || a.port > 65535)) throw new IpcError("input.invalid", "port out of range");
-    const roles: [string | null, CredentialRole][] = [
-      [a.credentialId, "primary"],
-      [a.gatewayCredentialId, "gateway"],
-      [a.becomeCredentialId, "become"],
-    ];
-    for (const [id, role] of roles) if (id) this.compatible(id, a.protocol, role);
-    const effective = this.effective(a.credentialId, a.folderId);
-    const kind = effective ? this.creds.get(effective).kind : null;
-    for (const which of ["username", "domain"] as const) {
-      const v = which === "username" ? a.usernameOverride : a.domainOverride;
-      if (v === null) continue;
-      if (v.trim() === "" || v.length > 256) throw new IpcError("input.invalid", `${which} override must be 1 to 256 characters`);
-      if (kind && !supportsOverride(kind, which)) throw new IpcError("input.invalid", `the credential has no ${which} to override`);
-    }
-  }
-
-  private compatible(credentialId: string, protocol: ConnectionSummary["protocol"], role: CredentialRole): void {
-    const r = credentialValidFor(this.creds.kinds, this.creds.get(credentialId), protocol, role);
-    if (!r.ok) throw new IpcError("credential.incompatible", r.reason);
-  }
-
-  connectionCreate: Ipc["connectionCreate"] = async (a) => {
-    await this.unlocked();
-    this.checkFields(a);
-    const now = new Date().toISOString();
-    const c: ConnectionSummary = {
-      ...a,
-      name: a.name.trim(),
-      host: a.host.trim(),
-      tags: [...a.tags],
-      id: this.id("c"),
-      effectiveCredentialId: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.connections.push(c);
-    return this.resolve(c);
-  };
-
-  connectionUpdate: Ipc["connectionUpdate"] = async (a) => {
-    await this.unlocked();
-    const c = this.connection(a.id);
-    this.checkFields(a);
-    // Rust keeps options_json only while the protocol stays the same.
-    const options = a.options ?? (a.protocol === c.protocol ? c.options : undefined);
-    Object.assign(c, { ...a, name: a.name.trim(), host: a.host.trim(), tags: [...a.tags], options });
-    c.updatedAt = new Date().toISOString();
-    return this.resolve(c);
-  };
-
-  connectionMove: Ipc["connectionMove"] = async ({ id, folderId }) => {
-    await this.unlocked();
-    const c = this.connection(id);
-    this.folder(folderId);
-    c.folderId = folderId;
-    return this.resolve(c);
-  };
-
-  connectionDelete: Ipc["connectionDelete"] = async ({ id }) => {
-    await this.unlocked();
-    this.connection(id);
-    this.connections = this.connections.filter((c) => c.id !== id);
-  };
-
-  connectionSearch: Ipc["connectionSearch"] = async ({ query, limit }) => {
-    await this.unlocked();
-    const q = query.trim();
-    return this.connections
-      .map((c) => ({ c, s: q ? bestScore(q, [c.name, c.host, ...c.tags]) : 0 }))
-      .filter((x): x is { c: ConnectionSummary; s: number } => x.s !== null)
-      .sort((a, b) => b.s - a.s || a.c.name.localeCompare(b.c.name))
-      .slice(0, Math.max(1, Math.min(limit, 100)))
-      .map(({ c }) => ({ id: c.id, name: c.name, host: c.host, folderId: c.folderId, protocol: c.protocol }));
-  };
-
-  connectionSetRoleCredential: Ipc["connectionSetRoleCredential"] = async ({ id, role, credentialId }) => {
-    await this.unlocked();
-    const c = this.connection(id);
-    if (credentialId) this.compatible(credentialId, c.protocol, role);
-    if (role === "gateway") c.gatewayCredentialId = credentialId;
-    else c.becomeCredentialId = credentialId;
-    c.updatedAt = new Date().toISOString();
-    return this.resolve(c);
-  };
-
-  // ---------- credentials (ADR-0009) ----------
-
-  credentialKinds: Ipc["credentialKinds"] = async () => structuredClone(this.creds.kinds);
-
-  credentialList: Ipc["credentialList"] = async () => {
-    await this.unlocked();
-    return this.creds.items.map((c) => this.creds.clone(c));
-  };
-
-  credentialCreate: Ipc["credentialCreate"] = async (a) => {
-    await this.unlocked();
-    return this.creds.create(a, this.name(a.name));
-  };
-
-  credentialUpdateFields: Ipc["credentialUpdateFields"] = async ({ id, name, fields }) => {
-    await this.unlocked();
-    return this.creds.updateFields(id, this.name(name), fields);
-  };
-
-  credentialReplaceSecrets: Ipc["credentialReplaceSecrets"] = async (a) => {
-    await this.unlocked();
-    this.creds.replaceSecrets(a);
-  };
-
-  credentialDelete: Ipc["credentialDelete"] = async ({ id }) => {
-    await this.unlocked();
-    this.creds.remove(id);
-    for (const c of this.connections) {
-      if (c.credentialId === id) c.credentialId = null;
-      if (c.gatewayCredentialId === id) c.gatewayCredentialId = null;
-      if (c.becomeCredentialId === id) c.becomeCredentialId = null;
-    }
-    for (const f of this.folders) if (f.defaultCredentialId === id) f.defaultCredentialId = null;
-  };
-
-  credentialCopySecret: Ipc["credentialCopySecret"] = async ({ id, name }) => {
-    await this.unlocked();
-    this.creds.copySecret(id, name);
-    this.record("credential_copied", { credential: id, name });
-    return { clearsInMs: 30_000 };
-  };
-
-  credentialCopyOtp: Ipc["credentialCopyOtp"] = async ({ id }) => {
-    await this.unlocked();
-    const r = this.creds.copyOtp(id, Date.now());
-    this.record("credential_copied", { credential: id, name: "otp" });
-    return r;
-  };
-
-  credentialParseAccount: Ipc["credentialParseAccount"] = async ({ input }) => parseAccountOrThrow(input);
 
   // ---------- sessions ----------
 
@@ -362,18 +146,15 @@ export class MockTransport extends MockImportBase implements Ipc {
     const c = this.resolve(this.connection(connectionId));
     const cred = c.effectiveCredentialId ? this.creds.get(c.effectiveCredentialId) : null;
     if (cred) this.compatible(cred.id, c.protocol, "primary");
-    if (c.protocol === "rdp" || c.protocol === "vnc") return this.openRemote(this.target(connectionId), size, onEvent, onFrame);
+    const hops = this.hopsOf(c);
+    if (c.protocol === "rdp" || c.protocol === "vnc") {
+      // Hop events are queued first, so they arrive before the target's (R1 emits them in hop order).
+      if (hops.length > 0) new MockHopChain(hops, this.hopEnv(onEvent, () => undefined, () => undefined), c.id).startQuiet();
+      return this.openRemote(this.target(connectionId), size, onEvent, onFrame);
+    }
     if (c.protocol === "kubernetes") return this.openKubeExec(connectionId, onEvent, kube);
     if (onFrame && c.protocol === "ssh") throw new IpcError("input.invalid", "invalid onFrame: not accepted for ssh sessions");
-    const str = (v: unknown) => (typeof v === "string" ? v : null);
-    const askCredential =
-      cred?.kind === "prompt"
-        ? {
-            username: c.usernameOverride ?? str(cred.fields.username),
-            domain: c.domainOverride ?? str(cred.fields.domain),
-            needsDomain: false,
-          }
-        : null;
+    const ask = askOf(c, cred);
     const sessionId = this.id("s");
     const s: MockSession = {
       info: { sessionId, connectionId, protocol: c.protocol, state: "connecting", openedAt: new Date().toISOString() },
@@ -381,11 +162,12 @@ export class MockTransport extends MockImportBase implements Ipc {
       emit: onEvent,
       pending: null,
       needsOtp: c.tags.includes("otp"),
-      askCredential,
+      askCredential: ask ? { ...ask, needsDomain: false } : null,
       line: "",
+      chain: null,
     };
     this.sessions.set(sessionId, s);
-    this.later(() => {
+    const target = () => {
       if (!this.trustedHosts.has(c.host)) {
         s.pending = "tofu";
         onEvent({
@@ -398,7 +180,12 @@ export class MockTransport extends MockImportBase implements Ipc {
           certificate: null,
         });
       } else this.afterTrust(s);
-    });
+    };
+    if (hops.length > 0) {
+      const chain = new MockHopChain(hops, this.hopEnv(onEvent, target, (reason) => { this.end(s, reason, "hop_failed"); }), c.id);
+      s.chain = chain;
+      this.later(() => { chain.start(); });
+    } else this.later(target);
     return { sessionId };
   };
 
@@ -453,6 +240,10 @@ export class MockTransport extends MockImportBase implements Ipc {
     }
     const s = this.sessions.get(sessionId);
     if (!s) throw new IpcError("session.not_found", "session not found");
+    if (s.chain?.active) {
+      if (s.chain.answer(input)) return;
+      if (input.kind === "answer" || input.kind === "credential_answer") throw new IpcError("input.invalid", "no such prompt");
+    }
     switch (input.kind) {
       case "credential_answer": {
         if (s.pending !== "credential" || input.id !== 3) throw new IpcError("input.invalid", "no such prompt");

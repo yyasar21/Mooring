@@ -9,7 +9,7 @@ import { isAccountError, parseAccount } from "../../lib/credentials";
  * `alice@corp.example` in the username splits it. The password input is uncontrolled: it is read
  * once on submit, cleared, and handed to Rust as `SessionInput::CredentialAnswer`.
  */
-export function CredentialPrompt({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
+export function CredentialPrompt({ tabId, prompt, host, hop = null }: { tabId: string; prompt: PendingPrompt; host: string; hop?: string | null }) {
   const answer = useSessions((s) => s.answerCredential);
   const a = prompt.account;
   const [user, setUser] = useState(a?.username ?? "");
@@ -67,7 +67,7 @@ export function CredentialPrompt({ tabId, prompt, host }: { tabId: string; promp
         <p aria-hidden className="m-micro mb-2" style={{ color: "var(--hot)" }}>Ask at connect</p>
         <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
           <span aria-hidden className="tab-attn" />
-          Sign in to {host}
+          {hop ? `Jump host ${hop}: sign in` : `Sign in to ${host}`}
         </h2>
         <p className="mt-2 text-[length:var(--fs-s)] text-text-muted">
           This connection stores no password. What you type is used for this session only and is not saved.

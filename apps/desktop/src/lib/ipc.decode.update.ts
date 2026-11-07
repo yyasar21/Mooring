@@ -7,7 +7,7 @@ import type { UpdateAvailable, UpdateInfo, UpdateInstallMode, UpdateManualReason
 type Wire = Record<string, unknown>;
 
 const MODES: readonly UpdateInstallMode[] = ["in_app", "manual"];
-const REASONS: readonly UpdateManualReason[] = ["package_manager", "homebrew", "not_writable", "not_bundled", "portable"];
+const REASONS: readonly UpdateManualReason[] = ["package_manager", "homebrew", "not_writable", "not_bundled", "portable", "dev_build"];
 
 function rec(v: unknown): Wire {
   return typeof v === "object" && v !== null ? (v as Wire) : {};
