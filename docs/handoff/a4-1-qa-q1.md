@@ -103,4 +103,7 @@ grep -nE "fs::read|read_to_string|parse|from_str|serde_json::from" src-tauri/src
 - 2026-11-07 Windows 11, non-admin, NTFS Desktop, `Mooring_0.1.1-rc.2_x64_portable.zip`:
   started after the SmartScreen prompt, no WebView2 warning, `Mooring Data\data` created next to
   `Mooring.exe`, About shows "Portable build — data in …", no error dialogs. **PASS.**
-- macOS 15 (M-18 translocation refusal, Finder move, exFAT/FAT32 stick): pending.
+- 2026-11-07 macOS (owner's Mac), `Mooring_0.1.1-rc.2_universal_portable.zip` opened in place:
+  no error, `Mooring Data/` created next to `Mooring.app`, About shows the portable line. **PASS**
+  (no translocation prompt was observed on this machine; the refusal path stays covered by the
+  unit test — exFAT/FAT32 stick not exercised, carried to 0.1.2).
