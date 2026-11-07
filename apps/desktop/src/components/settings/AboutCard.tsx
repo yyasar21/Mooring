@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../../stores/app";
+import { PortableLine } from "./PortableLine";
 import { SettingsCard } from "./Toggle";
 
 /** Public places a user may want to reach from the app. No command opens a browser from the main window (no opener capability), so each one is shown as text with a Copy button. */
@@ -49,6 +50,7 @@ export function AboutCard() {
             <p className="about-tagline">Remote access, kept local: your connections and credentials never leave this machine unless you sync them yourself.</p>
           </div>
         </div>
+        {info?.portableDataDir && <PortableLine path={info.portableDataDir} />}
 
         <ul className="about-links" aria-label="Links">
           {ABOUT_LINKS.map((l) => (

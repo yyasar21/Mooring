@@ -222,6 +222,9 @@
 .about-facts > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; }
 .about-facts dt { font-size: var(--fs-s); color: var(--text); }
 .about-facts dd { margin: 0; font-size: var(--fs-s); line-height: 1.5; color: var(--text-muted); }
+/* ADR-0021: "Portable build — data in <path>", shared by About and Updates; same grid as a link row */
+.portable-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: var(--row-h); padding: 0 10px; border: 1px solid var(--line-strong); background: var(--bg-sunken); }
+.portable-line-label { font-size: var(--fs-s); color: var(--text); white-space: nowrap; }
 
 /* ---------- Settings → Updates (ADR-0018 §3): version, the offer, plain-text notes ---------- */
 .update-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

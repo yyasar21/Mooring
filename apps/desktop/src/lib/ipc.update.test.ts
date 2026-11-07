@@ -3,7 +3,7 @@
 import { IpcError, type UpdateInfo } from "./ipc";
 import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
 import { MockTransport } from "./ipc.mock";
-import { MOCK_CURRENT_VERSION, MOCK_UPDATE_OFFER, semverBelow } from "./ipc.mock.update";
+import { MOCK_CURRENT_VERSION, MOCK_UPDATE_OFFER, PORTABLE_MANUAL_TEXT, semverBelow } from "./ipc.mock.update";
 
 const code = async (p: Promise<unknown>) => {
   try {
@@ -103,6 +103,8 @@ describe("mock · updater (ADR-0018 §3, U0)", () => {
     });
     expect(decodeUpdateInfo({ current: "0.1.0", available: null, installMode: "manual", manualReason: "homebrew", checkedAt: "t" })).toMatchObject({ installMode: "manual", manualReason: "homebrew" });
     expect(decodeUpdateInfo({ installMode: "in_app", manualReason: "homebrew" }).manualReason).toBeUndefined();
+    expect(decodeUpdateInfo({ installMode: "manual", manualReason: "portable" }).manualReason).toBe("portable"); // ADR-0021 §2
+    expect(decodeUpdateInfo({ installMode: "manual", manualReason: "snap" }).manualReason).toBeUndefined();
     expect(decodeUpdateInfo(null)).toEqual({ current: "", available: null, installMode: "manual", checkedAt: "" });
   });
 
@@ -144,5 +146,18 @@ describe("mock · updater (ADR-0018 §3, U0)", () => {
     expect(decodeUpdateSettings({ lastVerified: "" }).lastVerified).toBeNull();
     expect(decodeUpdateSettings({ lastVerified: 3 }).lastVerified).toBeNull();
     expect(decodeUpdateSettings(null)).toEqual({ backgroundCheck: false, channel: "stable", lastCheck: null, lastVerified: null });
+  });
+
+  it("ADR-0021: a portable build reports its data folder, refuses the background opt-in and still checks on demand", async () => {
+    const m = new MockTransport();
+    expect((await m.appInfo()).portableDataDir).toBeNull();
+    m.portableDataDir = "/media/stick/Mooring Data";
+    m.updateMode = { installMode: "manual", manualReason: "portable" };
+    expect((await m.appInfo()).portableDataDir).toBe("/media/stick/Mooring Data");
+    await expect(m.updateSettingsSet({ backgroundCheck: true })).rejects.toMatchObject({ code: "update.manual_only", message: PORTABLE_MANUAL_TEXT });
+    expect(m.audit.at(-1)).toMatchObject({ event: "update.refused", details: { code: "update.manual_only" } });
+    expect((await m.updateSettingsGet()).backgroundCheck).toBe(false);
+    expect((await m.updateSettingsSet({ backgroundCheck: false })).backgroundCheck).toBe(false);
+    expect(await m.updateCheck()).toMatchObject({ installMode: "manual", manualReason: "portable" });
   });
 });

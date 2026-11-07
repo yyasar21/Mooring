@@ -57,6 +57,30 @@ describe("AboutCard", () => {
     expect(within(card()).getByRole("status")).toHaveTextContent("");
   });
 
+  it("shows the portable line with a copyable path only in a portable build (ADR-0021 §1)", async () => {
+    const mock = freshBackend();
+    render(<AboutCard />);
+    await act(async () => { await useApp.getState().boot(); });
+    await settle();
+    expect(screen.queryByTestId("portable-line")).toBeNull();
+    expect(card()).not.toHaveTextContent("Portable build");
+
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (t: string) => { written.push(t); return Promise.resolve(); } } });
+    mock.portableDataDir = "D:\\Mooring\\Mooring Data";
+    await act(async () => { await useApp.getState().boot(); });
+    await settle();
+    const line = within(card()).getByTestId("portable-line");
+    expect(line).toHaveTextContent("Portable build — data in D:\\Mooring\\Mooring Data");
+    expect(line.querySelector("code.about-link-url")).toHaveTextContent("D:\\Mooring\\Mooring Data");
+    fireEvent.click(within(line).getByRole("button", { name: "Copy portable data folder path" }));
+    await settle();
+    expect(written).toEqual(["D:\\Mooring\\Mooring Data"]);
+    expect(within(line).getByRole("button", { name: "Copy portable data folder path" })).toHaveTextContent("Copied");
+    expect(within(line).getByRole("status")).toHaveTextContent("Path copied.");
+    expect(within(card()).queryAllByRole("link")).toHaveLength(0);
+  });
+
   it("is the last card of Settings", async () => {
     freshBackend();
     render(<SettingsView />);
