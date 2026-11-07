@@ -1,4 +1,4 @@
-//! Windows: Windows Hello through `KeyCredentialManager` (ADR-0022 §1), safe WinRT
+//! Windows: Windows Hello through `KeyCredentialManager` (ADR-0022 §1), safe `WinRT`
 //! projections of the `windows` crate only (no raw pointers, no `unsafe` here).
 //!
 //! Nothing readable is stored: the key `io.github.yyasar21.mooring/<vault_id>` lives in the
@@ -8,7 +8,7 @@
 //! deterministic, so the same key comes back on every unlock). A Hello container reset makes
 //! `OpenAsync` answer `NotFound` → `biometry_changed`.
 //!
-//! Every WinRT call is joined synchronously; the command layer runs it off the IPC thread.
+//! Every `WinRT` call is joined synchronously; the command layer runs it off the IPC thread.
 
 use mooring_vault::Uuid;
 use ::windows::core::HSTRING;
@@ -32,7 +32,7 @@ fn key_name(vault_id: Uuid) -> HSTRING {
     HSTRING::from(format!("{SERVICE}/{vault_id}"))
 }
 
-/// Map a WinRT failure to a fixed error; only the HRESULT is logged.
+/// Map a `WinRT` failure to a fixed error; only the `HRESULT` is logged.
 fn winrt(e: &::windows::core::Error, op: &'static str) -> BioError {
     tracing::warn!(op, hresult = e.code().0, "windows hello call failed");
     BioError::Failed

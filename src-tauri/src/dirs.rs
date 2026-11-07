@@ -118,7 +118,7 @@ impl std::fmt::Display for DirsError {
 
 impl std::error::Error for DirsError {}
 
-/// `FILE_ATTRIBUTE_REPARSE_POINT`: symlinks, junctions, mount points, OneDrive placeholders.
+/// `FILE_ATTRIBUTE_REPARSE_POINT`: symlinks, junctions, mount points, `OneDrive` placeholders.
 #[cfg(windows)]
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 

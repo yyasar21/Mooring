@@ -14,14 +14,20 @@ use mooring_net::{NetError, Os, Runner, Target, ToolPaths, TraceFlavour, WgQuery
 
 struct Shims {
     root: PathBuf,
+    /// The shims share one directory and record their argv in `<name>.argv`, so two tests
+    /// running the same shim at once would read each other's record (CI flake 2026-11-07).
+    /// Each test holds this lock for its whole run.
+    _serial: tokio::sync::MutexGuard<'static, ()>,
 }
 
 impl Shims {
     /// The shims are copied once per test process: a copy running in one test thread while
     /// another thread forks leaves the write descriptor open in the child and `execve` fails
     /// with `ETXTBSY` (Linux; rust-lang/rust#114554). One writer, before any spawn, avoids it.
-    fn install() -> Self {
+    async fn install() -> Self {
+        static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let serial = SERIAL.lock().await;
         let dir = DIR.get_or_init(|| {
             use std::os::unix::fs::PermissionsExt;
             let dir = tempfile::tempdir().expect("tmp");
@@ -35,7 +41,7 @@ impl Shims {
             }
             dir
         });
-        Self { root: dir.path().to_path_buf() }
+        Self { root: dir.path().to_path_buf(), _serial: serial }
     }
 
     fn path(&self, name: &str) -> PathBuf {
@@ -65,7 +71,7 @@ fn t(s: &str) -> Target {
 
 #[tokio::test]
 async fn ping_runs_the_shim_with_fixed_argv_and_a_clean_environment() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     let run = shims.runner().ping(&t("192.0.2.1"), 4).await.expect("ping");
     assert_eq!(shims.argv_of("ping.sh"), ["-n", "-c", "4", "-W", "2", "--", "192.0.2.1"]);
     assert_eq!((run.result.sent, run.result.received), (4, 3));
@@ -79,14 +85,14 @@ async fn ping_runs_the_shim_with_fixed_argv_and_a_clean_environment() {
 
 #[tokio::test]
 async fn ping_count_is_clamped_and_target_is_last() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     shims.runner().ping(&t("example.test"), 99).await.expect("ping");
     assert_eq!(shims.argv_of("ping.sh"), ["-n", "-c", "10", "-W", "2", "--", "example.test"]);
 }
 
 #[tokio::test]
 async fn traceroute_prefers_traceroute_then_tracepath() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     let run = shims.runner().traceroute(&t("192.0.2.1"), 12).await.expect("trace");
     assert_eq!(run.tool, "traceroute");
     assert_eq!(
@@ -114,7 +120,7 @@ async fn traceroute_prefers_traceroute_then_tracepath() {
 
 #[tokio::test]
 async fn missing_tool_is_tool_missing_not_a_path_lookup() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     let none = Runner::new(ToolPaths::custom(
         Os::Linux,
         vec![shims.path("nope")],
@@ -133,7 +139,7 @@ async fn missing_tool_is_tool_missing_not_a_path_lookup() {
 
 #[tokio::test]
 async fn deadline_kills_a_hanging_tool_and_keeps_partial_output() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     let started = std::time::Instant::now();
     let out = run_tool(&shims.path("slow.sh"), &[], Duration::from_millis(500)).await.expect("run");
     assert!(out.timed_out);
@@ -144,7 +150,7 @@ async fn deadline_kills_a_hanging_tool_and_keeps_partial_output() {
 
 #[tokio::test]
 async fn output_cap_cuts_a_flooding_tool() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     let started = std::time::Instant::now();
     let out = run_tool(&shims.path("flood.sh"), &[], Duration::from_secs(20)).await.expect("run");
     assert!(out.truncated);
@@ -157,7 +163,7 @@ async fn output_cap_cuts_a_flooding_tool() {
 
 #[tokio::test]
 async fn wg_status_runs_only_the_allowed_queries() {
-    let shims = Shims::install();
+    let shims = Shims::install().await;
     // The shim's `wg1` behaves like a non-root run: the whole status is refused.
     let err = shims.runner().wg_status().await.err();
     assert_eq!(err, Some(NetError::PermissionDenied));

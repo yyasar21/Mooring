@@ -55,11 +55,11 @@ fn access_control() -> Result<SecAccessControl, BioError> {
         Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
         AccessControlOptions::BIOMETRY_CURRENT_SET.bits(),
     )
-    .map_err(|e| map(&e, "access control"))
+    .map_err(|e| map(e, "access control"))
 }
 
 /// Map a Security.framework status to a fixed [`BioError`]; the code is logged, never shown.
-fn map(e: &SecError, op: &'static str) -> BioError {
+fn map(e: SecError, op: &'static str) -> BioError {
     let code = e.code();
     tracing::warn!(op, code, "keychain call failed");
     match code {
@@ -117,7 +117,7 @@ impl BiometricStore for TouchIdStore {
         match set_generic_password_options(key.as_slice(), o) {
             Ok(()) => Ok(key),
             Err(e) if e.code() == ERR_SEC_DUPLICATE_ITEM => Err(BioError::Failed),
-            Err(e) => Err(map(&e, "add")),
+            Err(e) => Err(map(e, "add")),
         }
     }
 
@@ -125,7 +125,7 @@ impl BiometricStore for TouchIdStore {
         if !SIGNED_BUILD {
             return Err(BioError::Unavailable(Unavailable::UnsignedBuild));
         }
-        let bytes = Zeroizing::new(generic_password(options(vault_id)).map_err(|e| map(&e, "read"))?);
+        let bytes = Zeroizing::new(generic_password(options(vault_id)).map_err(|e| map(e, "read"))?);
         let key: [u8; KEY_LEN] = bytes.as_slice().try_into().map_err(|_| {
             tracing::warn!("keychain item has the wrong size");
             BioError::Failed
@@ -141,7 +141,7 @@ impl BiometricStore for TouchIdStore {
         match delete_generic_password_options(options(vault_id)) {
             Ok(()) => Ok(()),
             Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
-            Err(e) => match map(&e, "delete") {
+            Err(e) => match map(e, "delete") {
                 // A missing entitlement means there was never an item to delete.
                 BioError::Unavailable(Unavailable::UnsignedBuild) => Ok(()),
                 other => Err(other),
