@@ -10,7 +10,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/u;
 /** `?`, `#`, `\`, control and bidi characters are refused in an `op://` segment. */
 // eslint-disable-next-line no-control-regex
-const OP_BAD = /[?#\\\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/u;
+const OP_BAD = /[?#\\\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
 const NAME_OK = /^[A-Za-z0-9._@-]+$/;
 const DNS_OK = /^[A-Za-z0-9._*@-]+$/;
 

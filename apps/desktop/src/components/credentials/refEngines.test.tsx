@@ -166,7 +166,7 @@ describe("reference rules (validate.refs)", () => {
     expect(checkOpReference("op://a/b/c/d/e")).toMatch(/Use op:\/\/vault\/item/);
     expect(checkOpReference("op://Infra//x")).toMatch(/empty segment/);
     expect(checkOpReference("op://Infra/db?attribute=otp")).toMatch(/must not contain/);
-    expect(checkOpReference("op://Infra/d‮b")).toMatch(/must not contain/);
+    expect(checkOpReference("op://Infra/d\u202eb")).toMatch(/must not contain/);
     expect(checkBwsReference("be8e0ad8-d545-4017-a55a-b02f014d4158")).toBeNull();
     expect(checkBwsReference("be8e0ad8-d545-4017-a55a-b02f014d4158/DB_PASSWORD")).toBeNull();
     expect(checkBwsReference("project/key")).not.toBeNull();
