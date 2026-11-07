@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import stat
 import sys
 import time
@@ -38,8 +39,15 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
+DRIVE_LETTER = re.compile(r"^[A-Za-z]:")
+
+
 def check_arcname(name: str) -> str:
-    if not name or name.startswith("/") or "\\" in name or name != os.path.normpath(name).replace(os.sep, "/"):
+    """A relative, forward-slash name with no `.`/`..`/empty components, no backslash,
+    no leading `/`, `//` or `\\\\` (UNC) and no Windows drive prefix (`C:`)."""
+    if not name or name.startswith(("/", "//", "\\\\")) or "\\" in name or DRIVE_LETTER.match(name):
+        fail(f"invalid archive name {name!r}")
+    if name != os.path.normpath(name).replace(os.sep, "/"):
         fail(f"invalid archive name {name!r}")
     parts = name.split("/")
     if any(p in ("", ".", "..") for p in parts):

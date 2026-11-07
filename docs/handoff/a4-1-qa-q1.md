@@ -29,6 +29,23 @@ Linux x86_64 (WebKitGTK toolchain), `CARGO_TARGET_DIR=/home/claude/nexus/target`
 Both "pins the bug" rows (`it.fails`, `gap`) and the one `#[ignore]` are the only non-`ok` markers; no
 threshold was lowered, no existing test skipped or changed.
 
+## F1 — fix round (rust-core / ui-engineer / release-engineer), 2026-11-07
+
+Branch `worktree-agent-a0784d02683352a29`, from the Q1 merge. Product code touched only where the
+table names it; pins flipped, nothing else in the tests changed.
+
+| Id | Status | Fix | Tests |
+| --- | --- | --- | --- |
+| **a4-1-qa-1** | fixed | `dirs.rs::portable_under`: `symlink_metadata` on `Mooring Data/data` and `cache` before `create_private_dir`; a symlink / Windows reparse point (same `is_link`) or a non-directory → `DataDirInvalid(root)`, nothing created, nothing chmod'ed through the link. | `#[ignore]` removed from `e2e_flow::a4_1_portable_dirs::symlinked_data_subdir_is_refused_like_the_root` (passes); new unit tests `dirs::tests::symlinked_data_subdir_is_refused_and_not_followed` (`data` and `cache`, link target stays empty, sibling not created) and `dirs::tests::file_named_data_subdir_is_refused`. |
+| **a4-1-qa-2** | fixed | `stores/errors.ts::describeError`: for `update.manual_only` the Rust message (one fixed sentence per `ManualReason`: package manager / Homebrew / not bundled / portable) is shown; `FRIENDLY["update.manual_only"]` stays as the fallback for an empty message. `describeCode` (bare codes in status fields) unchanged. | `portable.test.tsx` "Updates: the refusal alert carries the portable message, not the package-manager text" — `it.fails` → `it`. |
+| **a4-1-qa-3** | fixed | `portable-zip.py::check_arcname`: `^[A-Za-z]:` (drive prefix) and names starting with `//` or `\\` (UNC) are refused alongside `..`, `/`, `\`. | `portable-zip.test.sh`: `gap` → `check "drive-letter name C:/x is refused"`, plus `c:x`, `//srv/x`, `\\srv\x` rows (68 → 71). No `gap` rows remain. |
+
+Evidence (Linux x86_64, `CARGO_TARGET_DIR=/home/claude/nexus/target`): `cargo fmt --check` clean;
+`cargo clippy -p mooring-app --all-targets -- -D warnings` 0 errors (same env-level "unknown lint"
+warning as Q1); `cargo test -p mooring-app` lib 369 passed / 1 ignored (pre-existing, not portable),
+e2e_flow 51 passed / 0 ignored; `scripts/release/tests/*.test.sh` 12 / 71 / 24 / 34 passed, 0 failed;
+`pnpm typecheck`, `pnpm lint` clean; `pnpm test` 73 files, 560 passed, 0 expected-fail.
+
 ## Left open
 
 - **`portable-zip.py` has no entry-count / total-size cap** (ADR-0021 §4 names none). The 1 000-entry

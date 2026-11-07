@@ -58,12 +58,10 @@ describe("portable build badge — hostile cases (ADR-0021)", () => {
     expect(within(c).getByRole("switch", { name: /^Check for updates in the background \(daily\)/ })).not.toBeChecked();
   });
 
-  // BUG a4-1-qa-2 (ui-engineer, acknowledged in a4-1-ui-p1.md "Left open"): `describeError`
-  // maps every `update.manual_only` to FRIENDLY's "managed by a package manager or Homebrew"
-  // text, so the refusal a portable build gets back is shown with the wrong reason. Flip
-  // `it.fails` to `it` once the portable message wins (e.g. FRIENDLY lookup after a
-  // message-specific pass, or Rust's message shown when it is not the generic one).
-  it.fails("Updates: the refusal alert carries the portable message, not the package-manager text", async () => {
+  // a4-1-qa-2 (fixed in F1): `describeError` used to map every `update.manual_only` to
+  // FRIENDLY's "managed by a package manager or Homebrew" text; Rust's message (the
+  // authoritative reason) now wins for that code, the friendly text is the empty-message fallback.
+  it("Updates: the refusal alert carries the portable message, not the package-manager text", async () => {
     const mock = freshBackend();
     mock.portableDataDir = "/media/stick/Mooring Data";
     await act(async () => { await useApp.getState().boot(); });

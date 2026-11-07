@@ -140,7 +140,16 @@ export function describeCode(code: string): string {
   return FRIENDLY[code] ?? code;
 }
 
+/**
+ * Codes whose Rust message is the authoritative reason (one fixed, safe sentence per variant)
+ * and would be lost behind a single friendly text: `update.manual_only` covers package
+ * manager, Homebrew, not-bundled and portable (ADR-0021 §2). The friendly text is the
+ * fallback when the message is empty.
+ */
+const MESSAGE_WINS: ReadonlySet<string> = new Set(["update.manual_only"]);
+
 export function describeError(e: unknown): string {
   if (!isIpcError(e)) return "unexpected error";
+  if (MESSAGE_WINS.has(e.code) && e.message.trim() !== "") return e.message;
   return FRIENDLY[e.code] ?? e.message;
 }
