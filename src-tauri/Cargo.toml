@@ -18,6 +18,7 @@ test-util = ["dep:tempfile", "dep:russh", "dep:russh-sftp"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+serde_json = { workspace = true } # ADR-0028 §1: build.rs re-derives the effective identifier (already in the tree)
 
 [dependencies]
 tauri = { version = "=2.12.5", features = [] }  # ADR-0013 / review 5 L-32: pinned to the reviewed release; bumps go through Dependabot + review

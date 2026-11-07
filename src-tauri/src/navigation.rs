@@ -6,7 +6,7 @@
 //! labelled window with their own capability (ADR-0003).
 
 use tauri::webview::NewWindowResponse;
-use tauri::{App, AppHandle, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 /// Label of the main window in `tauri.conf.json`.
 pub const MAIN_WINDOW: &str = "main";
@@ -36,7 +36,7 @@ fn same_origin(a: &Url, b: &Url) -> bool {
 /// otherwise land in `%LOCALAPPDATA%` / `$XDG_DATA_HOME`; the caller passes `None` on macOS
 /// (`WKWebView` has no such knob).
 pub fn create_main_window<R: Runtime>(
-    app: &App<R>,
+    app: &AppHandle<R>,
     data_dir: Option<std::path::PathBuf>,
 ) -> tauri::Result<()> {
     let config = app
@@ -48,7 +48,7 @@ pub fn create_main_window<R: Runtime>(
         .cloned()
         .ok_or_else(|| tauri::Error::WindowNotFound)?;
     let dev_url = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
-    let mut builder = WebviewWindowBuilder::from_config(app.handle(), &config)?;
+    let mut builder = WebviewWindowBuilder::from_config(app, &config)?;
     if let Some(dir) = data_dir {
         builder = builder.data_directory(dir);
     }

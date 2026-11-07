@@ -64,6 +64,8 @@ pub struct Settings {
     pub graphical: Arc<dyn SessionFactory>,
     /// Unit of the reconnect backoff (1 s in production: 1, 2, 4, 8, 16, 30 units).
     pub reconnect_unit: Duration,
+    /// ADR-0028: the build channel (`Channel::CURRENT` in production; tests pick one).
+    pub channel: crate::build_identity::Channel,
 }
 
 impl std::fmt::Debug for Settings {
@@ -73,6 +75,7 @@ impl std::fmt::Debug for Settings {
             .field("ssh_allow_agent", &self.ssh_allow_agent)
             .field("clipboard_clear_after", &self.clipboard_clear_after)
             .field("reconnect_unit", &self.reconnect_unit)
+            .field("channel", &self.channel)
             .finish_non_exhaustive()
     }
 }
@@ -87,6 +90,7 @@ impl Settings {
             clipboard_clear_after: Duration::from_secs(30),
             graphical: Arc::new(BuiltinFactory),
             reconnect_unit: Duration::from_secs(1),
+            channel: crate::build_identity::Channel::CURRENT,
         }
     }
 }

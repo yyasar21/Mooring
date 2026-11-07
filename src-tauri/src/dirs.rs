@@ -135,7 +135,7 @@ fn is_link(m: &std::fs::Metadata) -> bool {
 }
 
 /// Whether `exe` sits at `<X>.app/Contents/MacOS/<exe>` (a macOS bundle); returns `<X>.app`.
-fn app_bundle(exe: &Path) -> Option<&Path> {
+pub(crate) fn app_bundle(exe: &Path) -> Option<&Path> {
     let macos = exe.parent()?;
     let contents = macos.parent()?;
     let app = contents.parent()?;
@@ -165,13 +165,22 @@ type Mkdir<'a> = &'a dyn Fn(&Path) -> std::io::Result<Mode>;
 impl Dirs {
     /// Marker file name.
     pub const MARKER: &'static str = "portable";
-    /// Data root name under the marker directory.
-    pub const ROOT: &'static str = "Mooring Data";
+    /// Data root name under the marker directory for this build's channel (ADR-0028 §1).
+    pub const ROOT: &'static str = Self::root_name(crate::build_identity::Channel::CURRENT);
     /// `cache/webview`: the main window's `WebView` profile in portable mode (Windows, Linux).
     pub const WEBVIEW_DIR: &'static str = "webview";
     /// The path component `LaunchServices` uses for App Translocation copies
     /// (`/private/var/folders/…/AppTranslocation/<uuid>/d/<X>.app`).
     pub const TRANSLOCATION: &'static str = "AppTranslocation";
+
+    /// The portable data root of `channel`: `Mooring Data` (release) or `Mooring Dev Data`
+    /// (dev), so a dev build next to a release build never opens its vault.
+    pub const fn root_name(channel: crate::build_identity::Channel) -> &'static str {
+        match channel {
+            crate::build_identity::Channel::Release => "Mooring Data",
+            crate::build_identity::Channel::Dev => "Mooring Dev Data",
+        }
+    }
 
     /// The directory the marker is looked up in (pure). `AppImage`: the parent of `$APPIMAGE`
     /// (the executable itself runs from a squashfs mount); macOS: the parent of the `.app`

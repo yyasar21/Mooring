@@ -315,6 +315,36 @@ fn portable_events_have_stable_wire_names() {
     }
 }
 
+/// ADR-0028 §2: the move rows carry locations, targets, flags and codes, never a path.
+#[test]
+fn install_events_have_stable_wire_names() {
+    let s = |x: &str| x.to_owned();
+    let cases = [
+        (
+            AuditEvent::InstallMoveOffered { location: s("disk_image") },
+            serde_json::json!({ "event": "install.move_offered", "location": "disk_image" }),
+        ),
+        (
+            AuditEvent::InstallMoved { target: s("applications"), replaced: true, detached: false },
+            serde_json::json!({ "event": "install.moved", "target": "applications", "replaced": true, "detached": false }),
+        ),
+        (
+            AuditEvent::InstallMoveDeclined { remember: true },
+            serde_json::json!({ "event": "install.move_declined", "remember": true }),
+        ),
+        (
+            AuditEvent::InstallMoveFailed { code: s("install.not_ours") },
+            serde_json::json!({ "event": "install.move_failed", "code": "install.not_ours" }),
+        ),
+    ];
+    for (e, want) in cases {
+        let v = serde_json::to_value(&e).expect("json");
+        assert_eq!(v, want);
+        let back: AuditEvent = serde_json::from_value(v).expect("round trip");
+        assert_eq!(back, e);
+    }
+}
+
 /// ADR-0020 §6: the network-tool rows carry names and counts only.
 #[test]
 fn net_events_serialize_names_and_counts() {

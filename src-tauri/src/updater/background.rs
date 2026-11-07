@@ -52,9 +52,21 @@ pub fn parse_last_check(raw: Option<&str>) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(raw?, &Rfc3339).ok()
 }
 
-/// Spawn the loop. Does nothing when no source is configured.
+/// Whether the loop is installed at all (pure): never in a development build (ADR-0028),
+/// never without a configured source, never in a portable folder (ADR-0021 §2).
+pub fn enabled(dev_build: bool, configured: bool, portable: bool) -> bool {
+    !dev_build && configured && !portable
+}
+
+/// Spawn the loop. Does nothing in a development build, without a source or when portable.
 pub fn install<R: Runtime>(app: &tauri::App<R>) {
     let handle = app.handle().clone();
+    let rt = handle.state::<UpdateRuntime>();
+    let portable = handle.state::<AppState>().portable_root.is_some();
+    if !enabled(rt.dev_build(), rt.configured(), portable) {
+        tracing::info!(dev_build = rt.dev_build(), configured = rt.configured(), portable, "background update check off");
+        return;
+    }
     if !handle.state::<UpdateRuntime>().configured() {
         tracing::info!("updater not configured (no pubkey); background check off");
         return;
@@ -129,6 +141,19 @@ mod tests {
         t.enabled = true;
         t.unlocked = false;
         assert!(!due(&t));
+    }
+
+    /// ADR-0028: a development build never gets the loop, whatever else holds.
+    #[test]
+    fn dev_builds_never_install_the_loop() {
+        for configured in [true, false] {
+            for portable in [true, false] {
+                assert!(!enabled(true, configured, portable));
+            }
+        }
+        assert!(enabled(false, true, false));
+        assert!(!enabled(false, false, false));
+        assert!(!enabled(false, true, true));
     }
 
     #[test]

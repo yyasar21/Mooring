@@ -189,6 +189,11 @@ pub fn settings_set(state: &AppState, input: UpdateSettingsInput) -> IpcResult<U
         return Err(IpcError::invalid("channel", "only `stable` exists"));
     }
     state.with_ready(|_, _| Ok(()))?;
+    // ADR-0028 §1: a development build has no updater; the opt-in is refused first.
+    if input.background_check && state.settings.channel.is_dev() {
+        let reason = ManualReason::DevBuild;
+        return Err(refused(state, reason.code(), reason.message()));
+    }
     // ADR-0021 §2: no background task in a portable folder; the opt-in is refused, not stored.
     if input.background_check && state.portable_root.is_some() {
         let reason = ManualReason::Portable;

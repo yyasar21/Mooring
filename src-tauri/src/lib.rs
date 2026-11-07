@@ -44,6 +44,13 @@ test_util_pub!(updater);
 test_util_pub!(import_plans);
 // ADR-0021 (0.1.1): data / cache directories, portable marker, start-up refusals, Windows ACL.
 test_util_pub!(dirs, portable_acl, startup);
+// ADR-0028 (A5): build channel, Move to Applications.
+test_util_pub!(build_identity, install_flow, install_location, install_move);
+/// ADR-0028: the build-script channel logic (shared with `build.rs`) and the checked-in configs.
+#[cfg(test)]
+mod build_channel;
+#[cfg(test)]
+mod test_config;
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -98,7 +105,10 @@ pub fn run() {
     let context = tauri::generate_context!();
     // ADR-0018 §3: the updater plugin exists only when a pubkey is compiled in; its JS commands
     // are unreachable anyway (no `updater:*` permission in any capability).
-    let updater_configured = updater::configured_pubkey(context.config()).is_some();
+    // ADR-0028: a development build never registers the plugin, whatever its config says.
+    let channel = build_identity::Channel::CURRENT;
+    let updater_configured =
+        !channel.is_dev() && updater::configured_pubkey(context.config()).is_some();
     let mut builder = tauri::Builder::default()
         // Review 4 B-4: registered for its Rust API only (`sftp_pick_local`, ADR-0015 power /
         // certificate / VMRC confirmations); the `main` capability grants no dialog permission.
@@ -108,13 +118,19 @@ pub fn run() {
     }
     let app = builder
         .setup(move |app| {
+            // ADR-0028 §1: the compiled channel must match the identifier Tauri runs with.
+            if let Err(refusal) = build_identity::check(channel, &app.config().identifier) {
+                startup::refuse(app.handle(), &refusal);
+                return Ok(());
+            }
             // ADR-0021 §1, §3: the marker decides the directories; an unusable portable
             // set-up or a missing WebView2 runtime is a message box and exit 2, no window.
             // The WebView2 check runs before anything is created (review 8 N-65).
             let dirs = match startup::resolve_dirs(app) {
                 Ok(dirs) => dirs,
                 Err(refusal) => {
-                    startup::refuse(app.handle(), &refusal);
+                    // ADR-0028 §2: a translocated release launch is offered the move first.
+                    install_flow::translocated(app.handle(), &refusal);
                     return Ok(());
                 }
             };
@@ -146,7 +162,10 @@ pub fn run() {
             if let Some(dir) = &webview_dir {
                 create_private_dir(dir)?;
             }
-            navigation::create_main_window(app, webview_dir)?;
+            // ADR-0028 §2: a relaunched copy detaches the old image; a release on a disk image
+            // or in Downloads is offered the move before the main window exists.
+            install_flow::after_relaunch(app.handle());
+            install_flow::start_main(app.handle(), &app.state::<AppState>(), webview_dir)?;
             // ADR-0010: syslog mirror from the stored config, then the auto-lock clock + tick.
             commands::syslog::start_stored(&app.state::<AppState>());
             // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
@@ -163,11 +182,16 @@ pub fn run() {
             oidc_window::install(app);
             // ADR-0018 §3 (A4 U0): update runtime + opt-in background check.
             let current = app.package_info().version.clone();
-            app.manage(if updater_configured {
+            app.manage(if channel.is_dev() {
+                updater::UpdateRuntime::development(current)
+            } else if updater_configured {
                 let source = updater::source::PluginSource::new(app.handle().clone());
                 updater::UpdateRuntime::new(
                     std::sync::Arc::new(source),
-                    std::sync::Arc::new(updater::install_mode::OsProbe { portable }),
+                    std::sync::Arc::new(updater::install_mode::OsProbe {
+                        portable,
+                        dev_build: false,
+                    }),
                     current,
                 )
             } else {

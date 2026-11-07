@@ -94,7 +94,7 @@ impl InstallProbe for FakeProbe {
 }
 
 pub fn facts(bundle: Bundle, path: &str, writable: bool) -> InstallFacts {
-    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false, portable: false }
+    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false, portable: false, dev_build: false }
 }
 
 /// An in-app `AppImage` install at a writable path.
@@ -347,8 +347,15 @@ fn pubkey_gate_reads_the_plugin_config() {
 /// until R1 sets it, the plugin stays unregistered and `update.unconfigured` is the answer.
 #[test]
 fn checked_in_config_is_read_without_panicking() {
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json")).expect("conf");
-    let v: serde_json::Value = serde_json::from_str(&text).expect("json");
+    // ADR-0028: the dev base and the merged release config.
+    for v in [crate::test_config::base(), crate::test_config::release()] {
+        checked_config(&v);
+    }
+    let release = crate::test_config::release();
+    assert!(release.pointer("/plugins/updater/pubkey").is_some(), "the release overlay carries the pubkey");
+}
+
+fn checked_config(v: &serde_json::Value) {
     if let Some(key) = v.pointer("/plugins/updater/pubkey").and_then(serde_json::Value::as_str) {
         assert!(!key.trim().is_empty(), "an empty pubkey must be absent, not blank");
         let endpoints = v.pointer("/plugins/updater/endpoints").and_then(serde_json::Value::as_array).expect("endpoints");
@@ -378,4 +385,42 @@ fn source_errors_map_to_codes() {
             "{code}: {m}"
         );
     }
+}
+
+/// ADR-0028 §1: a development build is manual before anything else — portable, Homebrew,
+/// package managers and writability never get a say — with the fixed dev sentence.
+#[test]
+fn dev_build_beats_every_install_mode() {
+    use Bundle as B;
+    for bundle in [B::AppImage, B::Deb, B::Rpm, B::MacApp, B::Msi, B::Nsis, B::Unknown] {
+        for writable in [true, false] {
+            for cask_present in [true, false] {
+                for portable in [true, false] {
+                    let f = InstallFacts {
+                        dev_build: true,
+                        portable,
+                        cask_present,
+                        ..facts(bundle, "/Applications/Mooring Dev.app", writable)
+                    };
+                    assert_eq!(decide(&f), InstallMode::Manual(ManualReason::DevBuild), "{f:?}");
+                }
+            }
+        }
+    }
+    let r = ManualReason::DevBuild;
+    assert_eq!(r.code(), "update.manual_only");
+    assert_eq!(r.message(), "development build: updates come from your own builds");
+    assert_eq!(serde_json::to_value(r).expect("json"), "dev_build");
+}
+
+/// The development runtime: no source, `update.manual_only` instead of `update.unconfigured`,
+/// and its install mode is `DevBuild` even when the probe has nothing to say.
+#[test]
+fn development_runtime_answers_dev_build() {
+    let rt = UpdateRuntime::development(v("0.1.0"));
+    assert!(rt.dev_build() && !rt.configured());
+    let e = rt.source().err().expect("no source");
+    assert_eq!((e.code, e.message.as_str()), ("update.manual_only", ManualReason::DevBuild.message()));
+    assert_eq!(rt.install_mode(), InstallMode::Manual(ManualReason::DevBuild));
+    assert!(!UpdateRuntime::unconfigured(v("0.1.0")).dev_build());
 }

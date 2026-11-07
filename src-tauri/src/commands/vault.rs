@@ -24,6 +24,10 @@ pub struct AppInfo {
     /// ADR-0021: the `Mooring Data` folder in portable mode, else `null` (About and
     /// Settings → Updates show "Portable build — data in <path>").
     pub portable_data_dir: Option<String>,
+    /// ADR-0028: `"release"` | `"dev"` (DEV badge, About, Settings → Updates text).
+    pub channel: &'static str,
+    /// ADR-0028: the bundle identifier this build was compiled with (About in dev builds).
+    pub identifier: &'static str,
 }
 
 /// The facts for `state` (pure).
@@ -35,6 +39,8 @@ pub fn info(state: &AppState) -> AppInfo {
         arch: std::env::consts::ARCH,
         debug: cfg!(debug_assertions),
         portable_data_dir: state.portable_root.as_ref().map(|p| p.display().to_string()),
+        channel: state.settings.channel.wire(),
+        identifier: crate::build_identity::EFFECTIVE_IDENTIFIER,
     }
 }
 
@@ -261,8 +267,14 @@ mod tests {
         let v = serde_json::to_value(super::info(&f.state)).expect("json");
         assert_eq!(v["portableDataDir"], serde_json::Value::Null);
         assert_eq!(v["name"], "Mooring");
+        assert_eq!(v["channel"], "release", "the testing settings pick the release channel");
+        assert_eq!(v["identifier"], crate::build_identity::EFFECTIVE_IDENTIFIER);
+        let mut dev = crate::state::testing::settings(std::sync::Arc::default());
+        dev.channel = crate::build_identity::Channel::Dev;
+        let d = crate::state::testing::with_settings(dev);
+        assert_eq!(serde_json::to_value(super::info(&d.state)).expect("json")["channel"], "dev");
         let p = empty_portable();
-        let root = p.dir.path().join("Mooring Data");
+        let root = p.dir.path().join(crate::dirs::Dirs::ROOT);
         let v = serde_json::to_value(super::info(&p.state)).expect("json");
         assert_eq!(v["portableDataDir"], root.display().to_string());
         assert_eq!(p.state.data_dir, root.join("data"));

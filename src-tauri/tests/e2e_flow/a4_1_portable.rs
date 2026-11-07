@@ -117,6 +117,7 @@ impl InstallProbe for PortableProbe {
             writable: true,
             cask_present: false,
             portable: true,
+            dev_build: false,
         })
     }
 }
@@ -173,7 +174,7 @@ async fn portable_flow_keeps_every_file_under_mooring_data() {
     let starts = audit_rows(&st, "app.start");
     assert_eq!(starts.len(), 1, "{starts:?}");
     assert_eq!(starts[0]["portable"], serde_json::Value::Bool(true), "{}", starts[0]);
-    assert_audit_free_of(&st, &[&root.display().to_string(), "Mooring Data", "stick login"]);
+    assert_audit_free_of(&st, &[&root.display().to_string(), Dirs::ROOT, "stick login"]);
 
     // app_info().portableDataDir is the `Mooring Data` path, camelCase on the wire.
     let info = serde_json::to_value(vault::info(&st)).expect("json");
@@ -214,22 +215,21 @@ async fn portable_flow_keeps_every_file_under_mooring_data() {
     assert_eq!(vault::lock(&st, Some("user")).expect("lock"), VaultStatus::Locked);
     let written = tree_of(tmp.path());
     assert!(written.len() > 5, "the flow wrote files: {written:?}");
+    let rel_root = Path::new("app").join(Dirs::ROOT);
     let allowed = |p: &Path| {
         p == Path::new("app")
             || p == Path::new("app/mooring")
             || p == Path::new("app/portable")
-            || p.starts_with("app/Mooring Data")
+            || p.starts_with(&rel_root)
     };
     let outside: Vec<&PathBuf> = written.iter().filter(|p| !allowed(p)).collect();
     assert!(outside.is_empty(), "written outside Mooring Data: {outside:?}");
-    for want in ["app/Mooring Data/data", "app/Mooring Data/cache"] {
-        assert!(written.iter().any(|p| p == Path::new(want)), "{want} missing in {written:?}");
+    for want in [rel_root.join("data"), rel_root.join("cache")] {
+        assert!(written.contains(&want), "{} missing in {written:?}", want.display());
     }
+    let rel_data = rel_root.join("data");
     assert!(
-        written
-            .iter()
-            .any(|p| p.starts_with("app/Mooring Data/data")
-                && p != Path::new("app/Mooring Data/data")),
+        written.iter().any(|p| p.starts_with(&rel_data) && *p != rel_data),
         "data holds the vault files"
     );
     assert_eq!(mode_of(&dirs.data), 0o700);

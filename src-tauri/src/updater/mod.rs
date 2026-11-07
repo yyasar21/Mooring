@@ -60,6 +60,8 @@ pub struct UpdateRuntime {
     source: Option<Arc<dyn UpdateSource>>,
     probe: Arc<dyn InstallProbe>,
     current: Version,
+    /// ADR-0028: a development build answers `update.manual_only` (`DevBuild`) everywhere.
+    dev_build: bool,
     inner: Mutex<Inner>,
 }
 
@@ -68,6 +70,7 @@ impl std::fmt::Debug for UpdateRuntime {
         f.debug_struct("UpdateRuntime")
             .field("configured", &self.source.is_some())
             .field("current", &self.current)
+            .field("dev_build", &self.dev_build)
             .finish_non_exhaustive()
     }
 }
@@ -92,12 +95,26 @@ impl Drop for Flight<'_> {
 impl UpdateRuntime {
     /// A runtime whose every command answers `update.unconfigured` (no pubkey in the build).
     pub fn unconfigured(current: Version) -> Self {
-        Self { source: None, probe: Arc::new(OsProbe::default()), current, inner: Mutex::default() }
+        Self { source: None, probe: Arc::new(OsProbe::default()), current, dev_build: false, inner: Mutex::default() }
+    }
+
+    /// A development build (ADR-0028 §1): no source, and every command answers
+    /// `update.manual_only` with [`ManualReason::DevBuild`] instead of `update.unconfigured`.
+    ///
+    /// [`ManualReason::DevBuild`]: install_mode::ManualReason::DevBuild
+    pub fn development(current: Version) -> Self {
+        let probe = OsProbe { portable: false, dev_build: true };
+        Self { source: None, probe: Arc::new(probe), current, dev_build: true, inner: Mutex::default() }
+    }
+
+    /// Whether this is [`UpdateRuntime::development`].
+    pub fn dev_build(&self) -> bool {
+        self.dev_build
     }
 
     /// A runtime over `source`, with `probe` deciding the install mode.
     pub fn new(source: Arc<dyn UpdateSource>, probe: Arc<dyn InstallProbe>, current: Version) -> Self {
-        Self { source: Some(source), probe, current, inner: Mutex::default() }
+        Self { source: Some(source), probe, current, dev_build: false, inner: Mutex::default() }
     }
 
     /// The running version (from `CARGO_PKG_VERSION` in the app).
@@ -107,6 +124,10 @@ impl UpdateRuntime {
 
     /// The source, or `update.unconfigured`.
     pub fn source(&self) -> IpcResult<&Arc<dyn UpdateSource>> {
+        if self.dev_build {
+            let r = install_mode::ManualReason::DevBuild;
+            return Err(IpcError::new(r.code(), r.message()));
+        }
         self.source.as_ref().ok_or_else(|| {
             IpcError::new("update.unconfigured", "updates are not configured for this build")
         })
@@ -166,13 +187,15 @@ impl UpdateRuntime {
 
     /// The install-mode decision for this process.
     pub fn install_mode(&self) -> InstallMode {
-        let facts = self.probe.facts().unwrap_or_else(|| InstallFacts {
+        let mut facts = self.probe.facts().unwrap_or_else(|| InstallFacts {
             bundle: Bundle::Unknown,
             install_path: std::path::PathBuf::new(),
             writable: false,
             cask_present: false,
             portable: false,
+            dev_build: false,
         });
+        facts.dev_build |= self.dev_build;
         install_mode::decide(&facts)
     }
 
