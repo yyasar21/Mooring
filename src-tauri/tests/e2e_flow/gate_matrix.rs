@@ -12,7 +12,7 @@ use crate::support;
 /// security reviewer reads; a command moves out of this list the moment its gate is pinned
 /// by a row in the matrix.
 pub const NOT_GATED: &[(&str, &str)] = &[
-    ("app_info", "version and platform only, no store"),
+    ("app_info", "version, platform and the portable data dir (ADR-0021), no store; pinned in `a4_1_portable`"),
     ("autolock_get", "reads the in-memory policy; `autolock_set` is gated (unit test)"),
     (
         "autolock_set",

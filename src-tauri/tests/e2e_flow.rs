@@ -12,10 +12,18 @@
 
 #![allow(clippy::doc_markdown)]
 
-use mooring_app_lib::{commands, error, sessions, state, sync_runner, test_ssh_server, updater};
+use mooring_app_lib::{
+    clipboard, commands, dirs, error, portable_acl, sessions, startup, state, sync_runner,
+    test_ssh_server, updater,
+};
 
 // A4 Q1 (ADR-0018 / 0019 / 0020): hostile imports, LDAPS mock knobs + TOFU, network shims,
 // the updater's Rust-side matrix.
+// A4.1 Q1 (ADR-0021): portable mode through the command layer + hostile resolver cases.
+#[path = "e2e_flow/a4_1_portable.rs"]
+mod a4_1_portable;
+#[path = "e2e_flow/a4_1_portable_dirs.rs"]
+mod a4_1_portable_dirs;
 #[path = "e2e_flow/a4_import.rs"]
 mod a4_import;
 #[path = "e2e_flow/a4_ldap.rs"]

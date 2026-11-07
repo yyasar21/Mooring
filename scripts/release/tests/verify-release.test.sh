@@ -201,5 +201,23 @@ expect nonzero "any other zip on the release" FAKE_RELEASE="$strayzip" -- v1.2.3
 unlistedzip=$(release unlistedzip a.dmg); echo x >"$unlistedzip/$WINZIP"
 expect nonzero "a portable zip not covered by SHA256SUMS" FAKE_RELEASE="$unlistedzip" -- v1.2.3
 
+# A4.1 Q1: SHA256SUMS itself names a `.zip.sig` (listed but not on disk → the sums check
+# fails; on disk → the portable check fails): either way the release is refused.
+sumsig=$(release sumsig a.dmg "$WINZIP"); with_updater "$sumsig" "$APPIMAGE" linux-x86_64
+(cd "$sumsig" && printf '%s  %s\n' "$(sha256sum <<<"x" | cut -d' ' -f1)" "$WINZIP.sig" >>SHA256SUMS)
+expect nonzero "SHA256SUMS lists Mooring_<v>_x64_portable.zip.sig (not on disk)" FAKE_RELEASE="$sumsig" -- v1.2.3
+sumsig2=$(release sumsig2 a.dmg "$WINZIP" "$MACZIP"); with_updater "$sumsig2" "$APPIMAGE" linux-x86_64
+printf '%s\n' "$SIG64" >"$sumsig2/$MACZIP.sig"; rehash "$sumsig2" # listed and on disk
+expect nonzero "SHA256SUMS lists Mooring_<v>_universal_portable.zip.sig (on disk)" FAKE_RELEASE="$sumsig2" -- v1.2.3
+if grep -q "updater signature\|zip.sig\|SHA256SUMS lists" "$WORK/out"; then
+  pass=$((pass + 1)); echo "ok   the .zip.sig is named as the reason"
+else
+  fail=$((fail + 1)); echo "FAIL the .zip.sig refusal names another reason"; sed 's/^/     /' "$WORK/out"
+fi
+# A zip-named signature with no zip beside it is still refused (the `*.sig` sweep).
+lonesig=$(release lonesig a.dmg); with_updater "$lonesig" "$APPIMAGE" linux-x86_64
+printf '%s\n' "$SIG64" >"$lonesig/$WINZIP.sig"; rehash "$lonesig"
+expect nonzero "a lone Mooring_<v>_x64_portable.zip.sig without its zip" FAKE_RELEASE="$lonesig" -- v1.2.3
+
 echo "$pass passed, $fail failed"
 ((fail == 0))

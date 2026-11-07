@@ -110,5 +110,65 @@ check "negative epoch fails" zipfails --out "$WORK/d.zip" --epoch -1 --root "$sr
 check "a fifo fails" bash -c 'mkfifo "$2/fifo" && ! python3 -I "$1" --out "$2/d.zip" --epoch 1 "f=$2/fifo" >/dev/null 2>&1' _ "$SCRIPT" "$WORK"
 check "nothing left behind on failure" [ ! -e "$WORK/d.zip" ]
 
+
+# --- A4.1 Q1 hostile cases (zip-slip on our own output, links, name validation) ---
+# gap <label> <cmd...>: a known gap pinned like a failing test — passes while the gap exists
+# (the command must FAIL), fails the moment it is fixed so the row is promoted to `check`.
+gap() {
+  local label="$1"; shift
+  if "$@"; then fail=$((fail + 1)); echo "FAIL $label: gap closed, promote this row to check"
+  else pass=$((pass + 1)); echo "gap  $label (known, see docs/handoff/a4-1-qa-q1.md)"; fi
+}
+entries() { python3 -I -c 'import sys,zipfile;[print(i.filename) for i in zipfile.ZipFile(sys.argv[1]).infolist()]' "$1"; }
+linkdata() { python3 -I -c 'import sys,zipfile;sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]).decode())' "$1" "$2"; }
+export -f attr entries linkdata # used inside `bash -c` rows below
+
+# a --root whose links point outside the root: stored as links (ADR-0021 §4), never followed,
+# the target's bytes never enter the archive, a linked directory is not walked
+hostile="$WORK/hostile"; mkdir -p "$hostile" "$WORK/outside/dir"
+echo 'SECRET OUTSIDE' >"$WORK/outside/secret.txt"; echo 'deep' >"$WORK/outside/dir/deep.txt"
+ln -s "$WORK/outside/secret.txt" "$hostile/abs-link"
+ln -s ../outside/secret.txt "$hostile/rel-link"
+ln -s "$WORK/outside/dir" "$hostile/dir-link"
+ln -s / "$hostile/root-link"
+ln -s . "$hostile/self-link"
+: >"$hostile/portable"
+check "links pointing outside --root are accepted as links" zipit --out "$WORK/h.zip" --epoch 1 --root "$hostile"
+check "  absolute link stored as S_IFLNK with the target path as data" \
+  bash -c '[ "$(linkdata "$1" abs-link)" = "$2" ] && [ "$(attr "$1" abs-link | cut -d" " -f1)" = 0o120777 ]' _ "$WORK/h.zip" "$WORK/outside/secret.txt"
+check "  relative link data is the literal target" [ "$(linkdata "$WORK/h.zip" rel-link)" = ../outside/secret.txt ]
+check "  link to / stored, not walked" [ "$(linkdata "$WORK/h.zip" root-link)" = / ]
+check "  link to . stored, not recursed" [ "$(linkdata "$WORK/h.zip" self-link)" = . ]
+check "  directory link is one entry, its contents are not archived" \
+  bash -c '! entries "$1" | grep -q "deep.txt" && [ "$(entries "$1" | grep -c "^dir-link")" = 1 ]' _ "$WORK/h.zip"
+check "  the target bytes never enter the archive" \
+  bash -c '! python3 -I -c "import sys,zipfile; d=b\"\".join(zipfile.ZipFile(sys.argv[1]).read(n) for n in zipfile.ZipFile(sys.argv[1]).namelist()); sys.exit(0 if b\"SECRET OUTSIDE\" in d else 1)" "$1"' _ "$WORK/h.zip"
+check "  exactly the six top-level names" [ "$(entries "$WORK/h.zip" | LC_ALL=C sort | tr '\n' ' ')" = "abs-link dir-link portable rel-link root-link self-link " ]
+
+# a file inside --root whose own name would be an invalid archive name is refused (the
+# script validates names it derives itself, not only NAME=PATH)
+bad="$WORK/badname"; mkdir -p "$bad"; : >"$bad/portable"; : >"$bad/a\\b"
+check "a backslash in a --root file name is refused" zipfails --out "$WORK/b.zip" --epoch 1 --root "$bad"
+check "  nothing left behind" [ ! -e "$WORK/b.zip" ] && [ ! -e "$WORK/b.zip.tmp" ]
+
+# NAME=PATH names: every traversal spelling is refused with a non-zero exit, no output file
+: >"$WORK/plain"
+for name in '..' '../x' 'x/..' 'x/../y' 'x/./y' './x' 'x/.' 'x/' '/x' '//x' '\\x' 'x\\..\\y' 'a//b' '' '.'; do
+  check "name $(printf %q "$name") is refused" zipfails --out "$WORK/n.zip" --epoch 1 "$name=$WORK/plain"
+done
+check "  no output after the refused names" [ ! -e "$WORK/n.zip" ] && [ ! -e "$WORK/n.zip.tmp" ]
+check "a --root directory named with .. in the path still yields clean names" \
+  bash -c 'python3 -I "$1" --out "$2/dd.zip" --epoch 1 --root "$3/../hostile" >/dev/null && ! entries "$2/dd.zip" | grep -q "\.\."' _ "$SCRIPT" "$WORK" "$hostile"
+check "a NAME=PATH whose PATH is a directory symlink is stored as the link" \
+  bash -c 'python3 -I "$1" --out "$2/dl.zip" --epoch 1 "d=$3/dir-link" >/dev/null && [ "$(linkdata "$2/dl.zip" d)" = "$2/outside/dir" ]' _ "$SCRIPT" "$WORK" "$hostile"
+# Known gap (a4-1-qa-q1): a Windows drive prefix in an archive name (`C:/x`) is not refused.
+# Harmless for our own CI (extractors strip it), but the self-check does not cover it.
+gap "drive-letter name C:/x is refused" zipfails --out "$WORK/drv.zip" --epoch 1 "C:/x=$WORK/plain"
+# No entry-count or total-size cap exists in the script (documented in the handoff); the
+# release zips hold a bounded tree, so the test pins only that a 1 000-entry root works.
+many="$WORK/many"; mkdir -p "$many"; for i in $(seq -w 1 1000); do : >"$many/f$i"; done
+check "1 000 entries zip fine (no cap)" zipit --out "$WORK/many.zip" --epoch 1 --root "$many"
+check "  all 1 000 present" [ "$(entries "$WORK/many.zip" | wc -l)" = 1000 ]
+
 echo "$pass passed, $fail failed"
 ((fail == 0))
