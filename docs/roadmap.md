@@ -18,14 +18,14 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
 | --- | --- |
 | Vault: create, unlock, lock, change password, Argon2id calibration | ✅ |
 | Vault: auto-lock wired to idle, sleep, screen lock, hidden window ([ADR-0010](adr/0010-a1-exit-ipc.md)) | ✅ |
-| Vault: opt-in Touch ID / Windows Hello unlock | 🚧 held until each platform has a biometric ACL |
-| Vault: `age` export and import in the app | 🚧 library done, vectors verified with the `age` CLI |
+| Vault: opt-in Touch ID / Windows Hello unlock | → A5 ([ADR-0022](adr/0022-biometric-unlock.md)) |
+| Vault: `age` export and import in the app | library done, vectors verified with the `age` CLI; UI → A5 ([ADR-0023](adr/0023-vault-export-import-ui.md)) |
 | Data model: folders, connections, tags, credentials, inheritance, overrides, search | ✅ |
 | Typed credential model, 15 kinds ([ADR-0009](adr/0009-credential-model.md)) | ✅ |
 | SSH: TOFU + `known_hosts`, password, key, keyboard-interactive, agent, strict algorithms | ✅ |
 | SSH: terminal with WebGL, streaming | ✅ |
 | SSH: port forwarding (L/R/D) in the app, audited exposure, closed on lock | ✅ |
-| SSH: SFTP panel with progress; Rust-side file picker (review 4, B-4) | ✅ (drag-and-drop 🗓) |
+| SSH: SFTP panel with progress; Rust-side file picker (review 4, B-4) | ✅ (drag-and-drop → A5 carried) |
 | UI: three panes, palette, tabs, inspector, copy password, themes, keyboard-first | ✅ |
 | Audit log viewer | ✅ |
 | Syslog mirror (RFC 5424 udp/tcp/tls, heartbeat) | ✅ |
@@ -54,9 +54,10 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
   port-forward, logs — read-only, never mutates the cluster.
 - **External secrets**: credentials resolved at connect time from HashiCorp Vault / OpenBao
   (KV v2) with short-lived tokens; nothing cached on disk.
-- **Directory lookup** (LDAPS) moves to A4 as an importer; FIDO2 `hmac-secret` moves to a
-  post-A4 "unlock factors" ADR together with the OS-keyring biometric ACL
-  ([ADR-0017](adr/0017-vault-sync-and-signin.md)).
+- **Directory lookup** (LDAPS) moved to A4 as an importer; the OS-keyring biometric ACL is
+  A5 ([ADR-0022](adr/0022-biometric-unlock.md)); FIDO2 `hmac-secret` as a vault second factor
+  stays deferred because in-process FIDO2 access is rejected for now
+  ([ADR-0024 §4](adr/0024-fido2-ssh-keys.md), [ADR-0017](adr/0017-vault-sync-and-signin.md)).
 - **Vault sync**: client-side encrypted blob to S3-compatible storage with conflict detection.
 - **Network tools** (TCP port check, ping/traceroute/WireGuard via OS tools) move to A4 (own ADR).
 - Security focus: token lifetimes, read-only Kubernetes guard, native-dialog defaults, sync integrity
@@ -66,7 +67,7 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
 
 - Signed bundles: macOS universal `.dmg`/`.pkg` with notarization; Windows `.exe`/`.msi` with
   Authenticode (when certificates exist); Linux `.deb`, `.rpm`, AppImage; `SHA256SUMS` signed with
-  Sigstore (cosign keyless); signed updater manifests ([ADR-0018](adr/0018-release-v0-1-0.md)). Homebrew tap, winget later.
+  Sigstore (cosign keyless); signed updater manifests ([ADR-0018](adr/0018-release-v0-1-0.md)). Homebrew tap; winget and the signing jobs → A5 (ADR-0018 A1–A2).
 - CycloneDX SBOMs, SLSA provenance, reproducible-build check.
 - **Exit gate also covers the public face**: README, `site/` (GitHub Pages), CHANGELOG, user guide and
   the comparison table must describe the released state — every phase exit updates them, not
@@ -74,6 +75,30 @@ security workflow, ADR-0001 to ADR-0004, threat model v0.
 - Full security pass: zero critical/high findings; mediums documented.
 - Onboarding and importers: Royal TS, Termius, mRemoteNG, PuTTY sessions. No telemetry.
 - Exit: clean installs on fresh macOS, Windows 11 and Fedora machines.
+
+## A5 — v0.2.0: unlock factors, hardware keys, jump hosts, dynamic secrets, RD Gateway 🚧
+
+Every planned technical feature of the connection manager lands before the public launch;
+Phase B stays after it. Each row is one ADR (Proposed 2026-11-07); items carried from earlier
+phases are listed where they now live.
+
+| Item | ADR | Status |
+| --- | --- | --- |
+| Opt-in Touch ID / Windows Hello unlock with a biometric ACL (lifts the A1 hold; Linux not offered; Touch ID needs a Developer-ID-signed build) | [ADR-0022](adr/0022-biometric-unlock.md) | 🚧 |
+| Vault `age` export and import in the app (native dialogs from Rust, merge with conflict report or replace) | [ADR-0023](adr/0023-vault-export-import-ui.md) | 🚧 |
+| FIDO2 `sk-*` SSH keys: `ssh_sk_key` kind, agent passthrough with touch indication; `ssh-sk-helper` backend as a stretch | [ADR-0024](adr/0024-fido2-ssh-keys.md) | 🚧 |
+| Jump hosts / bastions: `via` chains (≤ 3) over `direct-tcpip`, no local listener, for SSH, SFTP, RDP, VNC, Kubernetes and vSphere; web sessions through a loopback SOCKS proxy | [ADR-0025](adr/0025-jump-hosts.md) | 🚧 |
+| Dynamic Vault engines (`database`, `ssh/sign`, `ssh/creds`, `pki`) with lease renew/revoke; 1Password Connect; Bitwarden Secrets Manager via `bws` | [ADR-0026](adr/0026-dynamic-secrets-1password-bitwarden.md) | 🚧 |
+| RD Gateway over MS-TSGU WebSocket (NTLM/Basic over TLS, own pin store); `smart_card` kind with a Rust-side PIN dialog; SSH PIV via the agent — RDP smart-card logon and direct PKCS#11 wait for the Kerberos ADR | [ADR-0027](adr/0027-rd-gateway-and-smart-card.md) | 🚧 |
+| Signing hooks: notarization (`notarytool`) and Authenticode (Azure Trusted Signing) in the `release` environment, inert until certificates exist; winget submission once Windows builds are signed | [ADR-0018 A1–A2](adr/0018-release-v0-1-0.md) | 🚧 |
+| Carried from A1: SFTP drag-and-drop | — | 🗓 |
+| Carried from A2/A3: Kerberos (KDC discovery), EGFX H.264 via WebCodecs, VeNCrypt X.509, DEK rotation / password-change rework (owner decision 11) | own ADRs after A5 | 🗓 |
+
+Exit gate: security review 9 with zero critical/high findings and the threat model extended
+(T-BIO, T8 hop operator, R-SEC-CLI, RDG); per-OS manual gates (biometric enrolment and
+suspension, native export/import dialogs, YubiKey through the agent, bastion chain, RD Gateway
+lab, winget dry run); public docs refreshed (README, `site/`, CHANGELOG, user guide, comparison
+table) to the released state.
 
 ## B — Mooring agent and relay 🗓
 

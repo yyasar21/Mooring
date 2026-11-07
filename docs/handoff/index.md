@@ -5,6 +5,7 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 
 | Date | Phase | Role | Note |
 | --- | --- | --- | --- |
+| 2026-11-07 | A5 | architect | [a5-architect.md](a5-architect.md) — ADR-0022 biometric unlock (hold lifted, Touch ID gated on Developer ID), 0023 export/import UI, 0024 FIDO2 `sk-*` keys (agent path verified), 0025 jump hosts (`via` ≤ 3, no listener), 0026 dynamic Vault engines + 1Password Connect + `bws`, 0027 RD Gateway (own MS-TSGU WebSocket) + `smart_card`; ADR-0018 A1–A2 signing hooks + winget; roadmap §A5; wave plan W1–W4, owner decisions 23–42, no new crates |
 | 2026-11-07 | A4.1 | orchestrator | ADR-0021 accepted (owner: no fallback, macOS web profiles ephemeral, icacls now); [a4-1-rust-core-p1.md](a4-1-rust-core-p1.md) — dirs resolver, startup refusals, updater Portable, icacls; [a4-1-release-engineer-p1.md](a4-1-release-engineer-p1.md) — portable-zip.py, release.yml zips, updater fences, verify-release; v0.1.0 published (see [a4-orchestrator.md](a4-orchestrator.md)) |
 | 2026-11-07 | A4.1 | architect | [a4-1-architect.md](a4-1-architect.md) — ADR-0021 portable mode (Proposed): `portable` marker, `Mooring Data/`, refuse when unwritable, `Dirs` resolver, `ManualReason::Portable`, portable zips in `windows-x64` / `macos-universal`, no `latest.json` entry |
 | 2026-11-04 | A3 | architect | ADR-0014/0015/0016/0017 (accepted with owner decisions) |

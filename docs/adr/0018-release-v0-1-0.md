@@ -1,6 +1,7 @@
 # ADR-0018: Release v0.1.0 — signing, updater, SBOM/provenance, install matrix
 
-Status: Accepted (owner decisions inline) · 2026-11-06 (Phase A4; builds on the release pipeline
+Status: Accepted (owner decisions inline) · 2026-11-06 · amendments A1–A2 Proposed 2026-11-07
+(Phase A4; builds on the release pipeline
 in `docs/handoff/public-release.md`, R-REL, ADR-0003, ADR-0013 `AppManifest`)
 
 ## Context
@@ -148,3 +149,42 @@ update_settings_set({ backgroundCheck: bool }) -> UpdateSettings
 ## Sources
 crates.io 2026-11-06 (`tauri-plugin-updater` 2.14.1 source read, `minisign-verify` 0.3.0, `tar`
 0.4.46, `osakit` 0.3.1); `git ls-remote tauri-apps/tauri-action` 2026-11-06.
+
+## Amendments (A5 / v0.2.0, Proposed 2026-11-07; release-engineer owns the workflows)
+
+### A1. Signing and notarization hooks — in the `release` environment, inert without secrets
+Today `build` exports `APPLE_*` / `AZURE_*` / `WINDOWS_CERTIFICATE*` into the job that runs
+npm and cargo build scripts (the M-17 argument applied only to the updater key). Change:
+- `build` never sees platform signing secrets: macOS builds ad-hoc (`APPLE_SIGNING_IDENTITY=-`)
+  and Windows unsigned, as v0.1.0; the job uploads the `.app`, the bare `Mooring.exe` and the
+  bundler inputs as artifacts.
+- New job **`sign-platform`** (`needs: build`, `environment: release`, matrix macOS/Windows,
+  `if: ${{ vars.SIGNING_ENABLED == 'true' }}` + a step-level skip when the secret set is
+  incomplete — never a failure). It runs **no package build scripts**: only `codesign`,
+  `xcrun notarytool submit --wait` + `xcrun stapler` with `APPLE_API_KEY`/`_ISSUER`/`_P8`
+  (App Store Connect key, no Apple ID password), rebuilds the `.dmg`/`.pkg` from the signed,
+  stapled `.app`, and the updater `.app.tar.gz`; on Windows signs `Mooring.exe` with
+  **Azure Trusted Signing** (`azure/trusted-signing-action`, pinned by SHA, replacing the
+  unreviewed `levminer/trusted-signing-cli`), then runs `tauri bundle` (CLI, no build) and
+  signs the NSIS/MSI with the same action. Entitlements for ADR-0022 (`keychain-access-groups`)
+  live in `packaging/macos/entitlements.plist` and are applied here.
+- `sign-updater`, `publish`, `finalize` consume `sign-platform` outputs when present, the
+  `build` artifacts otherwise; `verify-release.sh` reports `signed: true|false` per OS from
+  `codesign -dv` / `signtool verify` and `SHA256SUMS` covers whichever set shipped.
+- Secrets stay in the `release` environment (reviewers required); none in `build`. Owner buys
+  certificates when ready; until then the job skips with a notice (**owner decision 42**).
+
+### A2. winget (`packaging/winget/`, `.github/workflows/release-winget.yml`)
+Modelled on `release-homebrew.yml`: `on: release: published` (never pre-releases) and
+`workflow_dispatch` with a tag; gated on `secrets.WINGET_TOKEN` (fine-grained PAT, fork of
+`microsoft/winget-pkgs` only) **and** on `signed: true` for Windows in the release's
+`verify-release` summary — unsigned installers are not submitted (winget validation and
+SmartScreen). Steps: download `SHA256SUMS` + its Sigstore bundle, `cosign verify-blob`, render
+`yyasar21.Mooring.{installer,locale.en-US,version}.yaml` from the templates (`@VERSION@`,
+`@SHA256_NSIS@`, `@SHA256_MSI@`, `@MSI_PRODUCT_CODE@` from `msiinfo`/the build summary,
+`@RELEASE_DATE@`), `winget validate`, then `wingetcreate submit --token` (pinned `wingetcreate`
+release by SHA-256) → a PR to `microsoft/winget-pkgs` from the owner's fork. `ManualReason`
+gains `Winget` (`winget upgrade yyasar21.Mooring`) when `install_mode.rs` detects a winget
+install (`%LOCALAPPDATA%\Microsoft\WinGet\Packages` or the NSIS registry `InstallSource`).
+Test: `scripts/release/tests/winget-render.test.sh` (templates render, schema validates);
+`lint-workflows.sh` asserts no secret in `build` and the token only in this job.
