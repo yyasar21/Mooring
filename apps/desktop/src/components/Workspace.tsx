@@ -9,6 +9,7 @@ import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";
 import { PromptModal } from "./terminal/PromptModal";
 import { HopStrip } from "./terminal/HopStrip";
+import { SK_CLOSE, TouchBanner } from "./terminal/TouchBanner";
 import { CLOSE_TEXT } from "./remote/ConnectionBanner";
 import { SessionToolbar, type SessionTool } from "./SessionToolbar";
 import { ForwardsPanel } from "./forwards/ForwardsPanel";
@@ -57,6 +58,8 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
   const detached = tab.state === "detached";
   const onData = useCallback((d: Uint8Array) => void useSessions.getState().send(tab.id, d), [tab.id]);
   const onResize = useCallback((size: Size) => void useSessions.getState().resize(tab.id, size), [tab.id]);
+  // ADR-0024: a security-key pre-flight refusal gets its own title and next step.
+  const sk = tab.openError ? SK_CLOSE[tab.openError] : undefined;
 
   const bezel = (
     <div className="term-bezel m-hud" data-active={active && tab.state === "connected" && tool === "terminal" ? true : undefined}>
@@ -124,12 +127,13 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </div>
         </div>
       )}
-      {tab.state === "closed" && !graphical && kube?.view !== "cluster" && kube?.view !== "logs" && (
+      {tab.state === "closed" && !graphical && kube?.view !== "cluster" && kube?.view !== "logs" && !tab.touch?.timedOut && (
         <div className="dropped m-hud" data-tone="hot">
-          <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>
+          {sk ? <span className="dropped-title">{sk.title}</span> : <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>}
           <span className="dropped-text">
-            <span className="text-text-muted">Disconnected: {tab.reason ?? "session ended"}</span>
+            <span className="text-text-muted">{sk ? tab.reason : `Disconnected: ${tab.reason ?? "session ended"}`}</span>
             {(tab.closeCode === "hop_failed" || tab.closeCode === "hop_lost") && <span className="dropped-hint">{CLOSE_TEXT[tab.closeCode].hint}</span>}
+            {sk && <span className="dropped-hint">{sk.hint}</span>}
           </span>
           <button type="button" className="btn" onClick={() => void reconnect(tab.id)}>
             Reconnect
@@ -137,6 +141,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
         </div>
       )}
       {!web && kube?.view !== "cluster" && kube?.view !== "logs" && <HopStrip tab={tab} />}
+      {!web && !graphical && <TouchBanner tab={tab} onRetry={() => void reconnect(tab.id)} />}
       {detached && <DetachedPlaceholder tabId={tab.id} name={c?.name ?? "This session"} />}
       {tab.prompt && active && <PromptModal tabId={tab.id} prompt={tab.prompt} host={c?.host ?? ""} />}
     </div>

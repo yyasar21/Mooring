@@ -12,6 +12,7 @@ import { openSettingsCard } from "../SyncBanner";
 import { testText } from "../settings/SecretSourcesCard";
 import { refTestSummary } from "./ExternalRefSection";
 import { Fingerprint, KindBadge, MatrixStrip } from "./fields";
+import { SkKeyDetail } from "./SkKeyDetail";
 import { APPROLE_HINT, BWS_TOKEN_HINT, KIND_BLURB, PROVIDERS } from "./kindMeta";
 
 const ROLE_TAG: Record<CredentialRole, string> = { primary: "", gateway: "gateway", become: "become", certificate: "certificate" };
@@ -129,7 +130,8 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
 
         {meta.kind === "external_ref" && <ReferenceSection meta={meta} kinds={kinds} />}
         {LOGIN_ONLY.has(meta.kind) && <ApproleSection meta={meta} />}
-        {meta.kind === "ssh_key" && <CertificateSection id={meta.id} />}
+        {meta.kind === "ssh_sk_key" && <SkKeyDetail meta={meta} />}
+        {(meta.kind === "ssh_key" || meta.kind === "ssh_sk_key") && <CertificateSection id={meta.id} />}
         {meta.kind === "s3_access_key" && (
           <section className="kind-note flex items-center gap-3" role="note">
             <span className="flex-1">This access key is for vault sync only. Pick it in Settings → Vault sync; it never signs in to a connection.</span>

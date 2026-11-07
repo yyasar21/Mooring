@@ -4,6 +4,11 @@ import { DEFAULT_RDP_OPTIONS, DEFAULT_VNC_OPTIONS } from "./ipc.types.remote";
 
 export const T0 = "2026-11-01T08:00:00Z";
 
+/** A well-formed `sk-ssh-ed25519` public key (made-up key bytes) and its real SHA-256 fingerprint. */
+export const SK_PUBLIC =
+  "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIAcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmAAAABHNzaDo=";
+export const SK_FINGERPRINT = "SHA256:0f/IntG4BPp3d8fT9X/gGHh5if5mE+U8QZtkqXrdDv4";
+
 export function seedFolders(): Folder[] {
   const f = (id: string, parentId: string | null, name: string, sort: number, cred: string | null = null): Folder => ({
     id,
@@ -65,6 +70,8 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-bastion", "f-staging", "bastion01", "ssh", "bastion.stage.example.test", 22, "cr-deploy", ["bastion"]),
     // ADR-0026: signs in with a Vault database lease; the session tab shows the lease chip.
     c("c-report", "f-db", "pg-reporting", "ssh", "report.example.test", 22, "cr-db-dyn", ["postgres"]),
+    // ADR-0024: signs in with a FIDO2 key through the agent; connecting shows the touch banner.
+    c("c-yubi", "f-staging", "build-runner", "ssh", "runner.example.test", 22, "cr-yubi", ["fido2"]),
   ].map((x) => {
     if (x.id === "c-stg") return { ...x, via: ["c-bastion"] };
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
@@ -101,6 +108,9 @@ export function seedCredentials(): CredentialMeta[] {
     // ADR-0026: the logins of the seeded Connect and Bitwarden sources, and a dynamic database user.
     m("cr-op-token", "connect token", "api_token", { header_name: "Authorization", scheme: "Bearer" }, ["token"]),
     m("cr-bws-token", "bws machine token", "bitwarden_access_token", {}, ["access_token"]),
+    m("cr-yubi", "yubikey ops", "ssh_sk_key", {
+      username: "ops", public_key: `${SK_PUBLIC} ops@yubikey`, backend: "agent", resident: true, application: "ssh:", fingerprint: SK_FINGERPRINT,
+    }, [], SK_FINGERPRINT),
     m("cr-db-dyn", "reporting db (dynamic)", "external_ref", { provider: "vault", source: "src-ops", engine: "database", reference: "database/reporting", target_kind: "user_password" }, []),
   ];
 }

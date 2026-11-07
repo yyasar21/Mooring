@@ -162,6 +162,13 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "secret.tool_version": "The bws found is older than 1.0. Install a current Bitwarden Secrets Manager CLI.",
   "secret.tool_failed": "bws did not finish: it failed, timed out or printed something Mooring could not read. Test the source in Settings → Secret sources.",
   "source.kind_unsupported": "This reference's provider does not match its secret source. Choose a source of the same provider.",
+  // ADR-0024 (R4): FIDO2 security keys.
+  "credential.use_sk_kind": "This is a security-key key — create a Security key (FIDO2) credential instead.",
+  "ssh.sk_key_not_in_agent":
+    "The security key is not in your ssh-agent, or no ssh-agent is running, so Mooring did not connect. Add the key to your ssh-agent: ssh-add -K or ssh-add <handle file>.",
+  "ssh.sk_helper_disabled":
+    "This credential signs with ssh-sk-helper, which is turned off. Switch the credential's signing to ssh-agent and add the key to your agent.",
+  "ssh.sk_helper_missing": "ssh-sk-helper was not found at its fixed path on this system. Sign through ssh-agent instead.",
   "credential.incompatible":"That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
 };

@@ -118,6 +118,34 @@ export const KIND_SCHEMAS: KindSchema[] = [
       field("key_fingerprint", "Pin agent key", 128, "text", { placeholder: "SHA256:… (optional)", pattern: "^SHA256:[A-Za-z0-9+/]{43}=?$" }),
     ],
   },
+  // ADR-0024 §1: a FIDO2 key. Signing goes through ssh-agent; `application` and `fingerprint`
+  // are derived in Rust and served on CredentialDto.fields. The handle file is optional.
+  {
+    kind: "ssh_sk_key",
+    label: "SSH security key (FIDO2)",
+    group: "SSH",
+    protocols: [P("ssh")],
+    supportsOtp: false,
+    fields: [
+      username(),
+      field("public_key", "Public key", 16 * KIB, "text", {
+        required: true,
+        multiline: true,
+        placeholder: "sk-ssh-ed25519@openssh.com AAAA… (from id_ed25519_sk.pub)",
+      }),
+      field("backend", "Signing", 8, "enum", { options: ["agent", "helper"] }),
+      field("resident", "Resident key", 5, "enum", { options: ["false", "true"] }),
+      secret("private_key", "Key handle file", 64 * KIB, "pem", {
+        multiline: true,
+        placeholder: "-----BEGIN OPENSSH PRIVATE KEY----- (id_ed25519_sk, optional)",
+      }),
+      secret("passphrase", "Key handle passphrase", 4 * KIB, "text", { placeholder: "optional" }),
+      field("certificate", "OpenSSH certificate", 64 * KIB, "text", {
+        multiline: true,
+        placeholder: "sk-ssh-ed25519-cert-v01@openssh.com AAAA… (optional)",
+      }),
+    ],
+  },
   {
     kind: "sudo_become",
     label: "Become (sudo, su, doas)",

@@ -10,6 +10,7 @@ import type {
   ParsedAccount,
   Protocol,
 } from "./ipc.types";
+import { isSkMaterial } from "./credentials.sk";
 
 const enc = new TextEncoder();
 
@@ -148,6 +149,9 @@ export function detectKind(text: string): Detected | null {
   const t = text.trimStart();
   // A certificate anywhere makes it an X.509 paste, even with a key first (cert+key bundles).
   if (/-----BEGIN CERTIFICATE-----/.test(t)) return x509Paste(text);
+  // ADR-0024: an `sk-*` key handle file or public line belongs to the security-key kind.
+  if (/^sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com\s/.test(t)) return one("ssh_sk_key", "public_key", "Security key public key", t.trim());
+  if (/-----BEGIN OPENSSH PRIVATE KEY-----/.test(t) && isSkMaterial(t)) return one("ssh_sk_key", "private_key", "Security key handle file", text);
   if (/-----BEGIN (OPENSSH|RSA|EC|DSA) PRIVATE KEY-----/.test(t)) {
     return one("ssh_key", "private_key", "SSH private key", text);
   }
@@ -304,7 +308,7 @@ export function credentialValidFor(kinds: KindSchema[], cred: CredentialMeta, pr
 
 /** Kinds whose account fields a connection override can replace (ADR-0009 §3). */
 export function supportsOverride(kind: CredentialKind, which: "username" | "domain"): boolean {
-  const user: CredentialKind[] = ["user_password", "domain_user", "ssh_key", "ssh_agent", "vnc_user_password", "prompt", "x509"];
+  const user: CredentialKind[] = ["user_password", "domain_user", "ssh_key", "ssh_agent", "ssh_sk_key", "vnc_user_password", "prompt", "x509"];
   const domain: CredentialKind[] = ["user_password", "domain_user", "prompt"];
   return (which === "username" ? user : domain).includes(kind);
 }

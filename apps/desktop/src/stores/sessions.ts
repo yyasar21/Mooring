@@ -130,7 +130,7 @@ export const useSessions = create<SessionState>((set, get) => {
     }
     switch (ev.kind) {
       case "connected":
-        patch(tabId, { state: "connected", peerIdentity: ev.peerIdentity, security: ev.security, prompt: null, reconnect: null });
+        patch(tabId, { state: "connected", peerIdentity: ev.peerIdentity, security: ev.security, prompt: null, reconnect: null, touch: null });
         break;
       case "bytes":
         pushOutput(tabId, ev.data);
@@ -143,6 +143,15 @@ export const useSessions = create<SessionState>((set, get) => {
       case "hop_status":
         patch(tabId, { hops: withHop(tabOf(tabId)?.hops ?? [], ev) });
         break;
+      case "touch_required":
+        patch(tabId, { touch: { id: ev.id, fingerprint: ev.fingerprint, timeoutSeconds: ev.timeoutSeconds, hop: ev.hop ?? null, since: Date.now(), timedOut: false } });
+        break;
+      case "touch_cleared":
+      case "touch_timeout": {
+        const t = tabOf(tabId)?.touch;
+        if (t?.id === ev.id) patch(tabId, { touch: ev.kind === "touch_timeout" ? { ...t, timedOut: true } : null });
+        break;
+      }
       case "desktop_resized":
         patch(tabId, { desktop: { width: ev.width, height: ev.height } });
         break;
@@ -159,7 +168,10 @@ export const useSessions = create<SessionState>((set, get) => {
       case "closed":
         detachedSessions.delete(tabOf(tabId)?.sessionId ?? "");
         forgetTab(tabId);
-        patch(tabId, { state: "closed", reason: ev.reason, closeCode: ev.code, prompt: null, sessionId: null, reconnect: null });
+        patch(tabId, {
+          state: "closed", reason: ev.reason, closeCode: ev.code, prompt: null, sessionId: null, reconnect: null,
+          touch: tabOf(tabId)?.touch?.timedOut ? (tabOf(tabId)?.touch ?? null) : null,
+        });
         if (!isGraphical(tabOf(tabId)?.protocol)) pushOutput(tabId, enc.encode(`\r\n\x1b[2m[session closed: ${ev.reason}]\x1b[0m\r\n`));
         break;
     }
@@ -238,7 +250,7 @@ export const useSessions = create<SessionState>((set, get) => {
         await ipc.sessionClose({ sessionId }); // tab closed while connecting
       }
     } catch (e: unknown) {
-      patch(tabId, { state: "closed", reason: describeError(e), closeCode: openFailureCode(e) });
+      patch(tabId, { state: "closed", reason: describeError(e), closeCode: openFailureCode(e), openError: isIpcError(e) ? e.code : null });
     }
   };
 
@@ -361,7 +373,7 @@ export const useSessions = create<SessionState>((set, get) => {
     reconnect: async (tabId) => {
       const tab = tabOf(tabId);
       if (!tab || tab.state !== "closed") return;
-      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null, hops: [] });
+      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null, hops: [], touch: null, openError: null });
       await begin(tabId, tab.connectionId, tab.protocol, tab.desktop ?? initialSize(tab.protocol));
     },
 

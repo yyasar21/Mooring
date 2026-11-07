@@ -131,6 +131,8 @@ export const CREDENTIAL_KINDS = [
   // ADR-0016 §1 / ADR-0017 §4: consumer-only kinds (no protocol).
   "vault_approle",
   "s3_access_key",
+  // ADR-0024 §1: a FIDO2 security key, signed through ssh-agent.
+  "ssh_sk_key",
   // ADR-0026 §4: the `bws` source login.
   "bitwarden_access_token",
 ] as const;
@@ -190,9 +192,10 @@ export interface OtpSettings {
 
 /**
  * Non-secret field values. `otp` holds the TOTP parameters; `contexts` is derived (names only);
- * `external_ref` stores `version` as a number and `field_map` as name → KV key (ADR-0016 §2).
+ * `external_ref` stores `version` as a number and `field_map` as name → KV key (ADR-0016 §2);
+ * `ssh_sk_key` serves `resident` as a boolean (`true` only; absent = false, ADR-0024).
  */
-export type FieldValue = string | number | string[] | OtpSettings | Record<string, string>;
+export type FieldValue = string | number | boolean | string[] | OtpSettings | Record<string, string>;
 
 /** The `otp` field value (other object values are the `external_ref` field map). */
 export function isOtpSettings(v: unknown): v is OtpSettings {
@@ -207,7 +210,7 @@ export interface CredentialMeta {
   fields: CredentialFields;
   /** Which secrets are stored. Presence only; a value never crosses outward. */
   secretNames: string[];
-  /** `SHA256:…` for ssh_key / x509, else null. */
+  /** `SHA256:…` for ssh_key / ssh_sk_key / x509, else null. */
   fingerprint: string | null;
   createdAt: string;
   updatedAt: string;
@@ -275,6 +278,11 @@ export type SessionEvent =
       hop?: number | null;
     }
   | ({ kind: "hop_status" } & HopStatus)
+  /** ADR-0024: a FIDO2 key is about to sign. Informational: nothing is answered. */
+  | { kind: "touch_required"; id: number; fingerprint: string; timeoutSeconds: number; hop?: number | null }
+  | { kind: "touch_cleared"; id: number; hop?: number | null }
+  /** No touch in time; `closed { auth_failed }` follows. */
+  | { kind: "touch_timeout"; id: number; hop?: number | null }
   | { kind: "desktop_resized"; width: number; height: number }
   | { kind: "reconnecting"; attempt: number; delayMs: number }
   | { kind: "detached" }

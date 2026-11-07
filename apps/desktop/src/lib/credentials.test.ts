@@ -65,6 +65,7 @@ describe("compatibility matrix", () => {
     domain_user: ["ssh", "rdp", "web", "vsphere-console"],
     ssh_key: ["ssh"],
     ssh_agent: ["ssh"],
+    ssh_sk_key: ["ssh"],
     x509: ["web", "kubernetes"],
     api_token: ["web"],
     oauth_client: ["web"],

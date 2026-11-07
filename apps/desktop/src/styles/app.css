@@ -13,6 +13,7 @@
 @import "./import.css" layer(components);
 @import "./a5.css" layer(components);
 @import "./a5-secrets.css" layer(components);
+@import "./a5-sk.css" layer(components);
 
 @theme {
   --color-bg: var(--bg);

@@ -11,6 +11,7 @@ import type { RemoteTarget } from "./ipc.mock.remote";
 import { MockTreeBase } from "./ipc.mock.tree";
 import { MockHopChain, type MockHop } from "./ipc.mock.hops";
 import { MockLeaseBook } from "./ipc.mock.leases";
+import { DEFAULT_SK_KNOBS, signWithTouch, skPreflight, type MockSkKnobs } from "./ipc.mock.sk";
 
 export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
@@ -28,6 +29,8 @@ interface MockSession {
   line: string;
   /** ADR-0025: the jump hosts brought up before the target (null = direct). */
   chain: MockHopChain | null;
+  /** ADR-0024: the target signs in with this security key (its fingerprint). */
+  skFingerprint: string | null;
 }
 
 /** The `prompt` credential pre-fills of a connection (null = it stores its own secret). */
@@ -45,6 +48,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
   leaseTtl = 3600;
   leaseRefused = false;
   leaseRenewFails = false;
+  /** ADR-0024 knobs: does the agent hold the security key, and is it touched in time. */
+  sk: MockSkKnobs = { ...DEFAULT_SK_KNOBS };
 
   constructor(opts: MockOptions = {}) {
     super(opts);
@@ -53,6 +58,7 @@ export class MockTransport extends MockTreeBase implements Ipc {
     this.record("vault_unlocked", {});
     this.record("session_opened", { connection: "c-web01", protocol: "ssh", peer_identity: "SHA256:mock-web01" });
     this.record("session_closed", { connection: "c-web01", reason: "closed by user" });
+    this.record("credential.sk_converted", { id: "cr-yubi" });
   }
 
   // ---------- helpers ----------
@@ -168,6 +174,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
       this.record("secret_failed", { credential: cred.id, category: "lease" });
       throw new IpcError("secret.lease_failed", "Vault returned database credentials without a lease");
     }
+    // R4 `sk_keys::preflight`: before any network I/O.
+    if (cred?.kind === "ssh_sk_key") skPreflight(cred.fields, this.sk);
     const sessionId = this.id("s");
     if (dynamicDb) {
       this.leaseBook.issue(sessionId, { ttl: this.leaseTtl, renewable: true, failRenew: this.leaseRenewFails });
@@ -182,6 +190,7 @@ export class MockTransport extends MockTreeBase implements Ipc {
       askCredential: ask ? { ...ask, needsDomain: false } : null,
       line: "",
       chain: null,
+      skFingerprint: cred?.kind === "ssh_sk_key" ? (cred.fingerprint ?? "") : null,
     };
     this.sessions.set(sessionId, s);
     const target = () => {
@@ -207,6 +216,16 @@ export class MockTransport extends MockTreeBase implements Ipc {
   };
 
   private afterTrust(s: MockSession): void {
+    if (s.skFingerprint !== null) {
+      const fingerprint = s.skFingerprint;
+      signWithTouch(s.emit, fingerprint, this.sk, (ok) => {
+        if (s.info.state === "closed") return;
+        this.record("session.auth_sk", { connection: s.info.connectionId, fingerprint, backend: "agent", outcome: ok ? "ok" : "touch_timeout" });
+        if (ok) this.connect(s);
+        else this.end(s, "security key not touched within 30 s", "auth_failed");
+      });
+      return;
+    }
     if (s.askCredential) {
       const a = s.askCredential;
       s.pending = "credential";
