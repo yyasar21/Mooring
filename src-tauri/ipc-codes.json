@@ -1,4 +1,5 @@
 [
+  "app.data_dir",
   "audit.io",
   "clipboard.unavailable",
   "confirm.busy",
@@ -69,6 +70,10 @@
   "net.rate_limited",
   "net.spawn",
   "net.tool_missing",
+  "portable.data_dir_invalid",
+  "portable.marker_invalid",
+  "portable.unwritable",
+  "portable.webview_missing",
   "protocol.unavailable",
   "session.failed",
   "session.not_connected",

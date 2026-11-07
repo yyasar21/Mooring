@@ -47,7 +47,7 @@ pub fn client_plan(t: &VmTarget, dev_url: Option<tauri::Url>, storage: Storage) 
         url,
         policy,
         storage,
-        persistent_refused: false,
+        persistent_refused: None,
     })
 }
 

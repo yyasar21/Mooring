@@ -189,6 +189,11 @@ pub fn settings_set(state: &AppState, input: UpdateSettingsInput) -> IpcResult<U
         return Err(IpcError::invalid("channel", "only `stable` exists"));
     }
     state.with_ready(|_, _| Ok(()))?;
+    // ADR-0021 §2: no background task in a portable folder; the opt-in is refused, not stored.
+    if input.background_check && state.portable_root.is_some() {
+        let reason = ManualReason::Portable;
+        return Err(refused(state, reason.code(), reason.message()));
+    }
     let mut settings = stored(state);
     let changed = settings.background_check != input.background_check;
     settings.background_check = input.background_check;

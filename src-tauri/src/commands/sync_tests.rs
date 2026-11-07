@@ -429,7 +429,7 @@ async fn vault_join_header_write_failures_never_strand_the_device() {
     // Restart: the store is bound to the staged header's vault, so the rename completes.
     let Dev { f: Fixture { dir, state, clipboard }, .. } = e2;
     drop(state);
-    let st = AppState::new(dir.path().to_path_buf(), testing::settings(clipboard)).expect("restart");
+    let st = AppState::new(testing::dirs(dir.path()), testing::settings(clipboard)).expect("restart");
     assert!(!tmp(&st).exists());
     assert_eq!(header_on_disk(&st), vault_id);
     vault::unlock(&st, secrecy::SecretString::from(MASTER.to_owned())).expect("the joined vault opens");
@@ -440,7 +440,7 @@ async fn vault_join_header_write_failures_never_strand_the_device() {
     let boot = state.with_ready(|v, _| Ok(v.vault_id().to_string())).expect("id");
     std::fs::copy(st.data_dir.join(AppState::HEADER_FILE), dir.path().join(sync_join::JOIN_TMP)).expect("stale");
     drop(state);
-    let st2 = AppState::new(dir.path().to_path_buf(), testing::settings(clipboard)).expect("restart");
+    let st2 = AppState::new(testing::dirs(dir.path()), testing::settings(clipboard)).expect("restart");
     assert!(!tmp(&st2).exists());
     assert_eq!(header_on_disk(&st2), boot);
     s3.recorder().assert_no_violations();

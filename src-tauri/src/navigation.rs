@@ -31,8 +31,14 @@ fn same_origin(a: &Url, b: &Url) -> bool {
 }
 
 /// Build the main window from its config entry (`"create": false` there) with the guard:
-/// navigations outside the app origin are cancelled and new windows are denied.
-pub fn create_main_window<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
+/// navigations outside the app origin are cancelled and new windows are denied. `data_dir`
+/// (ADR-0021, portable mode on Windows / Linux) relocates the `WebView` profile that would
+/// otherwise land in `%LOCALAPPDATA%` / `$XDG_DATA_HOME`; the caller passes `None` on macOS
+/// (`WKWebView` has no such knob).
+pub fn create_main_window<R: Runtime>(
+    app: &App<R>,
+    data_dir: Option<std::path::PathBuf>,
+) -> tauri::Result<()> {
     let config = app
         .config()
         .app
@@ -42,7 +48,11 @@ pub fn create_main_window<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
         .cloned()
         .ok_or_else(|| tauri::Error::WindowNotFound)?;
     let dev_url = if cfg!(dev) { app.config().build.dev_url.clone() } else { None };
-    WebviewWindowBuilder::from_config(app.handle(), &config)?
+    let mut builder = WebviewWindowBuilder::from_config(app.handle(), &config)?;
+    if let Some(dir) = data_dir {
+        builder = builder.data_directory(dir);
+    }
+    builder
         .on_navigation(move |url| {
             let allowed = is_app_url(url, dev_url.as_ref());
             if !allowed {

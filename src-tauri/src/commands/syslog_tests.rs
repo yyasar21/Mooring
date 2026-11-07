@@ -123,7 +123,7 @@ fn stored_config_restarts_with_a_new_process() {
     let (server, port) = udp_collector();
     set(&f.state, udp(port, true), TlsRoots::System).expect("set");
     recv(&server);
-    let again = AppState::new(f.dir.path().to_path_buf(), settings(f.clipboard.clone()))
+    let again = AppState::new(dirs(f.dir.path()), settings(f.clipboard.clone()))
         .expect("reload");
     start_stored(&again);
     assert!(again.audit.lock().expect("log").mirror().is_some(), "mirror running before unlock");
@@ -142,7 +142,7 @@ fn a_config_disabled_at_startup_is_recorded() {
     recv(&server);
     // A same-user attacker edits the plaintext setting to switch the mirror off.
     set(&f.state, udp(port, false), TlsRoots::System).expect("off");
-    let again = AppState::new(f.dir.path().to_path_buf(), settings(f.clipboard.clone()))
+    let again = AppState::new(dirs(f.dir.path()), settings(f.clipboard.clone()))
         .expect("reload");
     start_stored(&again);
     assert!(again.audit.lock().expect("log").mirror().is_none());

@@ -177,8 +177,28 @@ pub struct WebPlan {
     pub policy: NavPolicy,
     /// Storage.
     pub storage: Storage,
-    /// The user asked for persistence but this OS cannot isolate it (macOS 11–13).
-    pub persistent_refused: bool,
+    /// The user asked for persistence but the window is ephemeral, and why.
+    pub persistent_refused: Option<StorageFallback>,
+}
+
+/// Why a persistent profile was downgraded to ephemeral.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageFallback {
+    /// macOS 11–13: no `data_store_identifier`.
+    MacOsVersion,
+    /// ADR-0021: portable mode on macOS cannot redirect `WKWebView` site data out of
+    /// `~/Library/WebKit`, so nothing persistent is written there (owner decision).
+    Portable,
+}
+
+impl StorageFallback {
+    /// Reason name for the log.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::MacOsVersion => "web.needs_macos_14",
+            Self::Portable => "web.portable_ephemeral",
+        }
+    }
 }
 
 impl WebPlan {
@@ -258,14 +278,17 @@ pub fn plan(
     let uuid = uuid::Uuid::parse_str(&connection_id)
         .map_err(|_| IpcError::invalid("connectionId", "not a UUID"))?;
     let (storage, persistent_refused) = match (opts.persistent, os) {
-        (false, os) => (ephemeral_storage(state, &connection_id, os), false),
+        (false, os) => (ephemeral_storage(state, &connection_id, os), None),
         (true, StorageOs::Windows | StorageOs::Linux) => {
-            (Storage::Directory(store_dir(state, &connection_id)), false)
+            (Storage::Directory(store_dir(state, &connection_id)), None)
+        }
+        (true, StorageOs::MacOs { .. }) if state.portable_root.is_some() => {
+            (Storage::Ephemeral, Some(StorageFallback::Portable))
         }
         (true, StorageOs::MacOs { major }) if major >= 14 => {
-            (Storage::Identifier(*uuid.as_bytes()), false)
+            (Storage::Identifier(*uuid.as_bytes()), None)
         }
-        (true, StorageOs::MacOs { .. }) => (Storage::Ephemeral, true),
+        (true, StorageOs::MacOs { .. }) => (Storage::Ephemeral, Some(StorageFallback::MacOsVersion)),
     };
     Ok(WebPlan {
         label: format!("{WEB_PREFIX}{connection_id}"),

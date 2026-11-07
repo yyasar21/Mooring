@@ -92,7 +92,7 @@ impl Drop for Flight<'_> {
 impl UpdateRuntime {
     /// A runtime whose every command answers `update.unconfigured` (no pubkey in the build).
     pub fn unconfigured(current: Version) -> Self {
-        Self { source: None, probe: Arc::new(OsProbe), current, inner: Mutex::default() }
+        Self { source: None, probe: Arc::new(OsProbe::default()), current, inner: Mutex::default() }
     }
 
     /// A runtime over `source`, with `probe` deciding the install mode.
@@ -171,6 +171,7 @@ impl UpdateRuntime {
             install_path: std::path::PathBuf::new(),
             writable: false,
             cask_present: false,
+            portable: false,
         });
         install_mode::decide(&facts)
     }

@@ -14,24 +14,34 @@ pub const MAX_PASSWORD_BYTES: usize = 1024;
 
 /// Static facts about the running build.
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppInfo {
-    name: &'static str,
-    version: &'static str,
-    os: &'static str,
-    arch: &'static str,
-    debug: bool,
+    pub name: &'static str,
+    pub version: &'static str,
+    pub os: &'static str,
+    pub arch: &'static str,
+    pub debug: bool,
+    /// ADR-0021: the `Mooring Data` folder in portable mode, else `null` (About and
+    /// Settings → Updates show "Portable build — data in <path>").
+    pub portable_data_dir: Option<String>,
 }
 
-/// Round-trip smoke test used by the UI on startup.
-#[tauri::command]
-pub fn app_info() -> AppInfo {
+/// The facts for `state` (pure).
+pub fn info(state: &AppState) -> AppInfo {
     AppInfo {
         name: "Mooring",
         version: env!("CARGO_PKG_VERSION"),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         debug: cfg!(debug_assertions),
+        portable_data_dir: state.portable_root.as_ref().map(|p| p.display().to_string()),
     }
+}
+
+/// Round-trip smoke test used by the UI on startup.
+#[tauri::command]
+pub fn app_info(state: State<'_, AppState>) -> AppInfo {
+    info(&state)
 }
 
 /// What the UI needs to decide between onboarding, unlock screen and main window.
@@ -244,6 +254,21 @@ mod tests {
     use super::*;
     use crate::state::testing::*;
 
+    /// ADR-0021: `portableDataDir` is the `Mooring Data` path in portable mode, else null.
+    #[test]
+    fn app_info_reports_the_portable_data_dir() {
+        let f = empty();
+        let v = serde_json::to_value(super::info(&f.state)).expect("json");
+        assert_eq!(v["portableDataDir"], serde_json::Value::Null);
+        assert_eq!(v["name"], "Mooring");
+        let p = empty_portable();
+        let root = p.dir.path().join("Mooring Data");
+        let v = serde_json::to_value(super::info(&p.state)).expect("json");
+        assert_eq!(v["portableDataDir"], root.display().to_string());
+        assert_eq!(p.state.data_dir, root.join("data"));
+        assert_eq!(p.state.cache_dir, root.join("cache"));
+    }
+
     fn pw(s: &str) -> SecretString {
         SecretString::from(s.to_owned())
     }
@@ -273,7 +298,7 @@ mod tests {
     #[test]
     fn state_reloads_locked_from_disk() {
         let f = unlocked();
-        let again = AppState::new(f.dir.path().to_path_buf(), settings(f.clipboard.clone()))
+        let again = AppState::new(dirs(f.dir.path()), settings(f.clipboard.clone()))
             .expect("reload");
         assert_eq!(status(&again).expect("s"), VaultStatus::Locked);
         // The previous instance still holds the store; the reload opens a second connection.
@@ -298,7 +323,7 @@ mod tests {
         assert_eq!(unlock(&f.state, pw(MASTER)).expect_err("old").code, "vault.unlock");
         unlock(&f.state, pw(next)).expect("new password unlocks");
         // A fresh process reads the new header from disk.
-        let again = AppState::new(f.dir.path().to_path_buf(), settings(f.clipboard.clone()))
+        let again = AppState::new(dirs(f.dir.path()), settings(f.clipboard.clone()))
             .expect("reload");
         unlock(&again, pw(next)).expect("persisted");
         assert!(audit_events(&f.state).contains(&"password_changed".to_owned()));
@@ -320,7 +345,7 @@ mod tests {
         f.state.with_ready(|_, _| Ok(())).expect("bind");
         let other = Vault::create(&pw(MASTER), mooring_vault::KdfParams::TEST).expect("other");
         f.state.save_header(&other).expect("save");
-        let again = AppState::new(f.dir.path().to_path_buf(), settings(f.clipboard.clone()))
+        let again = AppState::new(dirs(f.dir.path()), settings(f.clipboard.clone()))
             .expect("reload");
         let e = unlock(&again, pw(MASTER)).expect_err("mismatch");
         assert_eq!(e.code, "store.vault_mismatch");
@@ -341,7 +366,7 @@ mod tests {
         let ids = mooring_store::testing::write_v2_database(&db, sealer.unwrap_or(&v))
             .expect("v2 database");
         let clipboard = std::sync::Arc::new(crate::clipboard::MemoryClipboard::default());
-        let state = AppState::new(dir.path().to_path_buf(), settings(clipboard.clone()))
+        let state = AppState::new(dirs(dir.path()), settings(clipboard.clone()))
             .expect("state migrates v2");
         (Fixture { dir, state, clipboard }, ids)
     }

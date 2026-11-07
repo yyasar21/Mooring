@@ -59,6 +59,11 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) {
         tracing::info!("updater not configured (no pubkey); background check off");
         return;
     }
+    // ADR-0021 §2: a portable folder is replaced by hand; nothing checks in the background.
+    if handle.state::<AppState>().portable_root.is_some() {
+        tracing::info!("portable mode; background update check off");
+        return;
+    }
     let started = Instant::now();
     tauri::async_runtime::spawn(async move {
         loop {

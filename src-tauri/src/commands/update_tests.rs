@@ -7,13 +7,13 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::state::testing::{audit_events, unlocked, Fixture};
-use crate::updater::install_mode::Bundle;
+use crate::updater::install_mode::{Bundle, InstallFacts};
 use crate::updater::source::SourceError;
 use crate::updater::tests::{facts, in_app_probe, offered, runtime, v, FakeProbe, FakeSource};
 use crate::updater::MIN_CHECK_GAP;
 
 fn audit_text(f: &Fixture) -> String {
-    std::fs::read_to_string(f.dir.path().join(AppState::AUDIT_FILE)).unwrap_or_default()
+    std::fs::read_to_string(f.state.data_dir.join(AppState::AUDIT_FILE)).unwrap_or_default()
 }
 
 fn install_input(version: &str, close_sessions: bool) -> InstallInput {
@@ -113,6 +113,34 @@ async fn every_command_is_vault_gated_and_unconfigured_wins_after_the_gate() {
     let input = UpdateSettingsInput { background_check: true, channel: None };
     assert_eq!(settings_set(&f.state, input).expect_err("locked").code, "vault.locked");
     assert!(!audit_events(&f.state).iter().any(|e| e.starts_with("update.")));
+}
+
+/// ADR-0021 §2: in a portable folder the background opt-in is refused with
+/// `update.manual_only` (audited as a refusal, nothing stored); switching it off, a manual
+/// `update_check` and `update_install`'s own matrix answer still work.
+#[tokio::test]
+async fn portable_mode_refuses_the_background_opt_in_but_checks_on_demand() {
+    let f = crate::state::testing::empty_portable();
+    crate::commands::vault::create(&f.state, secrecy::SecretString::from(crate::state::testing::MASTER.to_owned()))
+        .expect("vault");
+    let e = settings_set(&f.state, UpdateSettingsInput { background_check: true, channel: None }).expect_err("portable");
+    assert_eq!(e.code, "update.manual_only");
+    assert_eq!(e.message, "portable build: download the new zip and replace the folder");
+    assert!(!settings_get(&f.state).expect("get").background_check, "nothing stored");
+    assert!(audit_text(&f).contains(r#""event":"update.refused","code":"update.manual_only""#));
+    settings_set(&f.state, UpdateSettingsInput { background_check: false, channel: None }).expect("off is fine");
+    // On-demand check still answers, with the portable manual reason.
+    let src = FakeSource::offering(Some(offered("0.2.0")));
+    let portable = InstallFacts { portable: true, ..facts(Bundle::Nsis, "D:\\Mooring", true) };
+    let rt = runtime(Arc::clone(&src), Arc::new(FakeProbe(Some(portable))));
+    let info = check(&f.state, &rt, Instant::now(), true).await.expect("check");
+    assert_eq!((info.install_mode, info.manual_reason), ("manual", Some(ManualReason::Portable)));
+    assert_eq!(info.available.as_ref().map(|a| a.version.clone()), Some("0.2.0".to_owned()));
+    assert_eq!(src.checks.load(Ordering::SeqCst), 1);
+    let e = install(&f.state, &rt, Instant::now(), install_input("0.2.0", false)).await.expect_err("manual");
+    assert_eq!(e.code, "update.manual_only");
+    assert_eq!(src.installs.lock().expect("lock").len(), 0);
+    assert_eq!(serde_json::to_value(&info).expect("json")["manualReason"], "portable");
 }
 
 #[tokio::test]

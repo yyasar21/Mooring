@@ -57,6 +57,8 @@ pub enum ManualReason {
     NotWritable,
     /// Not an installed bundle (development build).
     NotBundled,
+    /// A portable folder (ADR-0021 §2): the user replaces the folder with the new zip.
+    Portable,
 }
 
 impl ManualReason {
@@ -64,7 +66,9 @@ impl ManualReason {
     pub fn code(self) -> &'static str {
         match self {
             Self::NotWritable => "update.not_writable",
-            Self::PackageManager | Self::Homebrew | Self::NotBundled => "update.manual_only",
+            Self::PackageManager | Self::Homebrew | Self::NotBundled | Self::Portable => {
+                "update.manual_only"
+            }
         }
     }
 
@@ -75,6 +79,7 @@ impl ManualReason {
             Self::Homebrew => "installed by Homebrew: run `brew upgrade --cask mooring`",
             Self::NotWritable => "the install location is not writable by this user",
             Self::NotBundled => "not an installed bundle",
+            Self::Portable => "portable build: download the new zip and replace the folder",
         }
     }
 }
@@ -102,6 +107,8 @@ pub struct InstallFacts {
     /// A Homebrew `Caskroom/mooring` directory exists (N-55): the cask owns the install even
     /// when its `.app` was moved to `/Applications`.
     pub cask_present: bool,
+    /// Portable mode (ADR-0021, `Dirs::portable_root.is_some()`): checked before the bundle.
+    pub portable: bool,
 }
 
 /// Homebrew Caskroom roots (Apple silicon and Intel prefixes). Review 7 N-55: a cask
@@ -134,6 +141,9 @@ pub(crate) fn cask_present_in(roots: &[&Path], token: &str) -> bool {
 /// The matrix (ADR-0018 §3). Pure.
 pub fn decide(facts: &InstallFacts) -> InstallMode {
     use ManualReason as R;
+    if facts.portable {
+        return InstallMode::Manual(R::Portable);
+    }
     match facts.bundle {
         Bundle::Deb | Bundle::Rpm | Bundle::Msi => InstallMode::Manual(R::PackageManager),
         Bundle::Unknown => InstallMode::Manual(R::NotBundled),
@@ -161,7 +171,10 @@ pub trait InstallProbe: Send + Sync {
 /// trying to create and remove a probe file next to the install (no `access(2)` guesswork
 /// with ACLs, SIP or network mounts).
 #[derive(Debug, Default, Clone, Copy)]
-pub struct OsProbe;
+pub struct OsProbe {
+    /// Portable mode (from `Dirs` at setup).
+    pub portable: bool,
+}
 
 impl OsProbe {
     fn bundle() -> Bundle {
@@ -206,7 +219,7 @@ impl InstallProbe for OsProbe {
             Bundle::MacApp | Bundle::Nsis => dir_writable(Some(&resolved)) && dir_writable(resolved.parent()),
             _ => false,
         };
-        Some(InstallFacts { bundle, install_path: resolved, writable, cask_present })
+        Some(InstallFacts { bundle, install_path: resolved, writable, cask_present, portable: self.portable })
     }
 }
 

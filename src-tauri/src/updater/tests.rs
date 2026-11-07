@@ -94,7 +94,7 @@ impl InstallProbe for FakeProbe {
 }
 
 pub fn facts(bundle: Bundle, path: &str, writable: bool) -> InstallFacts {
-    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false }
+    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false, portable: false }
 }
 
 /// An in-app `AppImage` install at a writable path.
@@ -151,6 +151,33 @@ fn install_mode_matrix() {
     for (bundle, path, writable, want) in rows {
         assert_eq!(decide(&facts(*bundle, path, *writable)), *want, "{bundle:?} {path} w={writable}");
     }
+}
+
+/// ADR-0021 §2: a portable folder is manual whatever the bundle, the path, writability or
+/// the cask say; the code is `update.manual_only` with the fixed zip-replace message.
+#[test]
+fn portable_beats_every_bundle_kind() {
+    use Bundle as B;
+    for (bundle, path) in [
+        (B::AppImage, "/home/u/Applications/Mooring.AppImage"),
+        (B::Deb, "/usr/bin/mooring"),
+        (B::Rpm, "/usr/bin/mooring"),
+        (B::MacApp, "/Users/u/Desktop/Mooring/Mooring.app"),
+        (B::MacApp, "/opt/homebrew/Caskroom/mooring/0.1.0/Mooring.app"),
+        (B::Msi, "C:\\Program Files\\Mooring"),
+        (B::Nsis, "D:\\Mooring"),
+        (B::Unknown, "D:\\Mooring\\Mooring.exe"),
+    ] {
+        for writable in [true, false] {
+            for cask_present in [true, false] {
+                let f = InstallFacts { portable: true, cask_present, ..facts(bundle, path, writable) };
+                assert_eq!(decide(&f), InstallMode::Manual(ManualReason::Portable), "{bundle:?} {path}");
+            }
+        }
+    }
+    assert_eq!(ManualReason::Portable.code(), "update.manual_only");
+    assert_eq!(ManualReason::Portable.message(), "portable build: download the new zip and replace the folder");
+    assert_eq!(serde_json::to_value(ManualReason::Portable).expect("json"), "portable");
 }
 
 /// Review 7 N-55: a cask that moved its `.app` into `/Applications` is still Homebrew's

@@ -30,7 +30,7 @@ fn plan_uses_stored_options_only() {
     assert_eq!(p.origin(), "https://console.example.test");
     assert_eq!(p.policy.allowed(), ["https://console.example.test", "https://sso.example.test"]);
     assert_eq!(p.storage, Storage::Ephemeral, "ephemeral by default (owner decision 7)");
-    assert!(!p.persistent_refused);
+    assert_eq!(p.persistent_refused, None);
     assert_eq!(native_title(&p.name, &p.origin()), "Mooring \u{b7} vCenter \u{b7} https://console.example.test");
 }
 
@@ -70,8 +70,30 @@ fn persistent_storage_per_os() {
     assert_eq!(p.storage, Storage::Identifier(*uuid.as_bytes()));
     for major in [0, 11, 13] {
         let p = plan(&f.state, &id, StorageOs::MacOs { major }, None).expect("plan");
-        assert_eq!((p.storage, p.persistent_refused), (Storage::Ephemeral, true), "macOS {major}");
+        assert_eq!((p.storage, p.persistent_refused), (Storage::Ephemeral, Some(StorageFallback::MacOsVersion)), "macOS {major}");
     }
+    assert_eq!(StorageFallback::MacOsVersion.reason(), "web.needs_macos_14");
+}
+
+/// ADR-0021: portable mode on macOS downgrades `Identifier` profiles to ephemeral (owner
+/// decision); Windows / Linux keep their per-connection directory under the portable data dir.
+#[test]
+fn portable_mode_downgrades_macos_persistent_profiles() {
+    let f = crate::state::testing::empty_portable();
+    crate::commands::vault::create(&f.state, secrecy::SecretString::from(crate::state::testing::MASTER.to_owned())).expect("vault");
+    let id = web_connection(&f, json!({ "url": "https://console.example.test", "persistent": true }));
+    for major in [14, 15, 26] {
+        let p = plan(&f.state, &id, StorageOs::MacOs { major }, None).expect("plan");
+        assert!(!p.persistent());
+        assert_eq!((p.storage, p.persistent_refused), (Storage::Ephemeral, Some(StorageFallback::Portable)), "macOS {major}");
+    }
+    assert_eq!(StorageFallback::Portable.reason(), "web.portable_ephemeral");
+    let p = plan(&f.state, &id, LINUX, None).expect("plan");
+    assert_eq!(p.storage, Storage::Directory(f.state.data_dir.join("web").join(&id)));
+    assert!(p.storage.ephemeral_dir().is_none());
+    let p = plan(&f.state, &id, StorageOs::Windows, None).expect("plan");
+    assert_eq!(p.storage, Storage::Directory(f.state.data_dir.join("web").join(&id)));
+    assert_eq!(p.persistent_refused, None);
     assert_eq!(macos_major("14.2.1"), 14);
     assert_eq!(macos_major(" 13 "), 13);
     assert_eq!(macos_major("garbage"), 0);

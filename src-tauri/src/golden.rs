@@ -53,6 +53,8 @@ const NOT_CODES: &[&str] = &[
     "mooring.db",
     "sync.config",
     "tauri.localhost",
+    // ADR-0021: a web storage-fallback reason for the log, not an error code.
+    "web.portable_ephemeral",
 ];
 
 /// Every `IpcError` code the app can emit, collected from the non-test sources: each
