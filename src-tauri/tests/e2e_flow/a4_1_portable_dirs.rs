@@ -86,7 +86,6 @@ fn pre_existing_world_writable_dirs_are_tightened_to_0700() {
 /// test asserts the ADR's intent (refused, nothing written through the link) and fails today.
 #[cfg(unix)]
 #[test]
-#[ignore = "BUG a4-1-qa-1: a symlinked `Mooring Data/data` is followed, not refused (rust-core)"]
 fn symlinked_data_subdir_is_refused_like_the_root() {
     let tmp = tempfile::tempdir().expect("tmp");
     let app = tmp.path().join("app");

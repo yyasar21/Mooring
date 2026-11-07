@@ -191,6 +191,15 @@ impl Dirs {
         }
         let data = root.join("data");
         let cache = root.join("cache");
+        // The root is refused when linked so the data cannot be redirected (ADR-0021 §1);
+        // a linked `data` / `cache` inside a genuine root would redirect it one level down.
+        for d in [&data, &cache] {
+            match std::fs::symlink_metadata(d) {
+                Err(e) if e.kind() == ErrorKind::NotFound => {}
+                Ok(m) if m.is_dir() && !is_link(&m) => {}
+                _ => return Err(DirsError::DataDirInvalid(root)),
+            }
+        }
         for d in [&root, &data, &cache] {
             create_private_dir(d).map_err(|_| DirsError::Unwritable(root.clone()))?;
         }

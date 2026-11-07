@@ -161,9 +161,11 @@ check "a --root directory named with .. in the path still yields clean names" \
   bash -c 'python3 -I "$1" --out "$2/dd.zip" --epoch 1 --root "$3/../hostile" >/dev/null && ! entries "$2/dd.zip" | grep -q "\.\."' _ "$SCRIPT" "$WORK" "$hostile"
 check "a NAME=PATH whose PATH is a directory symlink is stored as the link" \
   bash -c 'python3 -I "$1" --out "$2/dl.zip" --epoch 1 "d=$3/dir-link" >/dev/null && [ "$(linkdata "$2/dl.zip" d)" = "$2/outside/dir" ]' _ "$SCRIPT" "$WORK" "$hostile"
-# Known gap (a4-1-qa-q1): a Windows drive prefix in an archive name (`C:/x`) is not refused.
-# Harmless for our own CI (extractors strip it), but the self-check does not cover it.
-gap "drive-letter name C:/x is refused" zipfails --out "$WORK/drv.zip" --epoch 1 "C:/x=$WORK/plain"
+# a4-1-qa-3 (fixed in F1): a Windows drive prefix or a UNC prefix in an archive name is refused.
+check "drive-letter name C:/x is refused" zipfails --out "$WORK/drv.zip" --epoch 1 "C:/x=$WORK/plain"
+check "drive-letter name c:x is refused" zipfails --out "$WORK/drv2.zip" --epoch 1 "c:x=$WORK/plain"
+check "UNC name //srv/x is refused" zipfails --out "$WORK/unc.zip" --epoch 1 "//srv/x=$WORK/plain"
+check "UNC name \\\\srv\\x is refused" zipfails --out "$WORK/unc2.zip" --epoch 1 "\\\\srv\\x=$WORK/plain"
 # No entry-count or total-size cap exists in the script (documented in the handoff); the
 # release zips hold a bounded tree, so the test pins only that a 1 000-entry root works.
 many="$WORK/many"; mkdir -p "$many"; for i in $(seq -w 1 1000); do : >"$many/f$i"; done

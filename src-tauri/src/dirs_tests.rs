@@ -135,6 +135,39 @@ fn symlinked_data_root_is_refused() {
     assert!(std::fs::read_dir(&elsewhere).expect("ls").next().is_none(), "nothing written through the link");
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinked_data_subdir_is_refused_and_not_followed() {
+    for sub in ["data", "cache"] {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let app = tmp.path().join("app");
+        let exe = exe_in(&app);
+        std::fs::write(app.join(Dirs::MARKER), b"").expect("marker");
+        let root = app.join(Dirs::ROOT);
+        std::fs::create_dir_all(&root).expect("root");
+        let elsewhere = tmp.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).expect("mkdir");
+        std::os::unix::fs::symlink(&elsewhere, root.join(sub)).expect("symlink");
+        let e = Dirs::resolve(&exe, None, &never_os, &writable).expect_err("link subdir");
+        assert!(matches!(&e, DirsError::DataDirInvalid(p) if *p == root), "{sub}: {e:?}");
+        assert!(std::fs::read_dir(&elsewhere).expect("ls").next().is_none(), "{sub}: written through the link");
+        assert!(!root.join(["data", "cache"].iter().find(|s| **s != sub).expect("other")).exists(), "{sub}: sibling created");
+    }
+}
+
+#[test]
+fn file_named_data_subdir_is_refused() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let app = tmp.path().join("app");
+    let exe = exe_in(&app);
+    std::fs::write(app.join(Dirs::MARKER), b"").expect("marker");
+    let root = app.join(Dirs::ROOT);
+    std::fs::create_dir_all(&root).expect("root");
+    std::fs::write(root.join("cache"), b"not a dir").expect("file");
+    let e = Dirs::resolve(&exe, None, &never_os, &writable).expect_err("file subdir");
+    assert_eq!(e.code(), "portable.data_dir_invalid");
+}
+
 #[test]
 fn file_named_mooring_data_is_refused() {
     let tmp = tempfile::tempdir().expect("tmp");
