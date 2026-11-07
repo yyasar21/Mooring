@@ -11,6 +11,9 @@
 #   3. ADR-0021 §2: every `find` in `sign-updater` that selects updater artifacts carries
 #      `! -name '*_portable.zip'` and no positive `-name '*.zip'`-like pattern, so the portable
 #      zips can never be signed with the updater key, whatever the other patterns become.
+#   4. ADR-0028: every tauri build in release*.yml passes the release overlay
+#      (`--config src-tauri/tauri.release.conf.json`) first; release.yml has such a build.
+#   5. ADR-0028: `MOORING_RELEASE_BUILD` is set ("1") only in release.yml's build job.
 # Pure bash + python3 -I (line-based, no YAML library). Exit 1 with one `error:` per finding.
 set -euo pipefail
 
@@ -107,6 +110,92 @@ PY
 for f in "${findings[@]}"; do
   [[ -n "$f" ]] || continue
   echo "error: $f (portable zips are never updater artifacts, ADR-0021 §2)" >&2; rc=1
+done
+
+# 4./5. ADR-0028 build identity. tauri.conf.json is the dev identity; the release identity is
+#    the overlay src-tauri/tauri.release.conf.json, applied by release workflows only:
+#   4. every tauri build in release*.yml (a tauri-action step, or a `tauri build|bundle`
+#      command line) passes `--config src-tauri/tauri.release.conf.json` as its FIRST
+#      --config (CI-only keys may follow and win); release.yml has at least one such build.
+#   5. `MOORING_RELEASE_BUILD` (read by src-tauri/build.rs) appears in no workflow but
+#      release.yml, and there only in the build job, set to "1".
+mapfile -t findings < <(python3 -I - "$DIR" <<'PY'
+import os, re, sys
+d = sys.argv[1]
+OVERLAY = "src-tauri/tauri.release.conf.json"
+CMD = re.compile(r"\btauri(?:\.js)?\s+(?:build|bundle)\b")
+
+def indent(s):
+    return len(s) - len(s.lstrip(" "))
+
+def first_config(text):
+    m = re.search(r"(?:--config|-c)(?:\s+|=)(\S+)", text)
+    return m.group(1).strip("'\"") if m else None
+
+builds = 0
+for name in sorted(os.listdir(d)):
+    if not (name.endswith(".yml") or name.endswith(".yaml")):
+        continue
+    with open(os.path.join(d, name), encoding="utf-8") as fh:
+        lines = [l.rstrip("\n") for l in fh]
+    release_file = name.startswith("release")
+    job, in_jobs = None, False
+    for n, line in enumerate(lines, 1):
+        if re.match(r"^jobs:\s*$", line):
+            in_jobs, job = True, None
+        elif re.match(r"^\S", line):
+            in_jobs = False
+        elif in_jobs:
+            m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+            if m:
+                job = m.group(1)
+        # rule 5
+        if "MOORING_RELEASE_BUILD" in line and not line.lstrip().startswith("#"):
+            if name != "release.yml":
+                print(f"{name}:{n}: MOORING_RELEASE_BUILD outside release.yml (rule 5)")
+            elif job != "build" or not re.match(r'^\s+MOORING_RELEASE_BUILD:\s*"?1"?\s*$', line):
+                print(f"{name}:{n}: MOORING_RELEASE_BUILD must be set to \"1\" in the build job only (rule 5)")
+        if not release_file or line.lstrip().startswith("#"):
+            continue
+        # rule 4a: tauri-action steps; the step runs to the next item at the dash's indent.
+        if re.match(r"^\s*(?:-\s+)?uses:\s*tauri-apps/tauri-action@", line):
+            start = n - 1
+            while start >= 0 and not re.match(r"^\s*-\s", lines[start]):
+                start -= 1
+            dash = indent(lines[start]) if start >= 0 else 0
+            end = n
+            while end < len(lines) and not (lines[end].strip() and indent(lines[end]) <= dash):
+                end += 1
+            args, i = None, start + 1
+            while i < end:
+                m = re.match(r"^(\s*)args:\s*(.*)$", lines[i])
+                if m:
+                    parts, j = [m.group(2)], i + 1
+                    while j < end and (not lines[j].strip() or indent(lines[j]) > len(m.group(1))):
+                        parts.append(lines[j].strip()); j += 1
+                    args = " ".join(p for p in parts if p not in (">", ">-", "|", "|-"))
+                    break
+                i += 1
+            builds += name == "release.yml"
+            if args is None or first_config(args) != OVERLAY:
+                print(f"{name}:{n}: tauri-action without `--config {OVERLAY}` as its first --config (rule 4)")
+        # rule 4b: tauri CLI build/bundle command lines (`\` continuations joined).
+        elif CMD.search(line) and "signer" not in line:
+            text, j = line, n
+            while text.rstrip().endswith("\\") and j < len(lines):
+                text = text.rstrip()[:-1] + " " + lines[j].strip(); j += 1
+            builds += name == "release.yml"
+            if first_config(text) != OVERLAY:
+                print(f"{name}:{n}: tauri build without `--config {OVERLAY}` as its first --config (rule 4)")
+if builds == 0:
+    print("release.yml: no tauri build step found (rule 4)")
+if not os.path.isfile(os.path.join(d, "..", "..", OVERLAY)) and os.path.isdir(os.path.join(d, "..", "..", "src-tauri")):
+    print(f"{OVERLAY} is missing (rule 4)")
+PY
+)
+for f in "${findings[@]}"; do
+  [[ -n "$f" ]] || continue
+  echo "error: $f (release identity only via the overlay, ADR-0028)" >&2; rc=1
 done
 
 ((rc == 0)) && echo "lint-workflows: ok ($DIR)"

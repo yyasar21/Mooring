@@ -26,7 +26,7 @@
 # Needs: gh (authenticated for draft releases), cosign >= 3.0, sha256sum or shasum, python3.
 set -euo pipefail
 
-# plugins.updater.pubkey from src-tauri/tauri.conf.json (base64 of the minisign public-key
+# plugins.updater.pubkey from src-tauri/tauri.release.conf.json (base64 of the minisign public-key
 # file). Public material; the matching private key exists only in the owner's secret store.
 UPDATER_PUBKEY_DEFAULT='dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlGNEVEQUM0ODlENEI4NkQKUldSdHVOU0p4TnBPbnhWY3BDdkwxVXZOR1FNcFo3RnJlQWl2cDhiWDA1ZDI3aTg4VlV5NFUyQ3EK'
 UPDATER_PUBKEY="${MOORING_UPDATER_PUBKEY:-$UPDATER_PUBKEY_DEFAULT}"
@@ -144,6 +144,16 @@ if ((${#UNLISTED[@]})); then
     exit 1
   fi
 fi
+
+# ADR-0028: release assets carry the release identity only. A dev-identity build (productName
+# "Mooring Dev": `Mooring Dev_<v>_*.dmg`, `mooring-dev_<v>_*.deb`, ...) on a release means the
+# overlay was not applied.
+DEV_RE='mooring[ _.-]dev'
+for f in "${LISTED[@]}"; do
+  if [[ "${f,,}" =~ $DEV_RE ]]; then
+    echo "error: $f is a development build (ADR-0028); release builds use the release overlay" >&2; exit 1
+  fi
+done
 
 # Portable zips (ADR-0021 §4): exactly the two known names for this version, no updater
 # signature next to them (they are not updater artifacts), nothing else that looks like one.

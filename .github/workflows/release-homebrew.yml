@@ -72,8 +72,9 @@ jobs:
           arm=$(sha "Mooring_${version}_aarch64.dmg"); intel=$(sha "Mooring_${version}_x64.dmg")
           [[ "$arm" =~ ^[0-9a-f]{64}$ && "$intel" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::dmg hashes missing from SHA256SUMS"; exit 1; }
           cd ..
-          ident=$(python3 -I -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["identifier"])')
-          [[ "$ident" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "::error::unexpected identifier '$ident'"; exit 1; }
+          # The cask names the release identity (ADR-0028): tauri.conf.json is the dev one.
+          ident=$(python3 -I scripts/release/merge-config.py merge src-tauri/tauri.conf.json src-tauri/tauri.release.conf.json --get /identifier)
+          [[ "$ident" =~ ^[A-Za-z0-9.-]+$ && "$ident" != *.dev ]] || { echo "::error::unexpected identifier '$ident'"; exit 1; }
           sed -e "s/@VERSION@/$version/g" -e "s/@SHA256_ARM@/$arm/g" -e "s/@SHA256_INTEL@/$intel/g" \
               -e "s/@IDENTIFIER@/$ident/g" \
               -e '/^# Template for/,/^# Lint locally/d' \

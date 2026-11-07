@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DMG window background, 660x400 points (ADR-0028 §3, owner decision 46). The positions match
+     bundle.macOS.dmg in src-tauri/tauri.conf.json: app icon centred at (180,170), the
+     Applications alias at (480,170), 128 pt icons with Finder labels underneath. Finder draws
+     those labels in dark text, so each icon sits on a light slot; the frame keeps the app's
+     sci-fi tokens (navy #0e1218, teal #5cc8b8).
+     Render (the text needs a sans-serif system font; commit the PNGs):
+       rsvg-convert -w 660  -h 400 packaging/macos/dmg-background.svg -o packaging/macos/dmg-background.png
+       rsvg-convert -w 1320 -h 800 packaging/macos/dmg-background.svg -o packaging/macos/dmg-background@2x.png -->
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.6">
+      <stop offset="0" stop-color="#5cc8b8" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#5cc8b8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="slot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eef5f6"/>
+      <stop offset="1" stop-color="#d3e2e5"/>
+    </linearGradient>
+  </defs>
+  <rect width="660" height="400" fill="#0e1218"/>
+  <rect width="660" height="400" fill="url(#glow)"/>
+  <!-- faint grid, the console's bearing marks -->
+  <g stroke="#5cc8b8" stroke-opacity="0.05" stroke-width="1">
+    <path d="M0 50 H660 M0 100 H660 M0 150 H660 M0 200 H660 M0 250 H660 M0 300 H660 M0 350 H660"/>
+    <path d="M55 0 V400 M110 0 V400 M165 0 V400 M220 0 V400 M275 0 V400 M330 0 V400 M385 0 V400 M440 0 V400 M495 0 V400 M550 0 V400 M605 0 V400"/>
+  </g>
+  <!-- slots behind the two icons and their labels -->
+  <g stroke="#5cc8b8" stroke-width="2">
+    <rect x="96" y="86" width="168" height="182" rx="22" fill="url(#slot)"/>
+    <rect x="396" y="86" width="168" height="182" rx="22" fill="url(#slot)"/>
+  </g>
+  <g fill="none" stroke="#5cc8b8" stroke-opacity="0.25" stroke-width="8">
+    <rect x="92" y="82" width="176" height="190" rx="26"/>
+    <rect x="392" y="82" width="176" height="190" rx="26"/>
+  </g>
+  <!-- arrow from the app slot to the Applications slot -->
+  <g stroke="#5cc8b8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M286 170 H368" stroke-width="16" stroke-opacity="0.18"/>
+    <path d="M286 170 H368" stroke-width="6" stroke-dasharray="2 12"/>
+    <path d="M354 152 L374 170 L354 188" stroke-width="7"/>
+  </g>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="330" y="322" font-size="18" font-weight="600" fill="#e6f4f2">Drag Mooring to Applications</text>
+    <text x="330" y="348" font-size="13" fill="#5cc8b8">then eject this disk</text>
+  </g>
+</svg>
