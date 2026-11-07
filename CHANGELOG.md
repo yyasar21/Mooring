@@ -8,6 +8,8 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-07
+
 ### Fixed
 
 - SSH (and Kubernetes `exec`) tabs opened a blank window in installed and portable builds on
@@ -243,7 +245,8 @@ Details per team role are in [docs/handoff/](docs/handoff/index.md).
 - SFTP local paths reject Windows alternate data streams and reserved device names.
 - Host-key mismatch audit entries record both the expected and the presented fingerprint.
 
-[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/yyasar21/Mooring/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yyasar21/Mooring/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yyasar21/Mooring/compare/v0.1.0-rc.1...v0.1.0
 [0.1.0-rc.1]: https://github.com/yyasar21/Mooring/releases/tag/v0.1.0-rc.1
