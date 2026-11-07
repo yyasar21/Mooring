@@ -37,6 +37,9 @@ fn round_trip_metadata_only() {
 fn every_kind_can_be_created_from_its_schema() {
     let f = unlocked();
     let key = mooring_core::credential::testdata::placeholder_key_pem();
+    let sk = mooring_core::credential::testdata::public_line(&mooring_core::credential::testdata::sk_ed25519_public(
+        [7; 32], "ssh:",
+    ));
     let cases: Vec<Case<'_>> = vec![
         ("user_password", json!({"username": "u"}), vec![("password", "p")]),
         ("domain_user", json!({"user": "alice", "domain": "CORP", "form": "netbios"}), vec![("password", "p")]),
@@ -57,6 +60,7 @@ fn every_kind_can_be_created_from_its_schema() {
         ("sudo_become", json!({"method": "sudo"}), vec![]),
         ("vault_approle", json!({}), vec![("role_id", "r"), ("secret_id", "s")]),
         ("s3_access_key", json!({"access_key_id": "AKIAEXAMPLETEST"}), vec![("secret_access_key", "k")]),
+        ("ssh_sk_key", json!({"username": "u", "public_key": sk}), vec![]),
         ("bitwarden_access_token", json!({}), vec![("access_token", "0.test-only.machine")]),
     ];
     assert_eq!(cases.len(), kinds().len());

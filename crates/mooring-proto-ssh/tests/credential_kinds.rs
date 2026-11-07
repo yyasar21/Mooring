@@ -163,8 +163,7 @@ async fn fido_security_keys_are_refused_with_a_clear_reason() {
     };
     let (mut s, _srv, _d) =
         trusted_with(ServerSpec::new(&[MethodKind::PublicKey]), params(0, secret)).await;
-    assert_eq!(
-        expect_closed(&mut s).await,
-        "this credential is not supported for ssh in this version"
-    );
+    // ADR-0024: an `ssh_key` holding sk-* material points at the `ssh_sk_key` kind.
+    let reason = expect_closed(&mut s).await;
+    assert!(reason.contains("SSH security key (FIDO2)"), "{reason}");
 }

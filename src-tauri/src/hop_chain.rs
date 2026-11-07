@@ -21,6 +21,10 @@ pub struct HopSettings {
     pub known_hosts: PathBuf,
     /// ADR-0007 agent policy.
     pub allow_agent: bool,
+    /// ADR-0024: agent socket override and the `ssh-sk-helper` binary (setting on).
+    pub agent_path: Option<PathBuf>,
+    /// The `ssh-sk-helper` binary, `None` when the backend is off.
+    pub sk_helper: Option<PathBuf>,
 }
 
 impl HopSettings {
@@ -32,6 +36,7 @@ impl HopSettings {
             .map(|(i, p)| {
                 let mut options = SshOptions::new(self.known_hosts.clone());
                 options.allow_agent = self.allow_agent;
+                crate::sk_keys::apply(&mut options, self.agent_path.clone(), self.sk_helper.clone());
                 Hop {
                     params: p.params,
                     options,

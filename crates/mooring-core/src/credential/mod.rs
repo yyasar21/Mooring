@@ -21,6 +21,8 @@ mod matrix;
 pub mod otp;
 mod schema;
 mod secrets;
+mod sk_fields;
+pub mod sk_key;
 pub mod ssh_cert;
 mod structs;
 #[doc(hidden)]
@@ -47,6 +49,7 @@ pub use schema::{
     credential_kinds, Consumer, FieldFormat, FieldSchema, KindProtocol, KindSchema, Validation,
 };
 pub use secrets::{validate_secret, MAX_SECRET_BYTES};
+pub use sk_key::{fuzz_sk_key_parse, SkAlgorithm, SkKeyHandle, SkPublicKey};
 pub use ssh_cert::{check_signed_certificate, ssh_public_key_line, SignedCertificate};
 pub use structs::*;
 pub use text::is_forbidden;
@@ -90,14 +93,17 @@ pub enum CredentialKind {
     VaultApprole,
     /// S3 access key of the vault sync target (ADR-0017 §4).
     S3AccessKey,
-    /// Bitwarden Secrets Manager machine access token of a secret source (ADR-0026 §4).
-    /// The 19th kind of the ADRs: ADR-0024's `ssh_sk_key` (18th) is inserted before it.
+    /// FIDO2 / hardware-key OpenSSH key (`sk-*`), signed through the ssh-agent (ADR-0024 §1,
+    /// the 18th kind).
+    SshSkKey,
+    /// Bitwarden Secrets Manager machine access token of a secret source (ADR-0026 §4,
+    /// the 19th kind).
     BitwardenAccessToken,
 }
 
 impl CredentialKind {
     /// Every kind, in table order.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::UserPassword,
         Self::DomainUser,
         Self::SshKey,
@@ -115,6 +121,7 @@ impl CredentialKind {
         Self::SudoBecome,
         Self::VaultApprole,
         Self::S3AccessKey,
+        Self::SshSkKey,
         Self::BitwardenAccessToken,
     ];
 
@@ -139,6 +146,7 @@ impl CredentialKind {
             Self::SudoBecome => "sudo_become",
             Self::VaultApprole => "vault_approle",
             Self::S3AccessKey => "s3_access_key",
+            Self::SshSkKey => "ssh_sk_key",
             Self::BitwardenAccessToken => "bitwarden_access_token",
         }
     }
@@ -171,6 +179,7 @@ impl CredentialKind {
                 | Self::SshAgent
                 | Self::VaultApprole
                 | Self::S3AccessKey
+                | Self::SshSkKey
                 | Self::BitwardenAccessToken
         )
     }

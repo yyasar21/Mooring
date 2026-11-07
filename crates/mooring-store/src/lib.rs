@@ -30,6 +30,7 @@ mod roles;
 pub mod schema;
 mod search;
 mod secret_sources;
+mod sk_convert;
 mod sync;
 mod sync_rows;
 #[doc(hidden)]

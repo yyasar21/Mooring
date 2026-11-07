@@ -1,4 +1,4 @@
-//! ADR-0026 audit rows: lease and `bws` events keep stable wire names, and an A3
+//! ADR-0024 / ADR-0026 audit rows: lease and `bws` events keep stable wire names, and an A3
 //! `secret_resolved` row (no provider / engine) reads back byte-identically.
 
 use super::*;
@@ -59,4 +59,33 @@ fn dynamic_secret_events_have_stable_wire_names() {
     let a3 = r#"{"event":"secret_resolved","connection":null,"credential":"r","source":"s","reference":"secret/x","version":1,"target_kind":"api_token","fields":["token"]}"#;
     let e: AuditEvent = serde_json::from_str(a3).expect("A3 row");
     assert_eq!(serde_json::to_string(&e).expect("json"), a3);
+}
+
+/// ADR-0024: the security-key rows carry a fingerprint and codes only.
+#[test]
+fn security_key_events_have_stable_wire_names() {
+    let s = |v: &str| v.to_owned();
+    let cases = [
+        (
+            AuditEvent::SessionSkAuth {
+                connection: s("c"),
+                fingerprint: s("SHA256:x"),
+                backend: s("agent"),
+                outcome: s("touch_timeout"),
+            },
+            serde_json::json!({"event": "session.auth_sk", "connection": "c",
+                               "fingerprint": "SHA256:x", "backend": "agent",
+                               "outcome": "touch_timeout"}),
+        ),
+        (
+            AuditEvent::CredentialSkConverted { id: s("k") },
+            serde_json::json!({"event": "credential.sk_converted", "id": "k"}),
+        ),
+    ];
+    for (e, want) in cases {
+        let v = serde_json::to_value(&e).expect("json");
+        assert_eq!(v, want);
+        let back: AuditEvent = serde_json::from_value(v).expect("round trip");
+        assert_eq!(back, e);
+    }
 }

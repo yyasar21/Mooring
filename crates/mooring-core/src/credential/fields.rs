@@ -16,7 +16,7 @@ use super::{
 pub const MAX_FIELDS_JSON: usize = 128 * 1024;
 
 /// Keys the store derives; input carrying them is refused.
-const DERIVED_KEYS: &[&str] = &["fingerprint", "contexts", "migrated"];
+const DERIVED_KEYS: &[&str] = &["fingerprint", "contexts", "migrated", "application"];
 
 macro_rules! fields_enum {
     ($($variant:ident($ty:ty)),* $(,)?) => {
@@ -69,8 +69,13 @@ fields_enum!(
     SudoBecome(SudoBecomeFields),
     VaultApprole(VaultApproleFields),
     S3AccessKey(S3AccessKeyFields),
+    SshSkKey(SshSkKeyFields),
     BitwardenAccessToken(BitwardenAccessTokenFields),
 );
+
+fn is_sk_line(line: &str) -> bool {
+    line.trim_start().starts_with("sk-")
+}
 
 fn typed<T: DeserializeOwned>(v: Value) -> Result<T, CredentialError> {
     // serde's message names the offending key or type, never a value of ours.
@@ -150,6 +155,10 @@ impl CredentialFields {
         match (self, previous) {
             (Self::SshKey(f), Some(Self::SshKey(p))) => f.fingerprint.clone_from(&p.fingerprint),
             (Self::Kubeconfig(f), Some(Self::Kubeconfig(p))) => f.contexts.clone_from(&p.contexts),
+            (Self::SshSkKey(f), Some(Self::SshSkKey(p))) if p.public_key == f.public_key => {
+                // A stored clear handle decided `resident`; keep it unless the key changed.
+                f.resident = p.resident;
+            }
             _ => {}
         }
     }
@@ -157,6 +166,12 @@ impl CredentialFields {
     /// Recompute fingerprints from public material in the fields.
     fn derive_public(&mut self) -> Result<(), CredentialError> {
         match self {
+            Self::SshKey(f)
+                if f.public_key.as_deref().is_some_and(is_sk_line)
+                    || f.certificate.as_deref().is_some_and(is_sk_line) =>
+            {
+                return Err(CredentialError::UseSkKind);
+            }
             Self::SshKey(f) => {
                 if let Some(pk) = &f.public_key {
                     f.fingerprint = Some(fingerprint::ssh_public_key(pk)?);
@@ -172,6 +187,7 @@ impl CredentialFields {
                     }
                 }
             }
+            Self::SshSkKey(f) => super::sk_fields::derive_public(f)?,
             Self::X509(f) => f.fingerprint = Some(fingerprint::x509_pem(&f.cert_pem)?),
             Self::Kubeconfig(f) => validate_context(f)?,
             Self::ExternalRef(f) => super::external::check_input(f)?,
@@ -190,6 +206,9 @@ impl CredentialFields {
         match (self, name) {
             (Self::SshKey(f), SecretName::PrivateKey) => {
                 let info = fingerprint::ssh_private_key(plain)?;
+                if info.security_key {
+                    return Err(CredentialError::UseSkKind);
+                }
                 match (&f.public_key, &f.certificate, info.fingerprint) {
                     (None, None, fp) => f.fingerprint = fp,
                     (_, _, Some(fp)) if f.fingerprint.as_deref() != Some(fp.as_str()) => {
@@ -200,6 +219,9 @@ impl CredentialFields {
                     }
                     _ => {}
                 }
+            }
+            (Self::SshSkKey(f), SecretName::PrivateKey) => {
+                super::sk_fields::derive_handle(f, plain)?;
             }
             (Self::Kubeconfig(f), SecretName::KubeconfigYaml) => {
                 let info = kubeconfig::parse(plain)?;
@@ -213,12 +235,13 @@ impl CredentialFields {
         Ok(())
     }
 
-    /// `SHA256:` fingerprint for `ssh_key` / `x509`.
+    /// `SHA256:` fingerprint for `ssh_key` / `ssh_sk_key` / `x509`.
     #[must_use]
     pub fn fingerprint(&self) -> Option<&str> {
         match self {
             Self::SshKey(f) => f.fingerprint.as_deref(),
             Self::X509(f) => f.fingerprint.as_deref(),
+            Self::SshSkKey(f) => f.fingerprint.as_deref(),
             _ => None,
         }
     }
@@ -262,6 +285,7 @@ impl CredentialFields {
                     | K::DomainUser
                     | K::SshKey
                     | K::SshAgent
+                    | K::SshSkKey
                     | K::X509
                     | K::VncUserPassword
                     | K::Prompt
@@ -280,6 +304,7 @@ impl CredentialFields {
                 Self::UserPassword(f) => u.clone_into(&mut f.username),
                 Self::SshKey(f) => u.clone_into(&mut f.username),
                 Self::SshAgent(f) => u.clone_into(&mut f.username),
+                Self::SshSkKey(f) => u.clone_into(&mut f.username),
                 Self::VncUserPassword(f) => u.clone_into(&mut f.username),
                 Self::X509(f) => f.username = Some(u.to_owned()),
                 Self::Prompt(f) => f.username = Some(u.to_owned()),
@@ -316,6 +341,7 @@ impl CredentialFields {
             Self::DomainUser(f) => (Some(f.user.clone()), Some(f.domain.clone())),
             Self::SshKey(f) => (Some(f.username.clone()), None),
             Self::SshAgent(f) => (Some(f.username.clone()), None),
+            Self::SshSkKey(f) => (Some(f.username.clone()), None),
             Self::X509(f) => (f.username.clone(), None),
             Self::VsphereUser(f) => (Some(f.upn.clone()), None),
             Self::VncUserPassword(f) => (Some(f.username.clone()), None),

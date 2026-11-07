@@ -26,10 +26,11 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (7, include_str!("../migrations/0007_secret_sources.sql")),
     (8, include_str!("../migrations/0008_connection_via.sql")),
     (9, include_str!("../migrations/0009_dynamic_secrets.sql")),
+    (10, include_str!("../migrations/0010_ssh_sk_keys.sql")),
 ];
 
 /// Highest schema version this build understands.
-pub const LATEST: u32 = 9;
+pub const LATEST: u32 = 10;
 
 /// First line of a migration that must run with foreign keys off.
 pub const FK_OFF_DIRECTIVE: &str = "-- mooring:foreign_keys=off";

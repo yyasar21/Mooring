@@ -49,6 +49,8 @@ const NOT_CODES: &[&str] = &[
     "app.autolock",
     "app.syslog",
     "app.update",
+    // ADR-0024: the ssh-sk-helper setting key, not an error code.
+    "app.ssh_sk_helper",
     "audit.jsonl",
     "mooring.db",
     "sync.config",

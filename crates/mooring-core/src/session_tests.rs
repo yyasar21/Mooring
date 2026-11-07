@@ -265,3 +265,25 @@ fn hop_status_and_hop_tagged_prompt_wire_shape() {
     };
     assert!(serde_json::to_value(&p).expect("json").get("hop").is_none());
 }
+
+#[test]
+fn touch_events_wire_shape() {
+    let e = SessionEvent::TouchRequired {
+        id: 7,
+        fingerprint: "SHA256:abc".into(),
+        timeout_seconds: 30,
+        hop: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&e).expect("json"),
+        serde_json::json!({"kind": "touch_required", "id": 7, "fingerprint": "SHA256:abc",
+                           "timeout_seconds": 30})
+    );
+    let e = SessionEvent::TouchTimeout { id: 7, hop: Some(1) };
+    assert_eq!(
+        serde_json::to_value(&e).expect("json"),
+        serde_json::json!({"kind": "touch_timeout", "id": 7, "hop": 1})
+    );
+    let e = SessionEvent::TouchCleared { id: 7, hop: None };
+    assert_eq!(serde_json::to_value(&e).expect("json")["kind"], "touch_cleared");
+}

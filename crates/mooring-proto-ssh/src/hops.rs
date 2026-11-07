@@ -350,7 +350,7 @@ impl HopChain {
             peer_identity: shared.peer(),
         };
         let _ = ev.events.send(up).await;
-        let creds = Credentials { user, secret, allow_agent: options.allow_agent };
+        let creds = Credentials::new(user, secret, &options);
         let method = match authenticate(&mut handle, creds, &shared).await {
             Ok(m) => m,
             Err(e) => {

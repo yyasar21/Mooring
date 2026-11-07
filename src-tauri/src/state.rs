@@ -55,6 +55,9 @@ pub struct Settings {
     pub kdf: KdfChoice,
     /// Try the ssh-agent during SSH auth (ADR-0007 default: true).
     pub ssh_allow_agent: bool,
+    /// ADR-0024: the ssh-agent socket / pipe for FIDO2 keys; `None` = `SSH_AUTH_SOCK` / the
+    /// OpenSSH pipe (production). Tests point it at a fake agent.
+    pub ssh_agent_path: Option<std::path::PathBuf>,
     /// Clipboard used by `credential_copy_password`.
     pub clipboard: Arc<dyn Clipboard>,
     /// How long a copied password stays on the clipboard.
@@ -91,6 +94,7 @@ impl Settings {
         Self {
             kdf: KdfChoice::Calibrate,
             ssh_allow_agent: true,
+            ssh_agent_path: None,
             clipboard: Arc::new(SystemClipboard::default()),
             clipboard_clear_after: Duration::from_secs(30),
             graphical: Arc::new(BuiltinFactory),

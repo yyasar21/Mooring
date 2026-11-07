@@ -99,6 +99,13 @@ pub fn audit_session(
             SessionAudit::HopClosed { hop, connection: hop_connection, code } => {
                 AuditEvent::SessionHopClose { connection: conn(), hop, hop_connection, code: code.to_owned() }
             }
+            // ADR-0024: fingerprint and codes only.
+            SessionAudit::SecurityKeyAuth { fingerprint, backend, outcome } => AuditEvent::SessionSkAuth {
+                connection: conn(),
+                fingerprint,
+                backend: backend.to_owned(),
+                outcome: outcome.to_owned(),
+            },
             SessionAudit::Clipboard { direction, bytes } => AuditEvent::SessionClipboard {
                 connection: conn(),
                 direction: direction.as_str().to_owned(),

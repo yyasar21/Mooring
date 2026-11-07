@@ -130,7 +130,11 @@ pub(super) fn route(d: &mut Dynamic, ctx: &Ctx, segs: &[&str], allowed: bool) ->
             if b.get("private_key").is_some() {
                 return Some(Reply::violation("a private key was sent to ssh/sign"));
             }
-            if !b["public_key"].as_str().is_some_and(|k| k.starts_with("ssh-")) {
+            // ADR-0024: FIDO2 `sk-*` keys are signed too.
+            if !b["public_key"]
+                .as_str()
+                .is_some_and(|k| k.starts_with("ssh-") || k.starts_with("sk-"))
+            {
                 return Some(bad("missing public_key"));
             }
             d.sign_requests.push(b);
