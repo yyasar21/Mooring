@@ -93,6 +93,7 @@ impl RdpSession {
             keepalive,
             client_name,
             trusted_once,
+            dialer,
         } = options;
         let policy = conn.clipboard;
         let target = Target {
@@ -101,7 +102,8 @@ impl RdpSession {
             conn,
             known_certs,
             connect_timeout,
-            keepalive,
+            dialer: dialer
+                .unwrap_or_else(|| Arc::new(crate::connect::TcpKeepaliveDialer { keepalive })),
             client_name,
             desktop: clamp_desktop(size.width, size.height),
             session_pin: trusted_once,

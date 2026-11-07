@@ -41,6 +41,9 @@ pub struct GraphicalConnect {
     /// Accept exactly this leaf (SHA-256 of the DER) for this one connect: the user said `yes`
     /// to a `certificate_trust` prompt but the pin could not be written.
     pub trusted_once: Option<[u8; 32]>,
+    /// ADR-0025: dial through this jump-host chain instead of direct TCP (set by
+    /// [`crate::hop_chain::graphical`]).
+    pub dialer: Option<mooring_core::SharedDialer>,
 }
 
 impl std::fmt::Debug for GraphicalConnect {
@@ -49,6 +52,7 @@ impl std::fmt::Debug for GraphicalConnect {
             .field("protocol", &self.protocol)
             .field("params", &self.params)
             .field("trusted_once", &self.trusted_once.is_some())
+            .field("via", &self.dialer.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -98,6 +102,7 @@ async fn connect_rdp(req: GraphicalConnect) -> IpcResult<Box<dyn Session>> {
     let mut options = mooring_proto_rdp::RdpOptions::new(req.known_certs, conn)
         .with_clipboard(Arc::new(SessionClipboard(req.clipboard)));
     options.trusted_once = req.trusted_once;
+    options.dialer = req.dialer;
     let session =
         mooring_proto_rdp::RdpSession::connect(req.params, options, req.frames, AuditBuffer::new())
             .await
@@ -113,6 +118,7 @@ async fn connect_vnc(req: GraphicalConnect) -> IpcResult<Box<dyn Session>> {
     let mut options = mooring_proto_vnc::VncOptions::new(req.known_certs, conn);
     options.clipboard = Arc::new(SessionClipboard(req.clipboard));
     options.trusted_once = req.trusted_once;
+    options.dialer = req.dialer;
     let session =
         mooring_proto_vnc::VncSession::connect(req.params, options, req.frames, AuditBuffer::new())
             .await
@@ -168,6 +174,7 @@ mod tests {
             frames: FrameSink::new(),
             clipboard: Arc::new(crate::clipboard::MemoryClipboard::default()),
             trusted_once: None,
+            dialer: None,
         }
     }
 

@@ -12,15 +12,17 @@ pub use mooring_core::audit::{AuthMethod, SessionAudit as TrustEvent};
 
 /// Shared, append-only event buffer.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct AuditLog(Arc<Mutex<Vec<TrustEvent>>>);
+pub struct AuditLog(Arc<Mutex<Vec<TrustEvent>>>);
 
 impl AuditLog {
-    pub(crate) fn push(&self, event: TrustEvent) {
+    /// Append one event.
+    pub fn push(&self, event: TrustEvent) {
         tracing::info!(action = event.action(), "ssh audit event");
         self.0.lock().unwrap_or_else(PoisonError::into_inner).push(event);
     }
 
-    pub(crate) fn take(&self) -> Vec<TrustEvent> {
+    /// Drain everything recorded so far.
+    pub fn take(&self) -> Vec<TrustEvent> {
         std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
     }
 }

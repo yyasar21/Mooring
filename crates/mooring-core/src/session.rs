@@ -217,13 +217,19 @@ pub enum CloseCode {
     ProtocolError,
     /// The vault was locked (credential could not be resolved).
     VaultLocked,
+    /// A jump host of the chain could not be opened (ADR-0025): its TCP, handshake, trust or
+    /// authentication failed, or its `direct-tcpip` was refused. The target was never tried.
+    HopFailed,
+    /// A jump host of an open chain went away; everything above it closed with it.
+    HopLost,
 }
 
 impl CloseCode {
     /// Whether the Tauri reconnect loop may retry (ADR-0011: only `network` and
-    /// `server_ended`, and only after `Connected`).
+    /// `server_ended`, and only after `Connected`; ADR-0025: `hop_lost`, which rebuilds the
+    /// whole chain. `hop_failed` is not retried: a hop that never came up needs the user).
     pub const fn is_retryable(self) -> bool {
-        matches!(self, Self::Network | Self::ServerEnded)
+        matches!(self, Self::Network | Self::ServerEnded | Self::HopLost)
     }
 }
 
@@ -241,6 +247,11 @@ pub enum SessionEvent {
         /// / `none`; `None` for SSH (always encrypted).
         #[serde(default)]
         security: Option<String>,
+        /// ADR-0025: the hop this event is about (0-based), `None` = the target. Hop
+        /// `Connected` events are not emitted today (`HopStatus` carries them); the field
+        /// exists so the UI contract is one shape.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
     },
     /// Terminal output.
     Bytes {
@@ -271,6 +282,26 @@ pub enum SessionEvent {
         /// otherwise.
         #[serde(default)]
         certificate: Option<CertificateInfo>,
+        /// ADR-0025: which jump host asks (0-based), `None` = the target. The UI titles the
+        /// dialog "Hop N of M — host" from it; the answer goes through the same `Answer { id }`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// ADR-0025: progress of one jump host of the chain. Emitted in hop order; `failed` is
+    /// followed by `Closed { code: hop_failed }` (or `hop_lost` after `Connected`). Never
+    /// carries a secret.
+    HopStatus {
+        /// 0-based position in the chain.
+        hop: u8,
+        /// Number of hops in the chain.
+        of: u8,
+        /// Where the hop stands.
+        state: HopState,
+        /// `host:port` of the hop as configured (safe to show).
+        host: String,
+        /// Host key fingerprint once known (`up`), `None` before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        peer_identity: Option<String>,
     },
     /// Session ended. Always the last event.
     Closed {
@@ -279,6 +310,33 @@ pub enum SessionEvent {
         /// Machine-readable cause.
         code: CloseCode,
     },
+}
+
+/// State of one jump host (ADR-0025 `HopStatus.state`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HopState {
+    /// TCP (hop 0) or `direct-tcpip` of the previous hop is being opened, then the handshake.
+    Connecting,
+    /// Host key accepted; authentication in progress.
+    Authenticating,
+    /// Authenticated; the next hop (or the target) is opened through it.
+    Up,
+    /// The hop failed or was lost; the chain is being torn down.
+    Failed,
+}
+
+impl HopState {
+    /// Wire name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Connecting => "connecting",
+            Self::Authenticating => "authenticating",
+            Self::Up => "up",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 /// Why a [`SessionEvent::Prompt`] was raised. Set by the protocol crate, never derived from

@@ -29,6 +29,7 @@ fn prompt(conn: &FakeConn, id: u32) {
         purpose: PromptPurpose::CertificateTrust,
         account: None,
         certificate: Some(info()),
+        hop: None,
     });
 }
 
@@ -346,6 +347,7 @@ fn vnc_connected(conn: &FakeConn, security: &str) {
         protocol: Protocol::Vnc,
         peer_identity: None,
         security: Some(security.to_owned()),
+        hop: None,
     });
 }
 

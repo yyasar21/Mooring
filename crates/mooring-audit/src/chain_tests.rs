@@ -258,6 +258,31 @@ fn graphical_session_events_have_stable_wire_names() {
     }
 }
 
+/// ADR-0025: `session.hop.open` / `session.hop.close` rows.
+#[test]
+fn hop_events_have_stable_wire_names() {
+    let open = AuditEvent::SessionHopOpen {
+        connection: "c".into(),
+        hop: 0,
+        hop_connection: "h".into(),
+        peer_identity: None,
+        auth_method: "password".into(),
+    };
+    let v = serde_json::to_value(&open).expect("json");
+    assert_eq!((v["event"].as_str(), v["hop"].as_u64()), (Some("session_hop_open"), Some(0)));
+    let close = AuditEvent::SessionHopClose {
+        connection: "c".into(),
+        hop: 1,
+        hop_connection: "h".into(),
+        code: "hop_lost".into(),
+    };
+    let v = serde_json::to_value(&close).expect("json");
+    assert_eq!(
+        (v["event"].as_str(), v["code"].as_str()),
+        (Some("session_hop_close"), Some("hop_lost"))
+    );
+}
+
 #[test]
 fn confirm_refused_has_a_stable_wire_name() {
     let e = AuditEvent::ConfirmRefused {

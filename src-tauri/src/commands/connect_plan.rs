@@ -24,6 +24,66 @@ pub(crate) struct Plan {
     pub(crate) protocol: Protocol,
     /// The connection's validated options (ADR-0011 migration 0005).
     pub(crate) options: ProtocolOptions,
+    /// ADR-0025: the jump hosts, first hop first (empty = direct).
+    pub(crate) hops: Vec<HopPlan>,
+}
+
+/// One resolved jump host: its connection id (audit) and SSH parameters with its own
+/// credential (ADR-0009 §3 resolution of the hop's connection, never the leaf's).
+#[derive(Debug)]
+pub(crate) struct HopPlan {
+    pub(crate) connection: String,
+    pub(crate) params: ConnectParams,
+}
+
+fn hop_failed(reason: impl Into<String>) -> IpcError {
+    IpcError::new("session.hop_failed", reason)
+}
+
+/// ADR-0025 §1: resolve every hop of `c.via` (its own credential, port, host). A hop's own
+/// `via` is ignored. A hop that is not SSH (the store refuses that on save; a hand-edited
+/// database could still hold one) or whose credential cannot log in fails with
+/// `session.hop_failed` before any network I/O.
+pub(crate) fn hops_of(
+    store: &Store,
+    vault: &Vault,
+    c: &mooring_core::Connection,
+    used: &mut Vec<String>,
+) -> IpcResult<Vec<HopPlan>> {
+    mooring_core::validate_via(c.id, &c.via)?;
+    let mut out = Vec::with_capacity(c.via.len());
+    for (i, hop_id) in c.via.iter().enumerate() {
+        let n = i + 1;
+        let hop = store.get_connection(*hop_id).map_err(|e| match e {
+            StoreError::NotFound { .. } => hop_failed(format!("jump host {n} does not exist")),
+            other => other.into(),
+        })?;
+        if hop.protocol != Protocol::Ssh {
+            return Err(hop_failed(format!("jump host {n} is not an SSH connection")));
+        }
+        let (username, secret) = match store.resolve_credential(hop.id, Role::Primary)? {
+            None => (None, ConnectSecret::None),
+            Some(r) if matches!(r.fields, CredentialFields::ExternalRef(_)) => {
+                return Err(hop_failed(format!(
+                    "jump host {n}: secret manager references are not supported for jump hosts in this version"
+                )));
+            }
+            Some(r) => {
+                used.push(r.id.to_string());
+                ssh_secret(store, vault, &r)?
+            }
+        };
+        let params = ConnectParams {
+            host: hop.host.clone(),
+            port: hop.effective_port().unwrap_or(22),
+            username,
+            secret,
+            r#become: None,
+            size: Size { width: 80, height: 24 },
+        };
+        out.push(HopPlan { connection: hop.id.to_string(), params });
+    }
+    Ok(out)
 }
 
 fn secret_text(bytes: Zeroizing<Vec<u8>>) -> IpcResult<SecretString> {
@@ -183,8 +243,9 @@ fn plan_with(ready: &Ready, connection_id: &str, size: Size, ext: &external::Ext
             }
             _ => None,
         };
+        let hops = hops_of(store, vault, &c, &mut used)?;
         let params = ConnectParams { host: c.host, port, username, secret, r#become, size };
-        Ok(Plan { params, used, protocol, options })
+        Ok(Plan { params, used, protocol, options, hops })
     })
 }
 
@@ -202,6 +263,8 @@ pub(crate) struct KubePlan {
     pub(crate) used: Vec<String>,
     /// Unverified JWT `exp` of a bearer token (display only).
     pub(crate) token_expires_at: Option<time::OffsetDateTime>,
+    /// ADR-0025: jump hosts to the API server (empty = direct).
+    pub(crate) hops: Vec<HopPlan>,
 }
 
 impl std::fmt::Debug for KubePlan {
@@ -278,8 +341,9 @@ pub(crate) fn kube(ready: &Ready, connection_id: &str) -> IpcResult<KubePlan> {
         if token_expires_at.is_some_and(|t| t <= time::OffsetDateTime::now_utc()) {
             return Err(IpcError::new("kube.auth_failed", "the Kubernetes token has expired"));
         }
-        let used = vec![r.id.to_string()];
-        Ok(KubePlan { connection_id: id.to_string(), resolved, options, used, token_expires_at })
+        let mut used = vec![r.id.to_string()];
+        let hops = hops_of(store, vault, &c, &mut used)?;
+        Ok(KubePlan { connection_id: id.to_string(), resolved, options, used, token_expires_at, hops })
     })
 }
 // --- end ADR-0014 K4 ----------------------------------------------------------------------

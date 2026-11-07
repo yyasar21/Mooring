@@ -148,6 +148,10 @@ pub struct HttpConfig {
     pub allow_plaintext: bool,
     /// Non-blocking feed of every handshake decision (`try_send`; dropped when full).
     pub trust_events: Option<mpsc::Sender<TrustDecision>>,
+    /// ADR-0025: reach the origin through this dialer (a jump-host chain) instead of direct
+    /// TCP; TLS, pins and the verifier are unchanged (the page keeps its host name). `None` =
+    /// direct TCP. Every pooled connection dials again.
+    pub dialer: Option<mooring_core::SharedDialer>,
 }
 
 impl HttpConfig {
@@ -172,7 +176,15 @@ impl HttpConfig {
             user_agent: format!("Mooring/{}", env!("CARGO_PKG_VERSION")),
             allow_plaintext: false,
             trust_events: None,
+            dialer: None,
         }
+    }
+
+    /// Reach the origin through `dialer` (ADR-0025 jump hosts).
+    #[must_use]
+    pub fn via(mut self, dialer: mooring_core::SharedDialer) -> Self {
+        self.dialer = Some(dialer);
+        self
     }
 
     pub(crate) fn validate(&self) -> Result<Base, HttpError> {

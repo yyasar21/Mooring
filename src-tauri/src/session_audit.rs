@@ -86,6 +86,19 @@ pub fn audit_session(
                 protocol: proto(),
                 security: "none_with_password".to_owned(),
             },
+            // ADR-0025 `session.hop.open` / `session.hop.close`.
+            SessionAudit::HopOpened { hop, connection: hop_connection, peer_identity, auth_method } => {
+                AuditEvent::SessionHopOpen {
+                    connection: conn(),
+                    hop,
+                    hop_connection,
+                    peer_identity,
+                    auth_method: auth_method.as_str().to_owned(),
+                }
+            }
+            SessionAudit::HopClosed { hop, connection: hop_connection, code } => {
+                AuditEvent::SessionHopClose { connection: conn(), hop, hop_connection, code: code.to_owned() }
+            }
             SessionAudit::Clipboard { direction, bytes } => AuditEvent::SessionClipboard {
                 connection: conn(),
                 direction: direction.as_str().to_owned(),
@@ -197,5 +210,25 @@ mod tests {
         assert!(lines[6].contains(r#""protocol":"vnc""#) && lines[6].contains(r#""security":"none""#));
         assert!(lines[7].contains(r#""security":"none_with_password""#), "{text}");
         assert!(AuditLog::verify(&path).expect("verify").ok());
+    }
+
+    #[test]
+    fn hop_events_name_the_leaf_and_the_hop() {
+        let (_d, path, log) = log();
+        audit_session(&log, "leaf", Protocol::Rdp, vec![
+            SessionAudit::HopOpened {
+                hop: 0,
+                connection: "bastion".into(),
+                peer_identity: Some("SHA256:k".into()),
+                auth_method: mooring_core::AuthMethod::Password,
+            },
+            SessionAudit::HopClosed { hop: 0, connection: "bastion".into(), code: "hop_lost" },
+        ]);
+        let text = std::fs::read_to_string(&path).expect("read");
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert!(lines[0].contains(r#""event":"session_hop_open""#) && lines[0].contains(r#""hop_connection":"bastion""#));
+        assert!(lines[0].contains(r#""connection":"leaf""#) && lines[0].contains(r#""auth_method":"password""#));
+        assert!(lines[1].contains(r#""event":"session_hop_close""#) && lines[1].contains(r#""code":"hop_lost""#));
     }
 }

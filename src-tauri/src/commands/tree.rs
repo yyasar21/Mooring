@@ -44,6 +44,10 @@ pub struct ConnectionFields {
     /// Tags.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// ADR-0025: jump hosts, first hop first (≤ 3 SSH connection ids). `None` on update
+    /// keeps the stored chain (UIs that do not know `via` yet); `[]` clears it.
+    #[serde(default)]
+    pub via: Option<Vec<String>>,
 }
 
 impl ConnectionFields {
@@ -61,6 +65,7 @@ impl ConnectionFields {
             gateway_credential_id: None,
             become_credential_id: None,
             tags: Vec::new(),
+            via: None,
         }
     }
 }
@@ -91,6 +96,14 @@ impl ConnectionFields {
         c.username_override = self.username_override;
         c.domain_override = self.domain_override;
         c.tags = self.tags;
+        if let Some(via) = &self.via {
+            c.via = dto::via(via)?;
+        }
+        if !c.via.is_empty() && protocol == mooring_core::Protocol::VsphereConsole {
+            // The vCenter API runs in the sync runner and the console in a WebView: neither
+            // rides a chain in this version (`HttpConfig::via` is ready for it).
+            return Err(IpcError::new("connection.via_invalid", "vCenter connections cannot use jump hosts yet"));
+        }
         Ok(c)
     }
 }
@@ -203,10 +216,14 @@ pub fn update_connection(
     fields: ConnectionFields,
 ) -> IpcResult<ConnectionDto> {
     let id = dto::connection_id("id", id)?;
+    let keep_via = fields.via.is_none();
     let mut c = fields.into_connection(Some(id))?;
     state.with_ready(|_, store| {
         let before = store.get_connection(id)?;
         c.created_at = before.created_at;
+        if keep_via {
+            c.via.clone_from(&before.via);
+        }
         let stored = store.update_connection(&c)?;
         // ADR-0014 K4: a Kubernetes credential must fit the connection's options.
         if let Err(e) = crate::commands::kube::save_check(store, id) {
@@ -333,7 +350,7 @@ pub fn folder_delete<R: tauri::Runtime>(
 }
 
 /// `connection_create({ folderId, name, protocol, host, port, credentialId, usernameOverride,
-/// domainOverride, gatewayCredentialId, becomeCredentialId, tags })`.
+/// domainOverride, gatewayCredentialId, becomeCredentialId, tags, via })`.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // one argument per ADR-0008/0009 field
 pub fn connection_create(
@@ -349,6 +366,7 @@ pub fn connection_create(
     gateway_credential_id: Option<String>,
     become_credential_id: Option<String>,
     tags: Option<Vec<String>>,
+    via: Option<Vec<String>>,
 ) -> IpcResult<ConnectionDto> {
     let fields = ConnectionFields {
         folder_id,
@@ -362,6 +380,7 @@ pub fn connection_create(
         gateway_credential_id,
         become_credential_id,
         tags: tags.unwrap_or_default(),
+        via,
     };
     create_connection(&state, fields)
 }
@@ -383,6 +402,7 @@ pub fn connection_update(
     gateway_credential_id: Option<String>,
     become_credential_id: Option<String>,
     tags: Option<Vec<String>>,
+    via: Option<Vec<String>>,
 ) -> IpcResult<ConnectionDto> {
     let fields = ConnectionFields {
         folder_id,
@@ -396,6 +416,7 @@ pub fn connection_update(
         gateway_credential_id,
         become_credential_id,
         tags: tags.unwrap_or_default(),
+        via,
     };
     update_connection(&state, &id, fields)
 }

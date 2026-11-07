@@ -55,11 +55,15 @@ type Pending = Option<(u32, Expect, oneshot::Sender<Reply>)>;
 
 /// One outstanding question at a time, answered by id.
 #[derive(Clone, Default)]
-pub(crate) struct PromptBroker {
+pub struct PromptBroker {
     next_id: Arc<AtomicU32>,
     pending: Arc<Mutex<Pending>>,
     shut: Arc<AtomicBool>,
 }
+
+/// First prompt id of a hop chain's broker (ADR-0025): hop prompts and the target session's
+/// prompts share one `Answer { id }` space, so the two counters must not overlap.
+pub const HOP_PROMPT_ID_BASE: u32 = 1 << 24;
 
 impl std::fmt::Debug for PromptBroker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,6 +74,12 @@ impl std::fmt::Debug for PromptBroker {
 }
 
 impl PromptBroker {
+    /// A broker whose ids start after `base` (see [`HOP_PROMPT_ID_BASE`]).
+    #[must_use]
+    pub fn starting_after(base: u32) -> Self {
+        Self { next_id: Arc::new(AtomicU32::new(base)), ..Self::default() }
+    }
+
     fn slot(&self) -> std::sync::MutexGuard<'_, Pending> {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -94,12 +104,14 @@ impl PromptBroker {
     }
 
     /// Emit a text prompt and wait for its answer. `None` when the session is closing.
+    /// `hop` tags a jump host's prompt (ADR-0025), `None` is the target.
     pub(crate) async fn ask(
         &self,
         events: &mpsc::Sender<SessionEvent>,
         message: String,
         secret: bool,
         purpose: PromptPurpose,
+        hop: Option<u8>,
     ) -> Option<SecretString> {
         let event = |id| SessionEvent::Prompt {
             id,
@@ -108,6 +120,7 @@ impl PromptBroker {
             purpose,
             account: None,
             certificate: None,
+            hop,
         };
         match self.raise(events, event, Expect::Text).await? {
             Reply::Text(t) => Some(t),
@@ -120,6 +133,7 @@ impl PromptBroker {
         &self,
         events: &mpsc::Sender<SessionEvent>,
         account: PromptAccount,
+        hop: Option<u8>,
     ) -> Option<CredentialReply> {
         let event = |id| SessionEvent::Prompt {
             id,
@@ -128,6 +142,7 @@ impl PromptBroker {
             purpose: PromptPurpose::Credential,
             account: Some(account),
             certificate: None,
+            hop,
         };
         match self.raise(events, event, Expect::Credential).await? {
             Reply::Credential(c) => Some(c),
@@ -156,8 +171,25 @@ impl PromptBroker {
         }
     }
 
+    /// Deliver a free-text answer (TOFU `yes`/`no`, keyboard-interactive). Public for the
+    /// Tauri layer's hop-chain phase (ADR-0025), where the chain has no session yet.
+    pub fn answer_text(&self, id: u32, text: SecretString) -> bool {
+        self.answer(id, Reply::Text(text))
+    }
+
+    /// Deliver a sign-in form answer (`prompt` credential of a hop).
+    pub fn answer_credential(
+        &self,
+        id: u32,
+        username: String,
+        domain: Option<String>,
+        password: SecretString,
+    ) -> bool {
+        self.answer(id, Reply::Credential(CredentialReply { username, domain, password }))
+    }
+
     /// Cancel the outstanding prompt and refuse new ones.
-    pub(crate) fn shutdown(&self) {
+    pub fn shutdown(&self) {
         let mut slot = self.slot();
         self.shut.store(true, Ordering::Release);
         slot.take();
@@ -172,6 +204,8 @@ pub(crate) struct Shared {
     pub(crate) audit: AuditLog,
     pub(crate) forwards: ForwardRegistry,
     pub(crate) sftp: SftpSlot,
+    /// ADR-0025: the hop this connection is (0-based), `None` for the target session.
+    pub(crate) hop: Option<u8>,
     reason: Mutex<Option<(CloseCode, String)>>,
     peer: Mutex<Option<String>>,
     closing: AtomicBool,
@@ -179,12 +213,24 @@ pub(crate) struct Shared {
 
 impl Shared {
     pub(crate) fn new(events: mpsc::Sender<SessionEvent>) -> Self {
+        Self::with_parts(events, PromptBroker::default(), AuditLog::default(), None)
+    }
+
+    /// A `Shared` for one hop of a chain: the chain's event channel, broker and audit buffer,
+    /// tagged with the hop index so prompts and trust events name the hop.
+    pub(crate) fn with_parts(
+        events: mpsc::Sender<SessionEvent>,
+        broker: PromptBroker,
+        audit: AuditLog,
+        hop: Option<u8>,
+    ) -> Self {
         Self {
             events,
-            broker: PromptBroker::default(),
-            audit: AuditLog::default(),
+            broker,
+            audit,
             forwards: ForwardRegistry::default(),
             sftp: SftpSlot::default(),
+            hop,
             reason: Mutex::new(None),
             peer: Mutex::new(None),
             closing: AtomicBool::new(false),
@@ -246,7 +292,7 @@ mod tests {
         let broker = PromptBroker::default();
         let b2 = broker.clone();
         let kbd = PromptPurpose::KeyboardInteractive;
-        let task = tokio::spawn(async move { b2.ask(&tx, "q".into(), true, kbd).await });
+        let task = tokio::spawn(async move { b2.ask(&tx, "q".into(), true, kbd, Some(1)).await });
         let Some(SessionEvent::Prompt { id, secret, purpose, .. }) = rx.recv().await else {
             panic!("expected prompt");
         };
@@ -272,7 +318,7 @@ mod tests {
         let broker = PromptBroker::default();
         let b2 = broker.clone();
         let account = PromptAccount { needs_username: true, ..PromptAccount::default() };
-        let task = tokio::spawn(async move { b2.ask_credential(&tx, account).await });
+        let task = tokio::spawn(async move { b2.ask_credential(&tx, account, None).await });
         let Some(SessionEvent::Prompt { id, purpose, account, .. }) = rx.recv().await else {
             panic!("expected prompt");
         };
@@ -296,10 +342,25 @@ mod tests {
         let b2 = broker.clone();
         let tx2 = tx.clone();
         let other = PromptPurpose::Other;
-        let task = tokio::spawn(async move { b2.ask(&tx2, "q".into(), false, other).await });
+        let task = tokio::spawn(async move { b2.ask(&tx2, "q".into(), false, other, None).await });
         let _ = rx.recv().await;
         broker.shutdown();
         assert!(task.await.expect("join").is_none());
-        assert!(broker.ask(&tx, "q2".into(), false, other).await.is_none());
+        assert!(broker.ask(&tx, "q2".into(), false, other, None).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn hop_broker_ids_start_above_the_base_and_carry_the_hop() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let broker = PromptBroker::starting_after(HOP_PROMPT_ID_BASE);
+        let b2 = broker.clone();
+        let task = tokio::spawn(async move {
+            b2.ask(&tx, "q".into(), false, PromptPurpose::HostKeyTrust, Some(0)).await
+        });
+        let Some(SessionEvent::Prompt { id, hop, .. }) = rx.recv().await else { panic!("prompt") };
+        assert!(id > HOP_PROMPT_ID_BASE);
+        assert_eq!(hop, Some(0));
+        assert!(broker.answer_text(id, SecretString::from("yes".to_owned())));
+        assert!(task.await.expect("join").is_some());
     }
 }

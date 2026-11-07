@@ -160,6 +160,8 @@ pub struct ConnectionDto {
     pub become_credential_id: Option<String>,
     /// Tags.
     pub tags: Vec<String>,
+    /// ADR-0025: jump hosts, first hop first (empty = direct).
+    pub via: Vec<String>,
     /// Created.
     pub created_at: String,
     /// Last change. The store does not expose `updated_at` for connections yet, so this is
@@ -174,6 +176,15 @@ pub struct ConnectionDto {
     /// ADR-0015: `present` | `missing` (missing once; removed after the second miss).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_state: Option<String>,
+}
+
+/// ADR-0025 `via: ConnectionId[]`: at most [`mooring_core::MAX_VIA`] canonical ids. Shape
+/// rules (self, duplicates) and the store rules (exists, SSH) follow in the store.
+pub fn via(raw: &[String]) -> IpcResult<Vec<mooring_core::ConnectionId>> {
+    if raw.len() > mooring_core::MAX_VIA {
+        return Err(IpcError::new("connection.via_invalid", "at most 3 jump hosts"));
+    }
+    raw.iter().map(|s| connection_id("via", s)).collect()
 }
 
 /// One connection as a DTO, with its effective credential.
@@ -194,6 +205,7 @@ pub fn connection(store: &Store, c: &Connection) -> IpcResult<ConnectionDto> {
         gateway_credential_id: c.gateway_credential.map(|x| x.to_string()),
         become_credential_id: c.become_credential.map(|x| x.to_string()),
         tags: c.tags.clone(),
+        via: c.via.iter().map(ToString::to_string).collect(),
         created_at: ts(c.created_at),
         updated_at: ts(c.created_at),
         sync_source: sync.as_ref().map(|s| s.source.clone()),

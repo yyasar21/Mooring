@@ -23,6 +23,7 @@ use mooring_core::audit::AuthMethod;
 use mooring_core::known_certs::{display_fingerprint, CertVerdict, KnownCerts};
 use mooring_core::options::RdpConnOptions;
 use mooring_core::session::CloseCode;
+use mooring_core::transport::{DialFuture, Dialed, Dialer, Erased, SharedDialer};
 use mooring_core::SessionAudit;
 use secrecy::ExposeSecret;
 use tokio::net::TcpStream;
@@ -33,8 +34,9 @@ use crate::errors::{self, end, End};
 use crate::options::AuditSink;
 use crate::tls::{self, take_decision, Decision, DecisionSlot, TofuVerifier};
 
-/// The transport after the security upgrade.
-pub(crate) type RdpStream = TlsStream<TcpStream>;
+/// The transport after the security upgrade: TLS over whatever the dialer handed out (a TCP
+/// socket, or a `direct-tcpip` channel of a jump host, ADR-0025).
+pub(crate) type RdpStream = TlsStream<Erased>;
 
 /// Where and how to connect (everything but the credentials).
 #[derive(Debug, Clone)]
@@ -44,7 +46,8 @@ pub(crate) struct Target {
     pub(crate) conn: RdpConnOptions,
     pub(crate) known_certs: std::path::PathBuf,
     pub(crate) connect_timeout: Duration,
-    pub(crate) keepalive: Option<Duration>,
+    /// How the server is reached (ADR-0025): direct TCP or a jump-host chain.
+    pub(crate) dialer: SharedDialer,
     pub(crate) client_name: String,
     pub(crate) desktop: DesktopSize,
     /// A certificate trusted for this session only (`trusted_once`, or a `yes` to the prompt);
@@ -155,6 +158,29 @@ fn set_keepalive(stream: &TcpStream, idle: Option<Duration>) {
     }
 }
 
+/// The direct path: TCP with `TCP_NODELAY` and the RDP keepalive (RDP has none of its own).
+#[derive(Debug)]
+pub(crate) struct TcpKeepaliveDialer {
+    pub(crate) keepalive: Option<Duration>,
+}
+
+impl Dialer for TcpKeepaliveDialer {
+    fn dial(self: Arc<Self>, host: &str, port: u16) -> DialFuture {
+        let host = host.to_owned();
+        Box::pin(async move {
+            let tcp = TcpStream::connect((host.as_str(), port)).await?;
+            let _ = tcp.set_nodelay(true);
+            set_keepalive(&tcp, self.keepalive);
+            let local_addr = tcp.local_addr().ok();
+            Ok(Dialed { stream: Box::new(tcp), local_addr })
+        })
+    }
+
+    fn kind(&self) -> &'static str {
+        "tcp"
+    }
+}
+
 async fn load_trust(target: &Target) -> Result<(KnownCerts, rustls::RootCertStore), End> {
     let path = target.known_certs.clone();
     let ca = target.conn.ca_pem.clone();
@@ -249,7 +275,7 @@ enum Upgrade {
 
 async fn upgrade_tls(
     target: &Target,
-    tcp: TcpStream,
+    tcp: Erased,
     known: KnownCerts,
     roots: rustls::RootCertStore,
     audit: &AuditSink,
@@ -298,20 +324,15 @@ async fn upgrade_tls(
     }
 }
 
-async fn tcp_connect(target: &Target) -> Result<TcpStream, End> {
-    let tcp = tokio::time::timeout(
-        target.connect_timeout,
-        TcpStream::connect((target.host.as_str(), target.port)),
-    )
-    .await
-    .map_err(|_| end(CloseCode::Network, "connection timed out"))?
-    .map_err(|e| {
-        tracing::debug!(error = %e, "rdp tcp connect failed");
-        end(CloseCode::Network, "connection failed")
-    })?;
-    let _ = tcp.set_nodelay(true);
-    set_keepalive(&tcp, target.keepalive);
-    Ok(tcp)
+async fn tcp_connect(target: &Target) -> Result<Dialed, End> {
+    let dial = Arc::clone(&target.dialer).dial(&target.host, target.port);
+    tokio::time::timeout(target.connect_timeout, dial)
+        .await
+        .map_err(|_| end(CloseCode::Network, "connection timed out"))?
+        .map_err(|e| {
+            tracing::debug!(error = %e, via = target.dialer.kind(), "rdp connect failed");
+            end(CloseCode::Network, "connection failed")
+        })
 }
 
 async fn attempt_inner(
@@ -321,8 +342,10 @@ async fn attempt_inner(
     audit: &AuditSink,
 ) -> Result<Attempt, End> {
     let (known, roots) = load_trust(target).await?;
-    let tcp = tcp_connect(target).await?;
-    let client_addr = tcp.local_addr().map_err(|e| errors::io(&e))?;
+    let Dialed { stream: tcp, local_addr } = tcp_connect(target).await?;
+    let tcp = Erased::new(tcp);
+    // Through a jump host our socket address is the hop's business, not the server's.
+    let client_addr = local_addr.unwrap_or_else(|| std::net::SocketAddr::from(([0, 0, 0, 0], 0)));
 
     let base = config(target, creds);
     let mut connector = channels.attach(ClientConnector::new(base.clone(), client_addr));
@@ -415,7 +438,7 @@ mod tests {
             conn: RdpConnOptions::default(),
             known_certs: "/nonexistent/known_rdp_certs".into(),
             connect_timeout: Duration::from_secs(1),
-            keepalive: None,
+            dialer: Arc::new(TcpKeepaliveDialer { keepalive: None }),
             client_name: "A-VERY-LONG-CLIENT-NAME".into(),
             desktop: clamp_desktop(1024, 768),
             session_pin: None,

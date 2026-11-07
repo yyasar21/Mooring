@@ -121,6 +121,7 @@ pub fn open(state: &AppState, connection_id: &str, sink: ClusterSink) -> IpcResu
         known_certs: known_certs_path(state, CertProtocol::Kube),
         sink,
         ctx,
+        hops: crate::commands::sessions::hop_settings(state),
     };
     let meta = (Control::Kube(KubeRole::Cluster(ctrl)), connection, dto::ts(OffsetDateTime::now_utc()), route);
     sessions::spawn_kube(&state.sessions, session_id.clone(), meta, move |rx, phase| {

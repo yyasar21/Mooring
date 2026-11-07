@@ -148,6 +148,8 @@ fn code_name(c: CloseCode) -> &'static str {
         CloseCode::ServerEnded => "server_ended",
         CloseCode::ProtocolError => "protocol_error",
         CloseCode::VaultLocked => "vault_locked",
+        CloseCode::HopFailed => "hop_failed",
+        CloseCode::HopLost => "hop_lost",
     }
 }
 
@@ -182,6 +184,7 @@ async fn drive(
         protocol: Protocol::Kubernetes,
         peer_identity: None,
         security: Some(proto.to_owned()),
+        hop: None,
     };
     if tx.send(connected).await.is_err() {
         return ("closed by user".to_owned(), CloseCode::User);

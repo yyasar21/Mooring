@@ -130,7 +130,7 @@ pub async fn open_with(
     if frames.is_some() {
         return Err(IpcError::invalid("onFrame", "only rdp and vnc sessions send frames"));
     }
-    let Plan { params, used, .. } = connect_plan::plan(&state.ready(), connection_id, size).await?;
+    let Plan { params, used, hops, .. } = connect_plan::plan(&state.ready(), connection_id, size).await?;
     for cred in used {
         state.audit(AuditEvent::CredentialUsed {
             credential: cred,
@@ -140,12 +140,26 @@ pub async fn open_with(
     }
     let mut options = SshOptions::new(state.known_hosts_path());
     options.allow_agent = state.settings.ssh_allow_agent;
-    let session = SshSession::connect(params, options).await.map_err(|e| {
+    let session = if hops.is_empty() {
+        SshSession::connect(params, options).await
+    } else {
+        // ADR-0025: the chain opens inside the session task; hop events come first.
+        SshSession::connect_chain(params, options, hop_settings(state).hops(hops))
+    }
+    .map_err(|e| {
         tracing::info!(error = %e, "ssh connect failed");
         IpcError::from(e)
     })?;
     sessions::spawn(session, ctx, opened_at)?;
     Ok(Opened { session_id })
+}
+
+/// The jump-host settings of this app (ADR-0025).
+pub fn hop_settings(state: &AppState) -> crate::hop_chain::HopSettings {
+    crate::hop_chain::HopSettings {
+        known_hosts: state.known_hosts_path(),
+        allow_agent: state.settings.ssh_allow_agent,
+    }
 }
 
 async fn graphical(
@@ -174,6 +188,7 @@ async fn graphical(
         clipboard: Arc::new(clipboard),
         frames: mooring_core::frame::FrameSink::new(),
         audit: Arc::clone(&state.audit),
+        hops: hop_settings(state),
     };
     let first = launcher.connect(None).await.inspect_err(|e| {
         tracing::info!(code = e.code, protocol = protocol.name(), "graphical connect failed");

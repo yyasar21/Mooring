@@ -48,6 +48,9 @@ pub struct VncOptions {
     /// Accept exactly this leaf (SHA-256 of the DER) as if pinned, for this session only: the
     /// user said `yes` but the Tauri layer could not write the pin.
     pub trusted_once: Option<[u8; 32]>,
+    /// ADR-0025: reach the server through this dialer (a jump-host chain) instead of direct
+    /// TCP. `None` = direct TCP. Every attempt (TOFU retry, `VeNCrypt` fallback) dials again.
+    pub dialer: Option<mooring_core::SharedDialer>,
 }
 
 impl VncOptions {
@@ -60,7 +63,15 @@ impl VncOptions {
             connect_timeout: Duration::from_secs(15),
             handshake_timeout: Duration::from_secs(30),
             trusted_once: None,
+            dialer: None,
         }
+    }
+
+    /// Reach the server through `dialer` (ADR-0025 jump hosts).
+    #[must_use]
+    pub fn via(mut self, dialer: mooring_core::SharedDialer) -> Self {
+        self.dialer = Some(dialer);
+        self
     }
 }
 
@@ -151,6 +162,9 @@ impl VncSession {
                 connect_timeout: options.connect_timeout,
                 handshake_timeout: options.handshake_timeout,
                 trusted_once: options.trusted_once,
+                dialer: options
+                    .dialer
+                    .unwrap_or_else(|| mooring_core::TcpDialer::shared(options.connect_timeout)),
             },
             cred,
             sink,

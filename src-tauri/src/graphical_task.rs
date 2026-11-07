@@ -46,6 +46,9 @@ pub struct Launcher {
     pub frames: FrameSink,
     /// Audit log (`credential_used` per attempt).
     pub audit: Arc<Mutex<AuditLog>>,
+    /// ADR-0025: trust store and agent policy of the jump hosts (every attempt rebuilds
+    /// the whole chain).
+    pub hops: crate::hop_chain::HopSettings,
 }
 
 impl std::fmt::Debug for Launcher {
@@ -95,8 +98,10 @@ impl Launcher {
             frames: self.frames.clone(),
             clipboard: Arc::clone(&self.clipboard),
             trusted_once,
+            dialer: None,
         };
-        let session = self.factory.connect(req).await?;
+        let hops = self.hops.hops(plan.hops);
+        let session = crate::hop_chain::graphical(Arc::clone(&self.factory), req, hops).await?;
         Ok(Launched { session, protocol: plan.protocol, host, port, options: plan.options })
     }
 }

@@ -100,9 +100,19 @@ impl ClientHandler {
     }
 
     async fn ask_trust(&mut self, key: &PublicKey, described: String) -> bool {
-        let message = format!("{}:{} {described}  — trust this host?", self.host, self.port);
+        let message = match self.shared.hop {
+            Some(h) => format!(
+                "Hop {} — {}:{} {described}  — trust this host?",
+                h + 1,
+                self.host,
+                self.port
+            ),
+            None => format!("{}:{} {described}  — trust this host?", self.host, self.port),
+        };
         let purpose = PromptPurpose::HostKeyTrust;
-        let answer = self.shared.broker.ask(&self.shared.events, message, false, purpose).await;
+        let hop = self.shared.hop;
+        let answer =
+            self.shared.broker.ask(&self.shared.events, message, false, purpose, hop).await;
         if self.shared.is_closing() {
             self.shared.set_reason(CloseCode::User, "closed by user");
             return false;

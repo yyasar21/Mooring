@@ -110,6 +110,7 @@ impl Driver {
             protocol: Protocol::Vnc,
             peer_identity: tls_fp.as_ref().map(peer_identity),
             security: Some(security.to_owned()),
+            hop: None,
         };
         let resized =
             SessionEvent::DesktopResized { width: init.width.into(), height: init.height.into() };

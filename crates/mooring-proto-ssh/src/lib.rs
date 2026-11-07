@@ -10,6 +10,8 @@
 //!   `auth`/`agent` — login methods
 //! * `channel` — PTY shell pump; `driver` — per-connection task; [`session`] — the front
 //! * [`SshControl`] — forwards and SFTP from tasks that do not own the session
+//! * [`hops`] — jump-host chains: SSH-over-SSH through `direct-tcpip`, no listener (ADR-0025);
+//!   [`ViaSession`] wraps an RDP / VNC session behind one
 //! * [`forward`] (+ `forward_io`, [`socks`]) — local / remote / dynamic port forwarding
 //! * [`sftp`] (+ `sftp_transfer`, [`LocalPath`]) — SFTP client on the same connection.
 
@@ -27,6 +29,7 @@ mod exposure;
 pub mod forward;
 mod forward_io;
 mod handler;
+pub mod hops;
 pub mod known_hosts;
 mod local_path;
 pub mod session;
@@ -35,13 +38,17 @@ mod sftp_transfer;
 mod sftp_upload;
 mod shared;
 pub mod socks;
+mod via_session;
 
-pub use audit::{AuthMethod, TrustEvent};
+pub use audit::{AuditLog, AuthMethod, TrustEvent};
 pub use channel::{MAX_CHUNK, TERM};
 pub use control::SshControl;
 pub use forward::{Exposure, ForwardId, ForwardInfo, ForwardKind};
 pub use handler::ClientHandler;
+pub use hops::{Hop, HopChain, HopError, HopEvents, HopStream, CHAIN_DEADLINE, MAX_HOPS};
 pub use known_hosts::{KnownHosts, TrustDecision};
 pub use local_path::{LocalPath, MAX_LOCAL_PATH, TARGET_EXISTS};
 pub use session::{SshOptions, SshSession};
 pub use sftp::{Entry, EntryKind, Listing, SftpClient};
+pub use shared::{PromptBroker, HOP_PROMPT_ID_BASE};
+pub use via_session::{TargetFuture, ViaSession};

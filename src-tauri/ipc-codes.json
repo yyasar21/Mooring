@@ -4,6 +4,8 @@
   "clipboard.unavailable",
   "confirm.busy",
   "confirm.cooldown",
+  "connection.in_use_as_hop",
+  "connection.via_invalid",
   "credential.external_not_found",
   "credential.external_root_token",
   "credential.external_shape",
@@ -77,6 +79,7 @@
   "portable.webview_missing",
   "protocol.unavailable",
   "session.failed",
+  "session.hop_failed",
   "session.not_connected",
   "session.not_found",
   "session.trust_mismatch",
@@ -167,5 +170,6 @@
   "web.clear_failed",
   "web.origin_refused",
   "web.store_failed",
+  "web.via_unsupported",
   "window.failed"
 ]

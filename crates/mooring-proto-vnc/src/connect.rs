@@ -10,8 +10,8 @@ use std::time::Duration;
 use mooring_core::audit::AuthMethod;
 use mooring_core::known_certs::{display_fingerprint, host_key, CertTrust, KnownCerts};
 use mooring_core::options::VncConnOptions;
+use mooring_core::transport::Erased;
 use mooring_core::SessionAudit;
-use tokio::net::TcpStream;
 
 use crate::conn::{send, Conn, RecvBuf};
 use crate::error::VncError;
@@ -33,6 +33,8 @@ pub(crate) struct Target {
     pub(crate) handshake_timeout: Duration,
     /// Leaf accepted as if pinned for this session only (`VncOptions::trusted_once`).
     pub(crate) trusted_once: Option<[u8; 32]>,
+    /// How the server is reached (ADR-0025): direct TCP or a jump-host chain.
+    pub(crate) dialer: mooring_core::SharedDialer,
 }
 
 /// A connection past `ServerInit`.
@@ -136,12 +138,15 @@ async fn attempt(
     no_x509: &mut bool,
     shared: &Shared,
 ) -> Result<Established, VncError> {
-    let tcp =
-        tokio::time::timeout(t.connect_timeout, TcpStream::connect((t.host.as_str(), t.port)))
-            .await
-            .map_err(|_| VncError::Network("connection timed out".into()))??;
-    let _ = tcp.set_nodelay(true);
-    let mut conn: Conn = RecvBuf::new(Box::new(tcp));
+    let dial = Arc::clone(&t.dialer).dial(&t.host, t.port);
+    let tcp = tokio::time::timeout(t.connect_timeout, dial)
+        .await
+        .map_err(|_| VncError::Network("connection timed out".into()))?
+        .map_err(|e| {
+            tracing::debug!(error = %e, via = t.dialer.kind(), "vnc connect failed");
+            VncError::Network(format!("connection failed: {}", e.kind()))
+        })?;
+    let mut conn: Conn = RecvBuf::new(Box::new(Erased::new(tcp.stream)));
 
     conn.next(handshake::parse_version).await?;
     send(&mut conn.io, handshake::CLIENT_VERSION).await?;

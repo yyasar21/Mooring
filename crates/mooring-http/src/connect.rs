@@ -1,6 +1,7 @@
-//! The hyper-util connector: `TcpStream` + `tokio-rustls` with [`HttpVerifier`]. No proxy, no
-//! environment variables, no `hyper-rustls`. Every new connection reloads the pin store (the
-//! Gate may have written a pin since) and fails closed when it cannot be read.
+//! The hyper-util connector: a `Dialer` stream (TCP, or a jump host's `direct-tcpip`,
+//! ADR-0025) + `tokio-rustls` with [`HttpVerifier`]. No proxy, no environment variables, no
+//! `hyper-rustls`. Every new connection reloads the pin store (the Gate may have written a
+//! pin since) and fails closed when it cannot be read.
 
 use std::future::Future;
 use std::io;
@@ -11,11 +12,11 @@ use std::task::{Context, Poll};
 use hyper_util::client::legacy::connect::{Connected, Connection};
 use hyper_util::rt::TokioIo;
 use mooring_core::known_certs::KnownCerts;
+use mooring_core::transport::{Erased, SharedDialer, TcpDialer};
 use rustls::client::{Resumption, WebPkiServerVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::ClientConfig;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
 use tokio::sync::OnceCell;
 use tokio_rustls::client::TlsStream;
 
@@ -79,6 +80,7 @@ struct Inner {
     sni: ServerName<'static>,
     identity: Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>,
     chain: OnceCell<Chain>,
+    dialer: SharedDialer,
 }
 
 /// Connector for one origin (the client refuses other authorities before they get here).
@@ -109,7 +111,8 @@ impl Connector {
                 Some((certs, key))
             }
         };
-        Ok(Self(Arc::new(Inner { cfg, base, sni, identity, chain: OnceCell::new() })))
+        let dialer = cfg.dialer.clone().unwrap_or_else(|| TcpDialer::shared(cfg.timeouts.connect));
+        Ok(Self(Arc::new(Inner { cfg, base, sni, identity, chain: OnceCell::new(), dialer })))
     }
 
     async fn chain(&self) -> Result<Chain, HttpError> {
@@ -138,21 +141,17 @@ impl Connector {
         .await
     }
 
-    async fn tcp(&self) -> Result<TcpStream, HttpError> {
-        let addrs = tokio::net::lookup_host((self.0.base.host.as_str(), self.0.base.port))
-            .await
-            .map_err(|e| HttpError::Connect(e.kind()))?;
-        let mut last = io::ErrorKind::NotFound;
-        for addr in addrs.take(8) {
-            match TcpStream::connect(addr).await {
-                Ok(s) => {
-                    let _ = s.set_nodelay(true);
-                    return Ok(s);
-                }
-                Err(e) => last = e.kind(),
+    /// The transport to the origin: direct TCP (every address tried, `TCP_NODELAY`) or the
+    /// configured dialer.
+    async fn tcp(&self) -> Result<Erased, HttpError> {
+        let dialer = Arc::clone(&self.0.dialer);
+        match dialer.dial(&self.0.base.host, self.0.base.port).await {
+            Ok(d) => Ok(Erased::new(d.stream)),
+            Err(e) => {
+                tracing::debug!(kind = ?e.kind(), via = self.0.dialer.kind(), "connect failed");
+                Err(HttpError::Connect(e.kind()))
             }
         }
-        Err(HttpError::Connect(last))
     }
 
     async fn connect(self) -> Result<MaybeTls, HttpError> {
@@ -251,8 +250,8 @@ impl tower_service::Service<http::Uri> for Connector {
 }
 
 enum Io {
-    Plain(TcpStream),
-    Tls(Box<TlsStream<TcpStream>>),
+    Plain(Erased),
+    Tls(Box<TlsStream<Erased>>),
 }
 
 /// A connection: TLS (or validated loopback plaintext) plus its handshake decision.
