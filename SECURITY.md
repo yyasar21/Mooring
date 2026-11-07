@@ -169,6 +169,19 @@ change once certificates exist; until then the cosign-signed checksums are the a
   release. Open hardening before the key is created: [review 7](docs/security/a4-review-7.md)
   M-17, L-39, L-40.
 
+## Portable builds (from 0.1.1)
+
+- A `portable` file next to `Mooring.exe` / `Mooring.app` moves all of Mooring's data (vault,
+  database, audit log, trusted hosts, web profiles) to `Mooring Data/` in that folder. It is
+  encrypted exactly as an installed copy's; a lost stick is a lost vault, and only your master
+  password protects it. Mooring never falls back to a hidden location: an unusable folder is a
+  refusal, not a different data directory.
+- The folder is only as private as its volume: on NTFS Mooring makes `Mooring Data/` owner-only;
+  on FAT32 / exFAT it cannot and records that in the audit log. Anyone who can write to the folder
+  can replace the application, as with any portable program — verify the zip against `SHA256SUMS`
+  before the first start. Portable zips are never offered by the in-app updater; updates are a
+  new zip. Details: [docs/security/a4-1-review-8.md](docs/security/a4-1-review-8.md).
+
 ## Importers, directory import and network tools (A4)
 
 - **Import files** are parsed locally under size, depth and count caps; XML with a `DOCTYPE` is

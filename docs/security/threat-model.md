@@ -1,7 +1,9 @@
-# Threat model — Mooring (v1, Phases A1–A4)
+# Threat model — Mooring (v1, Phases A1–A4, 0.1.1)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
-Last change: A4 (ADR-0018..0020): the v0.1.0 release pipeline and the in-app updater, the file
+Last change: 0.1.1 (ADR-0021): portable mode (marker-resolved data root, Windows ACL, portable
+zips). See review [a4-1-review-8.md](a4-1-review-8.md). Before that: A4 (ADR-0018..0020): the
+v0.1.0 release pipeline and the in-app updater, the file
 importers and the LDAPS directory importer, and the OS network tools. See review
 [a4-review-7.md](a4-review-7.md). Earlier: A3 (ADR-0014..0017) in
 [a3-review-6.md](a3-review-6.md); A2
@@ -52,6 +54,58 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | T5 | Compromised WebView (XSS, malicious remote page in A2) | Runs JS inside the app, calls any exposed IPC command |
 | T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
 | T7 | Sync storage operator (S3 provider, bucket admin, anyone with the bucket keys) (A3) | Reads, replays, withholds, deletes or replaces any object, serves an old generation, logs request URLs; cannot forge MSY1 without the DEK |
+
+## Trust boundaries added in 0.1.1 (ADR-0021, portable mode) — T-PORT
+
+Portable mode moves every file Mooring owns from the per-user OS directories to
+`<marker dir>/Mooring Data/{data,cache}`, next to the executable, on whatever volume the user
+chose. The marker (`portable`, a regular file) is the only switch; its content is ignored.
+Nothing changes in the vault format (Argon2id + XChaCha20-Poly1305, ADR-0002), the audit chain,
+the IPC surface, the capabilities or the CSP. What changes is **who else can reach the folder**:
+
+- **T-PORT-1 Co-located writer (T2, or another account with write access to the folder: a
+  shared USB stick, a network share, a shared Desktop).** Can replace `Mooring.exe` /
+  `Mooring.app`, swap `Mooring Data` or a subdirectory for a link or junction between the
+  resolver's check and its create (N-68), or edit `portable`. Portable mode does **not** defend
+  against this and the ADR accepts it (any portable application has the same property; an
+  installed per-user copy is only marginally better). The resolver refuses links, reparse points
+  and non-directories at every level *before* creating or chmod'ing anything (`dirs.rs`), so a
+  redirect must win a race, not merely pre-exist. The audit chain still detects log tampering;
+  the vault stays encrypted at rest.
+- **T-PORT-2 Removable media (T1).** A lost stick is a lost vault: the finder holds the header,
+  `mooring.db`, the audit log and `known_hosts`. Only the master password and the KDF floor
+  protect it (R-CAL: keep the calibrated floor even on slow media). README and the user guide
+  say so; no claim of "safe if lost" is made (L-46).
+- **T-PORT-3 No ACL on FAT / exFAT.** On NTFS the root gets `OWNER RIGHTS:(OI)(CI)F` with
+  inheritance removed (`portable_acl.rs`: fixed path, fixed argv, `env_clear`, no shell, 10 s,
+  killed, non-fatal). On FAT32 / exFAT the volume has no ACLs, `icacls` fails and
+  `portable.acl_unavailable` is audited: every account on that machine that can mount the stick
+  reads the (encrypted) files. On unix, `0700` applies where the volume supports modes (L-45 for
+  FAT on Linux / macOS).
+- **T-PORT-4 WKWebView site data on macOS.** WebKit's persistent store cannot be redirected,
+  so in portable mode persistent web profiles are downgraded to ephemeral
+  (`web.portable_ephemeral`, `incognito(true)` = nonPersistent data store): nothing of a web
+  session lands in `~/Library/WebKit`. The main window's own localStorage (UI state, no
+  secrets, ADR-0003) still does, as do the OS's per-app state files (saved application state,
+  preferences, LaunchServices); none holds a secret. Windows / Linux: the main window's profile
+  moves to `Mooring Data/cache/webview`.
+- **T-PORT-5 Reparse points and cloud placeholders (Windows).** `FILE_ATTRIBUTE_REPARSE_POINT`
+  on the marker, the root or `data` / `cache` is refused, which covers symlinks, junctions,
+  mount points, OneDrive / Dropbox / iCloud placeholders and WOF-compressed files. The refusal
+  is deliberate: a redirect to another volume or profile, and a synced vault is a copy off the
+  device. The message must say so (L-46).
+- **T-PORT-6 Silent fallback.** The owner's decision is "refuse, never fall back". Two
+  mechanisms make the marker look *absent* rather than invalid and so take the installed-mode
+  branch: macOS App Translocation of a quarantined bundle launched in place (**M-18**, tag
+  condition) and an inherited or forged `$APPIMAGE` (L-44). Both are fixes in `dirs.rs`.
+- **Release side.** The two portable zips are regular release assets (SHA256SUMS, cosign,
+  provenance) and never updater artifacts: excluded from `sign-updater` (lint-pinned), refused
+  by `updater-manifest.sh`, rejected by `verify-release.sh`, and the client's matrix answers
+  `Manual(Portable)` before any bundle check, so a portable copy never downloads or installs.
+  `portable-zip.py` is deterministic and validates its own archive names; symlink targets are
+  stored verbatim (N-69 residual, inputs are our own build outputs: R-REL).
+- Unchanged by ADR-0021 and re-checked: N-12 (syslog SD-ID), the audit mirror, the import
+  plans, the B-6 Gate, the updater trust chain (R-UPD, L-40 manifest cap still due 0.1.1).
 
 ## Trust boundaries added in A4 (ADR-0018..0020)
 - **Release workflow → users.** `release.yml` builds in `contents: read` jobs, hashes the
@@ -219,6 +273,8 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | Denial of service / disclosure: hostile import files (T4) | Caps before allocation (16 MiB input, gzip 64 MiB and 20:1, XML depth 64 / 200 000 elements / 4 KiB values, item caps); `DOCTYPE` refused; predefined + numeric entities only; ZIP refused; errors carry offsets, never content; one fuzz target per parser + `detect`; secrets only with the opt-in, never mRemoteNG; plan in Rust; one transaction | A4 (review 7 / 7b): L-41 ✓, N-53 ✓, N-59 ✓, N-60 ✓. R-IMPORT-SECRET |
 | Spoofing / disclosure: LDAPS directory (T3, T4, T5) | `ldaps://` only; our verifier + `known_ldap_certs` TOFU through the B-6 Gate; bind after a trusted handshake; four operations only; iterative BER pre-scan; caps on entries, pages, frames, values; referrals ignored; errors carry result codes only | A4 (review 7 / 7b): L-43 ✓ (sign-in confirmation; TLS probe before the dialog accepted), N-54 ✓; N-64 (`caPem` audit). R-LDAP-STR |
 | Elevation / probing: OS network tools (T5, T4) | Fixed absolute paths, explicit argv with `--` where accepted, `Target` never starts with `-`/`/`, `env_clear`, no shell, kill on cap/deadline, parsers capped and fuzzed, read-only `WgQuery`, ≤ 2 processes, 1 port check/s, vault-gated, no elevation | A4 (review 7 / 7b): N-52 ✓. R-NET-PROBE |
+| Tampering / disclosure: portable data root (T1, T2, T-PORT) | Regular-file marker checked with `symlink_metadata`; symlink / reparse point / directory → refusal, never "absent"; `Mooring Data`, `data`, `cache` refused when linked or not a directory before anything is created; `0700` + re-tighten on unix, `OWNER RIGHTS` ACL with inheritance removed on NTFS (fixed argv, `env_clear`, 10 s, non-fatal, audited when unavailable); no fallback to the OS dirs on any error (native box, exit 2, no window); `app.start { portable }` without a path; `app_info` is the only reader of the path | 0.1.1 (review 8): ✓ with **M-18** (macOS App Translocation → silent fallback, tag condition), L-44 (`$APPIMAGE`), L-45 (FAT on unix), L-46 (docs); N-65..N-68. R-PORT |
+| Tampering: portable zips vs the updater (T3, T6) | Zips are release assets only: `sign-updater` excludes `*_portable.zip` (lint-pinned), `updater-manifest.sh` refuses a `.zip` `.sig`, `verify-release.sh` fails on a `.zip.sig` or a `.zip` in `latest.json`; the client's matrix returns `Manual(Portable)` first; background check never installed, opt-in refused and audited | 0.1.1 (review 8): ✓; N-69 (symlink self-check), N-70 (lint quoting), N-71 (zip content check) |
 
 ## Risks
 
@@ -353,6 +409,26 @@ Conditions:
 - L-14: the `semgrep` container digest (owner, Docker Hub access needed). N-61: widen the
   workflow lint (`toJSON(secrets)`, `secrets[`, `secrets: inherit`, other `environment:
   release`).
+
+### R-PORT — a portable folder is only as private as its volume (accepted, ADR-0021)
+In portable mode the vault, the audit log, `known_hosts` and the web profiles live next to the
+executable. Accepted, as the ADR states:
+- A co-located writer (T-PORT-1) can replace the executable or race the resolver (N-68). No
+  portable application defends against this; the installed per-user copy is only marginally
+  better (`%LOCALAPPDATA%` is the same user). Mitigation: the README's "verify `SHA256SUMS`
+  first" and the audit chain.
+- FAT32 / exFAT volumes carry no ACL or mode (T-PORT-3): every local account that mounts the
+  stick reads the encrypted files. `portable.acl_unavailable` makes that visible in the audit
+  log; the KDF floor and the master password are the protection (R-CAL).
+- macOS keeps the UI's localStorage and the OS's per-app state under `~/Library` (T-PORT-4);
+  neither holds a secret. Persistent web profiles are downgraded to ephemeral rather than
+  written there.
+- `app_info.portableDataDir` shows the absolute path (user name, drive) to the WebView; a T5
+  learns it. Accepted: the owner chose to display it; it is never audited.
+- The on-demand `update_check` still contacts `github.com` from a portable copy (one request,
+  R-UPD); nothing is ever downloaded or installed there.
+Conditions: M-18 (translocation refusal) before the 0.1.1 tag; L-44..L-46 as review 8 lists.
+Revisit if a `--data-dir` override or a `_fixedruntime` zip variant is added.
 
 ### R-UPD — the updater key is a second release root (accepted with conditions, ADR-0018)
 Whoever holds `TAURI_SIGNING_PRIVATE_KEY` **and** controls the response of
@@ -611,6 +687,8 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
 - A4: R-UPD (with conditions), R-IMPORT-SECRET, R-LDAP-STR and R-NET-PROBE (above). TOFU now
   also covers LDAPS directories (`known_ldap_certs`, synced). Maintenance exception:
   `osakit` (updater; its macOS elevation path is never taken). `ldap3` is a dev-dependency only.
+- 0.1.1: R-PORT (above). No new dependency; the Windows ACL is `icacls.exe` run the ADR-0020
+  way.
 - Certificate TOFU (RDP/VNC), as for SSH: the first connection to a self-signed host is
   unauthenticated. A T5 can answer `yes` and can remove a pin first (N-27). Both are audited,
   and a mismatch is never overridable without the removal. CA-validated hosts are not pinned,
@@ -736,3 +814,14 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
         net tools, and the carried A3 per-OS runs.
       - [ ] Also owed: the L-28 nightly run (now including `rdp_reactivation`) and the G-1
         fresh repository.
+- [ ] **0.1.1 portable mode (review 8: `APPROVE WITH NITS`, the `v0.1.1` tag is conditional
+      on M-18):**
+      - [ ] **M-18:** refuse a translocated `.app` (`portable.translocated`), README / guide
+        step, macOS gate launched in place from the extracted zip.
+      - [ ] L-44 (`$APPIMAGE` Linux-only and validated), L-45 (FAT on unix: audit, not
+        refuse), L-46 (README over-claim, cloud-sync warning, marker-invalid wording).
+      - [ ] Per-OS gate (fresh non-admin account): Windows 11 NTFS Desktop + FAT32 USB +
+        OneDrive Desktop + no-WebView2; macOS 15 `~/Applications` + exFAT / FAT32 USB, in place
+        and after a Finder move; read-only folder → `portable.unwritable`, exit 2, no OS
+        app-data directory.
+      - [ ] N-65..N-71 as scheduled. L-40 manifest cap still due for 0.1.1 (R-UPD).
