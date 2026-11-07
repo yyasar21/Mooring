@@ -1,6 +1,6 @@
 # ADR-0024: FIDO2 / hardware-key SSH authentication (`sk-*` keys)
 
-Status: Proposed · 2026-11-07 (Phase A5 / v0.2.0; amends ADR-0007 §Authentication, ADR-0009 §1–2;
+Status: Accepted 2026-11-08 (owner decisions 29 → agent-only first, ssh-sk-helper behind an off-by-default flag; 30 → never a password fallback) · 2026-11-07 (Phase A5 / v0.2.0; amends ADR-0007 §Authentication, ADR-0009 §1–2;
 builds on ADR-0017 §7, ADR-0020 §3 process pattern)
 
 ## Context
