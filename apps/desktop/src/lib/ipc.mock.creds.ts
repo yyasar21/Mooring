@@ -15,6 +15,7 @@ import { IpcError } from "./ipc.error";
 import { KIND_SCHEMAS } from "./ipc.kinds";
 import { OTP_SEED_SCHEMA, isAccountError, parseAccount, previewKubeContexts, validateField } from "./credentials";
 import { validateExternalRef } from "./validate.secrets";
+import { deriveSk, refuseSkInSshKey } from "./ipc.mock.sk";
 
 const OTP_FIELD = "otp";
 // eslint-disable-next-line no-control-regex
@@ -193,7 +194,9 @@ export class MockCredentials {
       if (p) throw new IpcError("credential.kubeconfig_rejected", p);
     }
     const contexts = a.kind === "kubeconfig" ? previewKubeContexts(yaml) : [];
-    const fields = checkFields(schema, a.fields, contexts);
+    refuseSkInSshKey(a.kind, a.fields, a.secrets);
+    let fields = checkFields(schema, a.fields, contexts);
+    if (a.kind === "ssh_sk_key") fields = deriveSk(fields);
     for (const [k, v] of Object.entries(a.secrets)) if (v !== "") checkSecret(schema, k, v);
     const present = Object.keys(a.secrets).filter((k) => a.secrets[k] !== "");
     for (const f of schema.fields) {
@@ -208,7 +211,7 @@ export class MockCredentials {
       kind: a.kind,
       fields,
       secretNames: present.sort(),
-      fingerprint: fingerprintFor(a.kind, a.secrets.private_key ?? (typeof fields.cert_pem === "string" ? fields.cert_pem : "")),
+      fingerprint: typeof fields.fingerprint === "string" ? fields.fingerprint : fingerprintFor(a.kind, a.secrets.private_key ?? (typeof fields.cert_pem === "string" ? fields.cert_pem : "")),
       createdAt: now,
       updatedAt: now,
     };
@@ -219,7 +222,12 @@ export class MockCredentials {
   updateFields(id: string, name: string, fields: CredentialFields): CredentialMeta {
     const m = this.get(id);
     const contexts = Array.isArray(m.fields.contexts) ? m.fields.contexts : [];
-    const next = checkFields(schemaOf(m.kind), fields, contexts);
+    refuseSkInSshKey(m.kind, fields, {});
+    let next = checkFields(schemaOf(m.kind), fields, contexts);
+    if (m.kind === "ssh_sk_key") {
+      next = deriveSk(next);
+      m.fingerprint = typeof next.fingerprint === "string" ? next.fingerprint : null;
+    }
     if (m.kind === "kubeconfig") next.contexts = contexts;
     Object.assign(m, { name, fields: next, updatedAt: new Date().toISOString() });
     if (m.kind === "x509" && typeof next.cert_pem === "string") m.fingerprint = fakeFingerprint(next.cert_pem);
@@ -230,6 +238,7 @@ export class MockCredentials {
     const m = this.get(id);
     const schema = schemaOf(m.kind);
     for (const [k, v] of Object.entries(set)) checkSecret(schema, k, v);
+    refuseSkInSshKey(m.kind, {}, set);
     for (const k of clear) {
       const f = schema.fields.find((x) => x.secret && x.name === k);
       if (k !== OTP_SEED && !f) throw invalid(`unknown secret ${k} for ${schema.kind}`);

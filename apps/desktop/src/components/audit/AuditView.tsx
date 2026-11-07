@@ -27,6 +27,9 @@ const EVENT_LABEL: Record<string, string> = {
   "session.sftp.transfer": "File transfer",
   "audit.syslog_changed": "Syslog mirror changed",
   "app.start": "Application started",
+  // ADR-0024: FIDO2 security keys (fingerprint and backend only).
+  "credential.sk_converted": "SSH key converted to a security-key credential",
+  "session.auth_sk": "Security-key sign-in",
   "portable.acl_unavailable": "Portable data folder: owner-only ACL could not be applied (FAT/exFAT or policy)",
 };
 
@@ -70,6 +73,12 @@ export function AuditView() {
       const d = { ...e.details };
       const conn = d.connection ? connections.find((c) => c.id === d.connection)?.name : undefined;
       const cred = d.credential ? creds.find((c) => c.id === d.credential)?.name : undefined;
+      // `credential.sk_converted { id }` names the converted credential by id.
+      const converted = e.event === "credential.sk_converted" && d.id ? creds.find((c) => c.id === d.id)?.name : undefined;
+      if (converted) {
+        delete d.id;
+        d.credential = converted;
+      }
       if (conn) d.connection = conn;
       if (cred) d.credential = cred;
       return Object.entries(d).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join("   ");

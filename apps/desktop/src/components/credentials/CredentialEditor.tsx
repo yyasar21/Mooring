@@ -22,6 +22,8 @@ import {
 } from "./formModel";
 import { AccountField, DerivedReadout, KindBadge, MatrixStrip, OtpSection, PlainField, SecretField } from "./fields";
 import { ExternalRefSection } from "./ExternalRefSection";
+import { SkKeySection } from "./SkKeySection";
+import { UseSkKindNote } from "./UseSkKindNote";
 import { KIND_BLURB } from "./kindMeta";
 import { usePublicKeyFingerprint } from "./usePublicKeyFingerprint";
 
@@ -38,6 +40,8 @@ export interface Seed {
   account?: string;
   /** A pasted blob that picked this kind; it goes straight into `field`'s input. */
   paste?: { field: string; text: string };
+  /** Public plain values carried over from another form (ssh_key → ssh_sk_key). Never a secret. */
+  values?: Record<string, string>;
 }
 
 /**
@@ -67,11 +71,15 @@ export function CredentialEditor({
     let st = initialState(schema, meta);
     if (seed?.name) st = { ...st, name: seed.name };
     if (seed?.account) st = withAccount(st, schema, seed.account);
+    for (const [k, v] of Object.entries(seed?.values ?? {})) {
+      if (schema.fields.some((f) => f.name === k && !f.secret)) st = { ...st, values: { ...st.values, [k]: v } };
+    }
     return st;
   });
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const inputs = useRef(new Map<string, HTMLInputElement | HTMLTextAreaElement>());
   const register = (name: string, el: HTMLInputElement | HTMLTextAreaElement | null) => {
     if (el) inputs.current.set(name, el);
@@ -187,7 +195,10 @@ export function CredentialEditor({
     }
     setBusy(false);
     if (saved) onDone(saved);
-    else setError(useCredentials.getState().error ?? "Could not save the credential.");
+    else {
+      setError(useCredentials.getState().error ?? "Could not save the credential.");
+      setErrorCode(useCredentials.getState().errorCode);
+    }
   }
 
   const show = (name: string) => (tried ? problems[name] : undefined);
@@ -250,11 +261,18 @@ export function CredentialEditor({
           </div>
         )}
 
+        {schema.kind === "ssh_key" && (
+          <UseSkKindNote values={s.values} refused={errorCode === "credential.use_sk_kind"}
+            onSwitch={(values) => { onSwitchKind("ssh_sk_key", { name: s.name, values }); }} />
+        )}
+        {schema.kind === "ssh_sk_key" && (
+          <SkKeySection schema={schema} kinds={kinds} s={s} meta={meta} tried={tried} problems={problems} setValue={setValue} fingerprint={pubFp} />
+        )}
         {schema.kind === "external_ref" && (
           <ExternalRefSection schema={schema} kinds={kinds} s={s} meta={meta} tried={tried} problems={problems} setValue={setValue}
             setFieldMap={(fieldMap) => { set({ fieldMap }); }} update={setS} />
         )}
-        {schema.kind !== "external_ref" && (acct || plainFields(schema).length > 0) && <section className="space-y-3">
+        {schema.kind !== "external_ref" && schema.kind !== "ssh_sk_key" && (acct || plainFields(schema).length > 0) && <section className="space-y-3">
           <HudLabel>{acct || schema.fields.some((f) => !f.secret && /^(username|user|upn)$/.test(f.name)) ? "Account" : "Settings"}</HudLabel>
           <div className="cred-grid">
             {acct && (
@@ -309,7 +327,13 @@ export function CredentialEditor({
               />
             ))}
             <DerivedReadout meta={meta} />
-            {!editing && (schema.kind === "ssh_key" || schema.kind === "x509") && (
+            {schema.kind === "ssh_sk_key" && (
+              <p className="field-hint">
+                Both are optional and only needed for direct signing, which is coming later. With ssh-agent the agent holds the key
+                handle and asks for its PIN itself.
+              </p>
+            )}
+            {!editing && (schema.kind === "ssh_key" || schema.kind === "ssh_sk_key" || schema.kind === "x509") && (
               <p className="field-hint">The SHA256 fingerprint is computed when you save.</p>
             )}
           </section>
@@ -335,7 +359,7 @@ export function CredentialEditor({
 
       <footer className="cred-editor-foot">
         <p role="alert" className="min-w-0 flex-1 truncate text-[length:var(--fs-s)] text-danger">
-          {error ?? (tried && Object.keys(problems).length > 0 ? "Fix the highlighted fields." : "")}
+          {errorCode === "credential.use_sk_kind" && schema.kind === "ssh_key" ? "" : (error ?? (tried && Object.keys(problems).length > 0 ? "Fix the highlighted fields." : ""))}
         </p>
         <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
         <button type="submit" className="btn btn-primary" disabled={busy}>

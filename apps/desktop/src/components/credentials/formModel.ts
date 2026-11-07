@@ -20,6 +20,14 @@ import {
   utf8Bytes,
   validateField,
 } from "../../lib/credentials";
+import { parseSkPublicLine, skCertificateProblem } from "../../lib/credentials.sk";
+
+/** ADR-0024: shape checks of the `sk-*` lines (Rust parses them for real). */
+function skFieldProblem(name: string, v: string): string | null {
+  if (name === "public_key") return parseSkPublicLine(v).problem;
+  if (name === "certificate") return skCertificateProblem(v);
+  return null;
+}
 
 export type SecretMode = "keep" | "replace" | "clear";
 
@@ -72,10 +80,12 @@ export function secretFields(schema: KindSchema): FieldSchema[] {
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
+/** Plain values as the form edits them: a served boolean (`ssh_sk_key.resident`) is its enum text. */
+const text = (v: unknown) => (typeof v === "boolean" ? String(v) : str(v));
 
 export function initialState(schema: KindSchema, meta?: CredentialMeta): FormState {
   const values: Record<string, string> = {};
-  for (const f of schema.fields) if (!f.secret) values[f.name] = str(meta?.fields[f.name]);
+  for (const f of schema.fields) if (!f.secret) values[f.name] = text(meta?.fields[f.name]);
   const otp = meta?.fields.otp;
   const otpSettings = isOtpSettings(otp) ? otp : DEFAULT_OTP;
   const storedMap = meta?.fields.field_map;
@@ -191,7 +201,7 @@ export function validate(schema: KindSchema, s: FormState, meta?: CredentialMeta
       else if (v !== "" && opts.length > 0 && !opts.includes(v)) p[f.name] = `${f.label} is not one of the choices.`;
       continue;
     }
-    const e = validateField(f, v);
+    const e = validateField(f, v) ?? (schema.kind === "ssh_sk_key" ? skFieldProblem(f.name, v) : null);
     if (e) p[f.name] = e;
   }
   for (const f of secretFields(schema)) {

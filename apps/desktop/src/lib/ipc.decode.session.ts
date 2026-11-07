@@ -83,6 +83,20 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
       }
       return { kind: "hop_status", hop, of, state: state satisfies HopState, host: str(w.host), peerIdentity: optStr(field(w, "peer_identity", "peerIdentity")) };
     }
+    // ADR-0024: the touch banner. An id or fingerprint that is not usable is still a banner, never a prompt.
+    case "touch_required": {
+      const hop = hopIndex(w.hop);
+      const secs = num(field(w, "timeout_seconds", "timeoutSeconds"));
+      return {
+        kind: "touch_required", id: num(w.id), fingerprint: str(w.fingerprint).slice(0, 128),
+        timeoutSeconds: Number.isInteger(secs) && secs > 0 && secs <= 600 ? secs : 30, ...(hop !== null ? { hop } : {}),
+      };
+    }
+    case "touch_cleared":
+    case "touch_timeout": {
+      const hop = hopIndex(w.hop);
+      return { kind: w.kind, id: num(w.id), ...(hop !== null ? { hop } : {}) };
+    }
     case "desktop_resized":
       return { kind: "desktop_resized", width: num(w.width), height: num(w.height) };
     case "reconnecting":

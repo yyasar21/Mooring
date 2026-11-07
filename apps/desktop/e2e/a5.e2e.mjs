@@ -3,7 +3,7 @@
 // target's own prompt after it), the "Connect via" picker saving a chain, Windows Hello unlock
 // turned on in Settings → Security and used on the unlock screen, a backup exported and merged
 // back, the Dev badge of a Mooring Dev build, and (U4, ADR-0026) a Vault database reference whose
-// session tab shows its lease chip.
+// session tab shows its lease chip, and (U5, ADR-0024) the touch banner of a security-key sign-in.
 // Run: `node --test --test-concurrency=1 apps/desktop/e2e/a5.e2e.mjs` (after `pnpm install`).
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -168,4 +168,23 @@ test("dynamic secret: a database reference, a connection that uses it, the lease
 
     await tab.getByRole("button", { name: "Close analytics" }).click();
     await waitForProbe(page, (s) => s.audit.some((e) => e.event === "secret_lease_revoked" && e.details.reason === "closed"), "the lease to be revoked");
+  }));
+
+// A5 U5 (ADR-0024): a connection that signs in with a FIDO2 key through the agent. After the host
+// key, the non-modal touch banner names the key; the mock "touches" it after ~1.5 s, the banner
+// goes and the session connects. Nothing is asked: no dialog opens for the touch.
+test("security key: the touch banner shows while the key signs, then the session connects", (t) =>
+  flow(t, async (page) => {
+    await createVault(page);
+    const prompt = await openSession(page, tree(page).getByRole("treeitem", { name: /^build-runner, runner\.example\.test/ }));
+    await prompt.getByRole("button", { name: "Trust and connect" }).click();
+    await page.getByRole("status").filter({ hasText: "Touch your security key to continue" }).waitFor();
+    const banner = page.locator(".touch-banner");
+    assert.match(await banner.innerText(), /Key SHA256:0f\/IntG4…rdDv4/);
+    assert.equal(await page.getByRole("alertdialog").count(), 0, "the touch takes no answer");
+    const snap = await waitForProbe(page, (s) => s.events.includes("connected"), "the key to be touched");
+    const kinds = snap.events.filter((k) => k.startsWith("touch_") || k === "connected");
+    assert.deepEqual(kinds, ["touch_required", "touch_cleared", "connected"]);
+    await banner.waitFor({ state: "detached" });
+    assert.ok(events(snap).includes("session.auth_sk"));
   }));

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   ipc,
+  isIpcError,
   isOtpSettings,
   type CredentialCreate,
   type CredentialFields,
@@ -23,6 +24,8 @@ interface CredentialState {
   items: CredentialMeta[];
   kinds: KindSchema[];
   error: string | null;
+  /** The IpcError code behind `error` (a form offers a fix for some, e.g. `credential.use_sk_kind`). */
+  errorCode: string | null;
   /** copyKey -> epoch ms when Rust clears the clipboard. The UI never touches the clipboard. */
   copiedUntil: Record<string, number>;
   /** credential id -> the window of the TOTP code Rust last copied. */
@@ -39,16 +42,16 @@ interface CredentialState {
   expireCopies: (now?: number) => void;
 }
 
-const EMPTY = { items: [], error: null, copiedUntil: {}, otp: {} };
+const EMPTY = { items: [], error: null, errorCode: null, copiedUntil: {}, otp: {} };
 
 export const useCredentials = create<CredentialState>((set, get) => {
   async function attempt<T>(fn: () => Promise<T>): Promise<T | null> {
     try {
       const out = await fn();
-      set({ error: null });
+      set({ error: null, errorCode: null });
       return out;
     } catch (e: unknown) {
-      set({ error: errorText(e) });
+      set({ error: errorText(e), errorCode: isIpcError(e) ? e.code : null });
       return null;
     }
   }

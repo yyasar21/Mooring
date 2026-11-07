@@ -31,6 +31,17 @@ export interface Reconnect {
   since: number;
 }
 
+/** ADR-0024: a security key waiting for a touch (from `touch_required`), or one that timed out. */
+export interface TouchState {
+  id: number;
+  fingerprint: string;
+  timeoutSeconds: number;
+  hop: number | null;
+  /** `Date.now()` when `touch_required` arrived; the countdown runs from here. */
+  since: number;
+  timedOut: boolean;
+}
+
 export interface Tab {
   /** Local tab id (exists before the backend hands out a session id). */
   id: string;
@@ -55,6 +66,10 @@ export interface Tab {
   kube?: KubeTab;
   /** ADR-0025: the latest `hop_status` per jump host, in chain order (empty = direct). */
   hops?: HopStatus[];
+  /** ADR-0024: the touch banner (null = none). Kept after a timeout so the banner can offer Retry. */
+  touch?: TouchState | null;
+  /** The IpcError code when `session_open` refused (pre-flight), for a readable close reason. */
+  openError?: string | null;
 }
 
 /** The three-state rail and dot of the design system: a reconnect reads as connecting. */
