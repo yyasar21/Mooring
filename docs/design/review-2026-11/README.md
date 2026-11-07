@@ -10,7 +10,9 @@ No product code was changed. This folder holds the captures, the review, two dir
 HTML mockups and a phased plan.
 
 ```
-current/    84 screenshots of today's UI (1440x900 @2x, dark and light, mock transport)
+current/    one sample capture of the pre-redesign UI (the full set of 84 was not kept in the
+            repository; the table below names what was captured — regenerate with the mock
+            transport and Playwright if a side-by-side is needed)
 mockups/    static HTML mockups: harbor.css (proposed tokens + components), shell.js (shared chrome)
 proposal/   mockups rendered with Playwright (1440x900 @1.5x)
 ```
