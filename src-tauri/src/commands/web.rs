@@ -251,8 +251,8 @@ pub async fn web_open<R: Runtime>(
             IpcError::new("web.store_failed", "the browsing data folder could not be created")
         })?;
     }
-    if plan.persistent_refused {
-        tracing::warn!("persistent web storage needs macOS 14; this window is ephemeral");
+    if let Some(why) = plan.persistent_refused {
+        tracing::warn!(reason = why.reason(), "persistent web storage unavailable; this window is ephemeral");
     }
     let window = web::window::build(
         &app,

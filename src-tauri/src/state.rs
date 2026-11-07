@@ -16,6 +16,7 @@ use mooring_store::{Store, StoreError};
 use mooring_vault::{Header, KdfParams, Uuid, Vault, VaultError, VaultState};
 
 use crate::clipboard::{self, Clipboard, SystemClipboard, ValueDigest};
+use crate::dirs::Dirs;
 use crate::error::{IpcError, IpcResult};
 use crate::picks::Picks;
 use crate::session_factory::{BuiltinFactory, SessionFactory};
@@ -148,6 +149,9 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// `$APP_CACHE` (default `$APP_DATA/cache`): Windows ephemeral web profiles (L-29).
     pub cache_dir: PathBuf,
+    /// ADR-0021: `<marker dir>/Mooring Data` in portable mode, else `None`. Shown by
+    /// `app_info`; never written to the audit log.
+    pub portable_root: Option<PathBuf>,
     /// `None` until a vault is created or its header loaded.
     pub vault: Arc<Mutex<Option<Vault>>>,
     /// Connection tree and sealed credentials (ADR-0005).
@@ -221,8 +225,10 @@ impl AppState {
     pub const KNOWN_HOSTS_FILE: &'static str = "known_hosts";
 
     /// Load the header if one exists (the vault starts locked), open the audit log and the
-    /// store, and create the root folder on first start.
-    pub fn new(data_dir: PathBuf, settings: Settings) -> Result<Self, StateError> {
+    /// store, and create the root folder on first start. `dirs` comes from
+    /// [`Dirs::resolve`] (ADR-0021): every file location derives from its two directories.
+    pub fn new(dirs: Dirs, settings: Settings) -> Result<Self, StateError> {
+        let Dirs { data: data_dir, cache: cache_dir, portable_root } = dirs;
         let header_path = data_dir.join(Self::HEADER_FILE);
         let vault = match std::fs::read(&header_path) {
             Ok(bytes) => Some(Vault::from_header_bytes(&bytes)?),
@@ -242,7 +248,8 @@ impl AppState {
         Ok(Self {
             secrets,
             confirm: Arc::new(crate::confirm_gate::ConfirmGate::new(Arc::clone(&audit))),
-            cache_dir: data_dir.join("cache"),
+            cache_dir,
+            portable_root,
             data_dir,
             vault: Arc::new(Mutex::new(vault)),
             store: Arc::new(Mutex::new(StoreSlot { store: Some(store), bound_to: None })),
@@ -260,13 +267,6 @@ impl AppState {
             import_plans: crate::import_plans::ImportPlans::default(),
             ldap_binds: crate::commands::ldap_import::ConfirmedBinds::default(),
         })
-    }
-
-    /// Use the OS cache directory for the Windows ephemeral web profiles (set once in setup).
-    #[must_use]
-    pub fn with_cache_dir(mut self, cache_dir: PathBuf) -> Self {
-        self.cache_dir = cache_dir;
-        self
     }
 
     /// `$APP_DATA/known_hosts`.
@@ -432,67 +432,10 @@ pub(crate) fn sync_dir(dir: &Path) {
     let _ = dir;
 }
 
-/// Fixtures shared by the command tests and, with `test-util`, the integration tests: a temp
-/// data dir, `KdfParams::TEST`, no agent, an in-memory clipboard and a short clear delay.
+/// Fixtures shared by the command tests and, with `test-util`, the integration tests.
 #[cfg(any(test, feature = "test-util"))]
-pub mod testing {
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use mooring_vault::KdfParams;
-
-    use super::{AppState, KdfChoice, Settings};
-    use crate::clipboard::MemoryClipboard;
-    use secrecy::SecretString;
-
-    /// Test-only master password (synthetic).
-    pub const MASTER: &str = "test-only master pw";
-
-    #[derive(Debug)]
-    pub struct Fixture {
-        pub dir: tempfile::TempDir,
-        pub state: AppState,
-        pub clipboard: Arc<MemoryClipboard>,
-    }
-
-    pub fn settings(clipboard: Arc<MemoryClipboard>) -> Settings {
-        Settings {
-            kdf: KdfChoice::Fixed(KdfParams::TEST),
-            ssh_allow_agent: false,
-            clipboard,
-            clipboard_clear_after: Duration::from_millis(200),
-            graphical: Arc::new(crate::session_factory::BuiltinFactory),
-            reconnect_unit: Duration::from_millis(1),
-        }
-    }
-
-    /// Fresh state without a vault.
-    pub fn empty() -> Fixture {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let clipboard = Arc::new(MemoryClipboard::default());
-        let state = AppState::new(dir.path().to_path_buf(), settings(Arc::clone(&clipboard)))
-            .expect("state");
-        Fixture { dir, state, clipboard }
-    }
-
-    /// Fresh state with an unlocked vault.
-    pub fn unlocked() -> Fixture {
-        let f = empty();
-        crate::commands::vault::create(&f.state, SecretString::from(MASTER.to_owned()))
-            .expect("create vault");
-        f
-    }
-
-    /// Audit event names written so far.
-    pub fn audit_events(state: &AppState) -> Vec<String> {
-        let path = state.data_dir.join(AppState::AUDIT_FILE);
-        let text = std::fs::read_to_string(path).unwrap_or_default();
-        text.lines()
-            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .filter_map(|v| v.get("event").and_then(|e| e.as_str()).map(str::to_owned))
-            .collect()
-    }
-}
+#[path = "state_testing.rs"]
+pub mod testing;
 
 #[cfg(test)]
 #[path = "state_tests.rs"]

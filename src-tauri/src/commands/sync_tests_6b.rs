@@ -59,7 +59,7 @@ async fn a_staged_header_is_neither_lost_nor_installed_over_a_newer_one() {
     assert_eq!(header_on_disk(&g.f.state), vault_id);
     let Dev { f: Fixture { dir, state, clipboard }, .. } = g;
     drop(state);
-    let st = AppState::new(dir.path().to_path_buf(), testing::settings(clipboard)).expect("restart");
+    let st = AppState::new(testing::dirs(dir.path()), testing::settings(clipboard)).expect("restart");
     assert_eq!(header_on_disk(&st), vault_id);
     assert!(vault::unlock(&st, secrecy::SecretString::from(MASTER.to_owned())).is_err(), "the old password is gone");
     vault::unlock(&st, secrecy::SecretString::from(new_pw.to_owned())).expect("the new password unlocks");
@@ -67,7 +67,7 @@ async fn a_staged_header_is_neither_lost_nor_installed_over_a_newer_one() {
     // either (the current header is newer).
     std::fs::write(st.data_dir.join(sync_join::JOIN_TMP), &joined_bytes).expect("stale copy");
     drop(st);
-    let st = AppState::new(dir.path().to_path_buf(), testing::settings(std::sync::Arc::new(crate::clipboard::MemoryClipboard::default()))).expect("restart");
+    let st = AppState::new(testing::dirs(dir.path()), testing::settings(std::sync::Arc::new(crate::clipboard::MemoryClipboard::default()))).expect("restart");
     assert!(!tmp(&st).exists(), "removed, not installed");
     vault::unlock(&st, secrecy::SecretString::from(new_pw.to_owned())).expect("still the new password");
     s3.recorder().assert_no_violations();

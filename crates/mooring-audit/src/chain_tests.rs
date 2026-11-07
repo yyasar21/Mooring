@@ -301,6 +301,20 @@ fn update_events_have_stable_wire_names() {
     assert_eq!(v["available"], "0.2.0");
 }
 
+/// ADR-0021: the start row carries the portable flag only (no path); the ACL row nothing.
+#[test]
+fn portable_events_have_stable_wire_names() {
+    let v = serde_json::to_value(AuditEvent::AppStart { portable: true }).expect("json");
+    assert_eq!(v, serde_json::json!({ "event": "app.start", "portable": true }));
+    let v = serde_json::to_value(AuditEvent::PortableAclUnavailable).expect("json");
+    assert_eq!(v, serde_json::json!({ "event": "portable.acl_unavailable" }));
+    for e in [AuditEvent::AppStart { portable: false }, AuditEvent::PortableAclUnavailable] {
+        let back: AuditEvent =
+            serde_json::from_value(serde_json::to_value(&e).expect("json")).expect("round trip");
+        assert_eq!(back, e);
+    }
+}
+
 /// ADR-0020 §6: the network-tool rows carry names and counts only.
 #[test]
 fn net_events_serialize_names_and_counts() {

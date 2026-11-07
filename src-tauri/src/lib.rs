@@ -42,6 +42,8 @@ test_util_pub!(audit_budget);
 test_util_pub!(updater);
 // ADR-0019 (A4 I1): import plans held between preview and apply.
 test_util_pub!(import_plans);
+// ADR-0021 (0.1.1): data / cache directories, portable marker, start-up refusals, Windows ACL.
+test_util_pub!(dirs, portable_acl, startup);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]
@@ -106,18 +108,45 @@ pub fn run() {
     }
     let app = builder
         .setup(move |app| {
-            let data_dir = app.path().app_data_dir()?;
-            create_private_dir(&data_dir)?;
-            let cache_dir = app.path().app_cache_dir()?;
-            create_private_dir(&cache_dir)?;
-            app.manage(AppState::new(data_dir, Settings::production())?.with_cache_dir(cache_dir));
+            // ADR-0021 §1, §3: the marker decides the directories; an unusable portable
+            // set-up or a missing WebView2 runtime is a message box and exit 2, no window.
+            let dirs = match startup::resolve_dirs(app)
+                .and_then(|d| startup::check_webview(&d).map(|()| d))
+            {
+                Ok(dirs) => dirs,
+                Err(refusal) => {
+                    startup::refuse(app.handle(), &refusal);
+                    return Ok(());
+                }
+            };
+            let portable = dirs.portable();
+            // macOS: WKWebView has no profile directory knob; nothing to create there.
+            let webview_dir = dirs.webview_dir().filter(|_| !cfg!(target_os = "macos"));
+            let mut acl_unavailable = false;
+            if let Some(root) = dirs.portable_root.as_deref() {
+                // Windows: owner-only ACL on NTFS; FAT32 / policy failures are audited below.
+                if let Err(e) = portable_acl::apply(root) {
+                    tracing::warn!(error = ?e, "portable data directory ACL not applied");
+                    acl_unavailable = true;
+                }
+            }
+            app.manage(AppState::new(dirs, Settings::production())?);
+            let state = app.state::<AppState>();
+            state.audit(mooring_audit::AuditEvent::AppStart { portable });
+            if acl_unavailable {
+                state.audit(mooring_audit::AuditEvent::PortableAclUnavailable);
+            }
             // ADR-0020: fixed OS tool paths, 2 processes at a time, 1 port check / s.
             app.manage(net_cmds::NetRuntime::production());
             // Review 5 L-29: no ephemeral web profile outlives the window it belonged to.
-            web::sweep::ephemeral_profiles(&app.state::<AppState>());
+            web::sweep::ephemeral_profiles(&state);
             // `"create": false` in tauri.conf.json: the main window is built here so it gets
-            // the navigation and new-window guard (security review 2, M-4).
-            navigation::create_main_window(app)?;
+            // the navigation and new-window guard (security review 2, M-4). Portable mode
+            // (Windows, Linux): the WebView profile lives under the portable cache.
+            if let Some(dir) = &webview_dir {
+                create_private_dir(dir)?;
+            }
+            navigation::create_main_window(app, webview_dir)?;
             // ADR-0010: syslog mirror from the stored config, then the auto-lock clock + tick.
             commands::syslog::start_stored(&app.state::<AppState>());
             // Review 4 L-18: hourly `audit_heartbeat` while the mirror runs.
@@ -138,7 +167,7 @@ pub fn run() {
                 let source = updater::source::PluginSource::new(app.handle().clone());
                 updater::UpdateRuntime::new(
                     std::sync::Arc::new(source),
-                    std::sync::Arc::new(updater::install_mode::OsProbe),
+                    std::sync::Arc::new(updater::install_mode::OsProbe { portable }),
                     current,
                 )
             } else {
@@ -298,7 +327,7 @@ pub fn run() {
 /// Create the app data dir owner-only on unix (review M2): it holds the vault header, the audit
 /// log, `known_hosts` and `mooring.db` (whose own mode is set to 0600 by
 /// `mooring_store::Store::open`). An existing directory is tightened too. Windows relies on the
-/// per-user `AppData` ACL.
+/// per-user `AppData` ACL (a portable root gets its own ACL, `portable_acl`, ADR-0021).
 pub(crate) fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {

@@ -35,6 +35,16 @@ macro_rules! a4_variants {
             /// Opt-in background check on or off.
             background_check: bool,
         },
+        /// The process started (ADR-0021): whether it runs from a portable folder. No path.
+        #[serde(rename = "app.start")]
+        AppStart {
+            /// Portable mode (a `portable` marker next to the app).
+            portable: bool,
+        },
+        /// Portable mode on Windows could not make `Mooring Data` owner-only (FAT32 / exFAT
+        /// media without ACLs, or policy); not fatal, the vault is encrypted at rest.
+        #[serde(rename = "portable.acl_unavailable")]
+        PortableAclUnavailable,
         /// A TCP port check ran (ADR-0020 §6, `net_tcp_check`). Host and port are inventory;
         /// `outcome` is `open` | `closed` | `timeout` | `unreachable` | `dns_failed`.
         NetTcpCheck {

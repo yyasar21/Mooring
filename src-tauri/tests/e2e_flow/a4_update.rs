@@ -108,6 +108,7 @@ fn probe(bundle: Bundle, path: &str, writable: bool) -> Arc<Probe> {
         install_path: path.into(),
         writable,
         cask_present: false,
+        portable: false,
     }))
 }
 
