@@ -41,6 +41,29 @@ make setup
 make dev
 ```
 
+### Portable build (no installer, no admin)
+
+For a machine where you cannot install software, download `Mooring_<version>_x64_portable.zip`
+(Windows) or `Mooring_<version>_universal_portable.zip` (macOS), verify it against `SHA256SUMS`,
+and unzip it anywhere you can write — your Desktop, `~/Applications`, a USB stick, a network
+share. The folder holds the app, an empty file named `portable` and a `README.txt`:
+
+- Keep `portable` next to `Mooring.exe` / `Mooring.app`. That file is what switches Mooring to
+  portable mode; without it the app uses the normal per-user data folders.
+- Everything Mooring writes — vault, database, audit log, trusted host keys, cache — goes to
+  `Mooring Data/` in the same folder (owner-only permissions; on NTFS Mooring also applies an
+  owner-only ACL, on FAT/exFAT it cannot and says so in the audit log). Back that folder up;
+  move the whole folder and the data follows.
+- If the folder is read-only, Mooring refuses to start and tells you which folder — it never
+  silently falls back to a hidden location.
+- Windows needs the Evergreen WebView2 runtime, present on Windows 10/11 with Edge; if it is
+  missing Mooring says so and `README.txt` links Microsoft's per-user bootstrapper (no admin).
+- Gatekeeper / SmartScreen ask once, as for the installers (section above).
+- Updates are manual: download the new zip and replace everything except `Mooring Data/`. The
+  in-app updater only checks; it does not install in portable mode. On macOS, persistent web
+  sessions behave as ephemeral in portable mode because WebKit keeps site data under
+  `~/Library/WebKit`, which cannot be redirected.
+
 ## 2. Create your vault
 
 On first start Mooring shows the unlock screen in *create* mode.

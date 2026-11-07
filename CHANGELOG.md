@@ -8,6 +8,14 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
+### Added
+
+- Portable builds for Windows (`Mooring_<v>_x64_portable.zip`) and macOS
+  (`Mooring_<v>_universal_portable.zip`): a `portable` marker next to the app keeps every data
+  file in `Mooring Data/` beside it; no installer, no admin, no fallback to the per-user folders
+  when the directory is unwritable; updater reports `update.manual_only`
+  ([ADR-0021](docs/adr/0021-portable-mode.md)).
+
 ## [0.1.0] - 2026-11-07
 
 First release: Phase A of the roadmap (A1 connection manager, A2 graphical protocols and web
