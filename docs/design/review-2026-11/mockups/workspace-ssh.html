@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace with SSH session</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="harbor.css">
+</head>
+<body data-view="connections" data-selected="web01" data-live="web01:ok,dc01:ok,ask-me:wait">
+<template id="center">
+  <div class="tabs" role="tablist" aria-label="Sessions">
+    <div class="tab" role="tab" aria-selected="true"><i data-i="ssh"></i><span class="grow">web01</span><span class="dot ok" aria-label="Connected"></span><button class="icon-btn sm" aria-label="Close web01"><i data-i="x" data-s="12"></i></button></div>
+    <div class="tab" role="tab" aria-selected="false"><i data-i="rdp"></i><span class="grow">dc01</span><span class="dot ok" aria-label="Connected"></span><button class="icon-btn sm" aria-label="Close dc01"><i data-i="x" data-s="12"></i></button></div>
+    <div class="tab" role="tab" aria-selected="false"><i data-i="ssh"></i><span class="grow">ask-me</span><span class="dot wait" aria-label="Needs input"></span><button class="icon-btn sm" aria-label="Close ask-me"><i data-i="x" data-s="12"></i></button></div>
+    <button class="icon-btn tab-add" aria-label="New tab"><i data-i="plus" data-s="14"></i></button>
+  </div>
+  <div class="session-head">
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex-shrink:1">
+      <div class="crumbs">Production <i data-i="right" data-s="12"></i> Web tier</div>
+      <div class="row"><b style="font-size:14px">web01</b><span class="mono muted">ops@web01.example.test:22</span></div>
+    </div>
+    <span class="pill success">Connected · 00:12:31</span>
+    <span class="grow"></span>
+    <div class="segmented" role="group" aria-label="Session view">
+      <span aria-pressed="true"><i data-i="ssh" data-s="14"></i>Terminal</span>
+      <span aria-pressed="false">Forwards <span class="badge">2</span></span>
+      <span aria-pressed="false">Files</span>
+    </div>
+    <span class="vsep"></span>
+    <button class="icon-btn" aria-label="Split" title="Split terminal"><i data-i="split"></i></button>
+    <button class="icon-btn" aria-label="Open in new window" title="Open in new window"><i data-i="ext"></i></button>
+    <button class="btn sm">Disconnect</button>
+  </div>
+  <div class="terminal" aria-label="Terminal"><span class="d">Last login: Sat Nov  7 09:12:04 2026 from 192.0.2.10</span>
+<span class="p">ops@web01</span>:<span class="h">~</span>$ systemctl status nginx --no-pager | head -5
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: <span class="p">active (running)</span> since Fri 2026-11-06 22:40:11 UTC; 10h ago
+       Docs: man:nginx(8)
+   Main PID: 1184 (nginx)
+<span class="p">ops@web01</span>:<span class="h">~</span>$ df -h /var
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda2        80G   31G   46G  41% /var
+<span class="p">ops@web01</span>:<span class="h">~</span>$ tail -n 4 /var/log/nginx/access.log
+198.51.100.24 - - [07/Nov/2026:09:24:51 +0000] "GET /health HTTP/1.1" 200 2 "-" "kube-probe/1.31"
+198.51.100.24 - - [07/Nov/2026:09:25:01 +0000] "GET /health HTTP/1.1" 200 2 "-" "kube-probe/1.31"
+203.0.113.77 - - [07/Nov/2026:09:25:03 +0000] "GET /api/v1/orders HTTP/2.0" 200 5120 "-" "curl/8.9.1"
+203.0.113.77 - - [07/Nov/2026:09:25:04 +0000] "POST /api/v1/orders HTTP/2.0" 201 311 "-" "curl/8.9.1"
+<span class="p">ops@web01</span>:<span class="h">~</span>$ <span class="cursor"></span></div>
+</template>
+<template id="inspector">
+  <div class="insp-head">
+    <div class="insp-title"><i data-i="ssh" data-s="18"></i><h2>web01</h2><button class="icon-btn" aria-label="More actions"><i data-i="more"></i></button></div>
+    <div class="row"><span class="mono muted">web01.example.test</span><span class="badge">SSH</span><span class="badge">nginx</span></div>
+    <div class="row"><button class="btn sm">Edit</button><button class="btn sm">Duplicate</button></div>
+  </div>
+  <nav class="insp-tabs"><a href="#" aria-current="true">Properties</a><a href="#">Network</a><a href="#">History</a></nav>
+  <div class="insp-body">
+    <section class="section"><h3>Connection</h3>
+      <dl class="kv"><dt>Host</dt><dd class="mono">web01.example.test</dd><dt>Port</dt><dd class="tnum">22</dd><dt>Folder</dt><dd>Production / Web tier</dd><dt>Host key</dt><dd class="mono">SHA256:mock-web01…</dd><dt>Session</dt><dd><span class="pill success">Connected</span></dd></dl>
+    </section>
+    <section class="section"><h3>Credential <span class="t-caption" style="font-weight:400">inherited from Production</span></h3>
+      <div class="card pad cred-row"><span class="cred-ico"><i data-i="key"></i></span><div class="who"><b>ops on-call</b><span>SSH key · ops</span></div><button class="btn sm"><i data-i="copy" data-s="14"></i>Copy</button></div>
+      <p class="hint" style="margin-top:8px">Copying is audited. The clipboard is cleared after 30 seconds.</p>
+    </section>
+    <section class="section"><h3>Port forwards</h3>
+      <dl class="kv"><dt class="mono">L 5432</dt><dd class="mono">pg01.example.test:5432</dd><dt class="mono">L 9090</dt><dd class="mono">localhost:9090</dd></dl>
+    </section>
+  </div>
+</template>
+</body>
+<script src="shell.js"></script>
+</html>

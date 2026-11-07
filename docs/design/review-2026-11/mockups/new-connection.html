@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New connection dialog</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="harbor.css">
+</head>
+<body data-view="connections" data-selected="dc01" data-live="web01:ok">
+<template id="center">
+  <div class="tabs"><div class="tab" role="tab" aria-selected="true"><i data-i="ssh"></i><span class="grow">web01</span><span class="dot ok"></span></div></div>
+  <div class="terminal"></div>
+</template>
+<template id="inspector"><div class="insp-head"><div class="insp-title"><i data-i="rdp" data-s="18"></i><h2>dc01</h2></div></div></template>
+<template id="overlay">
+  <div class="scrim">
+    <div class="dialog" role="dialog" aria-labelledby="dlg-title" aria-modal="true">
+      <div class="dialog-head"><h2 id="dlg-title">New connection</h2><span class="t-caption">in Desktops</span><button class="icon-btn" aria-label="Close"><i data-i="x" data-s="14"></i></button></div>
+      <div class="dialog-body">
+        <nav class="dialog-nav" aria-label="Dialog sections">
+          <a href="#" aria-current="true"><i data-i="rdp" data-s="14"></i>General<span class="err" aria-label="Has errors"></span></a>
+          <a href="#"><i data-i="user" data-s="14"></i>Sign-in</a>
+          <a href="#"><i data-i="shield" data-s="14"></i>RD Gateway</a>
+          <a href="#"><i data-i="split" data-s="14"></i>Display</a>
+          <a href="#"><i data-i="gear" data-s="14"></i>Advanced</a>
+        </nav>
+        <div class="dialog-main">
+          <div class="field"><label>Protocol</label>
+            <div class="row" style="gap:8px">
+              <div class="radio-card"><i data-i="ssh"></i>SSH</div>
+              <div class="radio-card on"><i data-i="rdp"></i>RDP</div>
+              <div class="radio-card"><i data-i="vnc"></i>VNC</div>
+              <div class="radio-card"><i data-i="web"></i>Web</div>
+              <div class="radio-card"><i data-i="kubernetes"></i>Kubernetes</div>
+              <div class="radio-card"><i data-i="vsphere"></i>vSphere</div>
+            </div>
+          </div>
+          <div class="field"><label for="n">Name</label><div class="input focus" id="n">dc02</div></div>
+          <div class="grid-host">
+            <div class="field"><label>Host</label><div class="input invalid mono"></div><div class="error-text"><i data-i="alert" data-s="13"></i>Enter a host name or IP address.</div></div>
+            <div class="field"><label>Port</label><div class="input tnum">3389</div></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>Folder</label><div class="input select"><i data-i="folder" data-s="14"></i>Desktops</div></div>
+            <div class="field"><label>Tags <span class="opt">optional</span></label><div class="input"><span class="badge">ad</span><span class="faint">Add a tag</span></div></div>
+          </div>
+          <div style="border-top:1px solid var(--border);padding-top:16px;display:flex;flex-direction:column;gap:12px">
+            <div class="group-title">RD Gateway</div>
+            <div class="row"><span class="switch on" role="switch" aria-checked="true" aria-label="Use an RD Gateway"></span><span>Connect through an RD Gateway</span></div>
+            <div class="grid-host">
+              <div class="field"><label>Gateway host</label><div class="input mono">gw.example.test</div></div>
+              <div class="field"><label>Port</label><div class="input tnum">443</div></div>
+            </div>
+            <div class="field"><label>Gateway credential</label><div class="input select"><i data-i="user" data-s="14"></i>Same as the session credential <span class="faint">· domain admin</span></div><span class="hint">The gateway receives the sign-in before the desktop does.</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-foot"><span class="t-caption grow">Fix 1 field to continue</span><button class="btn">Cancel</button><button class="btn">Create and connect</button><button class="btn primary">Create connection</button></div>
+    </div>
+  </div>
+</template>
+</body>
+<script src="shell.js"></script>
+</html>

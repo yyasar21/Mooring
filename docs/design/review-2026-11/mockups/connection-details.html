@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connection details</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="harbor.css">
+</head>
+<body data-view="connections" data-selected="dc01" data-live="web01:ok">
+<template id="center">
+  <div class="tabs" role="tablist" aria-label="Sessions">
+    <div class="tab" role="tab" aria-selected="false"><i data-i="ssh"></i><span class="grow">web01</span><span class="dot ok"></span><button class="icon-btn sm" aria-label="Close web01"><i data-i="x" data-s="12"></i></button></div>
+    <div class="tab" role="tab" aria-selected="true"><i data-i="rdp"></i><span class="grow">dc01</span><button class="icon-btn sm" aria-label="Close dc01"><i data-i="x" data-s="12"></i></button></div>
+    <button class="icon-btn tab-add" aria-label="New tab"><i data-i="plus" data-s="14"></i></button>
+  </div>
+  <!-- An unopened connection gets a proper "ready to connect" page instead of a blank panel. -->
+  <div style="flex:1;display:grid;place-items:center;background:var(--surface)">
+    <div style="width:520px;display:flex;flex-direction:column;gap:16px">
+      <div class="row" style="gap:12px">
+        <span class="cred-ico" style="width:44px;height:44px"><i data-i="rdp" data-s="22"></i></span>
+        <div><div class="crumbs">Desktops</div><h1 class="t-page">dc01</h1></div>
+        <span class="grow"></span><span class="pill">Not connected</span>
+      </div>
+      <div class="card" style="padding:4px 16px">
+        <dl class="kv" style="grid-template-columns:140px 1fr;padding:10px 0">
+          <dt>Host</dt><dd class="mono">dc01.example.test:3389</dd>
+          <dt>Signs in as</dt><dd>EXAMPLE\dc-admin <span class="badge">override</span></dd>
+          <dt>RD Gateway</dt><dd>gw.example.test as EXAMPLE\admin</dd>
+          <dt>Certificate</dt><dd><span class="pill success">Pinned · expires 2027-03-14</span></dd>
+          <dt>Last session</dt><dd>Today 08:41 · 52 min</dd>
+        </dl>
+      </div>
+      <div class="row">
+        <button class="btn primary lg"><i data-i="play" data-s="14"></i>Connect</button>
+        <button class="btn lg">Connect with options…</button>
+        <span class="grow"></span>
+        <span class="t-caption">Enter <span class="kbd">↵</span> connects, <span class="kbd">Ctrl ↵</span> opens in a new window</span>
+      </div>
+    </div>
+  </div>
+</template>
+<template id="inspector">
+  <div class="insp-head">
+    <div class="insp-title"><i data-i="rdp" data-s="18"></i><h2>dc01</h2><button class="icon-btn" aria-label="More actions"><i data-i="more"></i></button></div>
+    <div class="row"><span class="mono muted">dc01.example.test</span><span class="badge">RDP</span><span class="badge">ad</span></div>
+    <div class="row"><button class="btn sm primary">Connect</button><button class="btn sm">Edit</button><button class="btn sm">Duplicate</button></div>
+  </div>
+  <nav class="insp-tabs"><a href="#" aria-current="true">Properties</a><a href="#">Network</a><a href="#">History</a></nav>
+  <div class="insp-body">
+    <section class="section"><h3>Connection</h3>
+      <dl class="kv"><dt>Host</dt><dd class="mono">dc01.example.test</dd><dt>Port</dt><dd class="tnum">3389</dd><dt>Folder</dt><dd>Desktops</dd><dt>Display</dt><dd>Fit to window, 32-bit</dd><dt>Keyboard</dt><dd>Turkish Q (041F)</dd></dl>
+    </section>
+    <section class="section"><h3>Sign-in</h3>
+      <div class="card pad" style="display:flex;flex-direction:column;gap:10px">
+        <div class="cred-row"><span class="cred-ico"><i data-i="user"></i></span><div class="who"><b>domain admin</b><span>Domain account · from folder Desktops</span></div><button class="btn sm"><i data-i="copy" data-s="14"></i>Copy</button></div>
+        <div class="callout" style="padding:8px 10px"><span class="ci"><i data-i="info" data-s="14"></i></span><span class="muted" style="font-size:12px;line-height:16px">Username overridden for this connection: <b style="color:var(--text);font-weight:500">EXAMPLE\dc-admin</b></span></div>
+      </div>
+    </section>
+    <section class="section"><h3>RD Gateway</h3>
+      <div class="card pad cred-row"><span class="cred-ico"><i data-i="shield"></i></span><div class="who"><b>domain admin</b><span>Domain account · EXAMPLE\admin</span></div><button class="btn sm"><i data-i="copy" data-s="14"></i>Copy</button></div>
+    </section>
+    <section class="section"><h3>Notes</h3><p class="muted">Primary domain controller. Change window Sundays 02:00–04:00.</p></section>
+  </div>
+</template>
+</body>
+<script src="shell.js"></script>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vault unlock</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="harbor.css">
+<style>
+  body { display: grid; place-items: center; height: 100vh; }
+  .unlock { width: 400px; background: var(--surface); border-radius: 10px; box-shadow: var(--e2); padding: 32px; display: flex; flex-direction: column; gap: 20px; }
+  .mark { width: 44px; height: 44px; }
+  .meta { position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; }
+</style>
+</head>
+<body>
+  <main class="unlock" aria-labelledby="t">
+    <svg class="mark" viewBox="0 0 20 20" aria-hidden="true"><rect width="20" height="20" rx="5" fill="var(--accent)"/><path d="M6 6.5h8M7.5 6.5v7h5v-7M10 13.5v2" stroke="var(--accent-text)" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>
+    <div>
+      <h1 id="t" style="font-size:24px;line-height:32px;font-weight:600">Unlock Mooring</h1>
+      <p class="muted" style="margin-top:4px">Personal vault · <span class="mono" style="font-size:12px">~/Library/Application Support/Mooring</span></p>
+    </div>
+    <div class="field"><label for="pw">Master password</label>
+      <div class="input invalid" id="pw" style="height:36px">••••••••••••</div>
+      <div class="error-text"><i data-i="alert" data-s="13"></i>That password did not unlock the vault. Check Caps Lock and try again.</div>
+    </div>
+    <button class="btn primary lg" style="width:100%">Unlock</button>
+    <div class="row" style="justify-content:space-between"><a href="#" style="color:var(--accent);text-decoration:none">Use Touch ID</a><a href="#" style="color:var(--text-2);text-decoration:none">Open another vault…</a></div>
+  </main>
+  <p class="meta t-caption"><i data-i="shield" data-s="12"></i> Argon2id key derivation, XChaCha20-Poly1305 encryption. Mooring 0.2.0</p>
+  <script src="shell.js" data-standalone></script>
+</body>
+</html>

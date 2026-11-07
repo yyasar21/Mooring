@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="harbor.css">
+<style>
+  .settings { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100%; min-height: 0; }
+  .snav { background: var(--canvas); border-right: 1px solid var(--border); padding: 16px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .snav .grp { font-size: 12px; color: var(--text-3); padding: 12px 10px 4px; }
+  .snav a { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 10px; border-radius: var(--r-s); color: var(--text-2); text-decoration: none; }
+  .snav a[aria-current="page"] { background: var(--selection); color: var(--text); font-weight: 500; }
+  .spage { overflow: hidden; padding: 24px 40px; }
+  .spage > * { max-width: 720px; }
+  .srow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .srow b { font-weight: 500; display: block; }
+  .ssec { margin-top: 28px; }
+  .ssec h2 { font-size: 16px; line-height: 24px; font-weight: 600; margin-bottom: 4px; }
+</style>
+</head>
+<body data-view="settings">
+<template id="center">
+  <div class="settings">
+    <nav class="snav" aria-label="Settings sections">
+      <div class="input ph" style="height:28px;margin:0 2px 8px"><i data-i="search" data-s="14"></i>Find a setting</div>
+      <div class="grp">Vault</div>
+      <a href="#" aria-current="page"><i data-i="lock"></i>Security and auto-lock</a>
+      <a href="#"><i data-i="sync"></i>Sync <span class="pill success nodot" style="margin-left:auto;height:18px">On</span></a>
+      <a href="#"><i data-i="ext"></i>Secret sources</a>
+      <div class="grp">Trust and audit</div>
+      <a href="#"><i data-i="shield"></i>Known certificates</a>
+      <a href="#"><i data-i="list"></i>Syslog mirror</a>
+      <div class="grp">Application</div>
+      <a href="#"><i data-i="sun"></i>Appearance</a>
+      <a href="#"><i data-i="upload"></i>Import</a>
+      <a href="#"><i data-i="refresh"></i>Updates <span class="pill info nodot" style="margin-left:auto;height:18px">0.2.1</span></a>
+      <a href="#"><i data-i="info"></i>About</a>
+    </nav>
+    <div class="spage">
+      <div class="crumbs" style="margin-bottom:4px">Settings <i data-i="right" data-s="12"></i> Vault</div>
+      <h1 class="t-page">Security and auto-lock</h1>
+      <p class="muted" style="margin-top:4px">When Mooring locks, open sessions keep running and the vault key is wiped from memory.</p>
+
+      <div class="ssec">
+        <h2>Auto-lock</h2>
+        <div class="srow"><div><b>Lock when idle</b><span class="t-caption">No keyboard or mouse activity in Mooring.</span></div>
+          <div class="row"><div class="input tnum" style="width:72px;justify-content:flex-end">15</div><span class="muted">minutes</span><span class="switch on" role="switch" aria-checked="true" aria-label="Lock when idle"></span></div></div>
+        <div class="srow"><div><b>Lock when the screen locks</b></div><span class="switch on" role="switch" aria-checked="true"></span></div>
+        <div class="srow"><div><b>Lock when the computer sleeps</b></div><span class="switch on" role="switch" aria-checked="true"></span></div>
+        <div class="srow"><div><b>Lock when the window is hidden</b><span class="t-caption">Minimised, or another app is in front.</span></div><span class="switch" role="switch" aria-checked="false"></span></div>
+        <p class="hint" style="margin-top:10px">Where the operating system does not report screen lock or sleep, the idle timer covers it.</p>
+      </div>
+
+      <div class="ssec">
+        <h2>Unlock</h2>
+        <div class="srow"><div><b>Unlock with Touch ID or Windows Hello</b><span class="t-caption">The master password is still required after a restart.</span></div><span class="switch" role="switch" aria-checked="false"></span></div>
+        <div class="srow"><div><b>Master password</b><span class="t-caption">Last changed 1 Nov 2026</span></div><button class="btn">Change password…</button></div>
+      </div>
+
+      <div class="ssec">
+        <h2>Clipboard</h2>
+        <div class="srow"><div><b>Clear copied secrets after</b><span class="t-caption">Every copy is written to the audit log.</span></div><div class="input select" style="width:140px">30 seconds</div></div>
+      </div>
+
+      <div class="row" style="margin-top:20px;justify-content:flex-end;gap:8px"><span class="t-caption grow">Changes are saved when you leave the field.</span><button class="btn subtle">Reset to defaults</button></div>
+    </div>
+  </div>
+</template>
+</body>
+<script src="shell.js"></script>
+</html>
