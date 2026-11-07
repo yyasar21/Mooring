@@ -175,7 +175,7 @@ async fn resolve(
         ConnectSecret::Prompt(account) => {
             let form = shared
                 .broker
-                .ask_credential(&shared.events, account)
+                .ask_credential(&shared.events, account, shared.hop)
                 .await
                 .ok_or(AuthError::Cancelled)?;
             let typed = form.username.trim().to_owned();
@@ -304,7 +304,13 @@ async fn keyboard_interactive(
             let message = if header.is_empty() { text } else { format!("{header}: {text}") };
             let answer = shared
                 .broker
-                .ask(&shared.events, message, !prompt.echo, PromptPurpose::KeyboardInteractive)
+                .ask(
+                    &shared.events,
+                    message,
+                    !prompt.echo,
+                    PromptPurpose::KeyboardInteractive,
+                    shared.hop,
+                )
                 .await
                 .ok_or(AuthError::Cancelled)?;
             answers.push(answer.expose_secret().to_owned());

@@ -184,6 +184,28 @@ pub enum SessionAudit {
     },
     /// VNC took a None-only offer although a password is configured (`allowNoAuth`, L-27).
     VncNoAuthAllowed,
+    /// ADR-0025: a jump host of the chain authenticated (`session.hop.open`).
+    HopOpened {
+        /// 0-based position in the chain.
+        hop: u8,
+        /// The hop's connection id (canonical string).
+        connection: String,
+        /// Host key fingerprint of the hop.
+        peer_identity: Option<String>,
+        /// How the hop authenticated.
+        auth_method: AuthMethod,
+    },
+    /// ADR-0025: a jump host closed (`session.hop.close`), by the chain teardown
+    /// (`closed`), a failure before the target was reached (`hop_failed`) or a loss after
+    /// (`hop_lost`).
+    HopClosed {
+        /// 0-based position in the chain.
+        hop: u8,
+        /// The hop's connection id.
+        connection: String,
+        /// `closed`, `hop_failed` or `hop_lost`.
+        code: &'static str,
+    },
     /// Clipboard text crossed the session (coalesced: at most one per second per direction).
     Clipboard {
         /// Direction.
@@ -212,6 +234,8 @@ impl SessionAudit {
             Self::RdpLegacySecurity => "session.rdp.legacy_security",
             Self::VncPlaintext { .. } => "session.vnc.plaintext",
             Self::VncNoAuthAllowed => "session.vnc.no_auth_allowed",
+            Self::HopOpened { .. } => "session.hop.open",
+            Self::HopClosed { .. } => "session.hop.close",
             Self::Clipboard { .. } => "session.clipboard",
         }
     }
@@ -287,6 +311,19 @@ mod tests {
             (
                 SessionAudit::Clipboard { direction: ClipboardDirection::FromRemote, bytes: 3 },
                 "session.clipboard",
+            ),
+            (
+                SessionAudit::HopOpened {
+                    hop: 0,
+                    connection: "c".into(),
+                    peer_identity: None,
+                    auth_method: AuthMethod::Password,
+                },
+                "session.hop.open",
+            ),
+            (
+                SessionAudit::HopClosed { hop: 1, connection: "c".into(), code: "hop_lost" },
+                "session.hop.close",
             ),
         ] {
             assert_eq!(e.action(), want);

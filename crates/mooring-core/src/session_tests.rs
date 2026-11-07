@@ -81,6 +81,7 @@ fn credential_prompt_wire_shape() {
             needs_domain: true,
         }),
         certificate: None,
+        hop: None,
     };
     let v = serde_json::to_value(&e).expect("json");
     assert_eq!(v["purpose"], "credential");
@@ -114,6 +115,8 @@ fn closed_carries_a_code_and_connected_a_security() {
         (CloseCode::ServerEnded, "server_ended", true),
         (CloseCode::ProtocolError, "protocol_error", false),
         (CloseCode::VaultLocked, "vault_locked", false),
+        (CloseCode::HopFailed, "hop_failed", false),
+        (CloseCode::HopLost, "hop_lost", true),
     ] {
         assert_eq!(serde_json::to_value(c).expect("json"), wire);
         assert_eq!(c.is_retryable(), retry, "{wire}");
@@ -122,6 +125,7 @@ fn closed_carries_a_code_and_connected_a_security() {
         protocol: Protocol::Rdp,
         peer_identity: Some("x509 SHA256:00".into()),
         security: Some("nla".into()),
+        hop: None,
     };
     let v = serde_json::to_value(&c).expect("json");
     assert_eq!((v["kind"].as_str(), v["security"].as_str()), (Some("connected"), Some("nla")));
@@ -149,6 +153,7 @@ fn certificate_prompt_wire_shape() {
         purpose: PromptPurpose::CertificateTrust,
         account: None,
         certificate: Some(cert),
+        hop: None,
     };
     let v = serde_json::to_value(&e).expect("json");
     assert_eq!(v["purpose"], "certificate_trust");
@@ -213,4 +218,50 @@ fn audit_events_default_to_empty() {
         }
     }
     assert!(Dummy.take_audit_events().is_empty());
+}
+
+#[test]
+fn hop_status_and_hop_tagged_prompt_wire_shape() {
+    let e = SessionEvent::HopStatus {
+        hop: 1,
+        of: 2,
+        state: HopState::Up,
+        host: "bastion.example.test:22".into(),
+        peer_identity: Some("ssh-ed25519 SHA256:00".into()),
+    };
+    let v = serde_json::to_value(&e).expect("json");
+    assert_eq!(v["kind"], "hop_status");
+    assert_eq!((v["hop"].as_u64(), v["of"].as_u64()), (Some(1), Some(2)));
+    assert_eq!(v["state"], "up");
+    for (s, wire) in [
+        (HopState::Connecting, "connecting"),
+        (HopState::Authenticating, "authenticating"),
+        (HopState::Up, "up"),
+        (HopState::Failed, "failed"),
+    ] {
+        assert_eq!(serde_json::to_value(s).expect("json"), wire);
+        assert_eq!(s.as_str(), wire);
+    }
+    let p = SessionEvent::Prompt {
+        id: 7,
+        message: "Hop 1 — trust?".into(),
+        secret: false,
+        purpose: PromptPurpose::HostKeyTrust,
+        account: None,
+        certificate: None,
+        hop: Some(0),
+    };
+    let v = serde_json::to_value(&p).expect("json");
+    assert_eq!(v["hop"], 0);
+    // The target's events carry no `hop` field at all (old UI builds keep working).
+    let p = SessionEvent::Prompt {
+        id: 8,
+        message: "trust?".into(),
+        secret: false,
+        purpose: PromptPurpose::HostKeyTrust,
+        account: None,
+        certificate: None,
+        hop: None,
+    };
+    assert!(serde_json::to_value(&p).expect("json").get("hop").is_none());
 }

@@ -145,6 +145,11 @@ pub struct Connection {
     /// `sudo_become` credential (per connection).
     #[serde(default)]
     pub become_credential: Option<CredentialId>,
+    /// ADR-0025: jump hosts, first hop first (reached directly), the target through the last.
+    /// Explicit on this connection: a hop's own `via` is ignored. At most [`MAX_VIA`] SSH
+    /// connections, no duplicates, never this connection itself (see [`validate_via`]).
+    #[serde(default)]
+    pub via: Vec<ConnectionId>,
     /// Free-form tags for search and grouping.
     pub tags: Vec<String>,
     /// Creation time.
@@ -160,6 +165,8 @@ pub const MAX_HOST: usize = 2048;
 pub const MAX_TAG: usize = 64;
 /// Maximum number of tags per connection.
 pub const MAX_TAGS: usize = 50;
+/// ADR-0025 (owner decision 31): most jump hosts in a `via` chain.
+pub const MAX_VIA: usize = 3;
 
 fn invalid(field: &'static str, reason: String) -> MooringError {
     MooringError::Invalid { field, reason }
@@ -242,6 +249,24 @@ pub fn validate_tag(tag: &str) -> Result<String> {
     Ok(t.to_owned())
 }
 
+/// ADR-0025 §1: the shape rules of a `via` chain that need no store: at most [`MAX_VIA`]
+/// hops, no duplicate hop, never the connection itself. Whether each hop exists and speaks
+/// SSH is checked by the store. The error never echoes an id.
+pub fn validate_via(own: ConnectionId, via: &[ConnectionId]) -> Result<()> {
+    if via.len() > MAX_VIA {
+        return Err(invalid("via", format!("at most {MAX_VIA} jump hosts")));
+    }
+    for (i, hop) in via.iter().enumerate() {
+        if *hop == own {
+            return Err(invalid("via", "a connection cannot be its own jump host".into()));
+        }
+        if via[..i].contains(hop) {
+            return Err(invalid("via", "the same jump host appears twice".into()));
+        }
+    }
+    Ok(())
+}
+
 impl Folder {
     /// Build a validated folder.
     pub fn new(parent: Option<FolderId>, name: impl Into<String>) -> Result<Self> {
@@ -272,6 +297,7 @@ impl Connection {
             domain_override: None,
             gateway_credential: None,
             become_credential: None,
+            via: Vec::new(),
             tags: Vec::new(),
             created_at: OffsetDateTime::now_utc(),
         })
@@ -392,6 +418,24 @@ mod tests {
     fn connection_new_refuses_control_chars_in_host() {
         let root = Folder::new(None, "Lab").expect("valid");
         assert!(Connection::new(root.id, "x", Protocol::Ssh, "host\u{1b}[31m").is_err());
+    }
+
+    #[test]
+    #[allow(clippy::many_single_char_names)]
+    fn via_shape_rules() {
+        let own = ConnectionId::new();
+        let ids: Vec<ConnectionId> = (0..4).map(|_| ConnectionId::new()).collect();
+        let (a, b, c, d) = (ids[0], ids[1], ids[2], ids[3]);
+        assert!(validate_via(own, &[]).is_ok());
+        assert!(validate_via(own, &[a, b, c]).is_ok(), "depth 3 is the limit");
+        let e = validate_via(own, &[a, b, c, d]).expect_err("depth 4");
+        assert!(e.to_string().contains("at most 3"), "{e}");
+        assert!(validate_via(own, &[a, own]).is_err(), "self");
+        assert!(validate_via(own, &[a, b, a]).is_err(), "duplicate");
+        for bad in [vec![own], vec![a, a], vec![a, b, c, d]] {
+            let e = validate_via(own, &bad).expect_err("refused");
+            assert!(!e.to_string().contains(&a.to_string()), "ids are not echoed");
+        }
     }
 
     #[test]

@@ -159,6 +159,31 @@ macro_rules! sessions_variants {
             /// Whether the change weakens security (warning severity).
             weakened: bool,
         },
+        /// ADR-0025: a jump host of the session's chain authenticated (`session.hop.open`).
+        SessionHopOpen {
+            /// The leaf connection id.
+            connection: String,
+            /// 0-based position in the chain.
+            hop: u8,
+            /// The hop's own connection id.
+            hop_connection: String,
+            /// Host key fingerprint of the hop.
+            peer_identity: Option<String>,
+            /// `password`, `publickey`, `agent`, `keyboard-interactive`, ...
+            auth_method: String,
+        },
+        /// ADR-0025: a jump host closed (`session.hop.close`): `closed`, `hop_failed` or
+        /// `hop_lost`.
+        SessionHopClose {
+            /// The leaf connection id.
+            connection: String,
+            /// 0-based position in the chain.
+            hop: u8,
+            /// The hop's own connection id.
+            hop_connection: String,
+            /// Why.
+            code: String,
+        },
         /// A session tab moved to its own window (`session.detached`).
         SessionDetached {
             /// Connection id.

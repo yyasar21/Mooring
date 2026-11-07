@@ -64,6 +64,9 @@ pub fn target(ready: &Ready, source: ConnectionId) -> IpcResult<Target> {
         if c.protocol != Protocol::VsphereConsole || store.connection_sync(source)?.is_some() {
             return Err(IpcError::invalid("connectionId", "not a vCenter connection"));
         }
+        if !c.via.is_empty() {
+            return Err(IpcError::new("connection.via_invalid", "vCenter connections cannot use jump hosts yet"));
+        }
         let ProtocolOptions::Vsphere(options) = store.connection_options(source)? else {
             return Err(IpcError::invalid("connectionId", "not a vCenter connection"));
         };

@@ -52,10 +52,12 @@ pub enum StoreError {
     },
 
     /// The row is still referenced: a secret source named by an `external_ref`
-    /// (`source.in_use`), or a credential a secret source logs in with (`credential.in_use`).
+    /// (`source.in_use`), a credential a secret source logs in with (`credential.in_use`), or
+    /// a connection other connections route through as a jump host (ADR-0025,
+    /// `connection.in_use_as_hop`).
     #[error("{kind} {id} is in use")]
     InUse {
-        /// `secret_source` or `credential`.
+        /// `secret_source`, `credential` or `connection`.
         kind: &'static str,
         /// The id.
         id: String,

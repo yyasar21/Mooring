@@ -80,8 +80,27 @@ pub enum ClusterEvent {
         purpose: PromptPurpose,
         /// Always `null`.
         account: Option<PromptAccount>,
-        /// The API server certificate.
+        /// The API server certificate (`null` for a jump host's prompt).
         certificate: Option<CertificateInfo>,
+        /// ADR-0025: the jump host asking (host key, keyboard-interactive, sign-in form);
+        /// absent for the API server's certificate prompt.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// ADR-0025: progress of one jump host towards the API server (same shape as the
+    /// terminal sessions' `hop_status`).
+    HopStatus {
+        /// 0-based position in the chain.
+        hop: u8,
+        /// Hops in the chain.
+        of: u8,
+        /// `connecting` | `authenticating` | `up` | `failed`.
+        state: mooring_core::HopState,
+        /// `host:port` of the hop.
+        host: String,
+        /// Host key fingerprint once known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        peer_identity: Option<String>,
     },
     /// Ended (always last).
     Closed {
@@ -201,4 +220,20 @@ pub fn audit_event(connection: &str, e: KubeAudit) -> Option<AuditEvent> {
             return None;
         }
     })
+}
+
+impl ClusterEvent {
+    /// A jump host's event of the chain phase (ADR-0025); `None` for anything else.
+    pub fn from_hop(e: mooring_core::SessionEvent) -> Option<Self> {
+        use mooring_core::SessionEvent as E;
+        match e {
+            E::HopStatus { hop, of, state, host, peer_identity } => {
+                Some(Self::HopStatus { hop, of, state, host, peer_identity })
+            }
+            E::Prompt { id, message, secret, purpose, account, certificate, hop } => {
+                Some(Self::Prompt { id, message, secret, purpose, account, certificate, hop })
+            }
+            _ => None,
+        }
+    }
 }

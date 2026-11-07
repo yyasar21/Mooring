@@ -24,10 +24,11 @@ const MIGRATIONS: &[(u32, &str)] = &[
     (5, include_str!("../migrations/0005_connection_options.sql")),
     (6, include_str!("../migrations/0006_vsphere_sync.sql")),
     (7, include_str!("../migrations/0007_secret_sources.sql")),
+    (8, include_str!("../migrations/0008_connection_via.sql")),
 ];
 
 /// Highest schema version this build understands.
-pub const LATEST: u32 = 7;
+pub const LATEST: u32 = 8;
 
 /// First line of a migration that must run with foreign keys off.
 pub const FK_OFF_DIRECTIVE: &str = "-- mooring:foreign_keys=off";

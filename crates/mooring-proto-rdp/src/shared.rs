@@ -126,6 +126,7 @@ impl Shared {
             purpose: PromptPurpose::CertificateTrust,
             account: None,
             certificate: Some(cert),
+            hop: None,
         };
         match self.raise(event, Expect::Text).await? {
             Reply::Text(t) => {
@@ -145,6 +146,7 @@ impl Shared {
             purpose: PromptPurpose::Credential,
             account: Some(account),
             certificate: None,
+            hop: None,
         };
         self.raise(event, Expect::Credential).await
     }

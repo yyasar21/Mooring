@@ -137,6 +137,7 @@ impl Shared {
                 purpose: PromptPurpose::CertificateTrust,
                 account: None,
                 certificate: Some(info),
+                hop: None,
             })
             .await;
         matches!(reply, Some(Reply::Text(t)) if {
@@ -158,6 +159,7 @@ impl Shared {
                 purpose: PromptPurpose::Credential,
                 account: Some(account),
                 certificate: None,
+                hop: None,
             })
             .await?;
         match reply {

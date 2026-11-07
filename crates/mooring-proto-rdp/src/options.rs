@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mooring_core::options::RdpConnOptions;
+use mooring_core::transport::SharedDialer;
 
 /// The OS clipboard, implemented by the Tauri layer (`clipboard.rs`, arboard). This crate
 /// never links a clipboard library: it calls it from `spawn_blocking`. Same trait as
@@ -33,6 +34,9 @@ pub struct RdpOptions {
     /// user said `yes` to a `certificate_trust` prompt but the Tauri layer could not write the
     /// pin (`GraphicalConnect::trusted_once`).
     pub trusted_once: Option<[u8; 32]>,
+    /// ADR-0025: reach the server through this dialer (a jump-host chain) instead of direct
+    /// TCP. `None` = direct TCP with `keepalive`. Every reconnect dials again.
+    pub dialer: Option<SharedDialer>,
 }
 
 impl RdpOptions {
@@ -47,7 +51,15 @@ impl RdpOptions {
             keepalive: Some(Duration::from_secs(30)),
             client_name: "MOORING".to_owned(),
             trusted_once: None,
+            dialer: None,
         }
+    }
+
+    /// Reach the server through `dialer` (ADR-0025 jump hosts).
+    #[must_use]
+    pub fn via(mut self, dialer: SharedDialer) -> Self {
+        self.dialer = Some(dialer);
+        self
     }
 
     /// Attach the OS clipboard.

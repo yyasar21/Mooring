@@ -73,6 +73,8 @@ impl From<VaultError> for IpcError {
 impl From<StoreError> for IpcError {
     fn from(e: StoreError) -> Self {
         match e {
+            // ADR-0025: every chain rule (depth, self, duplicate, missing or non-SSH hop, cycle).
+            StoreError::Invalid { field: "via", reason } => Self::new("connection.via_invalid", reason),
             StoreError::Invalid { field, reason } => Self::invalid(field, &reason),
             StoreError::NotFound { kind: "credential" | "secret", .. } => {
                 Self::new("credential.not_found", "credential not found")
@@ -94,6 +96,10 @@ impl From<StoreError> for IpcError {
             StoreError::InUse { kind: "secret_source", .. } => {
                 Self::new("source.in_use", "the secret source is used by a reference")
             }
+            StoreError::InUse { kind: "connection", .. } => Self::new(
+                "connection.in_use_as_hop",
+                "other connections use this connection as a jump host; remove it from their chains first",
+            ),
             StoreError::InUse { .. } => {
                 Self::new("credential.in_use", "the credential is used by a secret source")
             }
@@ -138,6 +144,7 @@ fn tree_error(reason: &str) -> IpcError {
 impl From<MooringError> for IpcError {
     fn from(e: MooringError) -> Self {
         match e {
+            MooringError::Invalid { field: "via", reason } => Self::new("connection.via_invalid", reason),
             MooringError::Invalid { field, reason } => Self::invalid(field, &reason),
             MooringError::NotFound { kind, .. } => {
                 Self::new("tree.not_found", format!("{kind} not found"))
@@ -179,6 +186,8 @@ mod tests {
             (StoreError::VaultIdMismatch, "store.vault_mismatch"),
             (StoreError::InUse { kind: "secret_source", id: "x".into() }, "source.in_use"),
             (StoreError::InUse { kind: "credential", id: "x".into() }, "credential.in_use"),
+            (StoreError::InUse { kind: "connection", id: "x".into() }, "connection.in_use_as_hop"),
+            (StoreError::Invalid { field: "via", reason: "at most 3 jump hosts".into() }, "connection.via_invalid"),
             (StoreError::Corrupt { what: "id" }, "store.corrupt"),
             (
                 StoreError::Credential(CredentialError::Incompatible("x".into())),

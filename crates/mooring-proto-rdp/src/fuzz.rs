@@ -125,7 +125,7 @@ pub fn reactivation_outcome(data: &[u8]) -> Option<(u16, u16)> {
         conn: mooring_core::options::RdpConnOptions::default(),
         known_certs: "/nonexistent/known_rdp_certs".into(),
         connect_timeout: Duration::from_secs(1),
-        keepalive: None,
+        dialer: std::sync::Arc::new(crate::connect::TcpKeepaliveDialer { keepalive: None }),
         client_name: "fuzz".into(),
         desktop: DesktopSize { width: 1024, height: 768 },
         session_pin: None,

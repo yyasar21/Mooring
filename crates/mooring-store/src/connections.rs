@@ -89,6 +89,7 @@ impl Store {
             return Err(not_found("folder", &c.folder));
         }
         self.ensure_role_credentials(c)?;
+        crate::via::check_via(&self.conn, c)?;
         let mut normalised = c.clone();
         normalised.username_override.clone_from(&v.username_override);
         normalised.domain_override.clone_from(&v.domain_override);
@@ -144,6 +145,7 @@ impl Store {
         )?;
         write_tags(&tx, c.id, &v.tags)?;
         Self::write_roles(&tx, c)?;
+        crate::via::write_via(&tx, c)?;
         tx.commit()?;
         self.get_connection(c.id)
     }
@@ -180,6 +182,7 @@ impl Store {
         }
         write_tags(&tx, c.id, &v.tags)?;
         Self::write_roles(&tx, c)?;
+        crate::via::write_via(&tx, c)?;
         tx.commit()?;
         self.get_connection(c.id)
     }
@@ -201,11 +204,13 @@ impl Store {
         Ok(tags)
     }
 
-    /// Delete a connection and its tags.
+    /// Delete a connection, its tags and its own `via` chain. Refused with
+    /// `InUse { kind: "connection" }` while another connection routes through it (ADR-0025).
     pub fn delete_connection(&self, id: ConnectionId) -> Result<()> {
         if connection_source(&self.conn, id)?.is_some() {
             return Err(StoreError::SyncedReadOnly);
         }
+        self.ensure_not_a_hop(id)?;
         let n = self.conn.execute("DELETE FROM connection WHERE id = ?1", [id.to_string()])?;
         if n == 0 {
             return Err(not_found("connection", &id));
@@ -280,6 +285,7 @@ impl Store {
             domain_override: raw.domain_override,
             gateway_credential: self.role_credential(&raw.id, Role::Gateway)?,
             become_credential: self.role_credential(&raw.id, Role::Become)?,
+            via: crate::via::via_of(&self.conn, parse_id(&raw.id)?)?,
             tags,
             created_at: parse_ts(&raw.created)?,
         })

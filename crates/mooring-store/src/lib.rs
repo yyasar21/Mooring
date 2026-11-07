@@ -14,6 +14,7 @@
 //! * [`Store::create_secret_source`] — Vault / `OpenBao` secret sources (migration 0007)
 //! * [`Store::apply_inventory_diff`] — vSphere-synced, read-only subtrees (migration 0006)
 //! * [`Store::import_apply`] — one importer plan into a new root subfolder, one transaction (ADR-0019)
+//! * [`Store::connections_via`] — jump-host chains, `connection_via` (ADR-0025, migration 0008)
 
 #![forbid(unsafe_code)]
 
@@ -34,6 +35,7 @@ mod sync_rows;
 #[doc(hidden)]
 pub mod testing;
 mod util;
+mod via;
 
 use std::path::{Path, PathBuf};
 

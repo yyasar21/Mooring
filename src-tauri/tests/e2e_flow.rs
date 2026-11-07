@@ -54,6 +54,9 @@ mod support;
 // ADR-0017 S2: vault sync between two devices.
 #[path = "e2e_flow/sync.rs"]
 mod sync;
+// ADR-0025 (A5 R1): jump-host chains.
+#[path = "e2e_flow/via.rs"]
+mod via;
 #[path = "e2e_flow/vsphere.rs"]
 mod vsphere;
 

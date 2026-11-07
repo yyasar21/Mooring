@@ -44,6 +44,8 @@ test_util_pub!(updater);
 test_util_pub!(import_plans);
 // ADR-0021 (0.1.1): data / cache directories, portable marker, start-up refusals, Windows ACL.
 test_util_pub!(dirs, portable_acl, startup);
+// ADR-0025 (A5 R1): jump-host chains for SSH, RDP, VNC and Kubernetes sessions.
+test_util_pub!(hop_chain);
 // Wired into keyring enable/unlock/disable commands once review M1 is resolved (ADR-0006).
 /// Checked-in JSON lists kept in sync with the Rust source (M-8, N-14).
 #[cfg(test)]

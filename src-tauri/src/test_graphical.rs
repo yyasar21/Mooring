@@ -47,6 +47,7 @@ impl FakeConn {
             protocol: Protocol::Rdp,
             peer_identity: Some("x509 SHA256:00".into()),
             security: Some("nla".into()),
+            hop: None,
         });
     }
 

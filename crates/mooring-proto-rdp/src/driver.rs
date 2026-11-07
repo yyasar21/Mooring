@@ -119,6 +119,7 @@ impl Driver {
                         protocol: Protocol::Rdp,
                         peer_identity: Some(peer_identity(&est.fingerprint)),
                         security: Some(est.security.to_owned()),
+                        hop: None,
                     };
                     if self.shared.events.send(connected).await.is_err() {
                         return end(CloseCode::User, "closed by user");

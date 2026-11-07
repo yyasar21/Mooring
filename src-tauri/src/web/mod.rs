@@ -268,6 +268,14 @@ pub fn plan(
         if c.protocol != Protocol::Web {
             return Err(IpcError::invalid("connectionId", "not a web connection"));
         }
+        // ADR-0025 §3 (SOCKS forward on the last hop) is wave R6; until then a web
+        // connection with `via` must never open directly, around the chain.
+        if !c.via.is_empty() {
+            return Err(IpcError::new(
+                "web.via_unsupported",
+                "web pages through jump hosts are not available in this version",
+            ));
+        }
         Ok((c.name, store.connection_options(id)?))
     })?;
     let ProtocolOptions::Web(opts) = options else {

@@ -181,6 +181,9 @@ impl Store {
             Some(Some(_)) => {}
         }
         ensure_folder_editable(&tx, id)?;
+        if crate::via::subtree_hop_in_use(&tx, &id.to_string())? {
+            return Err(StoreError::InUse { kind: "connection", id: id.to_string() });
+        }
         tx.execute("DELETE FROM folder WHERE id = ?1", [id.to_string()])?;
         tx.commit()?;
         Ok(())

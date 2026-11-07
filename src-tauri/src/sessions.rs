@@ -40,6 +40,9 @@ pub enum WireEvent {
         peer_identity: Option<String>,
         /// `nla` | `tls` (RDP), `vencrypt-x509` | `vnc-auth` | `none` (VNC), `null` for SSH.
         security: Option<String>,
+        /// ADR-0025: absent for the target (the only `connected` emitted today).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
     },
     /// Terminal output, base64.
     Bytes {
@@ -68,6 +71,24 @@ pub enum WireEvent {
         account: Option<PromptAccount>,
         /// The server certificate for `purpose: certificate_trust`, `null` otherwise.
         certificate: Option<CertificateInfo>,
+        /// ADR-0025: the jump host asking (0-based); absent = the target. The dialog title is
+        /// "Hop {hop+1} of {of} — host" from the latest `hop_status` of that hop.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// ADR-0025: progress of one jump host (`session.hop` in the UI contract). Never a secret.
+    HopStatus {
+        /// 0-based position in the chain.
+        hop: u8,
+        /// Hops in the chain.
+        of: u8,
+        /// `connecting` | `authenticating` | `up` | `failed`.
+        state: mooring_core::HopState,
+        /// `host:port` of the hop as configured.
+        host: String,
+        /// Host key fingerprint once known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        peer_identity: Option<String>,
     },
     /// The connection dropped; attempt `attempt` (1-based, ≤ 6) starts in `delay_ms`
     /// (ADR-0011 `Reconnecting { attempt, delayMs }`; `snake_case` like every event field).
@@ -95,8 +116,8 @@ pub enum WireEvent {
 impl From<SessionEvent> for WireEvent {
     fn from(e: SessionEvent) -> Self {
         match e {
-            SessionEvent::Connected { protocol, peer_identity, security } => {
-                Self::Connected { protocol: protocol.name(), peer_identity, security }
+            SessionEvent::Connected { protocol, peer_identity, security, hop } => {
+                Self::Connected { protocol: protocol.name(), peer_identity, security, hop }
             }
             SessionEvent::Bytes { data } => {
                 Self::Bytes { data: base64::engine::general_purpose::STANDARD.encode(data) }
@@ -104,8 +125,11 @@ impl From<SessionEvent> for WireEvent {
             SessionEvent::DesktopResized { width, height } => {
                 Self::DesktopResized { width, height }
             }
-            SessionEvent::Prompt { id, message, secret, purpose, account, certificate } => {
-                Self::Prompt { id, message, secret, purpose, account, certificate }
+            SessionEvent::Prompt { id, message, secret, purpose, account, certificate, hop } => {
+                Self::Prompt { id, message, secret, purpose, account, certificate, hop }
+            }
+            SessionEvent::HopStatus { hop, of, state, host, peer_identity } => {
+                Self::HopStatus { hop, of, state, host, peer_identity }
             }
             SessionEvent::Closed { reason, code } => Self::Closed { reason, code },
         }
@@ -391,6 +415,7 @@ mod tests {
             protocol: Protocol::Rdp,
             peer_identity: Some("x509 SHA256:ab".into()),
             security: Some("nla".into()),
+            hop: None,
         });
         let json = serde_json::to_string(&e).expect("json");
         assert!(json.contains(r#""protocol":"rdp""#), "{json}");

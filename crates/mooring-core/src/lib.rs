@@ -12,6 +12,7 @@
 //! * [`audit`] — security events a session reports to the audit log
 //! * [`clipboard`] — the text clipboard bridge graphical sessions use
 //! * [`secret_source`] — Vault / `OpenBao` secret sources (ADR-0016)
+//! * [`transport`] — the [`transport::Dialer`] a protocol reaches its peer through (ADR-0025)
 //!
 //! Secret material lives only in `mooring-vault`; here a credential is an opaque [`model::CredentialId`].
 
@@ -29,6 +30,7 @@ pub mod model;
 pub mod options;
 pub mod secret_source;
 pub mod session;
+pub mod transport;
 pub mod tree;
 
 pub use audit::{AuditBuffer, AuthMethod, ClipboardDirection, SessionAudit};
@@ -36,10 +38,11 @@ pub use credential::{CredentialFields, CredentialKind, Role, SecretName};
 pub use error::MooringError;
 pub use frame::FrameSink;
 pub use model::{
-    is_bidi_or_invisible, validate_host, validate_name, validate_tag, Connection, ConnectionId,
-    CredentialId, Folder, FolderId, Protocol, SecretSourceId, MAX_HOST, MAX_NAME, MAX_TAG,
-    MAX_TAGS,
+    is_bidi_or_invisible, validate_host, validate_name, validate_tag, validate_via, Connection,
+    ConnectionId, CredentialId, Folder, FolderId, Protocol, SecretSourceId, MAX_HOST, MAX_NAME,
+    MAX_TAG, MAX_TAGS, MAX_VIA,
 };
 pub use options::ProtocolOptions;
-pub use session::{CloseCode, PromptPurpose, Session, SessionEvent, SessionInput};
+pub use session::{CloseCode, HopState, PromptPurpose, Session, SessionEvent, SessionInput};
+pub use transport::{BoxedStream, Dialer, Erased, SharedDialer, TcpDialer};
 pub use tree::ConnectionTree;
