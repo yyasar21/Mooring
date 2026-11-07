@@ -2,7 +2,7 @@
 
 ## 1. Install Mooring
 
-Installers are published from v0.1.0 on the
+Installers are on the
 [releases page](https://github.com/yyasar21/Mooring/releases); every file is listed in a
 `SHA256SUMS` that the release pipeline signs with Sigstore. [docs/release.md](../release.md)
 has the per-OS install steps and the verification commands.
@@ -31,7 +31,7 @@ override it:
 
 Later releases with certificates need no override and no change on your side.
 
-Until the first release, build from source with the
+To build from source instead, follow the
 [build guide](../developer-guide/building.md):
 
 ```bash

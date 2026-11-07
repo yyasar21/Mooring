@@ -1,8 +1,8 @@
 # Mooring user guide
 
 Mooring is a secure remote-access manager: an encrypted vault for your credentials, a tree of
-connections, and sessions in tabs. This guide describes what works in the current pre-release
-(Phases A1–A4). Features marked *planned* are on the [roadmap](../roadmap.md).
+connections, and sessions in tabs. This guide describes v0.1.0
+(Phase A complete). Features marked *planned* are on the [roadmap](../roadmap.md).
 
 1. [Getting started](getting-started.md) — install or build, create the vault, first SSH
    connection.

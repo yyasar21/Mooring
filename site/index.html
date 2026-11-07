@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Mooring – secure remote access manager for SSH, RDP, VNC, Kubernetes and vSphere</title>
-<meta name="description" content="Mooring is an open source, security-first remote access manager for macOS, Windows and Linux: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes and vSphere in one encrypted vault, with HashiCorp Vault / OpenBao secret references, encrypted vault sync and a hash-chained audit log. Pre-release, built in Rust and Tauri.">
+<meta name="description" content="Mooring is an open source, security-first remote access manager for macOS, Windows and Linux: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes and vSphere in one encrypted vault, with HashiCorp Vault / OpenBao secret references, encrypted vault sync and a hash-chained audit log. Built in Rust and Tauri; v0.1.0 released.">
 <link rel="canonical" href="https://yyasar21.github.io/Mooring/">
 <meta name="theme-color" content="#03070a" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f2f6f7" media="(prefers-color-scheme: light)">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mooring">
 <meta property="og:title" content="Mooring – secure remote access manager">
-<meta property="og:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Encrypted vault, Vault / OpenBao secret references, encrypted sync, tamper-evident audit log, Rust core. Pre-release ahead of v0.1.0.">
+<meta property="og:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Encrypted vault, Vault / OpenBao secret references, encrypted sync, tamper-evident audit log, Rust core. v0.1.0 released.">
 <meta property="og:url" content="https://yyasar21.github.io/Mooring/">
 <meta property="og:image" content="https://yyasar21.github.io/Mooring/assets/og.png">
 <meta property="og:image:width" content="1280">
@@ -23,7 +23,7 @@
 <meta property="og:image:alt" content="Mooring wordmark beside the app window with an SSH session open">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Mooring – secure remote access manager">
-<meta name="twitter:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Encrypted vault, Vault / OpenBao secret references, encrypted sync, tamper-evident audit log, Rust core. Pre-release ahead of v0.1.0.">
+<meta name="twitter:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Encrypted vault, Vault / OpenBao secret references, encrypted sync, tamper-evident audit log, Rust core. v0.1.0 released.">
 <meta name="twitter:image" content="https://yyasar21.github.io/Mooring/assets/og.png">
 <meta name="twitter:image:alt" content="Mooring wordmark beside the app window with an SSH session open">
 
@@ -93,7 +93,7 @@
         <a class="btn btn-primary" id="cta-download" href="#download">Download for your OS</a>
         <a class="btn btn-ghost" href="https://github.com/yyasar21/Mooring">View on GitHub</a>
       </div>
-      <p class="status-note" id="hero-status">Pre-release. Phases A1 to A3 are complete: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes, vSphere sync with power and consoles, Vault / OpenBao secret references and encrypted vault sync all work on <code>main</code> after six security reviews. Installers with Sigstore-signed checksums, the in-app updater and importers arrive with v0.1.0, which is <a href="#roadmap">in progress</a>.</p>
+      <p class="status-note" id="hero-status"><strong>v0.1.0 released.</strong> Phase A is complete: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes, vSphere sync with power and consoles, Vault / OpenBao secret references, encrypted vault sync, importers, network tools and the in-app updater, after seven security reviews. Installers carry Sigstore-signed checksums and build provenance; they are not notarized or Authenticode-signed yet. <a href="#roadmap">What comes next</a>.</p>
     </div>
     <div class="wrap wrap-wide">
       <figure class="bezel">
@@ -182,7 +182,8 @@
           <li data-status="available"><span>Command palette: open any connection by name, host or tag</span></li>
           <li data-status="available"><span>Tabs, three-pane layout, dark and light themes, keyboard-first</span></li>
           <li data-status="available"><span>Detach any session tab into its own window</span></li>
-          <li data-status="planned" data-phase="A4"><span>Import from Royal TS, Termius, mRemoteNG, PuTTY and <code>~/.ssh/config</code></span></li>
+          <li data-status="available"><span>Import from Royal TS, Remote Desktop Manager, Termius, mRemoteNG, PuTTY and <code>~/.ssh/config</code> into a dry-run plan</span></li>
+          <li data-status="available"><span>Directory import: Active Directory / OpenLDAP computers over LDAPS, folders mirroring the OU tree</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-ssh"><h3 id="fg-ssh">SSH</h3><ul>
           <li data-status="available"><span>Terminal with WebGL rendering, resize and streaming</span></li>
@@ -190,7 +191,7 @@
           <li data-status="available"><span>Host-key TOFU, OpenSSH <code>known_hosts</code> compatible, mismatch hard stop</span></li>
           <li data-status="available"><span>Local, remote and SOCKS5 port forwarding with audited exposure</span></li>
           <li data-status="available"><span>SFTP browser with streaming transfers; local paths picked in Rust, never by the WebView</span></li>
-          <li data-status="planned" data-phase="A4"><span>Network tools: TCP port check, ping and traceroute from the inspector</span></li>
+          <li data-status="available"><span>Network tools: TCP port check, ping, traceroute and read-only WireGuard status from the inspector</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-cred"><h3 id="fg-cred">Credentials and audit</h3><ul>
           <li data-status="available"><span>Typed model with 17 credential kinds, each declaring which protocols accept it</span></li>
@@ -212,11 +213,12 @@
           <li data-status="available"><span>Kubernetes: <code>exec</code> shells, log streaming and port-forward on a closed read-only route list</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-release"><h3 id="fg-release">Release</h3><ul>
-          <li data-status="available"><span>Pre-release dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed <code>SHA256SUMS</code>, SBOM and provenance</span></li>
-          <li data-status="available"><span>37 fuzz targets for protocol parsers and API responses, run nightly</span></li>
+          <li data-status="available"><span>dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed <code>SHA256SUMS</code>, SBOM, SLSA provenance and a reproducible-build check</span></li>
+          <li data-status="available"><span>55 fuzz targets for protocol parsers, API responses, import formats and LDAP, run nightly</span></li>
           <li data-status="planned"><span>Notarized / Authenticode-signed installers (after v0.1.0, once certificates exist)</span></li>
-          <li data-status="planned" data-phase="A4"><span>In-app updater (update packages signed with the project key, verified before install)</span></li>
-          <li data-status="planned" data-phase="A4"><span>Homebrew tap; winget after v0.1.0</span></li>
+          <li data-status="available"><span>In-app updater: update packages signed with the project key and verified before install; never installs by itself</span></li>
+          <li data-status="available"><span>Homebrew tap (<code>brew install --cask yyasar21/mooring/mooring</code>)</span></li>
+          <li data-status="planned"><span>winget</span></li>
         </ul></section>
       </div>
     </div>
@@ -275,7 +277,7 @@
       <div class="section-head">
         <h2 id="dl-title">Download</h2>
         <p id="dl-status" role="status">Checking GitHub for the latest release.</p>
-        <p class="status-note">Every build before v0.1.0 is a pre-release: the bundles are unsigned or ad-hoc signed and there is no in-app updater yet. Verify the cosign signature on <code>SHA256SUMS</code> before you install.</p>
+        <p class="status-note">Installers are not notarized or Authenticode-signed yet (no certificates): macOS shows the Gatekeeper warning once (right-click → Open), Windows SmartScreen asks once (More info → Run anyway). Verify the cosign signature on <code>SHA256SUMS</code> before you install; <code>scripts/release/verify-release.sh</code> does it end to end.</p>
       </div>
       <div class="platforms">
         <section class="platform hud" id="os-macos" aria-labelledby="pl-mac">
@@ -352,15 +354,15 @@
         <li data-state="done"><h3>A1 <span>Vault, connection tree and SSH</span></h3><p class="state">Done, exit 2026-11-04</p><p>Vault with auto-lock, folder tree with inheritance, 15 typed credential kinds, SSH with TOFU, port forwarding and SFTP, audit viewer and syslog mirror. Reviews 1 to 4.</p></li>
         <li data-state="done"><h3>A2 <span>RDP, VNC and web sessions</span></h3><p class="state">Done, exit 2026-11-04</p><p>IronRDP with NLA and certificate TOFU, an own RFB 3.8 client with VeNCrypt, isolated web sessions, detachable tabs, reconnect and screenshots. Review 5.</p></li>
         <li data-state="done"><h3>A3 <span>Infrastructure integrations</span></h3><p class="state">Done, exit 2026-11-05</p><p>vSphere inventory sync with power actions and consoles, read-only Kubernetes sessions, Vault / OpenBao secret references, encrypted vault sync with a join flow. Review 6.</p></li>
-        <li data-state="now"><h3>A4 <span>Release v0.1.0</span></h3><p class="state">In progress</p>
+        <li data-state="done"><h3>A4 <span>Release v0.1.0</span></h3><p class="state">Done, released 2026-11-07</p>
           <ul class="bullets">
             <li>Installers for macOS, Windows and Linux with cosign-signed checksums, SBOMs and build provenance (notarization and Authenticode follow once certificates exist)</li>
             <li>In-app updater: packages signed with the project key and verified before install; checks only when you ask (background check is opt-in)</li>
-            <li>Importers for Royal TS, Termius, mRemoteNG, PuTTY and OpenSSH config</li>
-            <li>Network tools: TCP port check, ping and traceroute</li>
-            <li>Full security pass with zero critical or high findings; clean installs on fresh machines</li>
+            <li>Importers for Royal TS, RDM, Termius, mRemoteNG, PuTTY, OpenSSH config and LDAPS directories</li>
+            <li>Network tools: TCP port check, ping, traceroute, WireGuard status</li>
+            <li>Security review 7 (approve with nits), 55 fuzz targets, reproducible-build check</li>
           </ul></li>
-        <li><h3>After A4 <span>Unlock factors and more</span></h3><p class="state">Planned</p><p>FIDO2 <code>hmac-secret</code> and biometric unlock factors, jump hosts as connections, dynamic Vault secret engines (database, SSH OTP, PKI), winget.</p></li>
+        <li data-state="now"><h3>Next <span>0.1.x and unlock factors</span></h3><p class="state">Planned</p><p>FIDO2 <code>hmac-secret</code> and biometric unlock factors, jump hosts as connections, dynamic Vault secret engines (database, SSH OTP, PKI), winget.</p></li>
         <li><h3>B <span>Agent and relay</span></h3><p class="state">Planned</p><p>Mooring's own remote-desktop agent and an end-to-end encrypted relay.</p></li>
       </ol>
     </div>
@@ -371,10 +373,10 @@
       <h2 id="faq-title">Questions</h2>
       <div class="faq">
         <details><summary>Is Mooring free?</summary><p>Yes. It is open source under the MIT License. There is no paid tier, no account and no telemetry.</p></details>
-        <details><summary>Is it ready for production use?</summary><p>Not yet. Mooring is pre-release software: everything through phase A3 works on <code>main</code> and has passed six security reviews, but installers are not code-signed and there is no updater until v0.1.0. Keep your existing tool alongside it for now.</p></details>
+        <details><summary>Is it ready for production use?</summary><p>v0.1.0 is the first release: everything in Phase A has passed seven security reviews and ships with signed checksums, provenance and an updater. It is still a 0.x: installers are not notarized or Authenticode-signed yet, and the established tools do more. Keep your existing tool alongside it until you trust it.</p></details>
         <details><summary>Does Mooring send my data anywhere?</summary><p>No. The vault, database, audit log and trusted host keys stay on your machine, and Mooring connects only to the hosts and services you open — plus the GitHub release page when you check for updates. Vault sync is off until you configure a bucket; when on, it uploads one blob encrypted on your device, and the secrets fetched from Vault or OpenBao are never written to disk.</p></details>
         <details><summary>What if I forget my master password?</summary><p>Your secrets cannot be recovered, by you or by the developers. Names, hosts and tags remain readable so you can rebuild the tree, but passwords and keys are gone. Keep the master password in a password manager or a safe written copy.</p></details>
-        <details><summary>Can I use my existing SSH keys and known_hosts?</summary><p>Paste a private key into an SSH key credential, or use your ssh-agent. Mooring reads the OpenSSH <code>known_hosts</code> format. Importing from <code>~/.ssh</code> with a file picker is planned.</p></details>
+        <details><summary>Can I use my existing SSH keys and known_hosts?</summary><p>Paste a private key into an SSH key credential, or use your ssh-agent. Mooring reads the OpenSSH <code>known_hosts</code> format. Import your <code>~/.ssh/config</code> hosts with the importer (Connections → Import).</p></details>
         <details><summary>Can Mooring change my cluster or my VMs?</summary><p>Not the cluster. The Kubernetes client can only list, watch, read logs, exec and port-forward; everything else is rejected before it leaves your machine, whatever your token allows. On vSphere the inventory is read-only; the only writes are the VM power actions you turn on per connection, each confirmed in a native dialog and written to the audit log.</p></details>
         <details><summary>Which tools can I import from?</summary><p>Importers for Royal TS, Termius, mRemoteNG, PuTTY and <code>~/.ssh/config</code> are part of v0.1.0 and are not in a build yet. Follow progress on the <a class="link" href="#roadmap">roadmap</a>.</p></details>
         <details><summary>How do I report a security problem?</summary><p>Privately, through GitHub Security Advisories, as described in the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/SECURITY.md">security policy</a>. Please do not open a public issue.</p></details>

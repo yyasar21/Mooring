@@ -14,14 +14,15 @@ administer. Open source, cross-platform, built in Rust.**
 
 ![Mooring with two SSH sessions open: connection tree on the left, terminal in the middle, host details and the linked credential on the right](docs/assets/hero.png)
 
-> **Project status: pre-release (Phases A1–A3 complete; A4 = release v0.1.0 in progress).**
+> **Project status: v0.1.0 released (2026-11-07) — Phase A complete.**
 > The encrypted vault, connection tree, typed credentials, SSH / RDP / VNC / isolated web
 > sessions, read-only Kubernetes sessions, vSphere inventory sync with VM power and consoles,
-> HashiCorp Vault / OpenBao secret references, encrypted vault sync to S3, auto-lock, the audit
-> log and its syslog mirror all work on `main` and have passed six security reviews. Signed
-> installers (cosign-signed checksums; notarization later), importers and the in-app updater are on the
-> [roadmap](docs/roadmap.md) for v0.1.0.
-> Pre-release builds are on the [releases page](https://github.com/yyasar21/Mooring/releases).
+> HashiCorp Vault / OpenBao secret references, encrypted vault sync to S3, importers (Royal TS,
+> RDM, Termius, mRemoteNG, PuTTY, `~/.ssh/config`, LDAPS directory), network tools, the in-app
+> updater, auto-lock, the audit log and its syslog mirror have passed seven security reviews.
+> Installers carry Sigstore-signed checksums and build provenance; they are not notarized or
+> Authenticode-signed yet (no certificates). Downloads: the
+> [releases page](https://github.com/yyasar21/Mooring/releases/latest).
 
 ## Contents
 
@@ -101,10 +102,11 @@ Legend: ✅ available on `main` · 🚧 in progress · 🗓 planned (see [roadma
 | Kubernetes | Contexts from kubeconfig or token, pod browser with live watch, RBAC self-review, `exec` shells, logs, port-forward — a closed read-only route list | ✅ [ADR-0014](docs/adr/0014-kubernetes-sessions.md) |
 | Integrations | **Bring your own secret manager**: HashiCorp Vault / OpenBao (KV v2; token, AppRole or OIDC sign-in) — a connection's password, key or kubeconfig is fetched at connect time and never stored in Mooring ([setup guide](docs/user-guide/external-secrets.md)) | ✅ [ADR-0016](docs/adr/0016-external-secrets.md) |
 | Integrations | Encrypted vault sync to S3-compatible storage (three-way merge, fork/rollback hard stops, join flow) | ✅ [ADR-0017](docs/adr/0017-vault-sync-and-signin.md) |
-| Import | Royal TS, Termius, mRemoteNG, PuTTY sessions | 🗓 A4 |
-| Release | dmg/pkg, exe/msi, deb with cosign-signed checksums, SBOM and provenance | ✅ pre-release |
-| Release | Installers with Sigstore-signed checksums and provenance, Homebrew tap, in-app updater (opt-in checks); notarization / Authenticode once certificates exist | 🗓 A4 |
-| QA | 37 cargo-fuzz targets (protocol parsers, kubeconfig, Vault/vCenter/S3 responses, sync blobs) + nightly | ✅ |
+| Import | Royal TS, Remote Desktop Manager, Termius, mRemoteNG, PuTTY, OpenSSH `~/.ssh/config`; Active Directory / OpenLDAP computers over LDAPS — all into a dry-run plan ([guide](docs/user-guide/importing.md)) | ✅ [ADR-0019](docs/adr/0019-importers-and-onboarding.md) |
+| Tools | TCP port check, ping, traceroute, read-only WireGuard status from the inspector (fixed paths, no shell, capped output) | ✅ [ADR-0020](docs/adr/0020-network-tools.md) |
+| Release | dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed checksums, SBOM, SLSA provenance and a reproducible-build check; Homebrew tap | ✅ [ADR-0018](docs/adr/0018-release-v0-1-0.md) |
+| Release | In-app updater: on-demand checks, packages signed with the project key and verified before install, never auto-installs ([guide](docs/user-guide/updates.md)); notarization / Authenticode once certificates exist | ✅ / 🗓 |
+| QA | 55 cargo-fuzz targets (protocol parsers, kubeconfig, Vault/vCenter/S3 responses, sync blobs, import formats, LDAP BER) + nightly | ✅ |
 
 ## How Mooring compares
 
@@ -127,13 +129,13 @@ November 2026. Check the vendor's site for current details.
 | Public source code | ✅ | — | — | ✅ | — |
 | Public threat model and security reviews | ✅ | — | — | — | — |
 
-Mooring targets all three desktop platforms from one codebase; installers arrive with v0.1.0.
+Mooring targets all three desktop platforms from one codebase.
 Mooring's angle is narrow on purpose: a single-user, local-first vault with documented
 cryptography, an auditable Rust core and no account or cloud service required.
 
 ## Install
 
-Installers ship with **v0.1.0** (Phase A4), with Sigstore-signed checksums and build provenance; they are not notarized or Authenticode-signed yet. Until then, [build from source](#build-from-source).
+Installers for every platform are on the [releases page](https://github.com/yyasar21/Mooring/releases/latest), with Sigstore-signed checksums and build provenance; they are not notarized or Authenticode-signed yet (macOS shows the Gatekeeper warning once — right-click → Open; Windows SmartScreen → More info → Run anyway), or [build from source](#build-from-source).
 Release details and verification steps live in [docs/release.md](docs/release.md).
 
 | OS | Package | Command / file |

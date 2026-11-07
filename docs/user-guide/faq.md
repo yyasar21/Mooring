@@ -7,9 +7,11 @@ account and no telemetry.
 
 ## Is it ready for production use?
 
-Not yet. Mooring is pre-release software in Phase A1: the vault, connection tree and SSH are
-working and reviewed, but there are no signed releases until v0.1.0. Keep your existing tool
-alongside it for now.
+v0.1.0 is the first release: everything in Phase A (vault, SSH, RDP, VNC, web sessions,
+Kubernetes, vSphere, Vault / OpenBao references, sync, importers, updater) has passed seven
+security reviews and ships with Sigstore-signed checksums and build provenance. It is still a
+0.x: installers are not notarized or Authenticode-signed yet, and the established tools do
+more. Keep your existing tool alongside it until you trust it.
 
 ## Does Mooring send my data anywhere?
 
