@@ -11,7 +11,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-mooring-core = { path = "../mooring-core", version = "0.1.1-rc.1" }
+mooring-core = { path = "../mooring-core", version = "0.1.1-rc.2" }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

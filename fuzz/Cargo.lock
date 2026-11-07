@@ -2539,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-core"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "async-trait",
  "data-encoding",
@@ -2586,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-http"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2614,7 +2614,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-import"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "bytes",
  "flate2",
@@ -2634,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-net"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-kube"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-rdp"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "async-trait",
  "ironrdp-cliprdr",
@@ -2702,7 +2702,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-ssh"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "async-trait",
  "hmac 0.13.0",
@@ -2720,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-proto-vnc"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "async-trait",
  "des",
@@ -2739,7 +2739,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-secrets"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "bytes",
  "hex",
@@ -2756,7 +2756,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-store"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "mooring-core",
  "mooring-vault",
@@ -2772,7 +2772,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-sync"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2796,7 +2796,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-vault"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "age",
  "argon2 0.5.3",
@@ -2817,7 +2817,7 @@ dependencies = [
 
 [[package]]
 name = "mooring-vsphere"
-version = "0.1.1-rc.1"
+version = "0.1.1-rc.2"
 dependencies = [
  "base64 0.23.1",
  "bytes",

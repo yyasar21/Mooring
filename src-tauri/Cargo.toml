@@ -26,20 +26,20 @@ tauri-plugin-dialog = "2"  # ADR-0010 / review 4 B-4: native pickers opened from
 # registered only when `plugins.updater.pubkey` is set. `zip` (v1 bundles) dropped on purpose.
 tauri-plugin-updater = { version = "=2.14.1", default-features = false, features = ["rustls-tls", "system-proxy"] }
 semver = "1" # ADR-0018 §3: strict version comparison of the update manifest (already in the tree via tauri)
-mooring-core = { path = "../crates/mooring-core", version = "0.1.1-rc.1" }
-mooring-vault = { path = "../crates/mooring-vault", version = "0.1.1-rc.1" }
-mooring-audit = { path = "../crates/mooring-audit", version = "0.1.1-rc.1" }
-mooring-store = { path = "../crates/mooring-store", version = "0.1.1-rc.1" }
-mooring-proto-ssh = { path = "../crates/mooring-proto-ssh", version = "0.1.1-rc.1" }
-mooring-proto-rdp = { path = "../crates/mooring-proto-rdp", version = "0.1.1-rc.1" } # ADR-0011: RDP sessions (IronRDP); R-RDP-FFI tree accepted by the owner
-mooring-proto-vnc = { path = "../crates/mooring-proto-vnc", version = "0.1.1-rc.1" } # ADR-0012: VNC sessions (own RFB 3.8 client)
-mooring-proto-kube = { path = "../crates/mooring-proto-kube", version = "0.1.1-rc.1" } # ADR-0014 K4: read-only Kubernetes sessions (K3 crate, reviewed with K3)
-mooring-http = { path = "../crates/mooring-http", version = "0.1.1-rc.1" } # ADR-0014 K4: HttpConfig template for the kube client; ADR-0017 S2: trust-prompt errors of the sync Gate; ADR-0015 V2: HttpConfig / trust prompt of the vCenter client (K1 crate)
-mooring-sync = { path = "../crates/mooring-sync", version = "0.1.1-rc.1" } # ADR-0017 S2: vault sync commands (internal crate)
-mooring-vsphere = { path = "../crates/mooring-vsphere", version = "0.1.1-rc.1" } # ADR-0015 V2: inventory sync, power, consoles (workspace crate, no new third-party code)
-mooring-secrets = { path = "../crates/mooring-secrets", version = "0.1.1-rc.1" } # ADR-0016 E2: Vault / OpenBao resolver (E1 crate, no third-party dependency)
-mooring-net = { path = "../crates/mooring-net", version = "0.1.1-rc.1" } # ADR-0020 N1: TCP check, ping / traceroute / wg show runners (workspace crate, no new third-party code)
-mooring-import = { path = "../crates/mooring-import", version = "0.1.1-rc.1", features = ["directory"] } # ADR-0019 I1: file importers (workspace crate; quick-xml/flate2 already in the tree); I2: LDAPS directory importer (lber + tokio-rustls, in the tree)
+mooring-core = { path = "../crates/mooring-core", version = "0.1.1-rc.2" }
+mooring-vault = { path = "../crates/mooring-vault", version = "0.1.1-rc.2" }
+mooring-audit = { path = "../crates/mooring-audit", version = "0.1.1-rc.2" }
+mooring-store = { path = "../crates/mooring-store", version = "0.1.1-rc.2" }
+mooring-proto-ssh = { path = "../crates/mooring-proto-ssh", version = "0.1.1-rc.2" }
+mooring-proto-rdp = { path = "../crates/mooring-proto-rdp", version = "0.1.1-rc.2" } # ADR-0011: RDP sessions (IronRDP); R-RDP-FFI tree accepted by the owner
+mooring-proto-vnc = { path = "../crates/mooring-proto-vnc", version = "0.1.1-rc.2" } # ADR-0012: VNC sessions (own RFB 3.8 client)
+mooring-proto-kube = { path = "../crates/mooring-proto-kube", version = "0.1.1-rc.2" } # ADR-0014 K4: read-only Kubernetes sessions (K3 crate, reviewed with K3)
+mooring-http = { path = "../crates/mooring-http", version = "0.1.1-rc.2" } # ADR-0014 K4: HttpConfig template for the kube client; ADR-0017 S2: trust-prompt errors of the sync Gate; ADR-0015 V2: HttpConfig / trust prompt of the vCenter client (K1 crate)
+mooring-sync = { path = "../crates/mooring-sync", version = "0.1.1-rc.2" } # ADR-0017 S2: vault sync commands (internal crate)
+mooring-vsphere = { path = "../crates/mooring-vsphere", version = "0.1.1-rc.2" } # ADR-0015 V2: inventory sync, power, consoles (workspace crate, no new third-party code)
+mooring-secrets = { path = "../crates/mooring-secrets", version = "0.1.1-rc.2" } # ADR-0016 E2: Vault / OpenBao resolver (E1 crate, no third-party dependency)
+mooring-net = { path = "../crates/mooring-net", version = "0.1.1-rc.2" } # ADR-0020 N1: TCP check, ping / traceroute / wg show runners (workspace crate, no new third-party code)
+mooring-import = { path = "../crates/mooring-import", version = "0.1.1-rc.2", features = ["directory"] } # ADR-0019 I1: file importers (workspace crate; quick-xml/flate2 already in the tree); I2: LDAPS directory importer (lber + tokio-rustls, in the tree)
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }

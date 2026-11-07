@@ -16,7 +16,7 @@ directory = ["dep:bytes", "dep:lber", "dep:mooring-http", "dep:rustls", "dep:tok
 workspace = true
 
 [dependencies]
-mooring-core = { path = "../mooring-core", version = "0.1.1-rc.1" }
+mooring-core = { path = "../mooring-core", version = "0.1.1-rc.2" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -35,7 +35,7 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 # ServerName and to classify a handshake failure; tokio for the task + deadline. All in the tree.
 bytes = { version = "1", optional = true }
 lber = { workspace = true, optional = true }
-mooring-http = { path = "../mooring-http", version = "0.1.1-rc.1", optional = true }
+mooring-http = { path = "../mooring-http", version = "0.1.1-rc.2", optional = true }
 rustls = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }

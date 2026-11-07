@@ -8,7 +8,7 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
-## [0.1.1-rc.1] - 2026-11-07
+## [0.1.1-rc.2] - 2026-11-07
 
 ### Added
 
