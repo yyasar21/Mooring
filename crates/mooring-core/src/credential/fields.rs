@@ -69,6 +69,7 @@ fields_enum!(
     SudoBecome(SudoBecomeFields),
     VaultApprole(VaultApproleFields),
     S3AccessKey(S3AccessKeyFields),
+    BitwardenAccessToken(BitwardenAccessTokenFields),
 );
 
 fn typed<T: DeserializeOwned>(v: Value) -> Result<T, CredentialError> {

@@ -20,6 +20,8 @@ pub enum Category {
     Shape,
     /// The Mooring vault is locked, so the login material cannot be opened.
     Locked,
+    /// The `bws` CLI is missing, too old, failed or misbehaved (ADR-0026 §4).
+    Tool,
 }
 
 impl Category {
@@ -34,6 +36,7 @@ impl Category {
             Self::NotFound => "not_found",
             Self::Shape => "shape",
             Self::Locked => "locked",
+            Self::Tool => "tool",
         }
     }
 }
@@ -72,6 +75,31 @@ pub enum SecretsError {
     /// The request was refused before anything was sent (`input.invalid`).
     #[error("invalid {0}")]
     Invalid(&'static str),
+    /// The engine cannot serve this use (`credential.external_engine`, ADR-0026 §1).
+    #[error("the secret engine cannot be used here: {0}")]
+    Engine(&'static str),
+    /// A dynamic secret came without a usable lease, or its lease could not be kept
+    /// (`secret.lease_failed`). The credential is not used.
+    #[error("the secret lease failed: {0}")]
+    Lease(&'static str),
+    /// No `bws` at any of the fixed paths (`secret.tool_missing`).
+    #[error("the bws CLI was not found at a fixed location")]
+    ToolMissing,
+    /// `bws --version` is older than 1.0 or unreadable (`secret.tool_version`).
+    #[error("the bws CLI version is not supported (1.0 or later is required)")]
+    ToolVersion,
+    /// `bws` failed: exit status, deadline or output cap (`secret.tool_failed`). Its output is
+    /// never echoed.
+    #[error("the bws CLI failed ({detail})")]
+    ToolFailed {
+        /// Exit code, when it exited.
+        exit: Option<i32>,
+        /// Static, value-free detail.
+        detail: &'static str,
+    },
+    /// The reference's provider does not match the source kind (`source.kind_unsupported`).
+    #[error("the secret source cannot serve this reference ({0})")]
+    KindUnsupported(&'static str),
 }
 
 fn describe(missing: &[String], extra: &[String], invalid: Option<&String>) -> String {
@@ -110,6 +138,12 @@ impl SecretsError {
             Self::NotFound => "credential.external_not_found",
             Self::Shape { .. } => "credential.external_shape",
             Self::Invalid(_) => "input.invalid",
+            Self::Engine(_) => "credential.external_engine",
+            Self::Lease(_) => "secret.lease_failed",
+            Self::ToolMissing => "secret.tool_missing",
+            Self::ToolVersion => "secret.tool_version",
+            Self::ToolFailed { .. } => "secret.tool_failed",
+            Self::KindUnsupported(_) => "source.kind_unsupported",
         }
     }
 
@@ -121,7 +155,12 @@ impl SecretsError {
             Self::Trust(_) => Category::Tls,
             Self::RootToken => Category::AuthFailed,
             Self::NotFound => Category::NotFound,
-            Self::Shape { .. } | Self::Invalid(_) => Category::Shape,
+            Self::Shape { .. }
+            | Self::Invalid(_)
+            | Self::Engine(_)
+            | Self::Lease(_)
+            | Self::KindUnsupported(_) => Category::Shape,
+            Self::ToolMissing | Self::ToolVersion | Self::ToolFailed { .. } => Category::Tool,
         }
     }
 
@@ -278,6 +317,17 @@ mod tests {
             s.to_string(),
             "the secret does not fit the target kind: missing password; unexpected note"
         );
+        for (e, code) in [
+            (SecretsError::Engine("x"), "credential.external_engine"),
+            (SecretsError::Lease("x"), "secret.lease_failed"),
+            (SecretsError::ToolMissing, "secret.tool_missing"),
+            (SecretsError::ToolVersion, "secret.tool_version"),
+            (SecretsError::ToolFailed { exit: Some(1), detail: "x" }, "secret.tool_failed"),
+            (SecretsError::KindUnsupported("x"), "source.kind_unsupported"),
+        ] {
+            assert_eq!(e.code(), code);
+        }
+        assert_eq!(SecretsError::ToolMissing.category().as_str(), "tool");
         for cat in [Category::Network, Category::Locked, Category::Tls] {
             let e = SecretsError::unavailable(cat, "x");
             assert_eq!(e.code(), "credential.external_unavailable");

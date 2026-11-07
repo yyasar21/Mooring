@@ -63,14 +63,9 @@ fn approle_login(r: &'static str, s: &'static str) -> impl LoginProvider {
 }
 
 fn ext(source: &SecretSource, reference: &str, kind: CredentialKind) -> ExternalRefFields {
-    ExternalRefFields {
-        provider: RefProvider::Vault,
-        reference: reference.into(),
-        target_kind: kind,
-        source: Some(source.id),
-        version: None,
-        field_map: None,
-    }
+    let mut f = ExternalRefFields::new(RefProvider::Vault, reference.into(), kind);
+    f.source = Some(source.id);
+    f
 }
 
 fn state_with_db() -> State {

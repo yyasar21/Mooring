@@ -188,6 +188,18 @@ pub enum RefProvider {
     Bitwarden,
 }
 
+impl RefProvider {
+    /// Wire name (`vault`, `onepassword`, `bitwarden`).
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Vault => "vault",
+            Self::Onepassword => "onepassword",
+            Self::Bitwarden => "bitwarden",
+        }
+    }
+}
+
 /// `external_ref` (ADR-0009 §1, amended by ADR-0016 §2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -207,12 +219,98 @@ pub struct ExternalRefFields {
     /// Renames: `{ <target kind field or secret name>: <KV key> }`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field_map: Option<BTreeMap<String, String>>,
+    /// Vault secret engine (ADR-0026 §1); `kv2` when absent (stored rows stay unchanged).
+    #[serde(default, skip_serializing_if = "VaultEngine::is_kv2")]
+    pub engine: VaultEngine,
+    /// `ssh_sign`: `valid_principals` (≤ 16, ≤ 64 B each).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principals: Option<Vec<String>>,
+    /// `ssh_sign` / `pki`: requested TTL in seconds (≤ 24 h).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u64>,
+    /// `pki`: `common_name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub common_name: Option<String>,
+    /// `pki`: `alt_names` (≤ 16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_names: Option<Vec<String>>,
+    /// `ssh_otp`: the login the one-time password is issued for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+}
+
+impl ExternalRefFields {
+    /// A reference with every optional field unset (KV v2, latest version).
+    #[must_use]
+    pub fn new(provider: RefProvider, reference: String, target_kind: CredentialKind) -> Self {
+        Self {
+            provider,
+            reference,
+            target_kind,
+            source: None,
+            version: None,
+            field_map: None,
+            engine: VaultEngine::Kv2,
+            principals: None,
+            ttl: None,
+            common_name: None,
+            alt_names: None,
+            username: None,
+        }
+    }
+}
+
+/// Vault secret engine of an `external_ref` (ADR-0026 §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VaultEngine {
+    /// KV v2 (`GET <mount>/data/<path>`).
+    #[default]
+    Kv2,
+    /// Dynamic database credentials (`<mount>/creds/<role>`, leased).
+    Database,
+    /// SSH CA signing of the SSH key credential's public key (`<mount>/sign/<role>`).
+    SshSign,
+    /// SSH one-time password (`<mount>/creds/<role>`).
+    SshOtp,
+    /// X.509 issuance (`<mount>/issue/<role>`).
+    Pki,
+}
+
+impl VaultEngine {
+    /// Every engine.
+    pub const ALL: [Self; 5] = [Self::Kv2, Self::Database, Self::SshSign, Self::SshOtp, Self::Pki];
+
+    /// Wire name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Kv2 => "kv2",
+            Self::Database => "database",
+            Self::SshSign => "ssh_sign",
+            Self::SshOtp => "ssh_otp",
+            Self::Pki => "pki",
+        }
+    }
+
+    /// `true` for the default engine.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if signature
+    #[must_use]
+    pub const fn is_kv2(&self) -> bool {
+        matches!(self, Self::Kv2)
+    }
 }
 
 /// `vault_approle`: no plain fields; `role_id` and `secret_id` are both sealed (ADR-0016 §1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct VaultApproleFields {}
+
+/// `bitwarden_access_token`: no plain fields; the machine access token is sealed
+/// (ADR-0026 §4). Valid only as a secret-source login.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct BitwardenAccessTokenFields {}
 
 /// `s3_access_key` (ADR-0017 §4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

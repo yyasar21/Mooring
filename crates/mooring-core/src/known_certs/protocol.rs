@@ -27,12 +27,22 @@ pub enum CertProtocol {
     Sync,
     /// `known_ldap_certs`: LDAPS directory servers of the importer (ADR-0019 §4).
     Ldap,
+    /// `known_onepassword_certs`: 1Password Connect servers (ADR-0026 §3).
+    Onepassword,
 }
 
 impl CertProtocol {
     /// Every store, in a stable order.
-    pub const ALL: [Self; 7] =
-        [Self::Rdp, Self::Vnc, Self::Kube, Self::Vsphere, Self::Vault, Self::Sync, Self::Ldap];
+    pub const ALL: [Self; 8] = [
+        Self::Rdp,
+        Self::Vnc,
+        Self::Kube,
+        Self::Vsphere,
+        Self::Vault,
+        Self::Sync,
+        Self::Ldap,
+        Self::Onepassword,
+    ];
 
     /// File name under the app data directory.
     pub const fn file_name(self) -> &'static str {
@@ -44,6 +54,7 @@ impl CertProtocol {
             Self::Vault => "known_vault_certs",
             Self::Sync => "known_sync_certs",
             Self::Ldap => "known_ldap_certs",
+            Self::Onepassword => "known_onepassword_certs",
         }
     }
 
@@ -57,6 +68,7 @@ impl CertProtocol {
             Self::Vault => "vault",
             Self::Sync => "sync",
             Self::Ldap => "ldap",
+            Self::Onepassword => "onepassword",
         }
     }
 
@@ -69,7 +81,7 @@ impl CertProtocol {
             Self::Vnc => Some(Protocol::Vnc),
             Self::Kube => Some(Protocol::Kubernetes),
             Self::Vsphere => Some(Protocol::VsphereConsole),
-            Self::Vault | Self::Sync | Self::Ldap => None,
+            Self::Vault | Self::Sync | Self::Ldap | Self::Onepassword => None,
         }
     }
 
@@ -94,6 +106,7 @@ mod tests {
         assert_eq!(CertProtocol::Vault.file_name(), "known_vault_certs");
         assert_eq!(CertProtocol::Sync.file_name(), "known_sync_certs");
         assert_eq!(CertProtocol::Ldap.file_name(), "known_ldap_certs");
+        assert_eq!(CertProtocol::Onepassword.file_name(), "known_onepassword_certs");
         for p in CertProtocol::ALL {
             let json = serde_json::to_value(p).expect("json");
             assert_eq!(json, serde_json::json!(p.name()));

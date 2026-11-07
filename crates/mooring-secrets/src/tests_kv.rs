@@ -35,14 +35,9 @@ fn st() -> State {
 }
 
 fn ext(src: &SecretSource, reference: &str, kind: CredentialKind) -> ExternalRefFields {
-    ExternalRefFields {
-        provider: RefProvider::Vault,
-        reference: reference.into(),
-        target_kind: kind,
-        source: Some(src.id),
-        version: None,
-        field_map: None,
-    }
+    let mut f = ExternalRefFields::new(RefProvider::Vault, reference.into(), kind);
+    f.source = Some(src.id);
+    f
 }
 
 fn token_src(e: &crate::tests::Env) -> SecretSource {

@@ -5,8 +5,9 @@
 //! ```text
 //! secret_source_list()                         -> SecretSource[]
 //! secret_source_get({ id })                    -> SecretSource
-//! secret_source_create({ name, address, namespace?, authMethod, authMount?, credentialId?,
-//!                        oidcRole?, options? }) -> SecretSource
+//! secret_source_create({ kind?, name, address, namespace?, authMethod, authMount?,
+//!                        credentialId?, oidcRole?, options? }) -> SecretSource
+//!   # kind: vault (default) | onepassword | bitwarden (ADR-0026); options.bwsPath (bitwarden)
 //! secret_source_update({ id, ...same })        -> SecretSource     # forgets the cached token
 //! secret_source_delete({ id })                 -> null             # source.in_use while referenced
 //! secret_source_test({ id })                   -> SourceTest
@@ -16,7 +17,7 @@
 //! The OIDC commands are in [`super::secret_sources_oidc`].
 
 use mooring_audit::AuditEvent;
-use mooring_core::credential::{CredentialFields, RefProvider};
+use mooring_core::credential::CredentialFields;
 use mooring_core::secret_source::{SecretSource, SecretSourceInput};
 use mooring_core::SecretSourceId;
 use serde::Serialize;
@@ -41,6 +42,8 @@ pub struct SourceOptionsDto {
     pub allow_http: bool,
     /// Extra OIDC window origins.
     pub allowed_origins: Vec<String>,
+    /// Bitwarden: the chosen fixed `bws` location (`null` = the first that exists).
+    pub bws_path: Option<String>,
 }
 
 /// One source on the wire (no secret).
@@ -51,7 +54,7 @@ pub struct SecretSourceDto {
     pub id: String,
     /// Name.
     pub name: String,
-    /// Always `vault`.
+    /// `vault` | `onepassword` | `bitwarden`.
     pub kind: &'static str,
     /// `https://host[:port][/prefix]`.
     pub address: String,
@@ -82,7 +85,7 @@ impl From<&SecretSource> for SecretSourceDto {
         Self {
             id: s.id.to_string(),
             name: s.name.clone(),
-            kind: "vault",
+            kind: s.kind.name(),
             address: s.address.clone(),
             namespace: s.namespace.clone(),
             auth_method: s.auth.method().name(),
@@ -93,6 +96,7 @@ impl From<&SecretSource> for SecretSourceDto {
                 ca_pem: s.options.ca_pem.clone(),
                 allow_http: s.options.allow_http,
                 allowed_origins: s.options.allowed_origins.clone(),
+                bws_path: s.options.bws_path.clone(),
             },
             created_at: dto::ts(s.created_at),
             updated_at: dto::ts(s.updated_at),
@@ -154,8 +158,8 @@ fn parse_input(input: &serde_json::Value) -> IpcResult<SecretSourceInput> {
     }
     // serde messages name the field, never the value of a string.
     serde_json::from_value(input.clone()).map_err(|e| {
-        const FIELDS: [&str; 11] = ["name", "address", "namespace", "authMethod", "authMount",
-            "credentialId", "oidcRole", "options", "caPem", "allowHttp", "allowedOrigins"];
+        const FIELDS: [&str; 13] = ["kind", "name", "address", "namespace", "authMethod", "authMount",
+            "credentialId", "oidcRole", "options", "caPem", "allowHttp", "allowedOrigins", "bwsPath"];
         let text = e.to_string();
         let field = text.split('`').find(|t| FIELDS.contains(t)).unwrap_or("source");
         IpcError::invalid(field, "missing or malformed")
@@ -168,7 +172,7 @@ pub fn load(state: &AppState, id: SecretSourceId) -> IpcResult<SecretSource> {
 }
 
 fn trust_warning(changed: &[&str]) -> bool {
-    changed.iter().any(|c| matches!(*c, "caPem" | "allowHttp"))
+    changed.iter().any(|c| matches!(*c, "caPem" | "allowHttp" | "bwsPath"))
 }
 
 /// The `secret_source_changed` row of `s` after `changed` (review 6 N-42): the names
@@ -209,6 +213,9 @@ pub fn create(state: &AppState, input: &serde_json::Value) -> IpcResult<SecretSo
     if s.options.allow_http {
         changed.push("allowHttp");
     }
+    if s.options.bws_path.is_some() {
+        changed.push("bwsPath");
+    }
     let origins = !s.options.allowed_origins.is_empty();
     if origins {
         changed.push("allowedOrigins");
@@ -220,10 +227,16 @@ pub fn create(state: &AppState, input: &serde_json::Value) -> IpcResult<SecretSo
 /// `secret_source_update({ id, ... })`: the cached token is forgotten (address, trust or
 /// login may have changed).
 pub async fn update(state: &AppState, id: &str, input: &serde_json::Value) -> IpcResult<SecretSourceDto> {
+    let raw = input;
     let id = source_id(id)?;
-    let input = parse_input(input)?;
+    let mut input = parse_input(input)?;
+    let kind_given = raw.get("kind").is_some();
     let (before, s, changed) = state.with_ready(|_, store| {
-        let before = store.get_secret_source(id).map_err(source_error)?.options.allowed_origins;
+        let stored = store.get_secret_source(id).map_err(source_error)?;
+        if !kind_given {
+            input.kind = stored.kind; // an A3 payload without `kind` keeps the stored one
+        }
+        let before = stored.options.allowed_origins;
         let (s, changed) = store.update_secret_source(id, &input).map_err(source_error)?;
         Ok((before, s, changed))
     })?;
@@ -292,9 +305,6 @@ pub async fn external_test(state: &AppState, credential_id: &str) -> IpcResult<R
         let CredentialFields::ExternalRef(f) = &meta.fields else {
             return Err(IpcError::invalid("credentialId", "not an external_ref credential"));
         };
-        if f.provider != RefProvider::Vault {
-            return Err(IpcError::new("credential.kind_unsupported", "only Vault references resolve in this version"));
-        }
         let source = store
             .source_of(&meta.fields)
             .map_err(source_error)?
@@ -328,6 +338,7 @@ pub async fn external_test(state: &AppState, credential_id: &str) -> IpcResult<R
 
 #[allow(clippy::too_many_arguments)] // the flat ADR-0016 §7 argument list
 fn input_json(
+    kind: Option<String>,
     name: String,
     address: String,
     namespace: Option<String>,
@@ -337,11 +348,15 @@ fn input_json(
     oidc_role: Option<String>,
     options: Option<serde_json::Value>,
 ) -> serde_json::Value {
-    serde_json::json!({
+    let mut v = serde_json::json!({
         "name": name, "address": address, "namespace": namespace, "authMethod": auth_method,
         "authMount": auth_mount, "credentialId": credential_id, "oidcRole": oidc_role,
         "options": options.unwrap_or_else(|| serde_json::json!({})),
-    })
+    });
+    if let Some(k) = kind {
+        v["kind"] = serde_json::Value::String(k);
+    }
+    v
 }
 
 /// `secret_source_list()`.
@@ -362,6 +377,7 @@ pub fn secret_source_get(state: State<'_, AppState>, id: String) -> IpcResult<Se
 #[allow(clippy::too_many_arguments)] // one argument per ADR-0016 §7 field
 pub fn secret_source_create(
     state: State<'_, AppState>,
+    kind: Option<String>,
     name: String,
     address: String,
     namespace: Option<String>,
@@ -371,7 +387,7 @@ pub fn secret_source_create(
     oidc_role: Option<String>,
     options: Option<serde_json::Value>,
 ) -> IpcResult<SecretSourceDto> {
-    let input = input_json(name, address, namespace, auth_method, auth_mount, credential_id, oidc_role, options);
+    let input = input_json(kind, name, address, namespace, auth_method, auth_mount, credential_id, oidc_role, options);
     create(&state, &input)
 }
 
@@ -381,6 +397,7 @@ pub fn secret_source_create(
 pub async fn secret_source_update(
     state: State<'_, AppState>,
     id: String,
+    kind: Option<String>,
     name: String,
     address: String,
     namespace: Option<String>,
@@ -390,7 +407,7 @@ pub async fn secret_source_update(
     oidc_role: Option<String>,
     options: Option<serde_json::Value>,
 ) -> IpcResult<SecretSourceDto> {
-    let input = input_json(name, address, namespace, auth_method, auth_mount, credential_id, oidc_role, options);
+    let input = input_json(kind, name, address, namespace, auth_method, auth_mount, credential_id, oidc_role, options);
     update(&state, &id, &input).await
 }
 

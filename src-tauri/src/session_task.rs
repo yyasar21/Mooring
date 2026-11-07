@@ -180,6 +180,9 @@ pub(crate) fn finish(
     if let Ok(mut map) = ctx.registry.lock() {
         map.remove(&ctx.session_id);
     }
+    if let Some(secrets) = &ctx.secrets {
+        secrets.release_session(&ctx.session_id, "closed");
+    }
     // Answer anything still queued so no IPC call waits forever.
     commands.close();
     while let Ok(cmd) = commands.try_recv() {

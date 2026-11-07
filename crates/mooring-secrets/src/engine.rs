@@ -1,18 +1,24 @@
-//! [`SecretsEngine`]: source → token (cache or login) → KV v2 read → target credential, with
-//! audit events and no fallback. Login material is opened from the Mooring vault by the
-//! caller only when a login is actually needed ([`LoginProvider`]).
+//! [`SecretsEngine`]: source → token (cache or login) → KV v2 read, a dynamic engine
+//! (ADR-0026 §1), 1Password Connect or `bws` → target credential, with audit events and no
+//! fallback. Login material is opened from the Mooring vault by the caller only when a login
+//! is actually needed ([`LoginProvider`]).
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
-use mooring_core::credential::{parse_vault_reference, ExternalRefFields, RefProvider};
-use mooring_core::secret_source::{SecretSource, SecretSourceAuth, OIDC_REDIRECT_URI};
+use mooring_core::credential::{
+    parse_vault_reference, ExternalRefFields, RefProvider, VaultEngine,
+};
+use mooring_core::secret_source::{SecretSource, SecretSourceAuth, SourceKind, OIDC_REDIRECT_URI};
 use mooring_core::{CredentialId, SecretSourceId};
 use zeroize::Zeroizing;
 
 use crate::audit::{SecretEvent, SecretsAudit};
+use crate::bws::BwsRunner;
 use crate::cache::TokenCache;
 use crate::client::{ClientConfig, VaultClient, VaultToken};
 use crate::error::{Category, SecretsError};
+use crate::leases::LeaseRegistry;
 use crate::oidc::{new_nonce, parse_auth_url, Navigation, OidcFlow};
 use crate::resolve::{build, presence, ResolvedSecrets};
 
@@ -80,11 +86,25 @@ pub struct RefTest {
     pub extra: Vec<String>,
 }
 
+/// Connect-time context of one resolve (ADR-0026 §2).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ResolveCtx<'a> {
+    /// Lease owner (the session id). `None`: a lease is revoked right after the resolve.
+    pub owner: Option<&'a str>,
+    /// `ssh_otp`: the target's IP address (Vault matches it against the role's CIDRs).
+    pub ip: Option<IpAddr>,
+    /// `pki`: revoke the certificate by serial when the lease is released
+    /// (`revokeCertOnDisconnect`, default off).
+    pub revoke_cert: bool,
+}
+
 /// The resolver. Share it as `Arc<SecretsEngine>`.
 pub struct SecretsEngine {
-    cache: Arc<TokenCache>,
-    audit: Arc<dyn SecretsAudit>,
-    cfg: ClientConfig,
+    pub(crate) cache: Arc<TokenCache>,
+    pub(crate) audit: Arc<dyn SecretsAudit>,
+    pub(crate) cfg: ClientConfig,
+    pub(crate) leases: Arc<LeaseRegistry>,
+    pub(crate) bws: BwsRunner,
 }
 
 impl std::fmt::Debug for SecretsEngine {
@@ -101,7 +121,9 @@ fn locked_during_login() -> SecretsError {
 impl SecretsEngine {
     /// An engine over `cache` (which owns the clock).
     pub fn new(cache: Arc<TokenCache>, audit: Arc<dyn SecretsAudit>, cfg: ClientConfig) -> Self {
-        Self { cache, audit, cfg }
+        let leases = Arc::new(LeaseRegistry::new(Arc::clone(cache.clock()), Arc::clone(&audit)));
+        let bws = BwsRunner::new(cfg.bws.clone(), Arc::clone(&audit));
+        Self { cache, audit, cfg, leases, bws }
     }
 
     /// The token cache (lock / exit: `cache().revoke_all()`).
@@ -109,7 +131,16 @@ impl SecretsEngine {
         &self.cache
     }
 
-    fn failed<T>(&self, source: SecretSourceId, e: SecretsError) -> Result<T, SecretsError> {
+    /// The lease registry (session close: `leases().release(..)`; lock: `drain_for_lock`).
+    pub fn leases(&self) -> &Arc<LeaseRegistry> {
+        &self.leases
+    }
+
+    pub(crate) fn failed<T>(
+        &self,
+        source: SecretSourceId,
+        e: SecretsError,
+    ) -> Result<T, SecretsError> {
         self.audit.record(SecretEvent::Failed { source, category: e.category() });
         Err(e)
     }
@@ -164,7 +195,7 @@ impl SecretsEngine {
     }
 
     /// A token for `source`: cached, or a fresh login. `bool` = it came from the cache.
-    async fn token(
+    pub(crate) async fn token(
         &self,
         source: &SecretSource,
         provider: &dyn LoginProvider,
@@ -182,12 +213,7 @@ impl SecretsEngine {
         fields: &ExternalRefFields,
         provider: &dyn LoginProvider,
     ) -> Result<crate::client::KvSecret, SecretsError> {
-        if fields.provider != RefProvider::Vault {
-            return Err(SecretsError::Invalid("provider"));
-        }
-        if fields.source != Some(source.id) {
-            return Err(SecretsError::Invalid("source"));
-        }
+        check_source(source, fields)?;
         let at = parse_vault_reference(&fields.reference)
             .map_err(|_| SecretsError::Invalid("reference"))?;
         let (client, token, cached) = self.token(source, provider).await?;
@@ -203,8 +229,8 @@ impl SecretsEngine {
         }
     }
 
-    /// Resolve an `external_ref` credential for one connect. Nothing is cached; the result
-    /// must be dropped after the handshake. Any failure closes (no fallback).
+    /// Resolve an `external_ref` credential for one connect (no lease owner: a dynamic
+    /// lease is revoked right away). See [`Self::resolve_in`].
     pub async fn resolve(
         &self,
         source: &SecretSource,
@@ -212,40 +238,99 @@ impl SecretsEngine {
         fields: &ExternalRefFields,
         provider: &dyn LoginProvider,
     ) -> Result<ResolvedSecrets, SecretsError> {
+        self.resolve_in(source, credential, fields, provider, &ResolveCtx::default()).await
+    }
+
+    /// Resolve an `external_ref` credential for one connect. Nothing is cached; the result
+    /// must be dropped after the handshake. A dynamic lease is registered for `ctx.owner`.
+    /// Any failure closes (no fallback).
+    pub async fn resolve_in(
+        &self,
+        source: &SecretSource,
+        credential: CredentialId,
+        fields: &ExternalRefFields,
+        provider: &dyn LoginProvider,
+        ctx: &ResolveCtx<'_>,
+    ) -> Result<ResolvedSecrets, SecretsError> {
         let result = async {
-            let kv = self.read(source, fields, provider).await?;
-            build(fields.target_kind, fields.field_map.as_ref(), &kv.data, kv.metadata.version)
+            check_source(source, fields)?;
+            match (source.kind, fields.engine) {
+                (SourceKind::Vault, VaultEngine::Kv2) => {
+                    let kv = self.read(source, fields, provider).await?;
+                    let v = kv.metadata.version;
+                    build(fields.target_kind, fields.field_map.as_ref(), &kv.data, v)
+                }
+                (SourceKind::Vault, VaultEngine::SshSign) => Err(SecretsError::Engine(
+                    "ssh_sign certifies the SSH key credential; use it in the certificate role",
+                )),
+                (SourceKind::Vault, _) => self.dynamic(source, fields, provider, ctx).await,
+                (SourceKind::Onepassword, _) => self.onepassword(source, fields, provider).await,
+                (SourceKind::Bitwarden, _) => self.bitwarden(source, fields, provider).await,
+            }
         }
         .await;
         match result {
             Ok(r) => {
-                self.audit.record(SecretEvent::Resolved {
-                    credential,
-                    source: source.id,
-                    reference: fields.reference.clone(),
-                    version: r.version,
-                    target_kind: r.kind,
-                    fields: r.names(),
-                });
+                self.resolved(credential, source, fields, &r);
                 Ok(r)
             }
             Err(e) => self.failed(source.id, e),
         }
     }
 
-    /// `external_ref_test`: which names KV provides (no values leave this function).
+    pub(crate) fn resolved(
+        &self,
+        credential: CredentialId,
+        source: &SecretSource,
+        fields: &ExternalRefFields,
+        r: &ResolvedSecrets,
+    ) {
+        self.audit.record(SecretEvent::Resolved {
+            credential,
+            source: source.id,
+            reference: fields.reference.clone(),
+            version: r.version,
+            target_kind: r.kind,
+            fields: r.names(),
+            provider: fields.provider.name(),
+            engine: fields.engine,
+        });
+    }
+
+    /// `external_ref_test`: which names the reference provides (no values leave this
+    /// function). A dynamic engine issues once and its lease is revoked at once; `ssh_sign`
+    /// needs the key and is tested by connecting.
     pub async fn test_ref(
         &self,
         source: &SecretSource,
         fields: &ExternalRefFields,
         provider: &dyn LoginProvider,
     ) -> Result<RefTest, SecretsError> {
-        match self.read(source, fields, provider).await {
-            Ok(kv) => {
-                let (present, missing, extra) =
-                    presence(fields.target_kind, fields.field_map.as_ref(), &kv.data);
-                Ok(RefTest { version: kv.metadata.version, present, missing, extra })
+        let r = async {
+            check_source(source, fields)?;
+            match (source.kind, fields.engine) {
+                (SourceKind::Vault, VaultEngine::Kv2) => {
+                    let kv = self.read(source, fields, provider).await?;
+                    let (present, missing, extra) =
+                        presence(fields.target_kind, fields.field_map.as_ref(), &kv.data);
+                    Ok(RefTest { version: kv.metadata.version, present, missing, extra })
+                }
+                (SourceKind::Vault, VaultEngine::SshSign) => {
+                    Err(SecretsError::Engine("ssh_sign is tested by connecting with the key"))
+                }
+                (SourceKind::Vault, _) => {
+                    as_test(self.dynamic(source, fields, provider, &ResolveCtx::default()).await)
+                }
+                (SourceKind::Onepassword, _) => {
+                    as_test(self.onepassword(source, fields, provider).await)
+                }
+                (SourceKind::Bitwarden, _) => {
+                    as_test(self.bitwarden(source, fields, provider).await)
+                }
             }
+        };
+        match r.await {
+            Ok(t) => Ok(t),
             Err(e) => self.failed(source.id, e),
         }
     }
@@ -256,6 +341,12 @@ impl SecretsEngine {
         source: &SecretSource,
         provider: &dyn LoginProvider,
     ) -> Result<SourceTest, SecretsError> {
+        if source.kind != SourceKind::Vault {
+            return match self.test_token_source(source, provider).await {
+                Ok(t) => Ok(t),
+                Err(e) => self.failed(source.id, e),
+            };
+        }
         let probe = async {
             let (client, token) = if matches!(source.auth, SecretSourceAuth::Oidc { .. }) {
                 self.cache.get(source.id).ok_or(SecretsError::unavailable(
@@ -346,4 +437,38 @@ impl SecretsEngine {
             Err(e) => self.failed(source.id, e),
         }
     }
+}
+
+/// The reference must name this source, and the source kind must serve its provider.
+pub(crate) fn check_source(
+    source: &SecretSource,
+    fields: &ExternalRefFields,
+) -> Result<(), SecretsError> {
+    if fields.source != Some(source.id) {
+        return Err(SecretsError::Invalid("source"));
+    }
+    if fields.provider != source.kind.provider() {
+        return Err(SecretsError::KindUnsupported("the provider does not match the source kind"));
+    }
+    if fields.provider != RefProvider::Vault && fields.engine != VaultEngine::Kv2 {
+        return Err(SecretsError::Engine("only Vault references have an engine"));
+    }
+    Ok(())
+}
+
+/// A resolve reported as names only; a shape refusal becomes the missing / extra lists.
+fn as_test(r: Result<ResolvedSecrets, SecretsError>) -> Result<RefTest, SecretsError> {
+    match r {
+        Ok(r) => Ok(names_of(&r)),
+        Err(SecretsError::Shape { missing, extra, invalid: None }) => {
+            Ok(RefTest { version: 0, present: Vec::new(), missing, extra })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// A resolved credential reported as names only.
+fn names_of(r: &ResolvedSecrets) -> RefTest {
+    let present = r.names().into_iter().map(str::to_owned).collect();
+    RefTest { version: r.version, present, missing: Vec::new(), extra: Vec::new() }
 }

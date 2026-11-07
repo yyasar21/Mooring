@@ -285,6 +285,7 @@ impl Store {
             domain_override: raw.domain_override,
             gateway_credential: self.role_credential(&raw.id, Role::Gateway)?,
             become_credential: self.role_credential(&raw.id, Role::Become)?,
+            certificate_credential: self.role_credential(&raw.id, Role::Certificate)?,
             via: crate::via::via_of(&self.conn, parse_id(&raw.id)?)?,
             tags,
             created_at: parse_ts(&raw.created)?,

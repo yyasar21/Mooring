@@ -98,6 +98,12 @@ impl SecretMap {
         self.0.is_empty()
     }
 
+    /// A map of already validated names (dynamic engines, 1Password, Bitwarden): keys are
+    /// target-kind names, duplicates were refused by the caller.
+    pub(crate) fn from_values(pairs: Vec<(String, SecretValue)>) -> Self {
+        Self(pairs)
+    }
+
     #[cfg(test)]
     pub(crate) fn from_pairs(pairs: &[(&str, &str)]) -> Self {
         Self(

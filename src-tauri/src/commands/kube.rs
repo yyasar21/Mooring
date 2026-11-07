@@ -114,6 +114,7 @@ pub fn open(state: &AppState, connection_id: &str, sink: ClusterSink) -> IpcResu
         route: Arc::clone(&route),
         audit: Arc::clone(&state.audit),
         registry: Arc::clone(&state.sessions),
+        secrets: None,
     };
     let start = ClusterStart {
         ctrl: ctrl.clone(),
@@ -249,6 +250,7 @@ pub async fn exec_open(state: &AppState, session_id: &str, req: ExecRequest, sin
         route: Arc::clone(&route),
         audit: Arc::clone(&state.audit),
         registry: Arc::clone(&state.sessions),
+        secrets: None,
     };
     let role = KubeRole::Exec { parent: session_id.to_owned() };
     let meta = (Control::Kube(role), ctrl.connection_id().to_owned(), dto::ts(OffsetDateTime::now_utc()), route);

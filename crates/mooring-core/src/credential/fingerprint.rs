@@ -137,6 +137,12 @@ pub fn x509_pem(text: &str) -> Result<String, CredentialError> {
     Ok(format!("SHA256:{}", data_encoding::BASE64_NOPAD.encode(&digest)))
 }
 
+/// SHA-256 of `data` (pins of trusted executables, ADR-0026 §4 R-SEC-CLI).
+#[must_use]
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    Sha256::digest(data).into()
+}
+
 /// `true` for `SHA256:` + 43 base64 characters (an OpenSSH SHA-256 fingerprint).
 #[must_use]
 pub fn is_sha256_fingerprint(s: &str) -> bool {

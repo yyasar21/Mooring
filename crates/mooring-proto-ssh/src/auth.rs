@@ -114,7 +114,15 @@ pub(crate) async fn authenticate(
     let mut allowed = Allowed(None);
     let mut key_failed = false;
 
-    if let ConnectSecret::PrivateKey { pem, passphrase } = &secret {
+    if let ConnectSecret::PrivateKey { pem, passphrase, certificate } = &secret {
+        if allowed.permits(MethodKind::PublicKey) {
+            if let Some(cert) = certificate {
+                let r = try_certificate(handle, &user, pem, passphrase.as_ref(), cert).await?;
+                if r.is_some_and(|r| allowed.record(r)) {
+                    return ok(shared, AuthMethod::PublicKey);
+                }
+            }
+        }
         if allowed.permits(MethodKind::PublicKey) {
             let result = try_private_key(handle, &user, pem, passphrase.as_ref()).await?;
             if result.is_some_and(|r| allowed.record(r)) {
@@ -259,6 +267,36 @@ async fn try_private_key(
     };
     let result = handle
         .authenticate_publickey(user.to_owned(), PrivateKeyWithHashAlg::new(key, hash))
+        .await
+        .map_err(transport)?;
+    Ok(Some(result))
+}
+
+/// ADR-0026 §1: the key with its OpenSSH user certificate (`publickey` with a
+/// `*-cert-v01@openssh.com` blob). A certificate that does not parse is skipped (the plain
+/// key follows); the server decides whether it trusts the CA.
+async fn try_certificate(
+    handle: &mut H,
+    user: &str,
+    pem: &SecretString,
+    passphrase: Option<&SecretString>,
+    cert: &str,
+) -> Result<Option<AuthResult>, AuthError> {
+    let Ok(cert) = russh::keys::Certificate::from_openssh(cert.trim()) else {
+        tracing::debug!("ssh certificate could not be parsed; plain key next");
+        return Ok(None);
+    };
+    let Ok(key) =
+        decode_secret_key(pem.expose_secret(), passphrase.map(ExposeSecret::expose_secret))
+    else {
+        return Ok(None);
+    };
+    if cert.public_key() != key.public_key().key_data() {
+        tracing::debug!("ssh certificate is for another key; skipped");
+        return Ok(None);
+    }
+    let result = handle
+        .authenticate_openssh_cert(user.to_owned(), Arc::new(key), cert)
         .await
         .map_err(transport)?;
     Ok(Some(result))

@@ -86,7 +86,7 @@ fn sanitize_key(k: &str) -> String {
     s
 }
 
-fn shape(e: &CredentialError) -> SecretsError {
+pub(crate) fn shape(e: &CredentialError) -> SecretsError {
     match e {
         CredentialError::Invalid { field, reason } => {
             SecretsError::shape(format!("{field}: {reason}"))

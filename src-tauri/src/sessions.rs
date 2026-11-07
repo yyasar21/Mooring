@@ -304,6 +304,9 @@ pub struct TaskContext {
     pub audit: Arc<Mutex<AuditLog>>,
     /// Registry to remove ourselves from.
     pub registry: SessionRegistry,
+    /// ADR-0026 §2: revokes the session's dynamic leases when it ends (`None`: the session
+    /// kind resolves no external reference).
+    pub secrets: Option<std::sync::Arc<crate::secrets_runtime::SecretsRuntime>>,
 }
 
 impl std::fmt::Debug for TaskContext {

@@ -134,7 +134,8 @@ fn ssh_secret(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<(Option<S
         CredentialFields::SshKey(f) => {
             let pem = open(store, vault, id, SecretName::PrivateKey)?;
             let passphrase = open_opt(store, vault, id, SecretName::Passphrase)?;
-            (Some(f.username.clone()), ConnectSecret::PrivateKey { pem, passphrase })
+            let certificate = f.certificate.clone();
+            (Some(f.username.clone()), ConnectSecret::PrivateKey { pem, passphrase, certificate })
         }
         CredentialFields::SshAgent(f) => {
             (Some(f.username.clone()), ConnectSecret::Agent { fingerprint: f.key_fingerprint.clone() })
@@ -195,9 +196,11 @@ fn become_of(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<Become> {
 }
 
 /// Resolve everything for `session_open` (and each graphical reconnect). An `external_ref`
-/// primary or `become` credential is resolved first, outside every lock (ADR-0016 §3).
-pub(crate) async fn plan(ready: &Ready, connection_id: &str, size: Size) -> IpcResult<Plan> {
-    let ext = external::prefetch(ready, connection_id).await?;
+/// primary, `become` or `certificate` credential is resolved first, outside every lock
+/// (ADR-0016 §3); dynamic leases belong to `session` (ADR-0026 §2).
+pub(crate) async fn plan(ready: &Ready, connection_id: &str, size: Size, session: &str) -> IpcResult<Plan> {
+    // Boxed: the resolve futures are large (clippy::large_futures).
+    let ext = Box::pin(external::prefetch(ready, connection_id, session)).await?;
     plan_with(ready, connection_id, size, &ext)
 }
 
@@ -232,6 +235,17 @@ fn plan_with(ready: &Ready, connection_id: &str, size: Size, ext: &external::Ext
                 }
             }
         };
+        let (username, mut secret) = (username, secret);
+        if protocol == Protocol::Ssh {
+            if let Some(r) = store.resolve_credential(id, Role::Certificate)? {
+                used.push(r.id.to_string());
+                let signed = ext.certificate(r.id)?;
+                match &mut secret {
+                    ConnectSecret::PrivateKey { certificate, .. } => *certificate = Some(signed),
+                    _ => return Err(unsupported("An SSH certificate without an SSH key", protocol)),
+                }
+            }
+        }
         let r#become = match store.resolve_credential(id, Role::Become)? {
             Some(r) if protocol == Protocol::Ssh => {
                 used.push(r.id.to_string());
@@ -351,4 +365,7 @@ pub(crate) fn kube(ready: &Ready, connection_id: &str) -> IpcResult<KubePlan> {
 // --- ADR-0016 E2: external_ref resolution ----------------------------------------------------
 #[path = "connect_plan_external.rs"]
 mod external;
+#[cfg(test)]
+#[path = "connect_plan_dynamic_tests.rs"]
+mod dynamic_tests;
 pub(crate) use external::source_error;

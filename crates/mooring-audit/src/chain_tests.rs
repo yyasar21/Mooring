@@ -442,6 +442,8 @@ fn secret_events_have_stable_wire_names() {
                 version: 2,
                 target_kind: s("user_password"),
                 fields: vec![s("password"), s("username")],
+                provider: None,
+                engine: None,
             },
             "secret_resolved",
         ),

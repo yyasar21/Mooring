@@ -7,6 +7,7 @@
 #![allow(dead_code)] // each test binary uses a different subset
 
 pub mod forwarding;
+pub mod keys;
 pub mod sftp_server;
 
 use std::collections::HashMap;
@@ -18,8 +19,6 @@ use mooring_core::session::{
     ConnectParams, ConnectSecret, Session, SessionEvent, SessionInput, Size,
 };
 use mooring_proto_ssh::{SshOptions, SshSession};
-use russh::keys::ssh_key::private::Ed25519Keypair;
-use russh::keys::ssh_key::LineEnding;
 use russh::keys::{PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Session as ServerSession, VerifiedPublicKey};
 use russh::{Channel, ChannelId, MethodKind, MethodSet};
@@ -30,15 +29,8 @@ pub const USER: &str = "alice";
 pub const PASSWORD: &str = "correct horse";
 pub const OTP: &str = "424242";
 
-/// Deterministic test key from a seed byte.
-pub fn ed25519(seed: u8) -> PrivateKey {
-    PrivateKey::from(Ed25519Keypair::from_seed(&[seed; 32]))
-}
-
-/// Unencrypted OpenSSH PEM of a test key (test material only).
-pub fn pem(key: &PrivateKey) -> SecretString {
-    SecretString::from(key.to_openssh(LineEnding::LF).expect("encode test key").to_string())
-}
+#[allow(unused_imports)] // each test binary uses a different subset
+pub use keys::{ed25519, pem, trust};
 
 /// What the server accepts.
 #[derive(Clone)]
@@ -63,6 +55,8 @@ pub struct ServerSpec {
     /// With `become_prompt`: refuse every password with "Sorry, try again." and prompt again,
     /// like sudo with a wrong password; `^C` ends it with a shell prompt.
     pub become_wrong: bool,
+    /// ADR-0026: accept OpenSSH user certificates signed by this CA (principal [`USER`]).
+    pub trusted_ca: Option<PublicKey>,
 }
 
 impl ServerSpec {
@@ -79,6 +73,7 @@ impl ServerSpec {
             password_user: USER.to_owned(),
             become_prompt: false,
             become_wrong: false,
+            trusted_ca: None,
         }
     }
 }
@@ -176,11 +171,13 @@ impl server::Handler for Handler {
         _user: &str,
         offer: server::PublicKeyOffer<'_>,
     ) -> Result<Auth, Self::Error> {
-        let ok = self
-            .spec
-            .authorized_key
-            .as_ref()
-            .is_some_and(|k| k.key_data() == offer.public_key.key_data());
+        // A certificate offer carries the certified key; the CA is checked after the signature.
+        let ok = self.spec.trusted_ca.is_some()
+            || self
+                .spec
+                .authorized_key
+                .as_ref()
+                .is_some_and(|k| k.key_data() == offer.public_key.key_data());
         Ok(if ok { Auth::Accept } else { reject() })
     }
 
@@ -195,6 +192,16 @@ impl server::Handler for Handler {
                 .authorized_key
                 .as_ref()
                 .is_some_and(|k| k.key_data() == key.public_key.key_data());
+        Ok(if ok { Auth::Accept } else { reject() })
+    }
+
+    async fn auth_openssh_certificate(
+        &mut self,
+        user: &str,
+        certificate: &russh::keys::Certificate,
+    ) -> Result<Auth, Self::Error> {
+        let ok =
+            user == USER && keys::certificate_ok(self.spec.trusted_ca.as_ref(), certificate, USER);
         Ok(if ok { Auth::Accept } else { reject() })
     }
 
@@ -474,13 +481,6 @@ pub async fn read_until(s: &mut SshSession, needle: &str) -> String {
         }
     }
     out
-}
-
-/// Pre-trust the server key in a fresh `known_hosts` file.
-pub fn trust(kh: &std::path::Path, port: u16, key: &PublicKey) {
-    let mut store = mooring_proto_ssh::KnownHosts::new();
-    store.add_hashed("127.0.0.1", port, key).expect("add");
-    store.save(kh).expect("save");
 }
 
 /// A password session against `spec`, connected with the shell banner consumed.

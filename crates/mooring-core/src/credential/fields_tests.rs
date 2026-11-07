@@ -34,11 +34,13 @@ fn samples() -> Vec<(K, Value)> {
         (K::Prompt, json!({"username": "alice"})),
         (
             K::ExternalRef,
-            json!({"provider": "onepassword", "reference": "op://vault/item/password", "target_kind": "user_password"}),
+            json!({"provider": "onepassword", "reference": "op://vault/item/password", "target_kind": "api_token",
+                   "source": crate::model::SecretSourceId::new().to_string()}),
         ),
         (K::SudoBecome, json!({"method": "sudo", "become_user": ""})),
         (K::VaultApprole, json!({})),
         (K::S3AccessKey, json!({"access_key_id": "AKIAEXAMPLE", "region": "eu-central-1"})),
+        (K::BitwardenAccessToken, json!({})),
     ]
 }
 
@@ -135,10 +137,11 @@ fn caps_max_and_max_plus_one() {
     };
     assert!(url(2048).is_ok());
     assert!(url(2049).is_err());
-    let r = |n| {
+    let r = |n: usize| {
         input(
             K::ExternalRef,
-            json!({"provider": "onepassword", "reference": "r".repeat(n), "target_kind": "api_token"}),
+            json!({"provider": "vault", "reference": format!("s/{}", "r".repeat(n - 2)), "target_kind": "api_token",
+                   "source": crate::model::SecretSourceId::new().to_string()}),
         )
     };
     assert!(r(1024).is_ok());
@@ -289,4 +292,8 @@ fn source_and_sync_kinds() {
     let required: Vec<_> =
         K::VaultApprole.schema().fields.iter().filter(|f| f.required).map(|f| f.name).collect();
     assert_eq!(required, ["role_id", "secret_id"]);
+    assert!(input(K::BitwardenAccessToken, json!({"access_token": "t"})).is_err(), "sealed");
+    assert!(validate_secret(K::BitwardenAccessToken, S::AccessToken, b"0.machine.token").is_ok());
+    assert!(validate_secret(K::BitwardenAccessToken, S::Token, b"x").is_err());
+    assert!(validate_secret(K::BitwardenAccessToken, S::AccessToken, &[b'a'; 4097]).is_err());
 }

@@ -42,6 +42,10 @@ pub struct ClientConfig {
     pub retry: RetryPolicy,
     /// Handshake decisions for the audit feed.
     pub trust_events: Option<mpsc::Sender<TrustDecision>>,
+    /// `$APP_DATA/known_onepassword_certs` (default: beside `known_certs_path`).
+    pub onepassword_known_certs: Option<PathBuf>,
+    /// Where `bws` may be (ADR-0026 §4; tests inject a fake).
+    pub bws: crate::bws::BwsConfig,
 }
 
 impl ClientConfig {
@@ -54,7 +58,17 @@ impl ClientConfig {
             timeouts: Timeouts::default(),
             retry: RetryPolicy::default(),
             trust_events: None,
+            onepassword_known_certs: None,
+            bws: crate::bws::BwsConfig::system(),
         }
+    }
+
+    /// The pin store of 1Password Connect servers.
+    #[must_use]
+    pub fn onepassword_certs_path(&self) -> PathBuf {
+        self.onepassword_known_certs.clone().unwrap_or_else(|| {
+            self.known_certs_path.with_file_name(CertProtocol::Onepassword.file_name())
+        })
     }
 }
 
@@ -102,7 +116,7 @@ pub fn pct_encode(s: &str) -> String {
     out
 }
 
-fn mount_path(mount: &str) -> String {
+pub(crate) fn mount_path(mount: &str) -> String {
     mount.split('/').map(pct_encode).collect::<Vec<_>>().join("/")
 }
 
@@ -158,7 +172,7 @@ impl VaultClient {
         Ok(h)
     }
 
-    async fn call(
+    pub(crate) async fn call(
         &self,
         method: Method,
         path: &str,
@@ -179,11 +193,11 @@ impl VaultClient {
         Ok(r)
     }
 
-    fn json<T: DeserializeOwned>(r: &RawResponse) -> Result<T, SecretsError> {
+    pub(crate) fn json<T: DeserializeOwned>(r: &RawResponse) -> Result<T, SecretsError> {
         Ok(decode_json(&r.body)?)
     }
 
-    fn body<B: Serialize>(b: &B) -> Result<Zeroizing<Vec<u8>>, SecretsError> {
+    pub(crate) fn body<B: Serialize>(b: &B) -> Result<Zeroizing<Vec<u8>>, SecretsError> {
         serde_json::to_vec(b).map(Zeroizing::new).map_err(|_| SecretsError::Invalid("body"))
     }
 

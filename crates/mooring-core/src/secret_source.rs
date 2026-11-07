@@ -1,4 +1,5 @@
-//! Secret sources (ADR-0016 §1): a Vault / `OpenBao` server that `external_ref` credentials
+//! Secret sources (ADR-0016 §1, ADR-0026 §3–§4): a Vault / `OpenBao` server, a 1Password
+//! Connect server or a Bitwarden Secrets Manager (`bws`) that `external_ref` credentials
 //! resolve from. A source holds no secret material, only the id of the credential that logs in
 //! (`api_token` for `token`, `vault_approle` for `approle`) or the OIDC role.
 
@@ -24,13 +25,67 @@ fn invalid(field: &'static str, reason: impl Into<String>) -> MooringError {
     MooringError::Invalid { field, reason: reason.into() }
 }
 
-/// Source kind (`kind CHECK (kind = 'vault')`; `OpenBao` speaks the same API).
+/// The fixed `bws` locations (ADR-0026 §4, ADR-0020 §3 pattern). `%VAR%` is expanded from
+/// the environment of this process at run time; nothing else is ever executed.
+pub const BWS_PATHS: [&str; 4] = [
+    "/usr/local/bin/bws",
+    "/opt/homebrew/bin/bws",
+    "%LOCALAPPDATA%\\Programs\\bws\\bws.exe",
+    "%ProgramFiles%\\bws\\bws.exe",
+];
+
+/// Source kind (`kind CHECK (kind IN ('vault', 'onepassword', 'bitwarden'))`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
-    /// `HashiCorp` Vault or `OpenBao`, KV v2 only (owner decision 8).
+    /// `HashiCorp` Vault or `OpenBao` (`OpenBao` speaks the same API).
     #[default]
     Vault,
+    /// A self-hosted 1Password Connect server (ADR-0026 §3).
+    Onepassword,
+    /// Bitwarden Secrets Manager through the `bws` CLI (ADR-0026 §4).
+    Bitwarden,
+}
+
+impl SourceKind {
+    /// Wire / database name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Vault => "vault",
+            Self::Onepassword => "onepassword",
+            Self::Bitwarden => "bitwarden",
+        }
+    }
+
+    /// Parse a wire name.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Vault, Self::Onepassword, Self::Bitwarden].into_iter().find(|k| k.name() == s)
+    }
+
+    /// The `external_ref.provider` this source serves.
+    #[must_use]
+    pub const fn provider(self) -> crate::credential::RefProvider {
+        match self {
+            Self::Vault => crate::credential::RefProvider::Vault,
+            Self::Onepassword => crate::credential::RefProvider::Onepassword,
+            Self::Bitwarden => crate::credential::RefProvider::Bitwarden,
+        }
+    }
+
+    /// The credential kind of the login of `method` on this kind of source.
+    #[must_use]
+    pub const fn login_kind(self, method: SourceAuthMethod) -> Option<CredentialKind> {
+        match (self, method) {
+            (Self::Vault, m) => m.credential_kind(),
+            (Self::Onepassword, SourceAuthMethod::Token) => Some(CredentialKind::ApiToken),
+            (Self::Bitwarden, SourceAuthMethod::Token) => {
+                Some(CredentialKind::BitwardenAccessToken)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// How Mooring logs in to a source.
@@ -148,6 +203,9 @@ pub struct SourceOptions {
     /// Extra navigation origins of the OIDC window (`https://host[:port]`).
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+    /// Bitwarden: one of [`BWS_PATHS`] (`None` = the first that exists).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bws_path: Option<String>,
 }
 
 /// A stored secret source.
@@ -177,6 +235,9 @@ pub struct SecretSource {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SecretSourceInput {
+    /// Kind (`vault` when absent: the A3 payload).
+    #[serde(default)]
+    pub kind: SourceKind,
     /// Display name.
     pub name: String,
     /// Server address.
@@ -203,6 +264,8 @@ pub struct SecretSourceInput {
 /// The validated, normalised parts of a source (everything but id and timestamps).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidSource {
+    /// Kind.
+    pub kind: SourceKind,
     /// Name.
     pub name: String,
     /// Address.
@@ -257,8 +320,40 @@ impl SecretSourceInput {
         if auth.method() != SourceAuthMethod::Oidc && !options.allowed_origins.is_empty() {
             return Err(invalid("allowedOrigins", "only OIDC sources open a window"));
         }
-        Ok(ValidSource { name, address, namespace, auth, options })
+        check_kind(self.kind, &auth, namespace.as_ref(), &options)?;
+        Ok(ValidSource { kind: self.kind, name, address, namespace, auth, options })
     }
+}
+
+/// ADR-0026: 1Password Connect and Bitwarden log in with a token credential only, have no
+/// namespace; `bwsPath` is Bitwarden's and must be one of [`BWS_PATHS`]; `bws` runs its own
+/// TLS, so a `caPem` could not apply there and is refused.
+fn check_kind(
+    kind: SourceKind,
+    auth: &SecretSourceAuth,
+    namespace: Option<&String>,
+    options: &SourceOptions,
+) -> Result<()> {
+    if kind != SourceKind::Vault {
+        if auth.method() != SourceAuthMethod::Token {
+            return Err(invalid("authMethod", "1Password and Bitwarden sources use a token"));
+        }
+        if namespace.is_some() {
+            return Err(invalid("namespace", "only Vault sources have a namespace"));
+        }
+    }
+    if kind != SourceKind::Bitwarden && options.bws_path.is_some() {
+        return Err(invalid("bwsPath", "only Bitwarden sources run bws"));
+    }
+    if kind == SourceKind::Bitwarden {
+        if options.ca_pem.is_some() {
+            return Err(invalid("caPem", "bws uses its own TLS; a CA cannot be pinned for it"));
+        }
+        if options.bws_path.as_deref().is_some_and(|p| !BWS_PATHS.contains(&p)) {
+            return Err(invalid("bwsPath", "must be one of the fixed bws locations"));
+        }
+    }
+    Ok(())
 }
 
 /// `[A-Za-z0-9._-]+` segments joined by `/` (namespace, mount, role), ≤ 256 bytes.
@@ -390,7 +485,9 @@ fn validate_options(o: &SourceOptions) -> Result<SourceOptions> {
             origins.push(v);
         }
     }
-    Ok(SourceOptions { ca_pem, allow_http: o.allow_http, allowed_origins: origins })
+    let bws_path =
+        o.bws_path.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned);
+    Ok(SourceOptions { ca_pem, allow_http: o.allow_http, allowed_origins: origins, bws_path })
 }
 
 #[cfg(test)]

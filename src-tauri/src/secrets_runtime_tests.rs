@@ -170,6 +170,8 @@ fn audit_mapping_carries_names_and_the_connection() {
             version: 2,
             target_kind: CredentialKind::UserPassword,
             fields: vec!["password", "username"],
+            provider: "vault",
+            engine: mooring_core::credential::VaultEngine::Database,
         },
         Some("conn-1".into()),
     );
@@ -177,6 +179,15 @@ fn audit_mapping_carries_names_and_the_connection() {
     assert_eq!(v["event"], "secret_resolved");
     assert_eq!((v["connection"].clone(), v["target_kind"].clone()), (json!("conn-1"), json!("user_password")));
     assert_eq!(v["fields"], json!(["password", "username"]));
+    assert_eq!((v["provider"].clone(), v["engine"].clone()), (json!("vault"), json!("database")));
+    let l = audit_event(
+        SecretEvent::LeaseRevoked { owner: Some("s1".into()), source: src, reason: "locked", ok: true },
+        None,
+    );
+    let l = serde_json::to_value(&l).expect("json");
+    assert_eq!((l["event"].clone(), l["session"].clone(), l["reason"].clone()), (json!("secret_lease_revoked"), json!("s1"), json!("locked")));
+    let t = audit_event(SecretEvent::ToolSpawned { provider: "bitwarden", action: "secret_get", exit: Some(0) }, None);
+    assert_eq!(serde_json::to_value(&t).expect("json")["exit"], 0);
     let f = audit_event(SecretEvent::Failed { source: src, category: Category::Locked }, None);
     assert_eq!(serde_json::to_value(&f).expect("json")["category"], "locked");
     assert_eq!(locked().code(), "credential.external_unavailable");
@@ -212,6 +223,12 @@ fn every_secrets_error_code_is_in_the_golden_list() {
         SecretsError::NotFound,
         SecretsError::Shape { missing: vec!["password".into()], extra: vec![], invalid: None },
         SecretsError::Invalid("x"),
+        SecretsError::Engine("x"),
+        SecretsError::Lease("x"),
+        SecretsError::ToolMissing,
+        SecretsError::ToolVersion,
+        SecretsError::ToolFailed { exit: Some(2), detail: "x" },
+        SecretsError::KindUnsupported("x"),
     ];
     let golden = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/ipc-codes.json"))
         .expect("ipc-codes.json");
@@ -226,11 +243,17 @@ fn every_secrets_error_code_is_in_the_golden_list() {
     assert_eq!(
         seen.into_iter().collect::<Vec<_>>(),
         [
+            "credential.external_engine",
             "credential.external_not_found",
             "credential.external_root_token",
             "credential.external_shape",
             "credential.external_unavailable",
             "input.invalid",
+            "secret.lease_failed",
+            "secret.tool_failed",
+            "secret.tool_missing",
+            "secret.tool_version",
+            "source.kind_unsupported",
         ]
     );
 }

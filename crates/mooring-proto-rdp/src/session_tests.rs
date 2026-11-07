@@ -121,7 +121,11 @@ async fn connect_validates_inputs() {
         RdpSession::connect(p, o, FrameSink::new(), AuditSink::new()).await.expect_err("refused")
     };
     assert!(matches!(err(params(0, pw()), options(&dir)).await, MooringError::Invalid { .. }));
-    let key = ConnectSecret::PrivateKey { pem: "k".to_owned().into(), passphrase: None };
+    let key = ConnectSecret::PrivateKey {
+        pem: "k".to_owned().into(),
+        passphrase: None,
+        certificate: None,
+    };
     assert!(err(params(3389, key), options(&dir)).await.to_string().contains("private-key"));
     let mut bad = options(&dir);
     bad.conn.keyboard_layout = 0x0411;

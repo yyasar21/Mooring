@@ -158,6 +158,8 @@ pub struct ConnectionDto {
     pub gateway_credential_id: Option<String>,
     /// Become (`sudo_become`) credential.
     pub become_credential_id: Option<String>,
+    /// ADR-0026: Vault `ssh_sign` reference that certifies the SSH key (role `certificate`).
+    pub certificate_credential_id: Option<String>,
     /// Tags.
     pub tags: Vec<String>,
     /// ADR-0025: jump hosts, first hop first (empty = direct).
@@ -204,6 +206,7 @@ pub fn connection(store: &Store, c: &Connection) -> IpcResult<ConnectionDto> {
         domain_override: c.domain_override.clone(),
         gateway_credential_id: c.gateway_credential.map(|x| x.to_string()),
         become_credential_id: c.become_credential.map(|x| x.to_string()),
+        certificate_credential_id: c.certificate_credential.map(|x| x.to_string()),
         tags: c.tags.clone(),
         via: c.via.iter().map(ToString::to_string).collect(),
         created_at: ts(c.created_at),

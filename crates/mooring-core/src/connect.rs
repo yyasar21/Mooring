@@ -29,6 +29,9 @@ pub enum ConnectSecret {
         pem: SecretString,
         /// Passphrase for the key, if any.
         passphrase: Option<SecretString>,
+        /// OpenSSH user certificate of this key (public; the stored `certificate` field or one
+        /// a Vault SSH CA just signed, ADR-0026 §1). Offered before the plain key.
+        certificate: Option<String>,
     },
     /// Login through the local ssh-agent; `fingerprint` pins one agent key (`SHA256:…`).
     Agent {
@@ -158,7 +161,11 @@ mod tests {
                 domain: "D".into(),
                 password: s("hunter2"),
             },
-            ConnectSecret::PrivateKey { pem: s("hunter2"), passphrase: Some(s("hunter2")) },
+            ConnectSecret::PrivateKey {
+                pem: s("hunter2"),
+                passphrase: Some(s("hunter2")),
+                certificate: None,
+            },
             ConnectSecret::Agent { fingerprint: None },
             ConnectSecret::Token { header: "Authorization".into(), value: s("hunter2") },
             ConnectSecret::ClientCert { cert: "c".into(), key: s("hunter2"), passphrase: None },
