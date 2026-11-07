@@ -12,6 +12,7 @@
 @import "./vsphere.css" layer(components);
 @import "./import.css" layer(components);
 @import "./a5.css" layer(components);
+@import "./a5-secrets.css" layer(components);
 
 @theme {
   --color-bg: var(--bg);

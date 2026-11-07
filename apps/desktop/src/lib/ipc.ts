@@ -66,6 +66,8 @@ export const POLLED_COMMANDS: readonly string[] = [
   "kube_access", "kube_namespaces", "kube_pods", "vsphere_status", "vsphere_vm_power", "sync_status",
   // ADR-0016 §4 (E2): polled every second while an OIDC window is open.
   "secret_source_oidc_status",
+  // ADR-0026 §2 (R3): the session lease chips poll `session_list` (passive in Rust).
+  "session_list",
 ];
 
 // ---------- Tauri transport ----------

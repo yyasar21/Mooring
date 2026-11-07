@@ -21,6 +21,7 @@ export const KIND_CODE: Record<CredentialKind, string> = {
   sudo_become: "SUDO",
   vault_approle: "ROLE",
   s3_access_key: "S3",
+  bitwarden_access_token: "BWS",
 };
 
 /** Picker sections, in order. The served `group` maps onto these (Windows + vSphere are accounts). */
@@ -78,6 +79,7 @@ export const KIND_BLURB: Record<CredentialKind, string> = {
   external_ref: "Points at a secret in Vault, 1Password or Bitwarden.",
   vault_approle: "The AppRole a secret source signs in to Vault with. Both halves are sealed.",
   s3_access_key: "The access key vault sync uses for the S3 bucket. Never usable for a connection.",
+  bitwarden_access_token: "The machine access token a Bitwarden Secrets Manager source runs bws with. Sealed.",
 };
 
 export const PROVIDERS: { value: string; label: string; placeholder: string; hint: string }[] = [
@@ -85,21 +87,22 @@ export const PROVIDERS: { value: string; label: string; placeholder: string; hin
     value: "vault",
     label: "HashiCorp Vault",
     placeholder: "kv/prod/db",
-    hint: "<mount>/<path> of a KV v2 secret. Mooring signs in through the chosen secret source.",
+    hint: "<mount>/<path> of a KV v2 secret, or <mount>/<role> of a dynamic engine. Mooring signs in through the chosen secret source.",
   },
   {
     value: "onepassword",
     label: "1Password",
     placeholder: "op://Infra/prod-db/password",
-    hint: "A secret reference: op://vault/item/[section/]field.",
+    hint: "A secret reference: op://vault/item/[section/]field, read through 1Password Connect.",
   },
   {
     value: "bitwarden",
     label: "Bitwarden",
     placeholder: "be8e0ad8-d545-4017-a55a-b02f014d4158",
-    hint: "The secret id from Bitwarden Secrets Manager.",
+    hint: "The secret id, or <project id>/<key>, from Bitwarden Secrets Manager.",
   },
 ];
 
 /** One line of relationship guidance for the kinds that never sign in to a connection (ADR-0016/0017). */
+export const BWS_TOKEN_HINT = "Use it in Settings → Secret sources for a Bitwarden source, then create a Secret manager reference credential.";
 export const APPROLE_HINT = "Use it in Settings → Secret sources, then create a Secret manager reference credential.";

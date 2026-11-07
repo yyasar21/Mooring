@@ -4,7 +4,9 @@
 // and the `oidcOutcome` knob. Methods stay `async` to mirror the IPC signature even when they do
 // not await.
 /* eslint-disable @typescript-eslint/require-await */
-import type { CredentialMeta, ExternalRefTest, OidcFailure, OidcStatus, SecretSource, SecretSourceInput, SecretsIpc } from "./ipc.types";
+import type { CredentialMeta, ExternalRefTest, OidcFailure, OidcStatus, SecretSource, SecretSourceInput, SecretSourceTest, SecretsIpc } from "./ipc.types";
+import { SOURCE_LOGIN_KIND } from "./ipc.types.secrets";
+import { dynamicRefTest, providerRefTest } from "./ipc.mock.leases";
 import { IpcError } from "./ipc.error";
 import { KIND_SCHEMAS } from "./ipc.kinds";
 import { MockSyncBase } from "./ipc.mock.sync";
@@ -20,11 +22,19 @@ const FAKE_KV: Record<string, string[]> = {
 
 interface OidcFlow extends OidcStatus { id: string }
 
-/** The seeded source: AppRole through the `cr-approle` credential. */
+/** The seeded sources: Vault AppRole (`cr-approle`), 1Password Connect (`cr-op-token`), Bitwarden (`cr-bws-token`). */
 export function seedSources(): SecretSource[] {
   return [{
     id: "src-ops", name: "ops vault", kind: "vault", address: "https://vault.example.test:8200", namespace: null, authMethod: "approle",
     authMount: "approle", credentialId: "cr-approle", oidcRole: null, options: { caPem: null, allowHttp: false, allowedOrigins: [] },
+    createdAt: T0, updatedAt: T0,
+  }, {
+    id: "src-op", name: "infra connect", kind: "onepassword", address: "https://connect.example.test:8080", namespace: null, authMethod: "token",
+    authMount: "token", credentialId: "cr-op-token", oidcRole: null, options: { caPem: null, allowHttp: false, allowedOrigins: [] },
+    createdAt: T0, updatedAt: T0,
+  }, {
+    id: "src-bws", name: "team secrets", kind: "bitwarden", address: "https://bitwarden.example.test", namespace: null, authMethod: "token",
+    authMount: "token", credentialId: "cr-bws-token", oidcRole: null, options: { caPem: null, allowHttp: false, allowedOrigins: [], bwsPath: null },
     createdAt: T0, updatedAt: T0,
   }];
 }
@@ -35,6 +45,8 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
   oidc = new Map<string, OidcFlow>();
   /** How a simulated OIDC sign-in ends (`done`, or a failure reason). */
   oidcOutcome: "done" | OidcFailure = "done";
+  /** ADR-0026 knob: is `bws` present at one of the fixed paths (`secret.tool_missing` when not). */
+  bwsFound = true;
   private srcIds = 0;
   private oidcIds = 0;
   protected abstract override credentialRows(): CredentialMeta[];
@@ -43,14 +55,18 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
     const errors = validateSecretSource(a);
     const field = Object.keys(errors)[0];
     if (field) throw new IpcError("input.invalid", `invalid ${field}`);
+    const kind = a.kind ?? "vault";
     if (a.credentialId !== null) {
       const cred = this.credentialRows().find((c) => c.id === a.credentialId);
       if (!cred) throw new IpcError("credential.not_found", "credential not found");
-      const want = a.authMethod === "token" ? "api_token" : "vault_approle";
-      if (cred.kind !== want) throw new IpcError("credential.incompatible", `the ${a.authMethod} method needs a ${want} credential`);
+      const want = kind !== "vault" ? SOURCE_LOGIN_KIND[kind] : a.authMethod === "token" ? "api_token" : "vault_approle";
+      if (cred.kind !== want) throw new IpcError("credential.incompatible", `this source needs a ${want} credential`);
     }
+    const options = structuredClone(a.options);
+    if (kind === "bitwarden") options.bwsPath ??= null;
+    else delete options.bwsPath;
     return {
-      ...structuredClone(a), name: a.name.trim(), address: a.address.trim().replace(/\/+$/, "").toLowerCase(),
+      ...structuredClone(a), kind, options, name: a.name.trim(), address: a.address.trim().replace(/\/+$/, "").toLowerCase(),
       namespace: a.namespace?.trim().replace(/^\/+|\/+$/g, "") || null, authMount: a.authMount.trim().replace(/^\/+|\/+$/g, "") || a.authMethod,
       oidcRole: a.oidcRole?.trim() || null,
     };
@@ -82,7 +98,7 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
     const v = this.checkSource(a);
     this.srcIds += 1;
     const now = new Date().toISOString();
-    const s: SecretSource = { ...v, id: `src-${this.srcIds.toString(16).padStart(4, "0")}`, kind: "vault", createdAt: now, updatedAt: now };
+    const s: SecretSource = { ...v, id: `src-${this.srcIds.toString(16).padStart(4, "0")}`, kind: v.kind ?? "vault", createdAt: now, updatedAt: now };
     this.sources.set(s.id, s);
     this.record("secret_source_changed", { source: s.id, changed: "created", warning: String(v.options.allowHttp || v.options.caPem !== null) });
     return structuredClone(s);
@@ -91,10 +107,13 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
   secretSourceUpdate: SecretsIpc["secretSourceUpdate"] = async ({ id, ...a }) => {
     await this.unlocked();
     const cur = this.source(id);
-    const v = this.checkSource(a);
+    // R3: an update without `kind` keeps the stored one; a different kind is refused.
+    if (a.kind !== undefined && a.kind !== cur.kind) throw new IpcError("input.invalid", "invalid kind: a source keeps its provider");
+    const v = this.checkSource({ ...a, kind: cur.kind });
     const changed = (Object.keys(v) as (keyof SecretSourceInput)[]).filter((k) => JSON.stringify(v[k]) !== JSON.stringify(cur[k]));
     Object.assign(cur, v, { updatedAt: new Date().toISOString() });
     this.record("secret_source_changed", { source: id, changed: changed.join(","), warning: String(changed.includes("options")) });
+    this.secretToolPin.delete(id);
     return structuredClone(cur);
   };
 
@@ -109,9 +128,33 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
     this.record("secret_source_changed", { source: id, changed: "deleted", warning: "false" });
   };
 
+  /** Sources whose `bws` binary was already pinned (first run audits `secret_tool_spawned`). */
+  protected secretToolPin = new Set<string>();
+
+  /** Connect: `/heartbeat` + `/v1/vaults`. Bitwarden: `bws --version` + `project list`. Counts only. */
+  private testProvider(s: SecretSource): SecretSourceTest {
+    const base = { method: "token" as const, ttlSeconds: null, renewable: false };
+    if (this.down(s)) {
+      this.record("secret_failed", { source: s.id, category: "network" });
+      return { ...base, ok: false, policiesCount: 0, error: "credential.external_unavailable", category: "network" };
+    }
+    if (s.kind === "bitwarden") {
+      if (!this.bwsFound) {
+        this.record("secret_failed", { source: s.id, category: "tool" });
+        return { ...base, ok: false, policiesCount: 0, error: "secret.tool_missing", category: "tool" };
+      }
+      if (!this.secretToolPin.has(s.id)) this.secretToolPin.add(s.id);
+      this.record("secret_tool_spawned", { provider: "bitwarden", exit: "0" });
+      return { ...base, ok: true, policiesCount: 3, error: null, category: null };
+    }
+    this.record("secret_login", { source: s.id, method: "token", ttl: "0" });
+    return { ...base, ok: true, policiesCount: 2, error: null, category: null };
+  }
+
   secretSourceTest: SecretsIpc["secretSourceTest"] = async ({ id }) => {
     await this.unlocked();
     const s = this.source(id);
+    if (s.kind !== "vault") return this.testProvider(s);
     if (this.down(s)) {
       this.record("secret_failed", { source: id, category: "network" });
       return { ok: false, method: s.authMethod, ttlSeconds: null, renewable: false, policiesCount: 0, error: "credential.external_unavailable", category: "network" };
@@ -135,14 +178,21 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
     const c = this.credentialRows().find((x) => x.id === credentialId);
     if (!c) throw new IpcError("credential.not_found", "credential not found");
     if (c.kind !== "external_ref") throw new IpcError("input.invalid", "invalid credentialId: not an external reference");
-    if (c.fields.provider !== "vault") throw new IpcError("credential.kind_unsupported", "only Vault references resolve in this release");
     const src = typeof c.fields.source === "string" ? this.sources.get(c.fields.source) : undefined;
     if (!src) throw new IpcError("source.not_found", "secret source not found");
+    if (src.kind !== c.fields.provider) throw new IpcError("source.kind_unsupported", "the reference's provider does not match its source");
     const fail = (error: string, category: string): ExternalRefTest => {
       this.record("secret_failed", { source: src.id, category });
       return { ok: false, version: null, present: [], missing: [], extra: [], error, category };
     };
     if (this.down(src)) return fail("credential.external_unavailable", "network");
+    if (src.kind === "bitwarden" && !this.bwsFound) return fail("secret.tool_missing", "tool");
+    const dyn = dynamicRefTest(c);
+    if (dyn) {
+      if (dyn.ok) this.record("secret_lease_revoked", { source: src.id, engine: typeof c.fields.engine === "string" ? c.fields.engine : "kv2", reason: "test" });
+      return dyn;
+    }
+    if (src.kind !== "vault") return providerRefTest(c, (e, d) => { this.record(e, d); });
     const ref = typeof c.fields.reference === "string" ? c.fields.reference : "";
     if (checkReference(ref)) return fail("credential.external_shape", "shape");
     const keys = FAKE_KV[ref];

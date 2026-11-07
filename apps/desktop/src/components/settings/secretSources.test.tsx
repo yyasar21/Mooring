@@ -25,7 +25,8 @@ describe("Settings → Secret sources (ADR-0016)", () => {
     expect(r).toHaveTextContent("AppRole");
     expect(r).toHaveTextContent("https://vault.example.test:8200");
     expect(r).toHaveTextContent("Signs in with vault approle");
-    expect(r).toHaveTextContent("used by 1 reference");
+    // ADR-0026: the seeded KV reference and the dynamic database reference.
+    expect(r).toHaveTextContent("used by 2 references");
     fireEvent.click(within(r).getByRole("button", { name: "Test" }));
     await settle();
     expect(within(r).getByRole("status")).toHaveTextContent("Signed in with AppRole: token TTL 1 h, renewable, 2 policies.");
@@ -115,17 +116,18 @@ describe("Settings → Secret sources (ADR-0016)", () => {
     const c = await card();
     const r = row(c, "ops vault");
     fireEvent.click(within(r).getByRole("button", { name: "Delete ops vault" }));
-    expect(r).toHaveTextContent("1 credential still reference this source");
+    expect(r).toHaveTextContent("2 credentials still reference this source");
     fireEvent.click(within(r).getByRole("button", { name: "Confirm delete" }));
     await settle();
     expect(within(c).getByRole("alert")).toHaveTextContent("A credential still references this source.");
-    expect(await mock.secretSourceList()).toHaveLength(1);
+    expect(await mock.secretSourceList()).toHaveLength(3);
     await mock.credentialDelete({ id: "cr-ext" });
+    await mock.credentialDelete({ id: "cr-db-dyn" });
     await useCredentials.getState().load();
     fireEvent.click(within(r).getByRole("button", { name: "Confirm delete" }));
     await settle();
     expect(within(c).getByRole("status")).toHaveTextContent("Deleted ops vault.");
-    expect(c).toHaveTextContent("No secret sources");
+    expect(within(c).queryByRole("listitem", { name: "ops vault" })).toBeNull();
   });
 
   it("testText covers the token method and no TTL", () => {

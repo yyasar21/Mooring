@@ -63,7 +63,7 @@ async function createApiToken(page, name) {
   await views(page).getByRole("button", { name: "Credentials" }).click();
   const view = page.getByRole("region", { name: "Credentials" });
   await view.getByRole("button", { name: "New credential" }).click();
-  await view.getByRole("button", { name: "API token" }).click();
+  await view.getByRole("button", { name: "API token", exact: true }).click(); // A5 U4 seeds an API token credential row too
   const form = view.getByRole("form", { name: "New API token" });
   await form.getByLabel("Name", { exact: true }).fill(name);
   await form.getByLabel(/^Token/).fill("test-only token value");
@@ -160,9 +160,10 @@ test("secret sources: delete is refused with source.in_use while a reference use
     await openSettings(page);
     const card = settingsCard(page, "Secret sources");
     const row = sourceRow(page, "ops vault");
-    await row.filter({ hasText: "used by 1 reference" }).waitFor();
+    // A5 U4 seed: the KV reference and the dynamic database reference both use ops vault.
+    await row.filter({ hasText: "used by 2 references" }).waitFor();
     await row.getByRole("button", { name: "Delete ops vault" }).click();
-    await row.getByText(/1 credential still reference this source/).waitFor();
+    await row.getByText(/2 credentials still reference this source/).waitFor();
     await row.getByRole("button", { name: "Confirm delete" }).click();
     await card.getByRole("alert").filter({ hasText: "A credential still references this source." }).waitFor();
     await row.waitFor();
@@ -173,12 +174,16 @@ test("secret sources: delete is refused with source.in_use while a reference use
     await view.getByRole("button", { name: "Delete db via vault" }).click();
     await view.getByRole("button", { name: "Confirm delete" }).click();
     await view.getByRole("button", { name: "Delete db via vault" }).waitFor({ state: "detached" });
+    await view.getByRole("button", { name: "Delete reporting db (dynamic)" }).click();
+    await view.getByRole("button", { name: "Confirm delete" }).click();
+    await view.getByRole("button", { name: "Delete reporting db (dynamic)" }).waitFor({ state: "detached" });
     await openSettings(page);
     const again = sourceRow(page, "ops vault");
     await again.getByRole("button", { name: "Delete ops vault" }).click();
     await again.getByRole("button", { name: "Confirm delete" }).click();
     await card.getByRole("status").filter({ hasText: "Deleted ops vault." }).waitFor();
-    await card.getByText("No secret sources").waitFor();
+    // The seeded 1Password Connect and Bitwarden sources (A5 U4) stay.
+    await again.waitFor({ state: "detached" });
   }));
 
 test("external_ref credential: edit the reference, Test lists names only, no value in the DOM", (t) =>

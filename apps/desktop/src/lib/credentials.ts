@@ -246,7 +246,7 @@ export const PROTOCOL_LABEL: Record<Protocol, string> = {
   "vsphere-console": "vSphere console",
 };
 
-const ROLE_LABEL: Record<CredentialRole, string> = { primary: "sign-in", gateway: "RD Gateway", become: "become / sudo" };
+const ROLE_LABEL: Record<CredentialRole, string> = { primary: "sign-in", gateway: "RD Gateway", become: "become / sudo", certificate: "certificate" };
 
 /** Footnotes of the ADR matrix: why an obvious-looking pairing is refused. */
 const FOOTNOTE: Partial<Record<CredentialKind, Partial<Record<Protocol, string>>>> = {
@@ -275,8 +275,22 @@ export function kindValidFor(schema: KindSchema, protocol: Protocol, role: Crede
   return { ok: false, reason: `${schema.label} is for ${uses.join(", ")}, not ${PROTOCOL_LABEL[protocol]} ${ROLE_LABEL[role]}.` };
 }
 
+/** ADR-0026: a Vault `ssh_sign` reference (the only kind the `certificate` role takes). */
+export function isSshSignRef(cred: CredentialMeta): boolean {
+  return cred.kind === "external_ref" && cred.fields.provider === "vault" && cred.fields.engine === "ssh_sign";
+}
+
 /** Same as `kindValidFor` for a stored credential; `external_ref` follows its `target_kind`. */
 export function credentialValidFor(kinds: KindSchema[], cred: CredentialMeta, protocol: Protocol, role: CredentialRole): Compat {
+  // ADR-0026 (R3 `check_compatible`): the certificate role takes only an SSH-sign reference, on SSH,
+  // and an SSH-sign reference fills no other role.
+  if (role === "certificate") {
+    if (protocol !== "ssh") return { ok: false, reason: "Only SSH connections take a certificate." };
+    return isSshSignRef(cred) ? { ok: true } : { ok: false, reason: "The certificate role takes a Vault SSH sign reference only." };
+  }
+  if (isSshSignRef(cred)) {
+    return { ok: false, reason: "A Vault SSH sign reference only certifies an SSH key: pick it as the connection's certificate." };
+  }
   let kind = cred.kind;
   if (kind === "external_ref") {
     const target = cred.fields.target_kind;
@@ -315,7 +329,7 @@ export function accountSummary(c: CredentialMeta): string {
     case "oauth_client":
       return s("client_id");
     case "external_ref":
-      return `${s("provider")} ${s("reference")}`.trim();
+      return `${s("provider")}${s("engine") && s("engine") !== "kv2" ? ` ${s("engine").replace("_", " ")}` : ""} ${s("reference")}`.trim();
     case "sudo_become":
       return `${s("method") || "sudo"} → ${s("become_user") || "root"}`;
     case "kube_token":
@@ -340,7 +354,7 @@ export const OTP_SEED_SCHEMA: FieldSchema = {
 /** Connections and folders that reference a credential in any role. */
 export function usedByCount(id: string, connections: ConnectionSummary[], folderDefaults: (string | null)[]): number {
   const conns = connections.filter(
-    (c) => c.credentialId === id || c.gatewayCredentialId === id || c.becomeCredentialId === id,
+    (c) => c.credentialId === id || c.gatewayCredentialId === id || c.becomeCredentialId === id || c.certificateCredentialId === id,
   ).length;
   return conns + folderDefaults.filter((d) => d === id).length;
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ipc, SECRET_AUTH_CREDENTIAL, type SecretAuthMethod, type SecretSource, type SecretSourceInput } from "../../lib/ipc";
+import { ipc, SECRET_AUTH_CREDENTIAL, SOURCE_KIND_LABEL, SOURCE_LOGIN_KIND, type SecretAuthMethod, type SecretSource, type SecretSourceInput, type SecretSourceKind } from "../../lib/ipc";
 import { checkUrl } from "../../lib/validate.options";
 import { validateSecretSource } from "../../lib/validate.secrets";
 import { describeError } from "../../stores/errors";
@@ -7,6 +7,19 @@ import { DialogFooter, Modal } from "../dialogs/Modal";
 import { CaPemField, Seg, Warn } from "../dialogs/options/controls";
 import { KindCredentialSelect } from "./KindCredentialSelect";
 import { Toggle } from "./Toggle";
+import { BwsPathField, KIND_HINT } from "./SourceProviderFields";
+
+const KINDS: { value: SecretSourceKind; label: string }[] = [
+  { value: "vault", label: "Vault / OpenBao" },
+  { value: "onepassword", label: "1Password Connect" },
+  { value: "bitwarden", label: "Bitwarden" },
+];
+
+const ADDRESS: Record<SecretSourceKind, { placeholder: string; hint: string }> = {
+  vault: { placeholder: "https://vault.example.test:8200", hint: "Vault or OpenBao, https:// only. The certificate is pinned on first use or checked against the CA below." },
+  onepassword: { placeholder: "https://connect.example.test:8080", hint: "Your 1Password Connect server, https:// only. The certificate is pinned on first use or checked against the CA below." },
+  bitwarden: { placeholder: "https://bitwarden.example.test", hint: "The self-hosted Bitwarden server. Mooring passes it to bws as BWS_SERVER_URL." },
+};
 
 const METHODS: { value: SecretAuthMethod; label: string }[] = [
   { value: "token", label: "Token" },
@@ -23,23 +36,39 @@ const METHOD_HINT: Record<SecretAuthMethod, string> = {
 export const OIDC_REDIRECT_URI = "http://localhost:8250/oidc/callback";
 
 const BLANK: SecretSourceInput = {
-  name: "", address: "", namespace: null, authMethod: "approle", authMount: "", credentialId: null, oidcRole: null,
+  kind: "vault", name: "", address: "", namespace: null, authMethod: "approle", authMount: "", credentialId: null, oidcRole: null,
   options: { caPem: null, allowHttp: false, allowedOrigins: [] },
 };
 
+/** A fresh form of one kind: 1Password and Bitwarden sign in with a token only (ADR-0026). */
+function blank(kind: SecretSourceKind, credentialId: string | null): SecretSourceInput {
+  if (kind === "vault") return { ...BLANK, credentialId };
+  return {
+    ...BLANK, kind, authMethod: "token", credentialId,
+    options: { caPem: null, allowHttp: false, allowedOrigins: [], ...(kind === "bitwarden" ? { bwsPath: null } : {}) },
+  };
+}
+
 function toInput(s: SecretSource): SecretSourceInput {
-  return { name: s.name, address: s.address, namespace: s.namespace, authMethod: s.authMethod, authMount: s.authMount, credentialId: s.credentialId, oidcRole: s.oidcRole, options: structuredClone(s.options) };
+  const options = structuredClone(s.options);
+  if (s.kind !== "bitwarden") delete options.bwsPath;
+  else options.bwsPath ??= null;
+  return { kind: s.kind, name: s.name, address: s.address, namespace: s.namespace, authMethod: s.authMethod, authMount: s.authMount, credentialId: s.credentialId, oidcRole: s.oidcRole, options };
 }
 
 /** Create or edit one ADR-0016 secret source. Login material is a credential id; nothing secret is typed here. */
-export function SecretSourceDialog({ source, initialCredentialId = null, onClose, onSaved }: {
+export function SecretSourceDialog({ source, initialCredentialId = null, initialKind = "vault", onClose, onSaved }: {
   source?: SecretSource | undefined;
   /** A new AppRole source preselects this login credential (U0: "Create secret source" on an AppRole). */
   initialCredentialId?: string | null;
+  /** ADR-0026: "Create secret source" on a Bitwarden access token starts a Bitwarden source. */
+  initialKind?: SecretSourceKind;
   onClose: () => void;
   onSaved: (s: SecretSource) => void;
 }) {
-  const [d, setD] = useState<SecretSourceInput>(() => (source ? toInput(source) : { ...BLANK, credentialId: initialCredentialId }));
+  const [d, setD] = useState<SecretSourceInput>(() => (source ? toInput(source) : blank(initialKind, initialCredentialId)));
+  const kind = d.kind ?? "vault";
+  const vault = kind === "vault";
   const [origin, setOrigin] = useState("");
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,7 +77,7 @@ export function SecretSourceDialog({ source, initialCredentialId = null, onClose
   const show = (k: string) => (tried ? errors[k] : undefined);
   const patch = (p: Partial<SecretSourceInput>) => { setD((cur) => ({ ...cur, ...p })); };
   const patchOptions = (p: Partial<SecretSourceInput["options"]>) => { setD((cur) => ({ ...cur, options: { ...cur.options, ...p } })); };
-  const credentialKind = SECRET_AUTH_CREDENTIAL[d.authMethod];
+  const credentialKind = vault ? SECRET_AUTH_CREDENTIAL[d.authMethod] : SOURCE_LOGIN_KIND[kind];
 
   const changeMethod = (m: SecretAuthMethod) => {
     setD((cur) => ({
@@ -83,28 +112,33 @@ export function SecretSourceDialog({ source, initialCredentialId = null, onClose
     <Modal title={source ? `Edit ${source.name}` : "New secret source"} onClose={onClose} width={560}>
       <form onSubmit={(e) => { e.preventDefault(); void save(); }} autoComplete="off">
         <div className="settings-body">
-          <div className="settings-grid">
+          {source ? (
+            <p className="field-hint mt-0">Provider: <span className="text-text">{SOURCE_KIND_LABEL[kind]}</span>. The provider of a source cannot change.</p>
+          ) : (
+            <Seg legend="Provider" name="ss-kind" value={kind} options={KINDS} onChange={(k) => { setD((cur) => ({ ...blank(k, null), name: cur.name, address: cur.address })); setTried(false); }} hint={KIND_HINT[kind]} />
+          )}
+          <div className={vault ? "settings-grid" : undefined}>
             <div>
               <label className="field-label" htmlFor="ss-name">Name</label>
               <input id="ss-name" className="field" autoFocus maxLength={200} value={d.name} aria-invalid={show("name") ? true : undefined} onChange={(e) => { patch({ name: e.target.value }); }} />
               {show("name") && <p className="field-hint field-problem">{show("name")}</p>}
             </div>
-            <div>
+            {vault && <div>
               <label className="field-label" htmlFor="ss-ns">Namespace <span className="field-opt">optional</span></label>
               <input id="ss-ns" className="field mono" spellCheck={false} placeholder="admin/team" value={d.namespace ?? ""} aria-invalid={show("namespace") ? true : undefined} onChange={(e) => { patch({ namespace: e.target.value }); }} />
               {show("namespace") && <p className="field-hint field-problem">{show("namespace")}</p>}
-            </div>
+            </div>}
           </div>
           <div>
             <label className="field-label" htmlFor="ss-addr">Address</label>
-            <input id="ss-addr" className="field mono" spellCheck={false} placeholder="https://vault.example.test:8200" value={d.address} aria-invalid={show("address") ? true : undefined} onChange={(e) => { patch({ address: e.target.value }); }} />
-            <p className={`field-hint${show("address") ? " field-problem" : ""}`}>{show("address") ?? "Vault or OpenBao, https:// only. The certificate is pinned on first use or checked against the CA below."}</p>
+            <input id="ss-addr" className="field mono" spellCheck={false} placeholder={ADDRESS[kind].placeholder} value={d.address} aria-invalid={show("address") ? true : undefined} onChange={(e) => { patch({ address: e.target.value }); }} />
+            <p className={`field-hint${show("address") ? " field-problem" : ""}`}>{show("address") ?? ADDRESS[kind].hint}</p>
           </div>
 
-          <Seg legend="Sign-in method" name="ss-method" value={d.authMethod} options={METHODS} onChange={changeMethod} hint={METHOD_HINT[d.authMethod]} />
+          {vault && <Seg legend="Sign-in method" name="ss-method" value={d.authMethod} options={METHODS} onChange={changeMethod} hint={METHOD_HINT[d.authMethod]} />}
 
           {credentialKind && (
-            <KindCredentialSelect id="ss-cred" label={d.authMethod === "token" ? "Token credential" : "AppRole credential"} kind={credentialKind}
+            <KindCredentialSelect id="ss-cred" label={kind === "onepassword" ? "Connect token credential" : kind === "bitwarden" ? "Access token credential" : d.authMethod === "token" ? "Token credential" : "AppRole credential"} kind={credentialKind}
               value={d.credentialId ?? ""} onChange={(id) => { patch({ credentialId: id || null }); }} problem={show("credentialId")}
               hint="Only the credential id is stored on the source; its secrets stay sealed in the vault." />
           )}
@@ -117,7 +151,8 @@ export function SecretSourceDialog({ source, initialCredentialId = null, onClose
               </p>
             </div>
           )}
-          {d.authMethod !== "token" && (
+          {kind === "bitwarden" && <BwsPathField value={d.options.bwsPath ?? null} onChange={(bwsPath) => { patchOptions({ bwsPath }); }} problem={show("bwsPath")} />}
+          {vault && d.authMethod !== "token" && (
             <div>
               <label className="field-label" htmlFor="ss-mount">Auth mount <span className="field-opt">optional</span></label>
               <input id="ss-mount" className="field mono" spellCheck={false} placeholder={d.authMethod} value={d.authMount} aria-invalid={show("authMount") ? true : undefined} onChange={(e) => { patch({ authMount: e.target.value }); }} />
@@ -147,12 +182,12 @@ export function SecretSourceDialog({ source, initialCredentialId = null, onClose
             </fieldset>
           )}
 
-          <div className="settings-toggles">
+          {kind !== "bitwarden" && <div className="settings-toggles">
             <CaPemField id="ss-ca" value={d.options.caPem} error={show("caPem")} onChange={(caPem) => { patchOptions({ caPem }); }} />
             <Toggle checked={d.options.allowHttp} onChange={(allowHttp) => { patchOptions({ allowHttp }); }} label="Allow http:// (loopback only)"
-              hint="For a Vault dev server on 127.0.0.1 or [::1]. The change is recorded in the audit log." />
+              hint={`For a ${vault ? "Vault dev server" : "Connect server"} on 127.0.0.1 or [::1]. The change is recorded in the audit log.`} />
             {d.options.allowHttp && <Warn>Tokens and secrets travel in clear text over http://. Never use this beyond the loopback interface.</Warn>}
-          </div>
+          </div>}
         </div>
         <DialogFooter error={error ?? (tried && Object.keys(errors).length > 0 ? "Fix the highlighted fields." : null)}>
           <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>

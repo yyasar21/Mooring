@@ -3,7 +3,8 @@ import { HudLabel } from "@mooring/ui";
 import type { CredentialRole, KubeConnOptions, Protocol, VncConnOptions } from "../../lib/ipc";
 import { supportsVia } from "../../lib/via";
 import { kubeCredentialFit } from "../../lib/validate.kube";
-import { credentialValidFor, supportsOverride } from "../../lib/credentials";
+import { credentialValidFor, isSshSignRef, supportsOverride } from "../../lib/credentials";
+import { ipc } from "../../lib/ipc";
 import { folderPath, hopUsers, useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
 import { useSessions } from "../../stores/sessions";
@@ -76,6 +77,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const [domainOv, setDomainOv] = useState(r?.domainOv ?? existing?.domainOverride ?? "");
   const [gateway, setGateway] = useState(picked("gateway") ?? r?.gateway ?? existing?.gatewayCredentialId ?? "");
   const [become, setBecome] = useState(picked("become") ?? r?.become ?? existing?.becomeCredentialId ?? "");
+  const [certificate, setCertificate] = useState(picked("certificate") ?? r?.certificate ?? existing?.certificateCredentialId ?? "");
   const [tags, setTags] = useState(r?.tags ?? existing?.tags.join(" ") ?? "");
   const [via, setVia] = useState<string[]>(r?.via ?? existing?.via ?? []);
   const [error, setError] = useState<string | null>(null);
@@ -113,12 +115,19 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
     [creds, kinds, protocol],
   );
 
+  // ADR-0026: only Vault SSH sign references are offered; the role is saved on its own command.
+  const certificateOptions = useMemo(
+    () => pickerOptions(creds.filter(isSshSignRef), kinds, protocol, "certificate", "None", "the key signs in without a Vault certificate"),
+    [creds, kinds, protocol],
+  );
+
   const pick = (v: string, opts: { value: string; disabledReason: string | null }[]) =>
     opts.find((o) => o.value === v && !o.disabledReason) ? v : "";
   // Changing protocol drops choices that became incompatible instead of failing on save.
   const primary = pick(cred, primaryOptions);
   const gw = protocol === "rdp" ? pick(gateway, gatewayOptions) : "";
   const bc = protocol === "ssh" ? pick(become, becomeOptions) : "";
+  const cert = protocol === "ssh" ? pick(certificate, certificateOptions) : "";
   const canUser = effective ? supportsOverride(effective.kind, "username") : true;
   const canDomain = effective ? supportsOverride(effective.kind, "domain") : true;
   const dropped = (cred && !primary) || (gateway && protocol === "rdp" && !gw) || (become && protocol === "ssh" && !bc);
@@ -152,6 +161,16 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
       return;
     }
     if (!existing) setCreatedId(saved.id);
+    if (cert !== (saved.certificateCredentialId ?? "")) {
+      try {
+        await ipc.connectionSetRoleCredential({ id: saved.id, role: "certificate", credentialId: cert || null });
+        await useTree.getState().load();
+      } catch (e: unknown) {
+        setBusy(false);
+        setError(`The connection was saved, but its certificate was not: ${describeError(e)}`);
+        return;
+      }
+    }
     // ADR-0011: options travel on their own command, after the row exists.
     if (options.shouldSave) {
       try {
@@ -170,7 +189,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
 
   /** "New…" next to a picker: leave for the credentials view, keeping everything typed so far. */
   function newCredential(role: CredentialRole) {
-    const draft: ConnectionDraft = { name, protocol, host, port, folder, cred, userOv, domainOv, gateway, become, tags, via, options: options.drafts };
+    const draft: ConnectionDraft = { name, protocol, host, port, folder, cred, userOv, domainOv, gateway, become, certificate, tags, via, options: options.drafts };
     const conn = id ?? createdId;
     useUi.getState().showCredentials({
       mode: "new",
@@ -316,6 +335,16 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
               kinds={kinds}
               onChange={setBecome}
               hint="The password is sent only when the remote sudo prompt appears."
+            />
+          )}
+          {protocol === "ssh" && (
+            <CredentialPicker
+              label="Certificate (Vault SSH CA)"
+              value={cert}
+              options={certificateOptions}
+              kinds={kinds}
+              onChange={setCertificate}
+              hint="Vault signs the public half of this connection's SSH key at each connect. Offers SSH sign references only."
             />
           )}
           {dropped && <p className="field-hint">A previous choice does not fit {protocol.toUpperCase()} and was cleared.</p>}

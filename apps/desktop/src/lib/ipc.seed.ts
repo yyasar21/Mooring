@@ -63,6 +63,8 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-vc", "f-staging", "stage-vcenter", "vsphere-console", "vcenter.example.test", null, "cr-vc", []),
     // ADR-0025: stage-app is reached through this bastion (its own key, its own host key).
     c("c-bastion", "f-staging", "bastion01", "ssh", "bastion.stage.example.test", 22, "cr-deploy", ["bastion"]),
+    // ADR-0026: signs in with a Vault database lease; the session tab shows the lease chip.
+    c("c-report", "f-db", "pg-reporting", "ssh", "report.example.test", 22, "cr-db-dyn", ["postgres"]),
   ].map((x) => {
     if (x.id === "c-stg") return { ...x, via: ["c-bastion"] };
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
@@ -96,5 +98,9 @@ export function seedCredentials(): CredentialMeta[] {
     m("cr-approle", "vault approle", "vault_approle", {}, ["role_id", "secret_id"]),
     m("cr-ext", "db via vault", "external_ref", { provider: "vault", source: "src-ops", reference: "kv/ops/db", target_kind: "user_password" }, []),
     m("cr-s3", "team bucket key", "s3_access_key", { access_key_id: "AKIAEXAMPLE0000001", region: "eu-west-1" }, ["secret_access_key"]),
+    // ADR-0026: the logins of the seeded Connect and Bitwarden sources, and a dynamic database user.
+    m("cr-op-token", "connect token", "api_token", { header_name: "Authorization", scheme: "Bearer" }, ["token"]),
+    m("cr-bws-token", "bws machine token", "bitwarden_access_token", {}, ["access_token"]),
+    m("cr-db-dyn", "reporting db (dynamic)", "external_ref", { provider: "vault", source: "src-ops", engine: "database", reference: "database/reporting", target_kind: "user_password" }, []),
   ];
 }

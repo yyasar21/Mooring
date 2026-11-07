@@ -60,6 +60,8 @@ describe("schema-driven credential form", () => {
     for (const f of schema.fields) {
       // account siblings (domain/form) fold into the account field
       if (schema.fields.some((x) => x.validation.format === "netbios_or_upn") && (f.name === "domain" || f.name === "form")) continue;
+      // ADR-0026: engine parameters show once their Vault engine is chosen (refEngines.test.tsx).
+      if (schema.kind === "external_ref" && ["ttl", "common_name", "username"].includes(f.name)) continue;
       const found = within(form).queryAllByText(new RegExp(`^${f.label}`)).length + within(form).queryAllByRole("radiogroup", { name: f.label }).length;
       expect([schema.kind, f.name, found > 0]).toEqual([schema.kind, f.name, true]);
     }

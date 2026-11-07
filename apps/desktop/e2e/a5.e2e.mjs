@@ -2,11 +2,12 @@
 // transport: an SSH session through a jump host (hop prompt naming the hop, per-hop chips, the
 // target's own prompt after it), the "Connect via" picker saving a chain, Windows Hello unlock
 // turned on in Settings → Security and used on the unlock screen, a backup exported and merged
-// back, and the Dev badge of a Mooring Dev build.
+// back, the Dev badge of a Mooring Dev build, and (U4, ADR-0026) a Vault database reference whose
+// session tab shows its lease chip.
 // Run: `node --test --test-concurrency=1 apps/desktop/e2e/a5.e2e.mjs` (after `pnpm install`).
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { MASTER, createVault, freshPage, lockFromTitleBar, probe, screenshotOnFailure, startHarness, waitForProbe } from "./harness.mjs";
+import { MASTER, createVault, freshPage, lockFromTitleBar, openSession, probe, screenshotOnFailure, startHarness, waitForProbe } from "./harness.mjs";
 
 let h;
 before(async () => {
@@ -121,4 +122,50 @@ test("Mooring Dev: the title bar and About carry the Dev badge", (t) =>
     await views(page).getByRole("button", { name: "Settings" }).click();
     await page.getByTestId("about-dev").waitFor();
     await page.getByTestId("update-dev").waitFor();
+  }));
+
+// A5 U4 (ADR-0026): a Vault database reference created in the form, a new SSH connection that
+// signs in with it, and the lease chip on the session tab (renewal time, engine and role, no id).
+test("dynamic secret: a database reference, a connection that uses it, the lease chip", (t) =>
+  flow(t, async (page) => {
+    await createVault(page);
+    await views(page).getByRole("button", { name: "Credentials" }).click();
+    const view = page.getByRole("region", { name: "Credentials" });
+    await view.getByRole("button", { name: "New credential" }).click();
+    await view.getByRole("button", { name: "Secret manager reference", exact: true }).click();
+    const form = view.getByRole("form", { name: "New Secret manager reference" });
+    await form.getByLabel("Name", { exact: true }).fill("analytics db");
+    await form.getByText("Vault", { exact: true }).click();
+    await form.getByLabel("Secret source").selectOption("src-ops");
+    await form.getByLabel("Vault engine").selectOption("database");
+    await form.getByText("Fixed by the Database engine.").waitFor();
+    await form.getByLabel("Role", { exact: true }).fill("database/analytics");
+    await form.getByRole("button", { name: "Create credential" }).click();
+    const card = view.getByRole("article", { name: "analytics db details" });
+    await card.waitFor();
+    await card.getByRole("button", { name: "Test" }).click();
+    await card.getByRole("status", { name: "Reference test" }).filter({ hasText: "Mooring revoked them at once" }).waitFor();
+
+    await page.getByRole("button", { name: "New connection" }).click();
+    const dlg = page.getByRole("dialog", { name: "New connection" });
+    await dlg.getByLabel("Name", { exact: true }).fill("analytics");
+    await dlg.getByLabel("Host", { exact: true }).fill("analytics.example.test");
+    await dlg.getByLabel("Folder", { exact: true }).selectOption("f-db");
+    await dlg.getByRole("button", { name: /^Credential/ }).click();
+    await dlg.getByRole("listbox", { name: "Credential" }).getByRole("option").filter({ hasText: "analytics db" }).click();
+    await dlg.getByRole("button", { name: "Create connection" }).click();
+    await dlg.waitFor({ state: "detached" });
+
+    await views(page).getByRole("button", { name: "Credentials" }).click(); // back to the sessions
+    const prompt = await openSession(page, tree(page).getByRole("treeitem", { name: /^analytics, analytics\.example\.test/ }));
+    await prompt.getByRole("button", { name: "Trust and connect" }).click();
+    await waitForProbe(page, (s) => s.events.includes("connected"), "the session to connect");
+    const tab = page.getByRole("tab", { name: /^analytics, connected, Lease · renews in 40 min \(Database lease for Vault role analytics\./ });
+    await tab.waitFor();
+    assert.equal(await tab.locator(".lease-chip").innerText(), "Lease · renews in 40 min");
+    assert.ok(events(await probe(page)).includes("secret_lease_issued"));
+    assert.doesNotMatch(await page.content(), /lease_id|hvs\./, "no lease id or token in the DOM");
+
+    await tab.getByRole("button", { name: "Close analytics" }).click();
+    await waitForProbe(page, (s) => s.audit.some((e) => e.event === "secret_lease_revoked" && e.details.reason === "closed"), "the lease to be revoked");
   }));

@@ -24,6 +24,8 @@ export interface ConnectionDraft {
   domainOv: string;
   gateway: string;
   become: string;
+  /** ADR-0026: the SSH certificate (Vault `ssh_sign`) reference; absent in older drafts. */
+  certificate?: string;
   tags: string;
   /** ADR-0025 jump hosts, first hop first (absent in drafts from before A5). */
   via?: string[];
@@ -57,7 +59,7 @@ export type CredentialPane =
   | { mode: "new"; protocol?: Protocol; returnTo?: CredentialReturn };
 
 /** Something a settings card should do when it mounts, set by the screen that sent the user there. */
-export type SettingsIntent = { kind: "add-secret-source"; credentialId: string | null };
+export type SettingsIntent = { kind: "add-secret-source"; credentialId: string | null; sourceKind?: "vault" | "onepassword" | "bitwarden" };
 
 export const SIDEBAR = { min: 180, max: 480, initial: 264 };
 export const INSPECTOR = { min: 240, max: 520, initial: 312 };

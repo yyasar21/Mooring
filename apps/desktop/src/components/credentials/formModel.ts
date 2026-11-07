@@ -44,7 +44,12 @@ export interface FormState {
   otp: OtpSettings;
   /** `external_ref` only (ADR-0016 §2): target field or secret name → KV key. */
   fieldMap: Record<string, string>;
+  /** `external_ref` only (ADR-0026): `principals` and `alt_names`, edited as chips. */
+  lists: Record<string, string[]>;
 }
+
+/** The array fields of an `external_ref` (no schema row: the kinds table has no array type). */
+export const REF_LISTS = ["principals", "alt_names"] as const;
 
 /** Reads a typed secret from its input at submit time. */
 export type SecretReader = (name: string) => string;
@@ -76,6 +81,12 @@ export function initialState(schema: KindSchema, meta?: CredentialMeta): FormSta
   const storedMap = meta?.fields.field_map;
   const fieldMap = typeof storedMap === "object" && !Array.isArray(storedMap) && !isOtpSettings(storedMap) ? { ...storedMap } : {};
   if (typeof meta?.fields.version === "number") values.version = String(meta.fields.version);
+  if (typeof meta?.fields.ttl === "number") values.ttl = String(meta.fields.ttl);
+  const lists: Record<string, string[]> = {};
+  for (const k of REF_LISTS) {
+    const v = meta?.fields[k];
+    if (Array.isArray(v)) lists[k] = [...v];
+  }
   const acct = accountField(schema);
   const user = acct ? (values[acct.name] ?? "") : "";
   const account =
@@ -92,6 +103,7 @@ export function initialState(schema: KindSchema, meta?: CredentialMeta): FormSta
     otpOn: meta?.secretNames.includes(OTP_SEED) ?? false,
     otp: { ...otpSettings },
     fieldMap,
+    lists,
   };
 }
 
@@ -159,7 +171,11 @@ export function validate(schema: KindSchema, s: FormState, meta?: CredentialMeta
   if (s.name.trim() === "") p.name = "Name is required.";
   if (schema.kind === "external_ref") {
     const v = s.values;
-    const d: ExternalRefDraft = { provider: v.provider ?? "", source: v.source ?? "", reference: v.reference ?? "", target_kind: v.target_kind ?? "", version: v.version ?? "", field_map: s.fieldMap };
+    const d: ExternalRefDraft = {
+      provider: v.provider ?? "", source: v.source ?? "", reference: v.reference ?? "", target_kind: v.target_kind ?? "", version: v.version ?? "", field_map: s.fieldMap,
+      engine: v.engine ?? "", ttl: v.ttl ?? "", common_name: v.common_name ?? "", username: v.username ?? "",
+      principals: s.lists.principals ?? [], alt_names: s.lists.alt_names ?? [],
+    };
     return { ...p, ...validateExternalRef(d, targetNames(kinds, d.target_kind)) };
   }
   const acct = accountField(schema);
@@ -214,6 +230,14 @@ export function buildFields(schema: KindSchema, s: FormState): CredentialFields 
     const map: Record<string, string> = {};
     for (const [k, val] of Object.entries(s.fieldMap)) if (val.trim() !== "") map[k] = val.trim();
     if (Object.keys(map).length > 0) out.field_map = map;
+    // ADR-0026: `kv2` is the default and is not sent; `ttl` is a number; the lists are arrays.
+    if (out.engine === "kv2" || out.provider !== "vault") delete out.engine;
+    const ttl = (s.values.ttl ?? "").trim();
+    if (ttl !== "") out.ttl = Number(ttl);
+    for (const k of REF_LISTS) {
+      const list = (s.lists[k] ?? []).map((x) => x.trim()).filter(Boolean);
+      if (list.length > 0) out[k] = list;
+    }
   }
   return out;
 }

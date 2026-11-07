@@ -14,12 +14,13 @@ import { CREDENTIAL_KINDS } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { KIND_SCHEMAS } from "./ipc.kinds";
 import { OTP_SEED_SCHEMA, isAccountError, parseAccount, previewKubeContexts, validateField } from "./credentials";
-import { checkReference } from "./validate.secrets";
+import { validateExternalRef } from "./validate.secrets";
 
 const OTP_FIELD = "otp";
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\s\u0000-\u001f\u007f-\u009f]/u;
 const OTP_SEED = "otp_seed";
+const ENGINE_FIXES = new Set(["database", "ssh_sign", "ssh_otp", "pki"]);
 
 function invalid(message: string): IpcError {
   return new IpcError("input.invalid", message);
@@ -77,6 +78,17 @@ function checkFields(schema: KindSchema, fields: CredentialFields, contexts: str
       out[k] = v;
       continue;
     }
+    // ADR-0026: `ttl` is a number, `principals` / `alt_names` string arrays (no schema row).
+    if (schema.kind === "external_ref" && k === "ttl") {
+      if (typeof v !== "number" || !Number.isInteger(v)) throw invalid("ttl must be a whole number of seconds");
+      out[k] = v;
+      continue;
+    }
+    if (schema.kind === "external_ref" && (k === "principals" || k === "alt_names")) {
+      if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) throw invalid(`${k} must be a list of names`);
+      out[k] = [...v];
+      continue;
+    }
     const f = plain.get(k);
     if (!f) throw invalid(`unknown field ${k} for ${schema.kind}`);
     if (typeof v !== "string") throw invalid(`${k} must be text`);
@@ -91,10 +103,19 @@ function checkFields(schema: KindSchema, fields: CredentialFields, contexts: str
     if (f.required && !(f.name in out)) throw invalid(`${f.label} is required`);
   }
   if (schema.kind === "external_ref") {
-    if (out.provider === "vault" && typeof out.source !== "string") throw invalid("source is required for Vault");
-    const ref = typeof out.reference === "string" ? out.reference : "";
-    const r = checkReference(ref);
-    if (out.provider === "vault" && r) throw invalid(`reference: ${r}`);
+    // R3: `source` is required for every provider; reference shapes and engine rules as Rust.
+    const str = (x: unknown) => (typeof x === "string" ? x : "");
+    const list = (x: unknown) => (Array.isArray(x) ? x.filter((y): y is string => typeof y === "string") : []);
+    if (typeof out.source !== "string") throw invalid("source is required");
+    const errors = validateExternalRef({
+      provider: str(out.provider), source: str(out.source), reference: str(out.reference), target_kind: str(out.target_kind),
+      version: typeof out.version === "number" ? String(out.version) : "", field_map: {},
+      engine: str(out.engine), ttl: typeof out.ttl === "number" ? String(out.ttl) : "", common_name: str(out.common_name),
+      username: str(out.username), principals: list(out.principals), alt_names: list(out.alt_names),
+    }, []);
+    if (typeof out.field_map === "object" && ENGINE_FIXES.has(str(out.engine))) errors.field_map = "dynamic engines have no field_map";
+    const field = Object.keys(errors)[0];
+    if (field) throw invalid(`${field}: ${errors[field] ?? "invalid"}`);
   }
   if (schema.kind === "domain_user") {
     const text = (v: unknown) => (typeof v === "string" ? v : "");

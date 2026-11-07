@@ -4,6 +4,7 @@ import { canDetach, lineState, useSessions, type Tab } from "../stores/sessions"
 import { kubeTabLabel } from "../stores/kube";
 import { useTree } from "../stores/tree";
 import { useUi } from "../stores/ui";
+import { LeaseChip, LeasePoller, useLeaseChip } from "./terminal/LeaseChip";
 
 /**
  * Session tabs. Arrow keys move focus, Enter/Space activates, Alt+Shift+Arrow reorders,
@@ -23,6 +24,7 @@ export function TabStrip() {
 
   return (
     <div className="tabstrip">
+      <LeasePoller />
       <div ref={listRef} role="tablist" aria-label="Open sessions" className="flex min-w-0 items-stretch overflow-x-auto">
         {tabs.map((t, i) => (
           <TabItem
@@ -78,6 +80,7 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
   const sub = kubeTabLabel(tab);
   const name = `${c?.name ?? "unknown"}${sub ? ` · ${sub}` : ""}`;
   const stateLabel = tab.prompt ? "waiting for you" : tab.state;
+  const lease = useLeaseChip(tab);
 
   return (
     <div
@@ -85,7 +88,7 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
       id={`tab-${tab.id}`}
       aria-selected={active}
       aria-controls={`panel-${tab.id}`}
-      aria-label={`${name}, ${stateLabel}`}
+      aria-label={`${name}, ${stateLabel}${lease ? `, ${lease.text} (${lease.title})` : ""}`}
       tabIndex={focusable ? 0 : -1}
       draggable
       className="tab"
@@ -129,6 +132,7 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
     >
       {c && <ProtocolPip protocol={c.protocol} live={tab.state === "connected"} />}
       <span className="tab-name min-w-0 flex-1 truncate">{name}</span>
+      {lease && <LeaseChip chip={lease} />}
       {tab.prompt && <span aria-hidden className="tab-attn" />}
       {canDetach(tab.protocol) && <button
         type="button"

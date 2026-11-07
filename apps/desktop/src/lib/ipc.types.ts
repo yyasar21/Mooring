@@ -5,7 +5,7 @@ import type { ExitIpc } from "./ipc.types.exit";
 import type { CertificateInfo, CloseCode, FrameHandler, ProtocolOptions, RemoteIpc } from "./ipc.types.remote";
 import type { KubeExecTarget, KubeIpc } from "./ipc.types.kube";
 import type { SyncedRowFlags, SyncState, VsphereIpc } from "./ipc.types.vsphere";
-import type { SecretsIpc, SyncIpc } from "./ipc.types.secrets";
+import type { LeaseInfo, SecretsIpc, SyncIpc } from "./ipc.types.secrets";
 import type { UpdateIpc } from "./ipc.types.update";
 import type { NetIpc } from "./ipc.types.net";
 import type { ImportIpc } from "./ipc.types.import";
@@ -66,6 +66,8 @@ export interface ConnectionSummary extends SyncedRowFlags {
   /** Secondary roles (per connection, no inheritance). Gateway null = same as the session credential. */
   gatewayCredentialId: string | null;
   becomeCredentialId: string | null;
+  /** ADR-0026: SSH only, a Vault `ssh_sign` reference that certifies the key at connect. Set with `connectionSetRoleCredential`. */
+  certificateCredentialId?: string | null;
   tags: string[];
   /** ADR-0011 per-protocol options; absent from a backend without migration 0005. */
   options?: ProtocolOptions;
@@ -129,13 +131,15 @@ export const CREDENTIAL_KINDS = [
   // ADR-0016 §1 / ADR-0017 §4: consumer-only kinds (no protocol).
   "vault_approle",
   "s3_access_key",
+  // ADR-0026 §4: the `bws` source login.
+  "bitwarden_access_token",
 ] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 
 export type KindGroup = "Windows" | "SSH" | "VNC" | "Web/API" | "Kubernetes" | "vSphere" | "Other" | "Secret sources" | "Sync";
 /** ADR-0016/0017: non-protocol uses of a credential (a Vault login, the sync access key). */
 export type KindConsumer = "secret_source" | "sync";
-export type CredentialRole = "primary" | "gateway" | "become";
+export type CredentialRole = "primary" | "gateway" | "become" | "certificate";
 export type FieldFormat = "text" | "pem" | "base32" | "yaml" | "url" | "netbios_or_upn" | "upn" | "enum";
 
 export interface FieldValidation {
@@ -305,6 +309,8 @@ export interface SessionInfo {
   openedAt: string;
   /** ASSUMED (ADR-0014): kubernetes sessions say whether they are a cluster handle or an exec shell. */
   kube?: { parentSessionId: string | null };
+  /** ADR-0026 §2: the session's dynamic-secret leases; omitted when it holds none. */
+  leases?: LeaseInfo[];
 }
 
 export interface AuditEntry {
