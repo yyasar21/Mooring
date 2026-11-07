@@ -73,6 +73,34 @@ clipboard is reached through XWayland; make sure XWayland is available. Clipboar
 managers that ignore the "exclude from history" hint can keep a copy — disable history for
 sensitive work.
 
+## macOS: several "Mooring" entries in Launchpad, Spotlight or "Open With"
+
+macOS registers every `Mooring.app` it has ever seen: the installed copy, a disk image that is
+still mounted (or was mounted once), an unzipped portable folder, and app bundles produced by
+builds (`target/…/bundle/macos/Mooring.app`, CI agents). Installing over `/Applications` works
+correctly; the extra entries are only registrations.
+
+From 0.2.0 on, only official releases are called **Mooring**; anything built from source is
+**Mooring Dev**, with its own identifier, data folder and keychain items, so local builds no
+longer share the installed app's vault. Releases also offer to move themselves into
+Applications when started from the disk image or Downloads, and eject the disk image after.
+
+To clean up older entries (nothing is deleted):
+
+```sh
+# 1. Eject Mooring disk images that are still mounted
+hdiutil info | grep /Volumes/Mooring     # list them
+hdiutil detach "/Volumes/Mooring"        # repeat per volume
+# 2. Forget every registration except the installed app, then drop entries whose files are gone
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREG" -dump | sed -n 's/^path: *\(.*Mooring[^/]*\.app\) (0x.*/\1/p' | sort -u \
+  | grep -v '^/Applications/Mooring.app$' | while read -r p; do "$LSREG" -u "$p"; done
+"$LSREG" -gc
+"$LSREG" -f /Applications/Mooring.app
+```
+
+Launchpad refreshes after a moment (or `killall Dock`). Mooring itself never runs `lsregister`.
+
 ## Building from source
 
 **`mooring-app` fails to compile on Linux with missing `webkit2gtk`.** Install the WebView
