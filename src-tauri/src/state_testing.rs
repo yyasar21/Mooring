@@ -30,6 +30,8 @@ pub fn settings(clipboard: Arc<MemoryClipboard>) -> Settings {
         reconnect_unit: Duration::from_millis(1),
         biometric: Arc::new(crate::biometric::memory::MemoryBiometricStore::new("macos")),
         fast_exports: true,
+        // The release behaviour is the one most tests pin; dev-only paths set `Channel::Dev`.
+        channel: crate::build_identity::Channel::Release,
     }
 }
 
@@ -68,7 +70,25 @@ pub fn empty() -> Fixture {
 
 /// Fresh state without a vault, in portable mode (ADR-0021).
 pub fn empty_portable() -> Fixture {
-    with_dirs(|dir| portable_dirs(&dir.join("Mooring Data")))
+    with_dirs(|dir| portable_dirs(&dir.join(crate::dirs::Dirs::ROOT)))
+}
+
+/// Fresh state without a vault, with `settings` (e.g. the dev channel, ADR-0028). The
+/// fixture's `clipboard` is a fresh one, not the one inside `settings`.
+pub fn with_settings(settings: Settings) -> Fixture {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = AppState::new(dirs(dir.path()), settings).expect("state");
+    Fixture { dir, state, clipboard: Arc::new(MemoryClipboard::default()) }
+}
+
+/// [`with_settings`] with the testing settings on the dev channel, vault unlocked.
+pub fn unlocked_dev() -> Fixture {
+    let mut s = settings(Arc::new(MemoryClipboard::default()));
+    s.channel = crate::build_identity::Channel::Dev;
+    let f = with_settings(s);
+    crate::commands::vault::create(&f.state, SecretString::from(MASTER.to_owned()))
+        .expect("create vault");
+    f
 }
 
 fn with_dirs(dirs: impl FnOnce(&std::path::Path) -> Dirs) -> Fixture {

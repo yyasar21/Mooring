@@ -69,6 +69,8 @@ pub struct Settings {
     /// ADR-0023: write backups with a low scrypt work factor (tests only; always `false` in
     /// production, where `age` uses log N = 18).
     pub fast_exports: bool,
+    /// ADR-0028: the build channel (`Channel::CURRENT` in production; tests pick one).
+    pub channel: crate::build_identity::Channel,
 }
 
 impl std::fmt::Debug for Settings {
@@ -78,6 +80,7 @@ impl std::fmt::Debug for Settings {
             .field("ssh_allow_agent", &self.ssh_allow_agent)
             .field("clipboard_clear_after", &self.clipboard_clear_after)
             .field("reconnect_unit", &self.reconnect_unit)
+            .field("channel", &self.channel)
             .finish_non_exhaustive()
     }
 }
@@ -94,6 +97,7 @@ impl Settings {
             reconnect_unit: Duration::from_secs(1),
             biometric: crate::biometric::BiometricRuntime::production_store(),
             fast_exports: false,
+            channel: crate::build_identity::Channel::CURRENT,
         }
     }
 }

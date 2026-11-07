@@ -1,0 +1,35 @@
+{
+  "productName": "Mooring",
+  "identifier": "io.github.yyasar21.mooring",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Mooring",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
+        "devtools": false
+      }
+    ]
+  },
+  "bundle": {
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "wix": { "upgradeCode": "1f940c60-f3be-5e3f-81de-92ee690e0b6d" },
+      "nsis": { "installerIcon": "icons/icon.ico" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlGNEVEQUM0ODlENEI4NkQKUldSdHVOU0p4TnBPbnhWY3BDdkwxVXZOR1FNcFo3RnJlQWl2cDhiWDA1ZDI3aTg4VlV5NFUyQ3EK",
+      "endpoints": ["https://github.com/yyasar21/Mooring/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 [
   "app.biometric",
   "app.biometric_suspended",
+  "app.build_identity",
   "app.data_dir",
   "audit.io",
   "biometric.cancelled",
@@ -52,6 +53,10 @@
   "import.too_large",
   "import.unsupported_container",
   "input.invalid",
+  "install.copy_failed",
+  "install.not_ours",
+  "install.not_writable",
+  "install.running",
   "internal",
   "ipc.forbidden",
   "kube.auth_failed",

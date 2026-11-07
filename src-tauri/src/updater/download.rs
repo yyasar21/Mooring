@@ -245,8 +245,10 @@ mod tests {
     /// The endpoint checked in next to the prefix is in the same release tree.
     #[test]
     fn configured_endpoint_shares_the_release_tree() {
-        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json")).expect("conf");
-        let v: serde_json::Value = serde_json::from_str(&text).expect("json");
+        // ADR-0028: the updater block lives in the release overlay; the merged config is what a
+        // tag build compiles with. The dev base must not carry one at all.
+        assert!(crate::test_config::base().pointer("/plugins/updater").is_none(), "dev config has no updater");
+        let v = crate::test_config::release();
         let endpoints = v.pointer("/plugins/updater/endpoints").and_then(serde_json::Value::as_array).expect("endpoints");
         let tree = RELEASE_DOWNLOAD_PREFIX.trim_end_matches("download/");
         for e in endpoints {

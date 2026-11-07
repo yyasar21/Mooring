@@ -370,3 +370,23 @@ fn install_input_wire_shape() {
     assert!(i.close_sessions);
     assert!(serde_json::from_str::<InstallInput>(r#"{"version":"0.2.0","url":"x"}"#).is_err(), "no renderer URL");
 }
+
+/// ADR-0028 §1: in a development build every command answers `update.manual_only` with the
+/// dev sentence (not `update.unconfigured`), the background opt-in is refused and audited
+/// before the portable rule, and switching it off still works.
+#[tokio::test]
+async fn development_build_is_manual_everywhere() {
+    let f = crate::state::testing::unlocked_dev();
+    let rt = UpdateRuntime::development(v("0.1.0"));
+    let dev = ManualReason::DevBuild.message();
+    let now = Instant::now();
+    let e = check(&f.state, &rt, now, true).await.expect_err("dev");
+    assert_eq!((e.code, e.message.as_str()), ("update.manual_only", dev));
+    let e = install(&f.state, &rt, now, install_input("0.2.0", false)).await.expect_err("dev");
+    assert_eq!((e.code, e.message.as_str()), ("update.manual_only", dev));
+    let e = settings_set(&f.state, UpdateSettingsInput { background_check: true, channel: None }).expect_err("dev");
+    assert_eq!((e.code, e.message.as_str()), ("update.manual_only", dev));
+    assert!(!settings_get(&f.state).expect("get").background_check, "nothing stored");
+    assert!(audit_text(&f).contains(r#""event":"update.refused","code":"update.manual_only""#));
+    settings_set(&f.state, UpdateSettingsInput { background_check: false, channel: None }).expect("off is fine");
+}

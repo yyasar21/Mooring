@@ -59,7 +59,7 @@ e2e: ## Playwright UI flows against the Vite dev server + mock transport (apps/d
 fuzz: ## run every fuzz target for 60 s each (A1+)
 	@cd fuzz && for t in $$(cargo +nightly fuzz list 2>/dev/null); do cargo +nightly fuzz run $$t -- -max_total_time=60; done
 
-bundle: ## unsigned local bundles (no updater artifacts: the signing key stays out of dev machines)
+bundle: ## unsigned local "Mooring Dev" bundles (dev identity, ADR-0028; release identity only from CI)
 	cargo tauri build --no-sign
 
 sbom: ## CycloneDX SBOMs into build/
@@ -85,7 +85,7 @@ verify-release: ## verify a published release: make verify-release TAG=vX.Y.Z
 	@test -n "$(TAG)" || { echo "usage: make verify-release TAG=vX.Y.Z"; exit 1; }
 	scripts/release/verify-release.sh "$(TAG)"
 
-icons: ## regenerate src-tauri/icons from packaging/icon.svg
+icons: ## regenerate src-tauri/icons (release) and src-tauri/icons-dev (DEV ribbon) from packaging/*.svg
 	scripts/release/gen-icons.sh
 
 .PHONY: help setup dev fmt lint test test-vectors audit check app-check e2e-ipc e2e fuzz bundle sbom bump release verify-release icons

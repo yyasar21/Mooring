@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Mooring",
+  "productName": "Mooring Dev",
   "version": "0.1.2",
-  "identifier": "io.github.yyasar21.mooring",
+  "identifier": "io.github.yyasar21.mooring.dev",
   "build": {
     "frontendDist": "../apps/desktop/dist",
     "devUrl": "http://localhost:1420",
@@ -15,7 +15,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "Mooring",
+        "title": "Mooring Dev",
         "width": 1360,
         "height": 860,
         "minWidth": 960,
@@ -41,12 +41,18 @@
     "category": "DeveloperTool",
     "shortDescription": "Security-first remote access manager",
     "longDescription": "Mooring keeps SSH, RDP and VNC connections, credentials and sessions in one place. Credentials live in a local Argon2id + XChaCha20-Poly1305 vault that never leaves the Rust core, and every action lands in a tamper-evident audit log. No telemetry.",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "createUpdaterArtifacts": true,
+    "icon": ["icons-dev/32x32.png", "icons-dev/128x128.png", "icons-dev/128x128@2x.png", "icons-dev/icon.icns", "icons-dev/icon.ico"],
+    "createUpdaterArtifacts": false,
     "macOS": {
       "minimumSystemVersion": "11.0",
       "hardenedRuntime": true,
-      "entitlements": "../packaging/macos/entitlements.plist"
+      "entitlements": "../packaging/macos/entitlements.plist",
+      "dmg": {
+        "background": "../packaging/macos/dmg-background.png",
+        "windowSize": { "width": 660, "height": 400 },
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 }
+      }
     },
     "windows": {
       "digestAlgorithm": "sha256",
@@ -54,13 +60,13 @@
       "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
       "wix": {
         "language": "en-US",
-        "upgradeCode": "1f940c60-f3be-5e3f-81de-92ee690e0b6d"
+        "upgradeCode": "9eff6699-6217-579b-8071-28cf4e556939"
       },
       "nsis": {
         "installMode": "currentUser",
         "languages": ["English"],
         "displayLanguageSelector": false,
-        "installerIcon": "icons/icon.ico"
+        "installerIcon": "icons-dev/icon.ico"
       }
     },
     "linux": {
@@ -76,14 +82,6 @@
         "desktopTemplate": "../packaging/linux/mooring.desktop"
       },
       "appimage": { "bundleMediaFramework": false }
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlGNEVEQUM0ODlENEI4NkQKUldSdHVOU0p4TnBPbnhWY3BDdkwxVXZOR1FNcFo3RnJlQWl2cDhiWDA1ZDI3aTg4VlV5NFUyQ3EK",
-      "endpoints": ["https://github.com/yyasar21/Mooring/releases/latest/download/latest.json"],
-      "requireSignedVersion": true,
-      "windows": { "installMode": "passive" }
     }
   }
 }

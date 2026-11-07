@@ -15,6 +15,9 @@
 #           holds TAURI_SIGNING_PRIVATE_KEY; `sign-updater` signs, `finalize` writes the manifest
 #           (scripts/release/updater-manifest.sh), so no tauri-action job races for it.
 #
+# Identity (ADR-0028): src-tauri/tauri.conf.json is "Mooring Dev" (io.github.yyasar21.mooring.dev);
+# only this workflow applies src-tauri/tauri.release.conf.json, so only tag builds are "Mooring".
+#
 # Signing is opt-in per secret: a fork without secrets still produces unsigned installers.
 # Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
 # APPLE_CERTIFICATE as "sign with this" and fails. Nothing here echoes a secret.
@@ -118,9 +121,13 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # M-17 (4): the updater key may be referenced by the sign-updater job only, and the Rust
-      # toolchain pin must equal release-repro.yml's. Pure bash + python -I, no dependencies.
-      - name: Lint the release workflows (updater key scope, toolchain pin)
-        run: bash scripts/release/lint-workflows.sh .github/workflows
+      # toolchain pin must equal release-repro.yml's; ADR-0028: every build passes the release
+      # overlay, and tauri.conf.json (dev) + tauri.release.conf.json merge to the release
+      # identity. Pure bash + python -I, no dependencies.
+      - name: Lint the release workflows (updater key scope, toolchain pin, release overlay)
+        run: |
+          bash scripts/release/lint-workflows.sh .github/workflows
+          python3 -I scripts/release/merge-config.py check-identity src-tauri
 
       - name: Create or reuse the draft release
         id: draft
@@ -280,7 +287,8 @@ jobs:
         run: |
           import json, os, pathlib
           env = os.environ.get
-          # tauri.conf.json says createUpdaterArtifacts: true (ADR-0018), which makes the Tauri
+          # Applied after tauri.release.conf.json (ADR-0028), so these keys win.
+          # The overlay says createUpdaterArtifacts: true (ADR-0018), which makes the Tauri
           # CLI demand TAURI_SIGNING_PRIVATE_KEY in *this* job's environment. Forced off here
           # (M-17): the build never holds the key, the bundler creates no `.sig`, and
           # plugins.updater.pubkey is still compiled in (tauri-build reads the merged config).
@@ -314,12 +322,76 @@ jobs:
 
       # Build only: no releaseId/tagName and no token, so tauri-action cannot touch the release
       # and writes no latest.json; finalize builds the manifest from the `.sig` files.
+      # ADR-0028 §1: the checked-in tauri.conf.json is the dev identity ("Mooring Dev",
+      # io.github.yyasar21.mooring.dev, no updater). The release identity exists only here:
+      # the overlay first, then the CI keys on top. The Tauri CLI folds repeated --config
+      # values in order (RFC 7396) into TAURI_CONFIG, which tauri-build merges into the base
+      # file; tauri-action reads the same list for the artifact names. lint-workflows.sh rule 4
+      # keeps the overlay on every build step. MOORING_RELEASE_BUILD tells src-tauri/build.rs
+      # that a release identity is expected (rust-core cross-checks it against the merged
+      # identifier); no file but this one may set it (rule 5).
       - name: Build with tauri-action
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          MOORING_RELEASE_BUILD: "1"
         with:
-          args: --target ${{ matrix.target }} --bundles ${{ steps.cfg.outputs.bundles }} --config ${{ steps.cfg.outputs.path }}
+          args: --target ${{ matrix.target }} --bundles ${{ steps.cfg.outputs.bundles }} --config src-tauri/tauri.release.conf.json --config ${{ steps.cfg.outputs.path }}
           retryAttempts: 1
+
+      # ADR-0028: what was built carries the release identity. macOS: CFBundleIdentifier of the
+      # .app; Linux: the .deb (and .rpm) package name; every OS: no artifact named like the dev
+      # build ("Mooring Dev_...", "mooring-dev_...").
+      - name: Release identity in the built bundles
+        shell: bash
+        env:
+          PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          want=$(python3 -I scripts/release/merge-config.py merge src-tauri/tauri.conf.json src-tauri/tauri.release.conf.json --get /identifier)
+          [[ "$want" == io.github.yyasar21.mooring ]] || { echo "::error::merged identifier is '$want'"; exit 1; }
+          dev_re='mooring[ _.-]dev'
+          while IFS= read -r f; do
+            f="${f%$'\r'}"; f="${f//\\//}"; name="${f##*/}"
+            if [[ "${name,,}" =~ $dev_re ]]; then echo "::error::dev-identity artifact $name"; exit 1; fi
+          done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
+          shopt -s nullglob
+          case "$RUNNER_OS" in
+            macOS)
+              got=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "target/$TARGET/release/bundle/macos/Mooring.app/Contents/Info.plist")
+              [[ "$got" == "$want" ]] || { echo "::error::Info.plist CFBundleIdentifier is '$got', want '$want'"; exit 1; } ;;
+            Linux)
+              debs=(target/"$TARGET"/release/bundle/deb/*.deb)
+              ((${#debs[@]} > 0)) || { echo "::error::no .deb built"; exit 1; }
+              for deb in "${debs[@]}"; do
+                got=$(dpkg-deb -f "$deb" Package)
+                [[ "$got" == mooring ]] || { echo "::error::$deb Package is '$got', want 'mooring'"; exit 1; }
+              done
+              for rpm in target/"$TARGET"/release/bundle/rpm/*.rpm; do
+                command -v rpm >/dev/null || { echo "::notice::rpm not installed; $rpm name not checked"; break; }
+                got=$(rpm -qp --qf '%{NAME}' "$rpm" 2>/dev/null)
+                [[ "$got" == mooring ]] || { echo "::error::$rpm Name is '$got', want 'mooring'"; exit 1; }
+              done ;;
+          esac
+          echo "release identity: $want"
+
+      # ADR-0028 §3, owner decision 46: per-version volume name ("Mooring 0.2.0" instead of
+      # "Mooring", "Mooring 1", ...). Off until the rc dry run shows the DMG background survives
+      # the rename (scripts/release/dmg-volume.sh holds the plan); switched on by the repository
+      # variable DMG_VERSIONED_VOLUME=true. Runs before the dmg is collected and hashed.
+      - name: Per-version DMG volume name
+        if: runner.os == 'macOS' && vars.DMG_VERSIONED_VOLUME == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmgs=(target/"$TARGET"/release/bundle/dmg/*.dmg)
+          ((${#dmgs[@]} == 1)) || { echo "::error::expected one .dmg, found ${#dmgs[@]}"; exit 1; }
+          bash scripts/release/dmg-volume.sh "${dmgs[0]}" "Mooring $VERSION"
 
       - name: Build .pkg from the .app
         if: runner.os == 'macOS'

@@ -102,9 +102,7 @@ impl BioError {
 /// Owner decision 23: Touch ID ships in every macOS build but is enabled only in
 /// Developer-ID-signed ones. The release pipeline compiles those with
 /// `RUSTFLAGS="--cfg mooring_signed_build"`; every other build answers `unsigned_build`
-/// without touching the keychain. (`unexpected_cfgs` is allowed here until the manifest
-/// declares the cfg with `check-cfg`.)
-#[allow(unexpected_cfgs)]
+/// without touching the keychain.
 pub const SIGNED_BUILD: bool = cfg!(mooring_signed_build);
 
 /// A gesture-gated store of the wrap key. Implementations never log the key.

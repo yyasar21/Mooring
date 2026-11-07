@@ -17,8 +17,15 @@ APP="${1:?usage: macos-pkg.sh <Mooring.app> <version> <out.pkg>}"
 VERSION="${2:?version required}"
 OUT="${3:?output path required}"
 [[ -d "$APP" ]] || { echo "error: $APP not found" >&2; exit 1; }
-plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist"; }
+# PLISTBUDDY: test hook only (scripts/release/tests/macos-pkg.test.sh stubs it on Linux).
+plist() { "${PLISTBUDDY:-/usr/libexec/PlistBuddy}" -c "Print :$1" "$APP/Contents/Info.plist"; }
 IDENTIFIER="$(plist CFBundleIdentifier)"
+# ADR-0028 §1: the .pkg is a release artifact. A tag build (or MOORING_RELEASE_BUILD=1) whose
+# .app carries the dev identity means the release overlay was not applied: refuse it.
+if [[ "$IDENTIFIER" == *.dev && ( "${GITHUB_REF:-}" == refs/tags/* || "${MOORING_RELEASE_BUILD:-}" == 1 ) ]]; then
+  echo "error: $APP has the development identifier $IDENTIFIER in a release build (tauri.release.conf.json not applied?)" >&2
+  exit 1
+fi
 MIN_OS="$(plist LSMinimumSystemVersion 2>/dev/null || echo 11.0)"
 
 WORK="$(mktemp -d)"

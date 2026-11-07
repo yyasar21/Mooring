@@ -36,6 +36,16 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - env:
           S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      - name: Build with tauri-action
+        id: tauri
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          MOORING_RELEASE_BUILD: "1"
+        with:
+          args: --target x --config src-tauri/tauri.release.conf.json --config ${{ steps.cfg.outputs.path }}
+          retryAttempts: 1
+      - name: next step
+        run: echo done
   sign-updater:
     environment: release
     steps:
@@ -119,6 +129,67 @@ expect 0 "double-quoted non-zip patterns still pass" "$dqok"
 nofind=$(fixture nofind)
 sed -i '/find artifacts/,/LC_ALL=C sort)/d' "$nofind/release.yml"
 expect nonzero "sign-updater without an artifact selector" "$nofind"
+
+# --- ADR-0028 rule 4: the release overlay on every tauri build ---
+nooverlay=$(fixture nooverlay)
+sed -i 's# --config src-tauri/tauri.release.conf.json##' "$nooverlay/release.yml"
+expect nonzero "tauri-action without the release overlay" "$nooverlay"
+
+overlaylast=$(fixture overlaylast)
+sed -i 's#--config src-tauri/tauri.release.conf.json --config ${{ steps.cfg.outputs.path }}#--config ${{ steps.cfg.outputs.path }} --config src-tauri/tauri.release.conf.json#' "$overlaylast/release.yml"
+grep -q 'path }} --config src-tauri' "$overlaylast/release.yml" || { fail=$((fail + 1)); echo "FAIL fixture edit (overlaylast)"; }
+expect nonzero "release overlay after the CI config (CI keys must win)" "$overlaylast"
+
+noargs=$(fixture noargs)
+sed -i '/^          args: --target x/d' "$noargs/release.yml"
+expect nonzero "tauri-action without args" "$noargs"
+
+foldargs=$(fixture foldargs)
+sed -i 's#^          args: --target x #          args: >-\n            --target x\n            #' "$foldargs/release.yml"
+grep -q '^            --config src-tauri/tauri.release.conf.json' "$foldargs/release.yml" || { fail=$((fail + 1)); echo "FAIL fixture edit (foldargs)"; }
+expect 0 "folded multi-line args with the overlay first" "$foldargs"
+
+nobuild=$(fixture nobuild)
+sed -i '/uses: tauri-apps\/tauri-action/d' "$nobuild/release.yml"
+expect nonzero "release.yml without any tauri build" "$nobuild"
+
+clibuild=$(fixture clibuild)
+sed -i 's#        run: echo done#        run: pnpm tauri build --bundles app --no-sign#' "$clibuild/release.yml"
+expect nonzero "a CLI tauri build without the overlay" "$clibuild"
+
+cliok=$(fixture cliok)
+sed -i 's#        run: echo done#        run: |\n          cargo tauri build --bundles app \\\n            --config src-tauri/tauri.release.conf.json --config ci.json#' "$cliok/release.yml"
+grep -q 'cargo tauri build --bundles app' "$cliok/release.yml" || { fail=$((fail + 1)); echo "FAIL fixture edit (cliok)"; }
+expect 0 "a CLI tauri build with the overlay on a continuation line" "$cliok"
+
+otherrel=$(fixture otherrel)
+printf 'name: release-x\njobs:\n  b:\n    steps:\n      - run: npx tauri bundle --bundles dmg\n' >"$otherrel/release-extra.yml"
+expect nonzero "another release*.yml bundles without the overlay" "$otherrel"
+
+ciyml=$(fixture ciyml)
+printf 'name: ci\njobs:\n  b:\n    steps:\n      - run: pnpm tauri build --debug --bundles app --no-sign\n' >"$ciyml/ci.yml"
+expect 0 "ci.yml builds the dev identity without the overlay" "$ciyml"
+
+# --- ADR-0028 rule 5: MOORING_RELEASE_BUILD only in release.yml's build job ---
+relci=$(fixture relci)
+printf 'name: ci\njobs:\n  b:\n    env:\n      MOORING_RELEASE_BUILD: "1"\n    steps: []\n' >"$relci/ci.yml"
+expect nonzero "MOORING_RELEASE_BUILD set in ci.yml" "$relci"
+
+relrun=$(fixture relrun)
+printf 'name: e2e\njobs:\n  b:\n    steps:\n      - run: MOORING_RELEASE_BUILD=1 cargo build\n' >"$relrun/e2e.yml"
+expect nonzero "MOORING_RELEASE_BUILD assigned in a run line elsewhere" "$relrun"
+
+reljob=$(fixture reljob)
+sed -i 's#^  finalize:#  finalize:\n    env:\n      MOORING_RELEASE_BUILD: "1"#' "$reljob/release.yml"
+expect nonzero "MOORING_RELEASE_BUILD in another release.yml job" "$reljob"
+
+relzero=$(fixture relzero)
+sed -i 's#MOORING_RELEASE_BUILD: "1"#MOORING_RELEASE_BUILD: "0"#' "$relzero/release.yml"
+expect nonzero "MOORING_RELEASE_BUILD set to something other than 1" "$relzero"
+
+relcomment=$(fixture relcomment)
+printf 'name: ci\n# MOORING_RELEASE_BUILD is release-only (ADR-0028)\njobs:\n  b:\n    steps: []\n' >"$relcomment/ci.yml"
+expect 0 "a comment naming MOORING_RELEASE_BUILD elsewhere" "$relcomment"
 
 echo "$pass passed, $fail failed"
 ((fail == 0))

@@ -178,7 +178,7 @@ a day in the background; a background check only shows a badge and never downloa
 The app reads `https://github.com/yyasar21/Mooring/releases/latest/download/latest.json`, which
 GitHub resolves to the newest published stable release: drafts and pre-releases
 (`v0.1.0-rc.2`) never appear there. Every update is verified against the public key compiled
-into the app (`plugins.updater.pubkey`) before a byte is written, independently of TLS, and a
+into release builds (`plugins.updater.pubkey` in `src-tauri/tauri.release.conf.json`) before a byte is written, independently of TLS, and a
 downgrade is refused.
 
 In-app installation is offered only where it needs no elevation: a macOS `.app` in a folder you
@@ -257,10 +257,39 @@ The environment `release` needs: required reviewer = the owner, *Deployment bran
 limited to the tag rule `v*`. Recommended with it: a tag ruleset for `v*` (create/update/delete
 by the owner only) and a branch ruleset on `main` (pull request + review, no force push).
 
+## Build identity: Mooring and Mooring Dev
+
+Every build is one of two apps (ADR-0028). They have separate identifiers, so they never share
+a data directory, keychain items, WebView storage or an installer slot.
+
+| Channel | Built by | Identifier / name | Data directory (`app_data_dir`) |
+| --- | --- | --- | --- |
+| Release | `release.yml` on a `v*` tag only | `io.github.yyasar21.mooring` / **Mooring** | macOS `~/Library/Application Support/io.github.yyasar21.mooring`, Windows `%APPDATA%\io.github.yyasar21.mooring`, Linux `~/.local/share/io.github.yyasar21.mooring`; portable: `Mooring Data/` |
+| Dev | everything else: `make dev`, `make bundle`, `cargo tauri build`, CI, third-party pipelines | `io.github.yyasar21.mooring.dev` / **Mooring Dev** | the same paths with `io.github.yyasar21.mooring.dev`; portable: `Mooring Dev Data/` |
+
+- `src-tauri/tauri.conf.json` is the dev identity: "Mooring Dev", DEV-ribbon icons
+  (`src-tauri/icons-dev/`, from `packaging/icon-dev.svg`), no updater (the plugin is not
+  registered; Settings → Updates says updates are disabled), its own WiX `upgradeCode`
+  (UUIDv5 of the dev identifier), Linux package `mooring-dev`.
+- `src-tauri/tauri.release.conf.json` holds only the release keys: identifier, productName,
+  main window title, release icons, `createUpdaterArtifacts`, the shipped WiX `upgradeCode`,
+  the updater `pubkey`/endpoint/`requireSignedVersion`. `release.yml` passes it as the first
+  `--config` of every build (`lint-workflows.sh` rule 4) and sets `MOORING_RELEASE_BUILD=1`
+  for `src-tauri/build.rs` (rule 5: nowhere else). The Tauri CLI merges `--config` files as
+  JSON Merge Patch (RFC 7396): objects merge key by key, arrays replace, which is why the
+  overlay repeats the whole `app.windows` entry. `scripts/release/merge-config.py
+  check-identity` (run in CI and in the draft-release job) fails when the two drift.
+- A forgotten flag yields a dev build, never a release-identity one. There is no
+  `make bundle-release-local`: the release identity comes from CI only.
+- The DMG window (`bundle.macOS.dmg`, both channels) uses `packaging/macos/dmg-background.png`
+  (rendered from `dmg-background.svg`). The per-version volume name (`Mooring 0.2.0`) is the
+  release.yml step behind the repository variable `DMG_VERSIONED_VOLUME=true`
+  (`scripts/release/dmg-volume.sh`), off until an rc shows the background survives the rename.
+
 ## Local builds
 
-`pnpm tauri build --no-sign` builds unsigned installers for the current OS into
-`target/release/bundle/` (`--no-sign` skips the updater signature, which needs the private key
-only CI has; without it the bundler refuses to run with `createUpdaterArtifacts: true`). `make icons` regenerates `src-tauri/icons/` from
-`packaging/icon.svg`. Package-manager templates for later (winget, Scoop) live in
-`packaging/winget/` and `packaging/scoop/`.
+`make bundle` (`cargo tauri build --no-sign`) builds unsigned **Mooring Dev** installers for the
+current OS into `target/release/bundle/`; they install next to a released Mooring without
+touching it. `make icons` regenerates both icon sets (`src-tauri/icons/` from
+`packaging/icon.svg`, `src-tauri/icons-dev/` from `packaging/icon-dev.svg`). Package-manager
+templates for later (winget, Scoop) live in `packaging/winget/` and `packaging/scoop/`.

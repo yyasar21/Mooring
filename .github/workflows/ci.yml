@@ -70,3 +70,24 @@ jobs:
         run: '! grep -rn "invoke(" apps/desktop/src --include=*.ts --include=*.tsx | grep -v "src/lib/ipc.ts"'
       - name: Tauri app compiles
         run: cargo build -p mooring-app
+      # ADR-0028 §1: the checked-in config is the dev identity and only the release overlay
+      # turns it into the release one (scripts/release/merge-config.py, standard library only).
+      - name: Build identity (dev by default, release only via the overlay)
+        if: runner.os == 'Linux'
+        run: |
+          python3 -I scripts/release/merge-config.py self-test
+          python3 -I scripts/release/merge-config.py check-identity src-tauri
+          bash scripts/release/tests/identity.test.sh
+      # A real bundle of what a non-tag build produces: a debug .app without the overlay must be
+      # "Mooring Dev" / io.github.yyasar21.mooring.dev (ADR-0028 test plan, pipeline).
+      - name: Debug .app carries the dev identity (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm tauri build --debug --bundles app --no-sign
+          plist="target/debug/bundle/macos/Mooring Dev.app/Contents/Info.plist"
+          [[ -f "$plist" ]] || { echo "::error::Mooring Dev.app not built; bundle dir holds: $(ls target/debug/bundle/macos)"; exit 1; }
+          id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")
+          [[ "$id" == io.github.yyasar21.mooring.dev ]] || { echo "::error::CFBundleIdentifier is '$id', want io.github.yyasar21.mooring.dev"; exit 1; }
+          echo "dev identity: $id"

@@ -219,5 +219,13 @@ lonesig=$(release lonesig a.dmg); with_updater "$lonesig" "$APPIMAGE" linux-x86_
 printf '%s\n' "$SIG64" >"$lonesig/$WINZIP.sig"; rehash "$lonesig"
 expect nonzero "a lone Mooring_<v>_x64_portable.zip.sig without its zip" FAKE_RELEASE="$lonesig" -- v1.2.3
 
+# --- ADR-0028: no dev-identity asset on a release ---
+for name in "Mooring Dev_1.2.3_aarch64.dmg" "mooring-dev_1.2.3_amd64.deb" "Mooring_Dev_1.2.3_x64-setup.exe"; do
+  devasset=$(release "dev-${name// /_}" a.dmg "$name")
+  expect nonzero "a dev-identity asset ($name)" FAKE_RELEASE="$devasset" -- v1.2.3
+done
+devok=$(release devok Mooring_1.2.3_aarch64.dmg mooring_1.2.3_amd64.deb Mooring_1.2.3_x64-setup.exe)
+expect 0 "release-identity asset names" FAKE_RELEASE="$devok" -- v1.2.3
+
 echo "$pass passed, $fail failed"
 ((fail == 0))

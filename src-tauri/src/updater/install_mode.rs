@@ -59,6 +59,8 @@ pub enum ManualReason {
     NotBundled,
     /// A portable folder (ADR-0021 §2): the user replaces the folder with the new zip.
     Portable,
+    /// A development build (ADR-0028 §1): no updater, the user builds the next one.
+    DevBuild,
 }
 
 impl ManualReason {
@@ -66,7 +68,11 @@ impl ManualReason {
     pub fn code(self) -> &'static str {
         match self {
             Self::NotWritable => "update.not_writable",
-            Self::PackageManager | Self::Homebrew | Self::NotBundled | Self::Portable => {
+            Self::PackageManager
+            | Self::Homebrew
+            | Self::NotBundled
+            | Self::Portable
+            | Self::DevBuild => {
                 "update.manual_only"
             }
         }
@@ -80,6 +86,7 @@ impl ManualReason {
             Self::NotWritable => "the install location is not writable by this user",
             Self::NotBundled => "not an installed bundle",
             Self::Portable => "portable build: download the new zip and replace the folder",
+            Self::DevBuild => "development build: updates come from your own builds",
         }
     }
 }
@@ -95,6 +102,7 @@ pub enum InstallMode {
 
 /// What the matrix needs to know; gathered once per decision by an [`InstallProbe`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // independent facts the matrix reads in a fixed order
 pub struct InstallFacts {
     /// Bundle kind.
     pub bundle: Bundle,
@@ -109,6 +117,8 @@ pub struct InstallFacts {
     pub cask_present: bool,
     /// Portable mode (ADR-0021, `Dirs::portable_root.is_some()`): checked before the bundle.
     pub portable: bool,
+    /// A development build (ADR-0028, `Channel::Dev`): checked before everything else.
+    pub dev_build: bool,
 }
 
 /// Homebrew Caskroom roots (Apple silicon and Intel prefixes). Review 7 N-55: a cask
@@ -141,6 +151,9 @@ pub(crate) fn cask_present_in(roots: &[&Path], token: &str) -> bool {
 /// The matrix (ADR-0018 §3). Pure.
 pub fn decide(facts: &InstallFacts) -> InstallMode {
     use ManualReason as R;
+    if facts.dev_build {
+        return InstallMode::Manual(R::DevBuild);
+    }
     if facts.portable {
         return InstallMode::Manual(R::Portable);
     }
@@ -174,6 +187,8 @@ pub trait InstallProbe: Send + Sync {
 pub struct OsProbe {
     /// Portable mode (from `Dirs` at setup).
     pub portable: bool,
+    /// Development build (`Channel::CURRENT`, ADR-0028).
+    pub dev_build: bool,
 }
 
 impl OsProbe {
@@ -219,7 +234,7 @@ impl InstallProbe for OsProbe {
             Bundle::MacApp | Bundle::Nsis => dir_writable(Some(&resolved)) && dir_writable(resolved.parent()),
             _ => false,
         };
-        Some(InstallFacts { bundle, install_path: resolved, writable, cask_present, portable: self.portable })
+        Some(InstallFacts { bundle, install_path: resolved, writable, cask_present, portable: self.portable, dev_build: self.dev_build })
     }
 }
 
