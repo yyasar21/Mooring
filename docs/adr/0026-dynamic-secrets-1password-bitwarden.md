@@ -1,6 +1,6 @@
 # ADR-0026: Dynamic Vault secret engines, 1Password Connect and Bitwarden Secrets Manager
 
-Status: Proposed · 2026-11-07 (Phase A5 / v0.2.0; extends ADR-0016 §1–§3, ADR-0009 `external_ref`,
+Status: Accepted 2026-11-08 (owner decisions 35–38 at the recommended defaults: 1Password via Connect, Bitwarden via `bws`, PKI revokeCertOnDisconnect off, ssh_sign as the `certificate` role) · 2026-11-07 (Phase A5 / v0.2.0; extends ADR-0016 §1–§3, ADR-0009 `external_ref`,
 ADR-0020 §3 process pattern, ADR-0024 §1; owner decisions 8–9 revisited)
 
 ## Context
