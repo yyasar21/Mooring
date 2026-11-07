@@ -290,6 +290,8 @@ fn translocation_component_is_an_ordinary_folder_name_elsewhere() {
     assert!(d.portable());
 }
 
+// AppImage mounts are POSIX paths; the check only runs on Linux (L-44), so not on Windows.
+#[cfg(unix)]
 #[test]
 fn exe_in_appimage_mount_shapes() {
     let exe = Path::new("/tmp/.mount_MoorinAbC/usr/bin/mooring");

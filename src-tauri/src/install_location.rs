@@ -474,6 +474,8 @@ pub fn ps_argv() -> Vec<OsString> {
     os(&["-axww", "-o", "comm="])
 }
 
-#[cfg(test)]
+// The classification works on POSIX paths (`/Volumes/…`, `~/Downloads`); Windows never runs it
+// and its path rules differ, so the table is checked on macOS and Linux CI.
+#[cfg(all(test, unix))]
 #[path = "install_location_tests.rs"]
 mod tests;
