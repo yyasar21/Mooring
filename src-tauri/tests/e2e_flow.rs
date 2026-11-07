@@ -13,9 +13,12 @@
 #![allow(clippy::doc_markdown)]
 
 use mooring_app_lib::{
-    clipboard, commands, dirs, error, portable_acl, sessions, startup, state, sync_runner,
-    test_ssh_server, updater,
+    clipboard, commands, dirs, error, portable_acl, sessions, state, sync_runner, test_ssh_server,
+    updater,
 };
+// Only the Linux-only non-UTF-8 path case needs the refusal type.
+#[cfg(target_os = "linux")]
+use mooring_app_lib::startup;
 
 // A4 Q1 (ADR-0018 / 0019 / 0020): hostile imports, LDAPS mock knobs + TOFU, network shims,
 // the updater's Rust-side matrix.

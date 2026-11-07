@@ -43,11 +43,13 @@ pub fn webview_missing() -> Refusal {
 /// marker is located first, the Windows `WebView2` check runs on that answer, and only then
 /// is anything created (review 8 N-65), so a refusal leaves the folder as it found it.
 pub fn resolve_dirs<R: Runtime>(app: &tauri::App<R>) -> Result<Dirs, Refusal> {
-    // The path only locates the marker; it never decides what is trusted.
+    // The path only locates the marker; it never decides what is trusted. (semgrep: current-exe
+    // is a locator here, not a security decision; the marker checks in `dirs.rs` are.)
+    // nosemgrep
     let exe = std::env::current_exe().map_err(|_| Refusal {
         code: "app.data_dir",
         message: "The executable path could not be resolved.".to_owned(),
-    })?; // nosemgrep
+    })?;
     // L-44: `$APPIMAGE` only on Linux, only when it is a real file and we run from its mount.
     let appimage = Dirs::appimage_from_env(
         &exe,

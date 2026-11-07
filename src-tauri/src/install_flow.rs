@@ -70,13 +70,16 @@ mod macos {
 
     /// The running `.app` bundle, canonical.
     fn bundle() -> Option<PathBuf> {
-        let exe = std::env::current_exe().ok()?; // nosemgrep: locates the bundle only
+        // Locates the bundle only; ownership is checked from its Info.plist (semgrep current-exe).
+        let exe = std::env::current_exe().ok()?; // nosemgrep
         let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
         crate::dirs::app_bundle(&exe).map(Path::to_path_buf)
     }
 
     fn moved_args() -> loc::MovedArgs {
-        loc::parse_args(std::env::args_os().skip(1))
+        // The relaunch arguments are validated by `parse_args` (a `/Volumes/…` disk image
+        // holding no vault) and only ever trigger a detach (semgrep args-os).
+        loc::parse_args(std::env::args_os().skip(1)) // nosemgrep
     }
 
     fn declined(state: &AppState) -> Option<String> {

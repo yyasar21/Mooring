@@ -7,9 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::a4_1_portable::{mode_of, never_os, portable_app, probe, tree_of};
+#[cfg(target_os = "linux")]
 use crate::commands::vault;
 use crate::dirs::{Dirs, DirsError};
+#[cfg(target_os = "linux")]
 use crate::state::testing;
+#[cfg(target_os = "linux")]
 use crate::state::AppState;
 
 // ------------------------------------------------------- hostile resolver
@@ -117,7 +120,9 @@ fn dot_dot_components_and_trailing_slash_resolve_to_the_same_folder() {
     assert_eq!(tree_of(&app).iter().filter(|p| p.ends_with(Dirs::ROOT)).count(), 1);
 }
 
-#[cfg(unix)]
+// Linux only: APFS / HFS+ refuse non-UTF-8 names (EILSEQ), so macOS cannot even create the
+// fixture (CI 2026-11-07); Windows paths are UTF-16.
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_path_does_not_panic() {
     use std::ffi::OsStr;
