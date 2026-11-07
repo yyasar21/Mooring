@@ -103,6 +103,12 @@ impl PromptBroker {
         rx.await.ok()
     }
 
+    /// A fresh id from the prompt id space, for informational events (ADR-0024 touch banner)
+    /// that are never answered.
+    pub(crate) fn next_id(&self) -> u32 {
+        self.next_id.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
+    }
+
     /// Emit a text prompt and wait for its answer. `None` when the session is closing.
     /// `hop` tags a jump host's prompt (ADR-0025), `None` is the target.
     pub(crate) async fn ask(

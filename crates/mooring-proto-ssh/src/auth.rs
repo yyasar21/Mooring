@@ -32,6 +32,18 @@ pub(crate) struct Credentials {
     pub(crate) user: String,
     pub(crate) secret: ConnectSecret,
     pub(crate) allow_agent: bool,
+    pub(crate) sk: crate::sk_auth::SkOptions,
+}
+
+impl Credentials {
+    pub(crate) fn new(user: String, secret: ConnectSecret, options: &crate::SshOptions) -> Self {
+        let sk = crate::sk_auth::SkOptions {
+            agent_path: options.agent_path.clone(),
+            touch_timeout: options.sk_touch_timeout,
+            helper: options.sk_helper.clone(),
+        };
+        Self { user, secret, allow_agent: options.allow_agent, sk }
+    }
 }
 
 impl std::fmt::Debug for Credentials {
@@ -40,6 +52,7 @@ impl std::fmt::Debug for Credentials {
             .field("user", &self.user)
             .field("secret", &self.secret)
             .field("allow_agent", &self.allow_agent)
+            .field("sk", &self.sk)
             .finish()
     }
 }
@@ -55,14 +68,16 @@ pub(crate) enum AuthError {
     Transport,
     /// The user cancelled the connect-time sign-in form.
     PromptCancelled,
-    /// The credential needs a capability this build lacks (FIDO2 `sk-*` key).
+    /// `sk-*` material in an `ssh_key` credential (use the `ssh_sk_key` kind).
     Unsupported,
+    /// An `ssh_sk_key` sign-in failed (ADR-0024); never followed by a password.
+    SecurityKey(crate::sk_auth::SkFailure),
 }
 
 impl AuthError {
     pub(crate) fn code(&self) -> CloseCode {
         match self {
-            Self::Failed => CloseCode::AuthFailed,
+            Self::Failed | Self::SecurityKey(_) => CloseCode::AuthFailed,
             Self::Cancelled | Self::PromptCancelled => CloseCode::User,
             Self::Transport => CloseCode::Network,
             Self::Unsupported => CloseCode::ProtocolError,
@@ -75,7 +90,10 @@ impl AuthError {
             Self::Cancelled => "closed by user",
             Self::Transport => "connection lost",
             Self::PromptCancelled => "authentication cancelled",
-            Self::Unsupported => "this credential is not supported for ssh in this version",
+            Self::Unsupported => {
+                "this is a FIDO2 security key: use an \"SSH security key (FIDO2)\" credential"
+            }
+            Self::SecurityKey(f) => f.reason(),
         }
     }
 }
@@ -109,8 +127,12 @@ pub(crate) async fn authenticate(
     creds: Credentials,
     shared: &Shared,
 ) -> Result<AuthMethod, AuthError> {
-    let Credentials { user, secret, allow_agent } = creds;
+    let Credentials { user, secret, allow_agent, sk } = creds;
     let (user, secret) = resolve(user, secret, shared).await?;
+    // ADR-0024 decision 30: a security key is the only method tried, never a password.
+    if let ConnectSecret::SecurityKey(login) = &secret {
+        return crate::sk_auth::authenticate(handle, &user, login, shared, &sk).await;
+    }
     let mut allowed = Allowed(None);
     let mut key_failed = false;
 
@@ -140,7 +162,10 @@ pub(crate) async fn authenticate(
         _ => (allow_agent && key_failed, None),
     };
     if agent_wanted && allowed.permits(MethodKind::PublicKey) {
-        if let Some(true) = crate::agent::try_agent(handle, &user, pin, &mut allowed.0).await? {
+        if let Some(true) =
+            crate::agent::try_agent(handle, &user, pin, &mut allowed.0, shared, sk.touch_timeout)
+                .await?
+        {
             return ok(shared, AuthMethod::Agent);
         }
     }

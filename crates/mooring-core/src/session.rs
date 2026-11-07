@@ -15,7 +15,7 @@ use crate::error::{MooringError, Result};
 use crate::known_certs::CertificateInfo;
 use crate::model::Protocol;
 
-pub use crate::connect::{Become, ConnectParams, ConnectSecret, PromptAccount};
+pub use crate::connect::{Become, ConnectParams, ConnectSecret, PromptAccount, SkLogin};
 
 /// Longest `Key.code` (`KeyboardEvent.code`, ASCII), in bytes.
 pub const MAX_KEY_CODE: usize = 32;
@@ -302,6 +302,36 @@ pub enum SessionEvent {
         /// Host key fingerprint once known (`up`), `None` before.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         peer_identity: Option<String>,
+    },
+    /// ADR-0024: a FIDO2 key is about to sign; the UI shows "Touch your security key".
+    /// Informational (no answer). Followed by `TouchCleared` or `TouchTimeout` with this id.
+    TouchRequired {
+        /// Id shared with the follow-up event.
+        id: u32,
+        /// `SHA256:` of the key (safe to show).
+        fingerprint: String,
+        /// How long the authenticator is waited for.
+        timeout_seconds: u32,
+        /// ADR-0025: the jump host signing, `None` = the target.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// The authenticator answered (or the attempt ended): hide the banner.
+    TouchCleared {
+        /// Id of the `TouchRequired`.
+        id: u32,
+        /// The hop, as in `TouchRequired`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// No touch within the timeout: the attempt is abandoned and `Closed { auth_failed }`
+    /// follows (never a password fallback, ADR-0024 decision 30).
+    TouchTimeout {
+        /// Id of the `TouchRequired`.
+        id: u32,
+        /// The hop, as in `TouchRequired`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
     },
     /// Session ended. Always the last event.
     Closed {

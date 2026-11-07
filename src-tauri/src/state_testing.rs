@@ -24,6 +24,7 @@ pub fn settings(clipboard: Arc<MemoryClipboard>) -> Settings {
     Settings {
         kdf: KdfChoice::Fixed(KdfParams::TEST),
         ssh_allow_agent: false,
+        ssh_agent_path: None,
         clipboard,
         clipboard_clear_after: Duration::from_millis(200),
         graphical: Arc::new(crate::session_factory::BuiltinFactory),

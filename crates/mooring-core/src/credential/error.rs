@@ -26,6 +26,9 @@ pub enum CredentialError {
     /// Valid credential, but this build cannot use it yet (`credential.kind_unsupported`).
     #[error("{0}")]
     KindUnsupported(String),
+    /// FIDO2 `sk-*` material offered to the `ssh_key` kind (`credential.use_sk_kind`).
+    #[error("this is a FIDO2 security key (sk-*); create an \"SSH security key (FIDO2)\" credential instead")]
+    UseSkKind,
     /// A secret the operation needs is not stored (`credential.secret_missing`).
     #[error("{0} is not stored")]
     SecretMissing(SecretName),

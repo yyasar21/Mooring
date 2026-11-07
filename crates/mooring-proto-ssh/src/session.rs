@@ -43,6 +43,14 @@ pub struct SshOptions {
     pub keepalive_max: usize,
     /// TCP connect timeout.
     pub connect_timeout: Duration,
+    /// ADR-0024: the ssh-agent socket (Unix) / pipe (Windows) for FIDO2 keys; `None` =
+    /// `SSH_AUTH_SOCK` / the OpenSSH agent pipe. Tests point it at a fake agent.
+    pub agent_path: Option<PathBuf>,
+    /// ADR-0024: how long a security-key signature may wait for a touch (30 s).
+    pub sk_touch_timeout: Duration,
+    /// ADR-0024 §3: the `ssh-sk-helper` binary when the `sshSkHelper` setting is on (a fixed
+    /// path from [`crate::sk_helper::system_helper`]); `None` = the helper backend is off.
+    pub sk_helper: Option<PathBuf>,
 }
 
 impl SshOptions {
@@ -54,6 +62,9 @@ impl SshOptions {
             keepalive: Some(Duration::from_secs(30)),
             keepalive_max: 3,
             connect_timeout: Duration::from_secs(15),
+            agent_path: None,
+            sk_touch_timeout: crate::sk_auth::SK_TOUCH_TIMEOUT,
+            sk_helper: None,
         }
     }
 }
@@ -166,12 +177,13 @@ impl SshSession {
         let (commands, command_rx) = mpsc::channel(CHANNEL_CAPACITY);
         let shared = Arc::new(Shared::new(event_tx));
         let handle: HandleSlot = Arc::new(OnceLock::new());
+        let creds = Credentials::new(user, secret, &options);
         let driver = Driver {
             transport,
             target: (host.clone(), port),
             config: client_config(options.keepalive, options.keepalive_max),
             handler: ClientHandler::new(host, port, options.known_hosts_path, Arc::clone(&shared)),
-            creds: Credentials { user, secret, allow_agent: options.allow_agent },
+            creds,
             r#become,
             size,
             shared: Arc::clone(&shared),

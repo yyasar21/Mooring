@@ -16,6 +16,8 @@ pub enum AuthMethod {
     Password,
     /// SSH `keyboard-interactive`.
     KeyboardInteractive,
+    /// SSH `publickey` with a FIDO2 `sk-*` key (ADR-0024).
+    SecurityKey,
     /// RDP `CredSSP` / NLA (`NTLMv2`).
     Nla,
     /// RDP TLS without NLA (`allowTlsWithoutNla`).
@@ -36,6 +38,7 @@ impl AuthMethod {
             Self::Agent => "agent",
             Self::Password => "password",
             Self::KeyboardInteractive => "keyboard-interactive",
+            Self::SecurityKey => "publickey-sk",
             Self::Nla => "nla",
             Self::RdpTls => "tls",
             Self::VncAuth => "vnc-auth",
@@ -206,6 +209,16 @@ pub enum SessionAudit {
         /// `closed`, `hop_failed` or `hop_lost`.
         code: &'static str,
     },
+    /// ADR-0024: one FIDO2 (`sk-*`) sign-in attempt (`session.auth.sk`). Key fingerprint only.
+    SecurityKeyAuth {
+        /// `SHA256:` of the key.
+        fingerprint: String,
+        /// `agent` or `helper`.
+        backend: &'static str,
+        /// `ok`, `refused`, `not_in_agent`, `no_agent`, `touch_timeout`, `no_presence`,
+        /// `bad_signature`, `helper_missing`, `helper_version`, `helper_failed`.
+        outcome: &'static str,
+    },
     /// Clipboard text crossed the session (coalesced: at most one per second per direction).
     Clipboard {
         /// Direction.
@@ -237,6 +250,7 @@ impl SessionAudit {
             Self::HopOpened { .. } => "session.hop.open",
             Self::HopClosed { .. } => "session.hop.close",
             Self::Clipboard { .. } => "session.clipboard",
+            Self::SecurityKeyAuth { .. } => "session.auth.sk",
         }
     }
 }
@@ -328,6 +342,13 @@ mod tests {
         ] {
             assert_eq!(e.action(), want);
         }
+        let sk = SessionAudit::SecurityKeyAuth {
+            fingerprint: fp(),
+            backend: "agent",
+            outcome: "touch_timeout",
+        };
+        assert_eq!(sk.action(), "session.auth.sk");
+        assert_eq!(AuthMethod::SecurityKey.as_str(), "publickey-sk");
         assert_eq!(AuthMethod::Nla.as_str(), "nla");
         assert_eq!(AuthMethod::KeyboardInteractive.as_str(), "keyboard-interactive");
         assert_eq!(ClipboardDirection::ToRemote.as_str(), "to_remote");

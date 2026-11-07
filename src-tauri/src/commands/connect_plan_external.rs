@@ -124,6 +124,10 @@ fn pending(ready: &Ready, connection_id: &str) -> IpcResult<Todo> {
                         };
                         KeyPub::Line(ssh_public_key_line(k.public_key.as_deref(), &pem)?)
                     }
+                    // ADR-0024: an sk key is signed like any other (`sk-*-cert-v01`).
+                    Some((_, CredentialFields::SshSkKey(k))) => {
+                        KeyPub::Line(ssh_public_key_line(Some(&k.public_key), &[])?)
+                    }
                     Some((_, CredentialFields::ExternalRef(p))) if p.target_kind == CredentialKind::SshKey => {
                         KeyPub::FromPrimary
                     }

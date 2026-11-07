@@ -123,6 +123,7 @@ impl From<CredentialError> for IpcError {
             CredentialError::KubeconfigRejected(m) => Self::new("credential.kubeconfig_rejected", m),
             CredentialError::Incompatible(m) => Self::new("credential.incompatible", m),
             CredentialError::KindUnsupported(m) => Self::new("credential.kind_unsupported", m),
+            e @ CredentialError::UseSkKind => Self::new("credential.use_sk_kind", e.to_string()),
             e @ CredentialError::SecretMissing(_) => {
                 Self::new("credential.secret_missing", e.to_string())
             }

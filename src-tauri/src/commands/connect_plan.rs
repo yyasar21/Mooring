@@ -140,6 +140,21 @@ fn ssh_secret(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<(Option<S
         CredentialFields::SshAgent(f) => {
             (Some(f.username.clone()), ConnectSecret::Agent { fingerprint: f.key_fingerprint.clone() })
         }
+        // ADR-0024: the key handle is opened for the helper backend only (the agent has it).
+        CredentialFields::SshSkKey(f) => {
+            let helper = f.backend == mooring_core::credential::SkBackend::Helper;
+            let key_handle = if helper { open_opt(store, vault, id, SecretName::PrivateKey)? } else { None };
+            let passphrase = if helper { open_opt(store, vault, id, SecretName::Passphrase)? } else { None };
+            let login = mooring_core::session::SkLogin {
+                public_key: f.public_key.clone(),
+                fingerprint: f.fingerprint.clone().unwrap_or_default(),
+                certificate: f.certificate.clone(),
+                backend: f.backend,
+                key_handle,
+                passphrase,
+            };
+            (Some(f.username.clone()), ConnectSecret::SecurityKey(login))
+        }
         CredentialFields::Prompt(f) => {
             let account = PromptAccount {
                 username: f.username.clone(),
@@ -242,6 +257,7 @@ fn plan_with(ready: &Ready, connection_id: &str, size: Size, ext: &external::Ext
                 let signed = ext.certificate(r.id)?;
                 match &mut secret {
                     ConnectSecret::PrivateKey { certificate, .. } => *certificate = Some(signed),
+                    ConnectSecret::SecurityKey(login) => login.certificate = Some(signed),
                     _ => return Err(unsupported("An SSH certificate without an SSH key", protocol)),
                 }
             }

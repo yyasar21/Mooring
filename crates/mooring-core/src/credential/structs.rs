@@ -80,6 +80,56 @@ pub struct SshAgentFields {
     pub key_fingerprint: Option<String>,
 }
 
+/// `ssh_sk_key` (ADR-0024 §1): a FIDO2 key. Every signature needs the authenticator, through
+/// the ssh-agent (`backend: agent`) or OpenSSH's `ssh-sk-helper` (`helper`, flagged).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SshSkKeyFields {
+    /// Login name.
+    pub username: String,
+    /// `sk-ssh-ed25519@openssh.com …` / `sk-ecdsa-sha2-nistp256@openssh.com …` line (public).
+    pub public_key: String,
+    /// OpenSSH user certificate of this key (`sk-*-cert-v01@openssh.com`, public).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificate: Option<String>,
+    /// Signing backend.
+    #[serde(default)]
+    pub backend: SkBackend,
+    /// Resident (discoverable) key; replaced by the key-handle flags when a clear handle is
+    /// stored.
+    #[serde(default, skip_serializing_if = "is_false", deserialize_with = "bool_or_text")]
+    pub resident: bool,
+    /// Derived FIDO application of the key (`ssh:` by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application: Option<String>,
+    /// Derived `SHA256:` fingerprint of the key (the agent identity is pinned to it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+}
+
+/// Who talks to the authenticator for an `ssh_sk_key`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SkBackend {
+    /// The user's ssh-agent (`ssh-add` loaded the key); every OS.
+    #[default]
+    Agent,
+    /// OpenSSH's `ssh-sk-helper` with the stored key handle (Windows / Linux, behind the
+    /// `sshSkHelper` setting, ADR-0024 §3).
+    Helper,
+}
+
+impl SkBackend {
+    /// Wire name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Helper => "helper",
+        }
+    }
+}
+
 /// `x509`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -361,6 +411,22 @@ pub struct SudoBecomeFields {
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if signature
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// A bool, or the UI's enum text `"true"` / `"false"`.
+fn bool_or_text<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum B {
+        Bool(bool),
+        Text(String),
+    }
+    match B::deserialize(d)? {
+        B::Bool(b) => Ok(b),
+        B::Text(t) if t == "true" => Ok(true),
+        B::Text(t) if t == "false" => Ok(false),
+        B::Text(_) => Err(serde::de::Error::custom("expected true or false")),
+    }
 }
 
 fn root() -> String {

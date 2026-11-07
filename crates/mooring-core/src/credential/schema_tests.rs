@@ -38,7 +38,7 @@ fn wire_shape_is_camel_case_with_protocol_wire_names() {
     assert_eq!(ua["fields"][0]["validation"]["format"], "netbios_or_upn");
     assert_eq!(ua["fields"][0]["validation"]["maxBytes"], 256);
     assert!(ua["fields"][0]["validation"].get("options").is_none());
-    let kube = &json[8];
+    let kube = &json[9];
     assert_eq!(kube["fields"][1]["validation"]["format"], "enum");
     assert!(kube["fields"][1]["validation"].get("options").is_none(), "options come from contexts");
 }

@@ -127,6 +127,8 @@ pub fn after_unlock(state: &AppState) -> IpcResult<()> {
         return Err(e);
     }
     reseal_legacy(state);
+    // ADR-0024 §1: `sk-*` handles stored as `ssh_key` move to `ssh_sk_key` (once).
+    crate::sk_keys::convert_on_unlock(state);
     // Review 5 L-30: persistent web stores without a persistent web connection go.
     crate::web::sweep::orphan_stores(state);
     // ADR-0013: web and detached windows come back.

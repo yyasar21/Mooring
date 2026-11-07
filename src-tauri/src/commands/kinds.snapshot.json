@@ -289,6 +289,121 @@
   ]
  },
  {
+  "kind": "ssh_sk_key",
+  "label": "SSH security key (FIDO2)",
+  "group": "SSH",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": true,
+    "multiline": false,
+    "placeholder": "alice",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "public_key",
+    "label": "Public key",
+    "secret": false,
+    "required": true,
+    "multiline": true,
+    "placeholder": "sk-ssh-ed25519@openssh.com AAAA… (from id_ed25519_sk.pub)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   },
+   {
+    "name": "backend",
+    "label": "Signing",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 8,
+     "format": "enum",
+     "options": [
+      "agent",
+      "helper"
+     ]
+    }
+   },
+   {
+    "name": "resident",
+    "label": "Resident key",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 5,
+     "format": "enum",
+     "options": [
+      "false",
+      "true"
+     ]
+    }
+   },
+   {
+    "name": "private_key",
+    "label": "Key handle file",
+    "secret": true,
+    "required": false,
+    "multiline": true,
+    "placeholder": "-----BEGIN OPENSSH PRIVATE KEY----- (id_ed25519_sk, optional)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 65536,
+     "format": "pem"
+    }
+   },
+   {
+    "name": "passphrase",
+    "label": "Key handle passphrase",
+    "secret": true,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 4096,
+     "format": "text"
+    }
+   },
+   {
+    "name": "certificate",
+    "label": "OpenSSH certificate",
+    "secret": false,
+    "required": false,
+    "multiline": true,
+    "placeholder": "sk-ssh-ed25519-cert-v01@openssh.com AAAA… (optional)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 65536,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
   "kind": "sudo_become",
   "label": "Become (sudo, su, doas)",
   "group": "SSH",

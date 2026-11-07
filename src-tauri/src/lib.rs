@@ -50,6 +50,8 @@ test_util_pub!(hop_chain);
 test_util_pub!(biometric);
 // ADR-0028 (A5): build channel, Move to Applications.
 test_util_pub!(build_identity, install_flow, install_location, install_move);
+// ADR-0024 (A5 R4): FIDO2 SSH keys (agent pre-flight, ssh-sk-helper setting, conversion).
+test_util_pub!(sk_keys);
 /// ADR-0028: the build-script channel logic (shared with `build.rs`) and the checked-in configs.
 #[cfg(test)]
 mod build_channel;

@@ -40,6 +40,11 @@ fn samples() -> Vec<(K, Value)> {
         (K::SudoBecome, json!({"method": "sudo", "become_user": ""})),
         (K::VaultApprole, json!({})),
         (K::S3AccessKey, json!({"access_key_id": "AKIAEXAMPLE", "region": "eu-central-1"})),
+        (
+            K::SshSkKey,
+            json!({"username": "root", "public_key": crate::credential::testdata::public_line(
+                &crate::credential::testdata::sk_ed25519_public([7; 32], "ssh:"))}),
+        ),
         (K::BitwardenAccessToken, json!({})),
     ]
 }

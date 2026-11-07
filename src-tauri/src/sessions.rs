@@ -90,6 +90,34 @@ pub enum WireEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         peer_identity: Option<String>,
     },
+    /// ADR-0024: a FIDO2 key is about to sign: show "Touch your security key" (no answer).
+    TouchRequired {
+        /// Id shared with the follow-up `touch_cleared` / `touch_timeout`.
+        id: u32,
+        /// `SHA256:` of the key.
+        fingerprint: String,
+        /// Seconds the authenticator is waited for.
+        timeout_seconds: u32,
+        /// ADR-0025: the jump host signing; absent = the target.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// The authenticator answered: hide the banner.
+    TouchCleared {
+        /// Id of the `touch_required`.
+        id: u32,
+        /// As in `touch_required`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
+    /// No touch in time: the sign-in failed (`closed { auth_failed }` follows).
+    TouchTimeout {
+        /// Id of the `touch_required`.
+        id: u32,
+        /// As in `touch_required`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hop: Option<u8>,
+    },
     /// The connection dropped; attempt `attempt` (1-based, ≤ 6) starts in `delay_ms`
     /// (ADR-0011 `Reconnecting { attempt, delayMs }`; `snake_case` like every event field).
     Reconnecting {
@@ -131,6 +159,11 @@ impl From<SessionEvent> for WireEvent {
             SessionEvent::HopStatus { hop, of, state, host, peer_identity } => {
                 Self::HopStatus { hop, of, state, host, peer_identity }
             }
+            SessionEvent::TouchRequired { id, fingerprint, timeout_seconds, hop } => {
+                Self::TouchRequired { id, fingerprint, timeout_seconds, hop }
+            }
+            SessionEvent::TouchCleared { id, hop } => Self::TouchCleared { id, hop },
+            SessionEvent::TouchTimeout { id, hop } => Self::TouchTimeout { id, hop },
             SessionEvent::Closed { reason, code } => Self::Closed { reason, code },
         }
     }

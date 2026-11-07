@@ -169,6 +169,7 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
             super::external::normalise(f)?;
         }
         CredentialFields::S3AccessKey(f) => s3_access_key(f)?,
+        CredentialFields::SshSkKey(f) => super::sk_fields::normalise(f)?,
         CredentialFields::SudoBecome(f) => {
             if f.become_user.trim().is_empty() {
                 "root".clone_into(&mut f.become_user);

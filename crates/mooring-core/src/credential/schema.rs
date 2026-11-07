@@ -219,7 +219,7 @@ const WEB_ONLY: &[KindProtocol] = &[proto(Protocol::Web, &[P])];
 const KUBE_ONLY: &[KindProtocol] = &[proto(Protocol::Kubernetes, &[P])];
 const VNC_ONLY: &[KindProtocol] = &[proto(Protocol::Vnc, &[P])];
 
-static KINDS: [KindSchema; 18] = [
+static KINDS: [KindSchema; 19] = [
     KindSchema {
         kind: K::UserPassword,
         label: "Username and password",
@@ -289,6 +289,7 @@ static KINDS: [KindSchema; 18] = [
             f
         }],
     },
+    sk::SSH_SK_KEY,
     KindSchema {
         kind: K::SudoBecome,
         label: "Become (sudo, su, doas)",
@@ -474,6 +475,8 @@ static KINDS: [KindSchema; 18] = [
     source::BITWARDEN_ACCESS_TOKEN,
 ];
 
+#[path = "schema_sk.rs"]
+mod sk;
 #[path = "schema_source.rs"]
 mod source;
 

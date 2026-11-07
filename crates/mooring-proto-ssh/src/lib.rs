@@ -14,10 +14,12 @@
 //!   [`ViaSession`] wraps an RDP / VNC session behind one
 //! * [`forward`] (+ `forward_io`, [`socks`]) — local / remote / dynamic port forwarding
 //! * [`sftp`] (+ `sftp_transfer`, [`LocalPath`]) — SFTP client on the same connection.
+//! * `sk_auth` (+ `sk_agent`, `agent_wire`, [`sk_helper`]) — FIDO2 `sk-*` keys (ADR-0024).
 
 #![forbid(unsafe_code)]
 
 mod agent;
+mod agent_wire;
 pub mod algos;
 pub mod audit;
 mod auth;
@@ -37,6 +39,9 @@ pub mod sftp;
 mod sftp_transfer;
 mod sftp_upload;
 mod shared;
+mod sk_agent;
+mod sk_auth;
+pub mod sk_helper;
 pub mod socks;
 mod via_session;
 
@@ -52,3 +57,8 @@ pub use session::{SshOptions, SshSession};
 pub use sftp::{Entry, EntryKind, Listing, SftpClient};
 pub use shared::{PromptBroker, HOP_PROMPT_ID_BASE};
 pub use via_session::{TargetFuture, ViaSession};
+
+pub use agent_wire::fuzz_agent_identities;
+pub use sk_agent::agent_holds;
+pub use sk_auth::SK_TOUCH_TIMEOUT;
+pub use sk_helper::fuzz_sk_helper_reply;

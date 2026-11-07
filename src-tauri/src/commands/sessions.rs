@@ -173,6 +173,16 @@ pub async fn open_with(
     }
     let mut options = SshOptions::new(state.known_hosts_path());
     options.allow_agent = state.settings.ssh_allow_agent;
+    let helper = crate::sk_keys::sk_helper(state);
+    crate::sk_keys::apply(&mut options, state.settings.ssh_agent_path.clone(), helper.clone());
+    // ADR-0024: a security key the agent does not hold fails here, before any network I/O.
+    let mut keys = vec![&params];
+    keys.extend(hops.iter().map(|h| &h.params));
+    let agent = state.settings.ssh_agent_path.as_deref();
+    let on = crate::sk_keys::helper_setting_on(state);
+    crate::sk_keys::preflight(&keys, agent, on, helper.as_deref()).await.inspect_err(|_| {
+        state.secrets.release_session(&session_id, "closed");
+    })?;
     let session = if hops.is_empty() {
         SshSession::connect(params, options).await
     } else {
@@ -193,6 +203,8 @@ pub fn hop_settings(state: &AppState) -> crate::hop_chain::HopSettings {
     crate::hop_chain::HopSettings {
         known_hosts: state.known_hosts_path(),
         allow_agent: state.settings.ssh_allow_agent,
+        agent_path: state.settings.ssh_agent_path.clone(),
+        sk_helper: crate::sk_keys::sk_helper(state),
     }
 }
 

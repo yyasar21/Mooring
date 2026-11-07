@@ -1,4 +1,5 @@
-//! A5: biometric unlock (ADR-0022 §2) and vault export / import (ADR-0023 §2). Platforms,
+//! A5: biometric unlock (ADR-0022 §2), vault export / import (ADR-0023 §2) and FIDO2 SSH
+//! keys (ADR-0024). Platforms,
 //! reasons, modes and counts only: never key material, a file name, a path or a passphrase
 //! outcome beyond success / refusal.
 //! A5 also carries Move to Applications (ADR-0028 §2): locations, targets, flags and codes
@@ -109,6 +110,27 @@ macro_rules! a5_variants {
         InstallMoveFailed {
             /// Error code.
             code: String,
+        },
+        /// ADR-0024: one FIDO2 (`sk-*`) sign-in attempt. Key fingerprint only; `outcome` is
+        /// `ok` | `refused` | `not_in_agent` | `no_agent` | `touch_timeout` | `no_presence`
+        /// | `bad_signature` | `bad_key` | `helper_disabled` | `helper_missing` |
+        /// `helper_version` | `helper_failed`.
+        #[serde(rename = "session.auth_sk")]
+        SessionSkAuth {
+            /// Connection id.
+            connection: String,
+            /// `SHA256:` of the key.
+            fingerprint: String,
+            /// `agent` | `helper`.
+            backend: String,
+            /// Outcome.
+            outcome: String,
+        },
+        /// ADR-0024 §1: an `ssh_key` holding an `sk-*` key handle became `ssh_sk_key`.
+        #[serde(rename = "credential.sk_converted")]
+        CredentialSkConverted {
+            /// Credential id.
+            id: String,
         },
         }
     };

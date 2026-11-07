@@ -158,7 +158,7 @@ mod tests {
     const B: (bool, bool, bool) = (false, false, true);
     const N: (bool, bool, bool) = (false, false, false);
     type Row = [(bool, bool, bool); 6];
-    const ADR: [(K, Row); 17] = [
+    const ADR: [(K, Row); 18] = [
         (K::UserPassword, [T, G, N, T, N, T]),
         (K::DomainUser, [T, G, N, T, N, T]),
         (K::SshKey, [T, N, N, N, N, N]),
@@ -175,6 +175,7 @@ mod tests {
         (K::SudoBecome, [B, N, N, N, N, N]),
         (K::VaultApprole, [N, N, N, N, N, N]),
         (K::S3AccessKey, [N, N, N, N, N, N]),
+        (K::SshSkKey, [T, N, N, N, N, N]),
         (K::BitwardenAccessToken, [N, N, N, N, N, N]),
     ];
     const PROTOCOLS: [Protocol; 6] = [Ssh, Rdp, Vnc, Web, Kube, Vsc];
@@ -225,6 +226,10 @@ mod tests {
             "Vault AppRole is only for secret sources."
         );
         assert_eq!(r(K::S3AccessKey, Web, Role::Primary), "S3 access key is only for vault sync.");
+        assert_eq!(
+            r(K::SshSkKey, Rdp, Role::Primary),
+            "SSH security key (FIDO2) is for SSH, not RDP sign-in."
+        );
     }
 
     #[test]

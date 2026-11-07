@@ -7,7 +7,7 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 use crate::credential::kubeconfig::KubeAuth;
-use crate::credential::BecomeMethod;
+use crate::credential::{BecomeMethod, SkBackend};
 use crate::session::Size;
 
 /// Secret material handed to a session for the duration of the handshake only.
@@ -38,6 +38,9 @@ pub enum ConnectSecret {
         /// Pinned key, `None` = try every agent key.
         fingerprint: Option<String>,
     },
+    /// FIDO2 `sk-*` key (ADR-0024): signed by the ssh-agent identity whose blob is this key's,
+    /// or by `ssh-sk-helper` with the key handle. Never followed by a password attempt.
+    SecurityKey(SkLogin),
     /// HTTP header token (`Authorization: Bearer …` by default).
     Token {
         /// Header name.
@@ -79,6 +82,7 @@ impl ConnectSecret {
             Self::DomainPassword { .. } => "domain-password",
             Self::PrivateKey { .. } => "private-key",
             Self::Agent { .. } => "agent",
+            Self::SecurityKey(_) => "security-key",
             Self::Token { .. } => "token",
             Self::ClientCert { .. } => "client-cert",
             Self::Kubeconfig { .. } => "kubeconfig",
@@ -92,6 +96,33 @@ impl ConnectSecret {
 impl std::fmt::Debug for ConnectSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ConnectSecret(<{}, redacted>)", self.kind())
+    }
+}
+
+/// A FIDO2 key login (`ssh_sk_key`, ADR-0024). Only the key handle and its passphrase are
+/// secret (and only used by the `helper` backend).
+pub struct SkLogin {
+    /// The `sk-*` public key line.
+    pub public_key: String,
+    /// Its `SHA256:` fingerprint (audit, UI events).
+    pub fingerprint: String,
+    /// OpenSSH user certificate of the key (stored, or signed by a Vault SSH CA).
+    pub certificate: Option<String>,
+    /// Who signs.
+    pub backend: SkBackend,
+    /// The key-handle file (`helper` backend).
+    pub key_handle: Option<SecretString>,
+    /// Its passphrase.
+    pub passphrase: Option<SecretString>,
+}
+
+impl std::fmt::Debug for SkLogin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SkLogin")
+            .field("fingerprint", &self.fingerprint)
+            .field("backend", &self.backend)
+            .field("key_handle", &self.key_handle.as_ref().map(|_| "<redacted>"))
+            .finish_non_exhaustive()
     }
 }
 
@@ -167,6 +198,14 @@ mod tests {
                 certificate: None,
             },
             ConnectSecret::Agent { fingerprint: None },
+            ConnectSecret::SecurityKey(SkLogin {
+                public_key: "sk-ssh-ed25519@openssh.com AAAA".into(),
+                fingerprint: "SHA256:x".into(),
+                certificate: None,
+                backend: SkBackend::Helper,
+                key_handle: Some(s("hunter2")),
+                passphrase: Some(s("hunter2")),
+            }),
             ConnectSecret::Token { header: "Authorization".into(), value: s("hunter2") },
             ConnectSecret::ClientCert { cert: "c".into(), key: s("hunter2"), passphrase: None },
             ConnectSecret::Kubeconfig { yaml: s("hunter2"), context: None },
