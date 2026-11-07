@@ -32,6 +32,7 @@ describe("external_ref credential form (ADR-0016 §2)", () => {
     const saved = useCredentials.getState().items.find((c) => c.id === "cr-ext");
     expect(saved?.fields).toEqual({ provider: "vault", source: "src-ops", reference: "kv/ops/db", target_kind: "user_password", version: 7, field_map: { password: "pass" } });
 
+    fireEvent.click(within(view()).getByRole("button", { name: "Edit" })); // U0: save → detail card
     const edited = within(view()).getByRole("form", { name: "Edit db via vault" });
     fireEvent.click(within(edited).getByRole("button", { name: "Test reference" }));
     await settle();
@@ -66,6 +67,7 @@ describe("external_ref credential form (ADR-0016 §2)", () => {
     await settle();
     const saved = useCredentials.getState().items.find((c) => c.name === "ssh via vault");
     expect(saved?.fields).toEqual({ provider: "vault", source: "src-ops", reference: "kv/ops/ssh", target_kind: "ssh_key" });
+    fireEvent.click(within(view()).getByRole("button", { name: "Edit" })); // U0: save → detail card
     const editor = within(view()).getByRole("form", { name: "Edit ssh via vault" });
     fireEvent.click(within(editor).getByRole("button", { name: "Test reference" }));
     await settle();

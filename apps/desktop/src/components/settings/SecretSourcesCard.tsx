@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ipc, type SecretSource, type SecretSourceTest } from "../../lib/ipc";
 import { useCredentials } from "../../stores/credentials";
+import { useToasts } from "../../stores/toast";
+import { useUi } from "../../stores/ui";
 import { describeCode, describeError } from "../../stores/errors";
 import { SecretSourceDialog } from "./SecretSourceDialog";
 import { SettingsCard } from "./Toggle";
@@ -38,7 +40,9 @@ export function SecretSourcesCard() {
   const [status, setStatus] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, SecretSourceTest>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ source?: SecretSource } | null>(null);
+  const [editing, setEditing] = useState<{ source?: SecretSource; credentialId?: string | null } | null>(null);
+  // The source just saved stays highlighted in the list (U0), like a selected row elsewhere.
+  const [selected, setSelected] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const creds = useCredentials((s) => s.items);
   const refs = creds.filter((c) => c.kind === "external_ref");
@@ -53,6 +57,17 @@ export function SecretSourcesCard() {
     }
   };
   useEffect(() => { void reload(); }, []);
+  // An AppRole's "Create secret source" (U0) lands here: open the form with that credential chosen.
+  useEffect(() => {
+    const intent = useUi.getState().takeSettingsIntent();
+    if (intent?.kind === "add-secret-source") setEditing({ credentialId: intent.credentialId });
+  }, []);
+  useEffect(() => {
+    if (!selected || !rows?.some((r) => r.id === selected)) return;
+    const el = document.getElementById(`source-${selected}`);
+    // jsdom has no scrollIntoView; the guard keeps tests quiet without hiding a real failure.
+    if (el && "scrollIntoView" in el) el.scrollIntoView({ block: "nearest" });
+  }, [selected, rows]);
 
   const run = async (id: string, fn: () => Promise<void>) => {
     setBusy(id);
@@ -110,7 +125,7 @@ export function SecretSourcesCard() {
               const o = oidcText(phase, s.id);
               const isBusy = busy === s.id;
               return (
-                <li key={s.id} className="source-row" aria-label={s.name}>
+                <li key={s.id} id={`source-${s.id}`} className="source-row" aria-label={s.name} aria-current={s.id === selected || undefined} data-selected={s.id === selected || undefined}>
                   <div className="min-w-0">
                     <p className="trust-target">
                       <span className="text-text">{s.name}</span>
@@ -157,9 +172,11 @@ export function SecretSourcesCard() {
         </div>
       </div>
       {editing && (
-        <SecretSourceDialog source={editing.source} onClose={() => { setEditing(null); }}
+        <SecretSourceDialog source={editing.source} initialCredentialId={editing.credentialId ?? null} onClose={() => { setEditing(null); }}
           onSaved={(s) => {
             setEditing(null);
+            setSelected(s.id);
+            useToasts.getState().push("Secret source saved");
             forget(s.id);
             setStatus(editing.source ? `Saved ${s.name}. The cached token was forgotten.` : `Added ${s.name}.`);
             void reload();

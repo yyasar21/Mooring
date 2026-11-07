@@ -13,6 +13,7 @@ import { SettingsView } from "./settings/SettingsView";
 import { DialogHost } from "./dialogs/DialogHost";
 import { PaneHandle } from "./PaneHandle";
 import { Telemetry } from "./Telemetry";
+import { Toasts } from "./Toasts";
 import { openSettingsCard, SyncBanner, SyncIndicator } from "./SyncBanner";
 import { useShortcuts } from "./useShortcuts";
 
@@ -65,6 +66,7 @@ export function Shell() {
       <Telemetry />
       <CommandPalette />
       <DialogHost />
+      <Toasts />
     </div>
   );
 }

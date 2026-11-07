@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { SyncStatus } from "../lib/ipc";
 import { alarmKey, trustConflictText, trustConflicts, useSync } from "../stores/sync";
-import { useUi } from "../stores/ui";
+import { useUi, type SettingsIntent } from "../stores/ui";
 
 /**
  * Global vault-sync alarm (ADR-0017, U3 decision 2). The shell subscribes to `sync:status` once
@@ -71,9 +71,12 @@ export function bannerText(s: SyncStatus): string {
   return "";
 }
 
-/** Settings view, then the named card's heading gets focus so its controls are one Tab away. */
-export function openSettingsCard(headingId: "sync-title" | "trust-title" | "updates-title"): void {
-  useUi.getState().setView("settings");
+/**
+ * Settings view, then the named card's heading gets focus so its controls are one Tab away.
+ * `intent` is something the card does on mount (U0: open "Add source…" for a chosen AppRole).
+ */
+export function openSettingsCard(headingId: "sync-title" | "trust-title" | "updates-title" | "sources-title", intent?: SettingsIntent): void {
+  useUi.getState().showSettings(intent);
   requestAnimationFrame(() => {
     const h = document.getElementById(headingId);
     if (!h) return;

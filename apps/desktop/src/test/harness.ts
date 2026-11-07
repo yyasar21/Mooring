@@ -13,6 +13,7 @@ import { useKube } from "../stores/kube";
 import { useSync } from "../stores/sync";
 import { useUpdate } from "../stores/update";
 import { useOnboarding } from "../stores/onboarding";
+import { useToasts } from "../stores/toast";
 
 /** Fresh mock backend and empty stores for every test. */
 export function freshBackend(opts: MockOptions = {}): MockTransport {
@@ -27,6 +28,7 @@ export function freshBackend(opts: MockOptions = {}): MockTransport {
   useKube.getState().reset();
   useSync.getState().reset();
   useUpdate.getState().reset();
+  useToasts.getState().reset();
   useOnboarding.setState({ vaultId: null, dismissed: [], hidden: false, importing: false });
   detachedSessions.clear(); // mock session ids repeat across tests
   useUi.setState({ theme: "dark", inspectorOpen: true });

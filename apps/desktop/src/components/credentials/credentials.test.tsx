@@ -117,7 +117,10 @@ describe("schema-driven credential form", () => {
     }
     const state = JSON.stringify([useCredentials.getState(), useUi.getState(), useTree.getState()]);
     expect(state).not.toContain(FIXTURE);
-    // edit mode: stored secrets show presence only, with replace / clear
+    // U0: the save lands on the detail card; Edit opens the form, where stored secrets show presence only
+    const detail = within(view).getByRole("article", { name: "otp user details" });
+    expect(detail).toHaveTextContent(/TOTP seed, Password.* \(sealed\)/);
+    fireEvent.click(within(detail).getByRole("button", { name: "Edit" }));
     const editor = within(view).getByRole("form", { name: "Edit otp user" });
     expect(within(editor).getAllByText("Stored").length).toBeGreaterThan(0);
     fireEvent.click(within(editor).getByRole("button", { name: "Replace password" }));

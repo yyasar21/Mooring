@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CredentialMeta, CredentialRole, KindSchema, Protocol } from "../../lib/ipc";
 import { accountSummary, credentialValidFor } from "../../lib/credentials";
+import { openSettingsCard } from "../SyncBanner";
+import { APPROLE_HINT } from "./kindMeta";
 import { KindBadge } from "./fields";
 
 export interface PickerOption {
@@ -132,6 +134,8 @@ export function CredentialPicker({
             if (e.key === "ArrowDown") { e.preventDefault(); step(1); }
             else if (e.key === "ArrowUp") { e.preventDefault(); step(-1); }
             else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(active); }
+            // Tab reaches a hint's "Secret sources" link inside the list before it closes.
+            else if (e.key === "Tab" && !e.shiftKey && e.target === e.currentTarget && e.currentTarget.querySelector(".picker-link")) return;
             else if (e.key === "Escape" || e.key === "Tab") {
               if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); }
               setOpen(false);
@@ -162,6 +166,26 @@ export function CredentialPicker({
                     <span className={`block truncate text-[length:var(--fs-xs)] ${o.disabledReason ? "" : "mono text-text-faint"}`}>
                       {o.disabledReason ?? (o.detail || " ")}
                     </span>
+                    {o.disabledReason && o.meta?.kind === "vault_approle" && (
+                      <span className="picker-hint">
+                        <span>{APPROLE_HINT}</span>
+                        <button
+                          type="button"
+                          className="picker-link"
+                          onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Escape") { setOpen(false); button.current?.focus(); }
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpen(false);
+                            openSettingsCard("sources-title", { kind: "add-secret-source", credentialId: o.meta?.id ?? null });
+                          }}
+                        >
+                          Open Secret sources
+                        </button>
+                      </span>
+                    )}
                   </span>
                 </div>
               </li>

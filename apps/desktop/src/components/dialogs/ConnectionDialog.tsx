@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HudLabel } from "@mooring/ui";
-import type { KubeConnOptions, Protocol } from "../../lib/ipc";
+import type { CredentialRole, KubeConnOptions, Protocol } from "../../lib/ipc";
 import { kubeCredentialFit } from "../../lib/validate.kube";
 import { credentialValidFor, supportsOverride } from "../../lib/credentials";
 import { folderPath, useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
 import { useSessions } from "../../stores/sessions";
-import { useUi } from "../../stores/ui";
+import { useToasts } from "../../stores/toast";
+import { useUi, type ConnectionDraft } from "../../stores/ui";
 import { CredentialPicker, pickerOptions } from "../credentials/CredentialPicker";
 import { DialogFooter, Modal } from "./Modal";
 import { ProtocolOptionsSection, useOptionsDraft } from "./options/ProtocolOptionsSection";
@@ -34,6 +35,21 @@ function inheritedId(folders: { id: string; parentId: string | null; defaultCred
   return null;
 }
 
+/** Select a saved connection in the tree, open its ancestors and the DETAILS panel (U0). */
+export function revealConnection(id: string, folderId: string): void {
+  const t = useTree.getState();
+  const open = new Set<string>();
+  let cur = t.folders.find((f) => f.id === folderId);
+  while (cur) {
+    open.add(cur.id);
+    const p = cur.parentId;
+    cur = t.folders.find((f) => f.id === p);
+  }
+  useTree.setState({ collapsed: Object.fromEntries(Object.entries(t.collapsed).filter(([k]) => !open.has(k))) });
+  t.select({ kind: "connection", id });
+  useUi.setState({ inspectorOpen: true });
+}
+
 /** Create or edit a connection. Credentials are chosen by reference; secrets never appear here. */
 export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folderId: string; onClose: () => void }) {
   // After a create whose options failed to save, further submits update that row (no duplicates).
@@ -42,20 +58,26 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const folders = useTree((s) => s.folders);
   const creds = useCredentials((s) => s.items);
   const kinds = useCredentials((s) => s.kinds);
-  const [name, setName] = useState(existing?.name ?? "");
-  const [protocol, setProtocol] = useState<Protocol>(existing?.protocol ?? "ssh");
-  const [host, setHost] = useState(existing?.host ?? "");
-  const [port, setPort] = useState(existing?.port?.toString() ?? "");
-  const [folder, setFolder] = useState(existing?.folderId ?? folderId);
-  const [cred, setCred] = useState(existing?.credentialId ?? "");
-  const [userOv, setUserOv] = useState(existing?.usernameOverride ?? "");
-  const [domainOv, setDomainOv] = useState(existing?.domainOverride ?? "");
-  const [gateway, setGateway] = useState(existing?.gatewayCredentialId ?? "");
-  const [become, setBecome] = useState(existing?.becomeCredentialId ?? "");
-  const [tags, setTags] = useState(existing?.tags.join(" ") ?? "");
+  // U0: back from a "New…" credential, the form reopens with its draft and the new credential picked.
+  // Peeked here (StrictMode runs initializers twice) and cleared after mount.
+  const [resume] = useState(() => useUi.getState().connectionResume);
+  useEffect(() => { if (resume) useUi.getState().takeConnectionResume(); }, [resume]);
+  const r: ConnectionDraft | undefined = resume?.draft;
+  const picked = (role: CredentialRole) => (resume?.pick?.role === role ? resume.pick.id : undefined);
+  const [name, setName] = useState(r?.name ?? existing?.name ?? "");
+  const [protocol, setProtocol] = useState<Protocol>(r?.protocol ?? existing?.protocol ?? "ssh");
+  const [host, setHost] = useState(r?.host ?? existing?.host ?? "");
+  const [port, setPort] = useState(r?.port ?? existing?.port?.toString() ?? "");
+  const [folder, setFolder] = useState(r?.folder ?? existing?.folderId ?? folderId);
+  const [cred, setCred] = useState(picked("primary") ?? r?.cred ?? existing?.credentialId ?? "");
+  const [userOv, setUserOv] = useState(r?.userOv ?? existing?.usernameOverride ?? "");
+  const [domainOv, setDomainOv] = useState(r?.domainOv ?? existing?.domainOverride ?? "");
+  const [gateway, setGateway] = useState(picked("gateway") ?? r?.gateway ?? existing?.gatewayCredentialId ?? "");
+  const [become, setBecome] = useState(picked("become") ?? r?.become ?? existing?.becomeCredentialId ?? "");
+  const [tags, setTags] = useState(r?.tags ?? existing?.tags.join(" ") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const options = useOptionsDraft(id, existing?.protocol, protocol);
+  const options = useOptionsDraft(id, existing?.protocol, protocol, r?.options);
   // ADR-0015: a synced VM row keeps name, host, port, protocol and folder from vCenter (`tree.synced_readonly`).
   const synced = !!existing?.syncSource;
 
@@ -136,8 +158,20 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
       }
     }
     setBusy(false);
-    t.select({ kind: "connection", id: saved.id });
+    revealConnection(saved.id, saved.folderId);
+    useToasts.getState().push(existing ? "Connection saved" : "Connection created");
     onClose();
+  }
+
+  /** "New…" next to a picker: leave for the credentials view, keeping everything typed so far. */
+  function newCredential(role: CredentialRole) {
+    const draft: ConnectionDraft = { name, protocol, host, port, folder, cred, userOv, domainOv, gateway, become, tags, options: options.drafts };
+    const conn = id ?? createdId;
+    useUi.getState().showCredentials({
+      mode: "new",
+      protocol,
+      returnTo: { dialog: { kind: "connection", ...(conn ? { id: conn } : {}), folderId }, role, draft },
+    });
   }
 
   async function remove() {
@@ -216,7 +250,8 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
             <button
               type="button"
               className="btn mt-[18px]"
-              onClick={() => { useUi.getState().showCredentials({ mode: "new", protocol }); }}
+              aria-label="New credential…"
+              onClick={() => { newCredential("primary"); }}
             >
               New…
             </button>
@@ -258,7 +293,14 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
           </div>
           <p className="field-hint">Overrides replace the account for this connection only. The stored secret is shared.</p>
           {protocol === "rdp" && (
-            <CredentialPicker label="RD Gateway credential" value={gw} options={gatewayOptions} kinds={kinds} onChange={setGateway} />
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <CredentialPicker label="RD Gateway credential" value={gw} options={gatewayOptions} kinds={kinds} onChange={setGateway} />
+              </div>
+              <button type="button" className="btn mt-[18px]" aria-label="New RD Gateway credential…" onClick={() => { newCredential("gateway"); }}>
+                New…
+              </button>
+            </div>
           )}
           {protocol === "ssh" && (
             <CredentialPicker
