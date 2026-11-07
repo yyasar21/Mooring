@@ -8,7 +8,7 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
-## [0.1.1-rc.2] - 2026-11-07
+## [0.1.1] - 2026-11-07
 
 ### Added
 
@@ -17,6 +17,19 @@ minor version may contain breaking changes; they are called out under **Changed*
   file in `Mooring Data/` beside it; no installer, no admin, no fallback to the per-user folders
   when the directory is unwritable; updater reports `update.manual_only`
   ([ADR-0021](docs/adr/0021-portable-mode.md)).
+
+### Changed
+
+- Updater: `update.manual_only` now carries the reason from the backend (package manager,
+  Homebrew or portable build) and the UI shows that text.
+
+### Security
+
+- Security review 8 ([docs/security/a4-1-review-8.md](docs/security/a4-1-review-8.md)):
+  APPROVE WITH NITS. Fixed before the tag: M-18 (macOS App Translocation refused with
+  `portable.translocated`), L-44 (`$APPIMAGE` honoured only on Linux and only for a real
+  AppImage), L-45 (FAT/exFAT without POSIX modes is `portable.acl_unavailable`, not a refusal),
+  L-46 (portable README claims), N-65/N-66/N-68/N-70. Threat model gains T-PORT-1..6.
 
 ## [0.1.0] - 2026-11-07
 
@@ -221,7 +234,7 @@ Details per team role are in [docs/handoff/](docs/handoff/index.md).
 - SFTP local paths reject Windows alternate data streams and reserved device names.
 - Host-key mismatch audit entries record both the expected and the presented fingerprint.
 
-[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.1-rc.1...HEAD
-[0.1.1-rc.1]: https://github.com/yyasar21/Mooring/compare/v0.1.0...v0.1.1-rc.1
+[Unreleased]: https://github.com/yyasar21/Mooring/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/yyasar21/Mooring/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yyasar21/Mooring/compare/v0.1.0-rc.1...v0.1.0
 [0.1.0-rc.1]: https://github.com/yyasar21/Mooring/releases/tag/v0.1.0-rc.1

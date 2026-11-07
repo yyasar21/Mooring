@@ -90,7 +90,9 @@
     { kind: "msi", re: /\.msi$/i },
     { kind: "deb", re: /\.deb$/i },
     { kind: "rpm", re: /\.rpm$/i },
-    { kind: "appimage", re: /\.appimage$/i }
+    { kind: "appimage", re: /\.appimage$/i },
+    { kind: "portable-mac", re: /_universal_portable\.zip$/i },
+    { kind: "portable-win", re: /_x64_portable\.zip$/i }
   ];
   function arch(name, kind) {
     if (/universal/i.test(name)) return "Universal";
@@ -161,7 +163,7 @@
         var t = document.createElement("span");
         t.textContent = title + ", " + m.arch;
         var s = document.createElement("small");
-        s.textContent = (k.kind === "appimage" ? ".AppImage" : "." + k.kind) + "  " + mb(m.x.size);
+        s.textContent = (k.kind === "appimage" ? ".AppImage" : /^portable/.test(k.kind) ? ".zip" : "." + k.kind) + "  " + mb(m.x.size);
         link.appendChild(t);
         link.appendChild(s);
         li.appendChild(link);

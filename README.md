@@ -143,7 +143,9 @@ Release details and verification steps live in [docs/release.md](docs/release.md
 | macOS 12+ (Apple silicon and Intel) | Homebrew cask | `brew install --cask yyasar21/mooring/mooring` |
 | macOS | Disk image / installer | `Mooring_<version>_universal.dmg`, `.pkg` |
 | Windows 10/11 | Installer | `Mooring_<version>_x64-setup.exe`, `.msi` |
-| Windows | winget | planned after v0.1.0 |
+| Windows | Portable (no install, no admin) | `Mooring_<version>_x64_portable.zip` — unzip anywhere, keep `portable` next to `Mooring.exe`; data in `Mooring Data\` ([guide](docs/user-guide/getting-started.md#portable-build-no-installer-no-admin)) |
+| macOS | Portable | `Mooring_<version>_universal_portable.zip` — same, next to `Mooring.app` |
+| Windows | winget | planned |
 | Debian, Ubuntu | Package | `sudo apt install ./mooring_<version>_amd64.deb` |
 | Fedora, RHEL | Package | `sudo dnf install ./mooring-<version>.x86_64.rpm` |
 | Any Linux | AppImage | `chmod +x Mooring_<version>_amd64.AppImage && ./Mooring_<version>_amd64.AppImage` |

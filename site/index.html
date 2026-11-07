@@ -216,6 +216,7 @@
           <li data-status="available"><span>dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed <code>SHA256SUMS</code>, SBOM, SLSA provenance and a reproducible-build check</span></li>
           <li data-status="available"><span>55 fuzz targets for protocol parsers, API responses, import formats and LDAP, run nightly</span></li>
           <li data-status="planned"><span>Notarized / Authenticode-signed installers (after v0.1.0, once certificates exist)</span></li>
+          <li data-status="available"><span>Portable builds for Windows and macOS: no installer, no admin, all data in <code>Mooring Data/</code> next to the app</span></li>
           <li data-status="available"><span>In-app updater: update packages signed with the project key and verified before install; never installs by itself</span></li>
           <li data-status="available"><span>Homebrew tap (<code>brew install --cask yyasar21/mooring/mooring</code>)</span></li>
           <li data-status="planned"><span>winget</span></li>
@@ -286,6 +287,7 @@
           <ul class="assets" data-os="macos">
             <li data-kind="dmg"><span>Disk image</span><code>.dmg</code></li>
             <li data-kind="pkg"><span>Installer package</span><code>.pkg</code></li>
+            <li data-kind="portable-mac"><span>Portable, no install (keep <code>portable</code> next to the app)</span><code>.zip</code></li>
           </ul>
           <p class="cmd-label">Homebrew</p>
           <pre class="cmd"><code>brew install --cask yyasar21/mooring/mooring</code></pre>
@@ -296,6 +298,7 @@
           <ul class="assets" data-os="windows">
             <li data-kind="exe"><span>Installer, per user</span><code>.exe</code></li>
             <li data-kind="msi"><span>MSI, per machine</span><code>.msi</code></li>
+            <li data-kind="portable-win"><span>Portable, no install, no admin (needs the WebView2 runtime)</span><code>.zip</code></li>
           </ul>
           <p class="cmd-label">winget</p>
           <p class="fine">Planned after v0.1.0.</p>
