@@ -11,7 +11,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-mooring-core = { path = "../mooring-core", version = "0.1.0" }
+mooring-core = { path = "../mooring-core", version = "0.1.1-rc.1" }
 bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 http = "1"
