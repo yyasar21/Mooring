@@ -378,7 +378,9 @@ jobs:
           case "$RUNNER_OS" in
             Windows)
               # Tauri 2 renames the cargo binary (mooring-app) to productName before bundling.
-              exe="target/$TARGET/release/Mooring.exe"
+              # cargo names the binary after the package (`mooring-app`); the zip stores it as
+              # Mooring.exe (confirmed in the v0.1.1-rc.1 dry run).
+              exe="target/$TARGET/release/mooring-app.exe"
               [[ -f "$exe" ]] || { echo "::error::$exe not found; release dir holds: $(ls "target/$TARGET/release"/*.exe 2>/dev/null | tr '\n' ' ')"; exit 1; }
               entries=("Mooring.exe=$exe") ;;
             macOS)

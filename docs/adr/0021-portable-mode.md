@@ -86,7 +86,8 @@ bootstrapper, run unelevated → per-user install, no admin) and exit 2. A `_fix
 zip variant is possible later without code change if a site has no Evergreen at all.
 
 ### 4. Release pipeline (release-engineer, `release.yml` build job)
-- `windows-x64`: after tauri-action, `target/x86_64-pc-windows-msvc/release/Mooring.exe`
+- `windows-x64`: after tauri-action, `target/x86_64-pc-windows-msvc/release/mooring-app.exe`
+  (cargo names it after the package; stored in the zip as `Mooring.exe`)
   (Tauri names the binary from `productName`; R1 confirms the exact case in the dry run)
   + `portable` (empty) + `README.txt` → `Mooring_<v>_x64_portable.zip`.
 - `macos-universal`: `target/universal-apple-darwin/release/bundle/macos/Mooring.app` (the
