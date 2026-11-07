@@ -18,6 +18,10 @@
 #      this repo and tag, names an artifact of the release, and its embedded signature equals
 #      that artifact's `.sig`; with `minisign` installed, each `.sig` is verified against the
 #      updater public key compiled into the app (MOORING_UPDATER_PUBKEY overrides it).
+#   6. Portable zips (ADR-0021): only `Mooring_<v>_x64_portable.zip` and
+#      `Mooring_<v>_universal_portable.zip` are accepted, listed in SHA256SUMS like every
+#      asset, never with a `.sig` and never named by latest.json (they are not updater
+#      artifacts). Any other `*_portable.zip` or any other `.zip` is refused.
 # Fails closed: any missing asset, signature, hash or provenance exits non-zero.
 # Needs: gh (authenticated for draft releases), cosign >= 3.0, sha256sum or shasum, python3.
 set -euo pipefail
@@ -32,7 +36,7 @@ ARGS=()
 for a in "$@"; do
   case "$a" in
     --allow-unlisted) ALLOW_UNLISTED=1 ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
     -*) echo "error: unknown option $a" >&2; exit 1 ;;
     *) ARGS+=("$a") ;;
   esac
@@ -40,7 +44,7 @@ done
 ((${#ARGS[@]} <= 2)) || { echo "error: too many arguments" >&2; exit 1; }
 TAG="${ARGS[0]:-}"
 REPO="${ARGS[1]:-yyasar21/Mooring}"
-[[ -z "$TAG" ]] && { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+[[ -z "$TAG" ]] && { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "error: tag must look like v1.2.3" >&2; exit 1; }
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "error: repo must be owner/name" >&2; exit 1; }
 
@@ -141,6 +145,28 @@ if ((${#UNLISTED[@]})); then
   fi
 fi
 
+# Portable zips (ADR-0021 §4): exactly the two known names for this version, no updater
+# signature next to them (they are not updater artifacts), nothing else that looks like one.
+VERSION="${TAG#v}"
+PORTABLE=()
+for f in *.zip; do
+  [[ -e "$f" ]] || continue
+  case "$f" in
+    "Mooring_${VERSION}_x64_portable.zip"|"Mooring_${VERSION}_universal_portable.zip") PORTABLE+=("$f") ;;
+    *) echo "error: unexpected zip on the release: $f (portable builds are Mooring_${VERSION}_{x64,universal}_portable.zip)" >&2; exit 1 ;;
+  esac
+done
+for f in "${PORTABLE[@]}"; do
+  [[ ! -e "$f.sig" ]] || { echo "error: $f has an updater signature; portable builds are never updater artifacts" >&2; exit 1; }
+  printf '%s\n' "${LISTED[@]}" | grep -qxF -- "$f.sig" && { echo "error: SHA256SUMS lists $f.sig" >&2; exit 1; }
+  printf '%s\n' "${LISTED[@]}" | grep -qxF -- "$f" || { echo "error: $f is not in SHA256SUMS" >&2; exit 1; }
+done
+for f in *.sig; do
+  [[ -e "$f" && "$f" == *.zip.sig ]] || continue
+  echo "error: $f: a zip must never carry an updater signature" >&2; exit 1
+done
+((${#PORTABLE[@]} == 0)) || echo "==> portable builds (not updater artifacts): ${PORTABLE[*]}"
+
 if gh attestation --help >/dev/null 2>&1; then
   echo "==> gh attestation: build provenance"
   ok=0; failed=0
@@ -176,6 +202,8 @@ for key, entry in sorted(platforms.items()):
     asset = url[len(prefix):]
     if not re.fullmatch(r"[A-Za-z0-9._-]+", asset):
         sys.exit(f"error: {key} asset name {asset!r}")
+    if asset.endswith(".zip"):  # ADR-0021: portable builds are never offered to the updater
+        sys.exit(f"error: {key}: latest.json names the portable build {asset}")
     try:
         on_disk = open(asset + ".sig", encoding="ascii").read().strip()
     except OSError:

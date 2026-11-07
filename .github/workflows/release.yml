@@ -7,6 +7,9 @@
 #   macOS   .dmg + .app (+ .pkg via pkgbuild/productbuild): aarch64, x86_64, universal
 #   Windows .exe (NSIS, per-user) + .msi (WiX): x64
 #   Linux   .deb + .rpm + .AppImage: x86_64 (ubuntu-22.04), aarch64 (ubuntu-22.04-arm)
+#   Portable (ADR-0021) Mooring_<v>_x64_portable.zip (bare exe) and _universal_portable.zip
+#           (the .app) + `portable` marker + README.txt, built by scripts/release/portable-zip.py
+#           (deterministic); regular assets, never updater artifacts, never in latest.json.
 #   All     SHA256SUMS + Sigstore bundle (cosign keyless), CycloneDX SBOMs, SLSA provenance.
 #           Tauri updater artifacts (`.sig` + latest.json) only when the `release` environment
 #           holds TAURI_SIGNING_PRIVATE_KEY; `sign-updater` signs, `finalize` writes the manifest
@@ -352,6 +355,45 @@ jobs:
           tar -tzf "$archive" | awk -F/ '{print $1}' | sort -u | grep -qx 'Mooring.app' || { echo "::error::unexpected archive layout"; exit 1; }
           echo "UPDATER_ARCHIVE=$archive" >> "$GITHUB_ENV"
 
+      # ADR-0021 §4: the portable zips. Windows: the bare exe tauri-action built (Tauri names
+      # it from productName; see the check below), macOS: the same ad-hoc signed .app the dmg
+      # and the updater archive carry (`_CodeSignature` and the Frameworks symlinks survive,
+      # portable-zip.py stores symlinks as symlinks). Plus the empty `portable` marker and a
+      # README. Deterministic (SOURCE_DATE_EPOCH = the tagged commit's time, like finalize).
+      # They are release assets like any other (SHA256SUMS, provenance) but NOT updater
+      # artifacts: sign-updater excludes `*_portable.zip` and latest.json never lists them.
+      - name: Portable zip
+        if: matrix.name == 'windows-x64' || matrix.name == 'macos-universal'
+        shell: bash
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/portable"; mkdir -p "$stage"
+          : > "$stage/portable"
+          sed "s/@VERSION@/$VERSION/g" packaging/portable/README.txt > "$stage/README.txt"
+          ! grep -q '@' "$stage/README.txt" || { echo "::error::README.txt still holds a placeholder"; exit 1; }
+          case "$RUNNER_OS" in
+            Windows)
+              # Tauri 2 renames the cargo binary (mooring-app) to productName before bundling.
+              exe="target/$TARGET/release/Mooring.exe"
+              [[ -f "$exe" ]] || { echo "::error::$exe not found; release dir holds: $(ls "target/$TARGET/release"/*.exe 2>/dev/null | tr '\n' ' ')"; exit 1; }
+              entries=("Mooring.exe=$exe") ;;
+            macOS)
+              app="target/$TARGET/release/bundle/macos/Mooring.app"
+              [[ -d "$app/Contents/_CodeSignature" ]] || { echo "::error::$app is missing or unsigned"; exit 1; }
+              entries=("Mooring.app=$app") ;;
+            *) echo "::error::no portable build for $RUNNER_OS"; exit 1 ;;
+          esac
+          zip="$RUNNER_TEMP/Mooring_${VERSION}_${ARCH}_portable.zip"
+          epoch=$(git log -1 --format=%ct HEAD)
+          python3 -I scripts/release/portable-zip.py --out "$zip" --epoch "$epoch" \
+            "${entries[@]}" "portable=$stage/portable" "README.txt=$stage/README.txt"
+          python3 -I -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).testzip() is None or sys.exit("corrupt zip")' "$zip"
+          echo "PORTABLE_ZIP=$zip" >> "$GITHUB_ENV"
+
       - name: Collect release files
         shell: bash
         env:
@@ -363,6 +405,7 @@ jobs:
           while IFS= read -r line; do line="${line%$'\r'}"; [[ -n "$line" ]] && files+=("$line"); done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
           [[ -n "${PKG_PATH:-}" ]] && files+=("$PKG_PATH")
           [[ -n "${UPDATER_ARCHIVE:-}" ]] && files+=("$UPDATER_ARCHIVE")
+          [[ -n "${PORTABLE_ZIP:-}" ]] && files+=("$PORTABLE_ZIP")
           for f in "${files[@]}"; do
             f="${f//\\//}" # Windows runners report D:\a\... paths; Git Bash wants forward slashes
             [[ -f "$f" ]] || continue # .app bundles are directories; the .dmg / .app.tar.gz carry them
@@ -508,9 +551,13 @@ jobs:
           if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD//[[:space:]]/}" ]]; then
             export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
           fi
-          mapfile -t targets < <(find artifacts -maxdepth 1 -type f \
+          # Updater artifacts only. The portable zips (ADR-0021) are release assets, never
+          # updater artifacts: excluded by name here (lint-workflows.sh checks this stays),
+          # refused by updater-manifest.sh, and verify-release.sh fails on a `.sig` for them.
+          mapfile -t targets < <(find artifacts -maxdepth 1 -type f ! -name '*_portable.zip' \
             \( -name '*.app.tar.gz' -o -name '*-setup.exe' -o -name '*.AppImage' \) | LC_ALL=C sort)
           ((${#targets[@]} > 0)) || { echo "::error::no updater artifacts among the build outputs"; exit 1; }
+          for f in "${targets[@]}"; do [[ "$f" != *_portable.zip ]] || { echo "::error::portable zip selected for updater signing: $f"; exit 1; }; done
           mkdir sigs
           for f in "${targets[@]}"; do
             name=${f##*/}

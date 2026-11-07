@@ -172,5 +172,34 @@ nosigfile=$(release nosigfile a.dmg); with_updater "$nosigfile" "$APPIMAGE" linu
 rm "$nosigfile/$APPIMAGE.sig"; rehash "$nosigfile"
 expect nonzero "latest.json names an artifact whose .sig is missing" FAKE_RELEASE="$nosigfile" -- v1.2.3
 
+# --- portable zips (ADR-0021): regular assets, never updater artifacts ---
+WINZIP=Mooring_1.2.3_x64_portable.zip; MACZIP=Mooring_1.2.3_universal_portable.zip
+port=$(release port a.dmg "$WINZIP" "$MACZIP"); with_updater "$port" "$APPIMAGE" linux-x86_64
+expect 0 "both portable zips listed in SHA256SUMS, absent from latest.json" FAKE_RELEASE="$port" -- v1.2.3
+if grep -q "portable builds (not updater artifacts): $MACZIP $WINZIP" "$WORK/out"; then
+  pass=$((pass + 1)); echo "ok   portable zips reported"
+else
+  fail=$((fail + 1)); echo "FAIL portable zips not reported"; sed 's/^/     /' "$WORK/out"
+fi
+
+inmanifest=$(release inmanifest a.dmg "$WINZIP"); with_updater "$inmanifest" "$APPIMAGE" linux-x86_64
+with_updater "$inmanifest" "$WINZIP" windows-x86_64 # adds a .sig and a manifest entry for the zip
+expect nonzero "a portable zip listed in latest.json" FAKE_RELEASE="$inmanifest" -- v1.2.3
+
+zipsig=$(release zipsig a.dmg "$WINZIP"); printf '%s\n' "$SIG64" >"$zipsig/$WINZIP.sig"; rehash "$zipsig"
+expect nonzero "a portable zip with a .sig (not in latest.json)" FAKE_RELEASE="$zipsig" -- v1.2.3
+
+wrongv=$(release wrongv a.dmg Mooring_9.9.9_x64_portable.zip)
+expect nonzero "a portable zip of another version" FAKE_RELEASE="$wrongv" -- v1.2.3
+
+oddzip=$(release oddzip a.dmg Mooring_1.2.3_arm64_portable.zip)
+expect nonzero "a portable zip with an unknown arch" FAKE_RELEASE="$oddzip" -- v1.2.3
+
+strayzip=$(release strayzip a.dmg something.zip)
+expect nonzero "any other zip on the release" FAKE_RELEASE="$strayzip" -- v1.2.3
+
+unlistedzip=$(release unlistedzip a.dmg); echo x >"$unlistedzip/$WINZIP"
+expect nonzero "a portable zip not covered by SHA256SUMS" FAKE_RELEASE="$unlistedzip" -- v1.2.3
+
 echo "$pass passed, $fail failed"
 ((fail == 0))
