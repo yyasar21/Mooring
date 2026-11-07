@@ -1,4 +1,4 @@
-# A4 — orchestrator handoff (code complete; tag pending)
+# A4 — orchestrator handoff (v0.1.0 released 2026-11-07)
 
 ## Done
 - ADR-0018 (release v0.1.0: cosign keyless, updater on demand, repro check, unsigned first
@@ -20,7 +20,18 @@
 - Updater key pair generated 2026-11-06; the private key lives only on the owner's Mac at
   `Desktop/Mooring/.ci-logs/updater/` (gitignored); the public key is in `tauri.conf.json`.
 
-## Left open (conditions before the v0.1.0 tag)
+## Release
+- `v0.1.0` tagged by the owner at db41682 (`make release VERSION=0.1.0`; the CHANGELOG roll was
+  restructured into one `[0.1.0]` section with per-phase subsections before the push). Release
+  run 42323642347 green on all 11 jobs (one deployment approval), `release-repro` green,
+  draft verified (24 assets, 22 hashes, Fulcio identity `release.yml@refs/tags/v0.1.0`,
+  `latest.json` 5 platforms, updater signatures against the app's key), published with
+  CHANGELOG-based notes; `release-homebrew` pushed cask 0.1.0 to `yyasar21/homebrew-mooring`;
+  `releases/latest/download/latest.json` serves. Docs refresh landed at 3be75a5.
+- The per-OS manual gates (item 4 below) were **skipped by the owner's decision**; they stay
+  open for 0.1.1 together with ADR-0021 (portable mode).
+
+## Left open (conditions before the v0.1.0 tag — historical)
 1. **Owner GitHub settings** (before any key secret exists): environment `release` with the
    owner as required reviewer and deployment limited to tags `v*`; `TAURI_SIGNING_PRIVATE_KEY`
    + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (empty) as **environment** secrets only; tag ruleset
