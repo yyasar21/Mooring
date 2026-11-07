@@ -55,6 +55,7 @@ e2e: ## Playwright UI flows against the Vite dev server + mock transport (apps/d
 	node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/vsphere.e2e.mjs
 	node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/secrets-sync.e2e.mjs
 	node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/a4.e2e.mjs
+	node --test --test-concurrency=1 --test-reporter=spec apps/desktop/e2e/a5.e2e.mjs
 
 fuzz: ## run every fuzz target for 60 s each (A1+)
 	@cd fuzz && for t in $$(cargo +nightly fuzz list 2>/dev/null); do cargo +nightly fuzz run $$t -- -max_total_time=60; done
