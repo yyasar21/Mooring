@@ -232,6 +232,7 @@ export abstract class MockTreeBase extends MockA5Base {
     const c = this.connection(id);
     if (credentialId) this.compatible(credentialId, c.protocol, role);
     if (role === "gateway") c.gatewayCredentialId = credentialId;
+    else if (role === "certificate") c.certificateCredentialId = credentialId;
     else c.becomeCredentialId = credentialId;
     c.updatedAt = new Date().toISOString();
     return this.resolve(c);
@@ -268,6 +269,7 @@ export abstract class MockTreeBase extends MockA5Base {
       if (c.credentialId === id) c.credentialId = null;
       if (c.gatewayCredentialId === id) c.gatewayCredentialId = null;
       if (c.becomeCredentialId === id) c.becomeCredentialId = null;
+      if (c.certificateCredentialId === id) c.certificateCredentialId = null;
     }
     for (const f of this.folders) if (f.defaultCredentialId === id) f.defaultCredentialId = null;
   };

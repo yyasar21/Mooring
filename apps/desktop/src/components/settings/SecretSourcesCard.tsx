@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ipc, type SecretSource, type SecretSourceTest } from "../../lib/ipc";
+import { SOURCE_KIND_LABEL, ipc, type SecretSource, type SecretSourceKind, type SecretSourceTest } from "../../lib/ipc";
 import { useCredentials } from "../../stores/credentials";
 import { useToasts } from "../../stores/toast";
 import { useUi } from "../../stores/ui";
@@ -7,6 +7,7 @@ import { describeCode, describeError } from "../../stores/errors";
 import { SecretSourceDialog } from "./SecretSourceDialog";
 import { SettingsCard } from "./Toggle";
 import { useOidcLogin, type OidcPhase } from "./useOidcLogin";
+import { BwsPathList } from "./SourceProviderFields";
 
 const METHOD_LABEL = { token: "Token", approle: "AppRole", oidc: "OIDC" } as const;
 
@@ -18,11 +19,24 @@ export function ttlText(seconds: number | null): string {
   return `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
 }
 
-/** One line for a `secret_source_test` result: method, TTL, renewable, policies; or the error and its category. */
-export function testText(t: SecretSourceTest): string {
-  if (t.ok) return `Signed in with ${METHOD_LABEL[t.method]}: token TTL ${ttlText(t.ttlSeconds)}, ${t.renewable ? "renewable" : "not renewable"}, ${t.policiesCount} polic${t.policiesCount === 1 ? "y" : "ies"}.`;
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * One line for a `secret_source_test` result: method, TTL, renewable, policies (Vault), or the
+ * number of vaults (1Password) / projects (Bitwarden); or the error and its category. Names and
+ * counts only, never a value.
+ */
+export function testText(t: SecretSourceTest, kind: SecretSourceKind = "vault"): string {
   const why = t.category ? ` (${t.category.replace(/_/g, " ")})` : "";
-  return `Sign-in with ${METHOD_LABEL[t.method]} failed${why}: ${t.error ? describeCode(t.error) : "no reason given"}.`;
+  const reason = (t.error ? describeCode(t.error) : "no reason given").replace(/\.$/, "");
+  if (kind === "onepassword") {
+    return t.ok ? `Connect answered: the token sees ${plural(t.policiesCount, "vault", "vaults")}.` : `1Password Connect test failed${why}: ${reason}.`;
+  }
+  if (kind === "bitwarden") {
+    return t.ok ? `bws ran: the access token sees ${plural(t.policiesCount, "project", "projects")}.` : `Bitwarden test failed${why}: ${reason}.`;
+  }
+  if (t.ok) return `Signed in with ${METHOD_LABEL[t.method]}: token TTL ${ttlText(t.ttlSeconds)}, ${t.renewable ? "renewable" : "not renewable"}, ${t.policiesCount} polic${t.policiesCount === 1 ? "y" : "ies"}.`;
+  return `Sign-in with ${METHOD_LABEL[t.method]} failed${why}: ${reason}.`;
 }
 
 function oidcText(p: OidcPhase, id: string): { text: string; tone: "ok" | "err" | "note" } | null {
@@ -40,7 +54,7 @@ export function SecretSourcesCard() {
   const [status, setStatus] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, SecretSourceTest>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ source?: SecretSource; credentialId?: string | null } | null>(null);
+  const [editing, setEditing] = useState<{ source?: SecretSource; credentialId?: string | null; kind?: SecretSourceKind } | null>(null);
   // The source just saved stays highlighted in the list (U0), like a selected row elsewhere.
   const [selected, setSelected] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -60,7 +74,7 @@ export function SecretSourcesCard() {
   // An AppRole's "Create secret source" (U0) lands here: open the form with that credential chosen.
   useEffect(() => {
     const intent = useUi.getState().takeSettingsIntent();
-    if (intent?.kind === "add-secret-source") setEditing({ credentialId: intent.credentialId });
+    if (intent?.kind === "add-secret-source") setEditing({ credentialId: intent.credentialId, ...(intent.sourceKind ? { kind: intent.sourceKind } : {}) });
   }, []);
   useEffect(() => {
     if (!selected || !rows?.some((r) => r.id === selected)) return;
@@ -104,8 +118,8 @@ export function SecretSourcesCard() {
     <SettingsCard title="Secret sources" kicker="External secrets" labelledBy="sources-title">
       <div className="settings-body">
         <p className="field-hint mt-0">
-          Vault or OpenBao servers that "Secret manager reference" credentials resolve from at connect time. Secrets are fetched for the
-          handshake only and never cached; the sign-in token lives in memory and is revoked when the vault locks.
+          Vault or OpenBao, 1Password Connect and Bitwarden Secrets Manager servers that "Secret manager reference" credentials resolve
+          from at connect time. Secrets are fetched for the handshake only and never cached; sign-ins live in memory and end when the vault locks.
         </p>
         {error && <p role="alert" className="settings-err">{error}</p>}
         {status && <p role="status" className="settings-ok">{status}</p>}
@@ -114,7 +128,7 @@ export function SecretSourcesCard() {
         ) : rows.length === 0 ? (
           <div className="trust-empty">
             <span className="m-micro">No secret sources</span>
-            <span className="field-hint">Add a Vault server, then create a credential of kind "Secret manager reference" that points at it.</span>
+            <span className="field-hint">Add a server, then create a credential of kind "Secret manager reference" that points at it.</span>
           </div>
         ) : (
           <ul className="trust-list" aria-label="Secret sources">
@@ -129,7 +143,8 @@ export function SecretSourcesCard() {
                   <div className="min-w-0">
                     <p className="trust-target">
                       <span className="text-text">{s.name}</span>
-                      <span className="trust-names">{METHOD_LABEL[s.authMethod]}</span>
+                      <span className="source-kind">{SOURCE_KIND_LABEL[s.kind]}</span>
+                      {s.kind === "vault" && <span className="trust-names">{METHOD_LABEL[s.authMethod]}</span>}
                       {s.options.allowHttp && <span className="trust-names text-danger">http</span>}
                     </p>
                     <p className="trust-fp mono select-text">{s.address}{s.namespace ? ` · ns ${s.namespace}` : ""}</p>
@@ -137,7 +152,15 @@ export function SecretSourcesCard() {
                       {s.authMethod === "oidc" ? `Role ${s.oidcRole ?? ""} on ${s.authMount}` : cred ? `Signs in with ${cred.name}` : "Login credential missing"}
                       {` · used by ${used} reference${used === 1 ? "" : "s"}`}
                     </p>
-                    {t && !o && <p role="status" className={t.ok ? "settings-ok" : "settings-err"}>{testText(t)}</p>}
+                    {s.kind === "bitwarden" && <p className="field-hint">bws: <span className="mono">{s.options.bwsPath ?? "first one found"}</span> · own TLS, not pinned by Mooring</p>}
+                    {t && !o && <p role="status" className={t.ok ? "settings-ok" : "settings-err"}>{testText(t, s.kind)}</p>}
+                    {t?.error === "secret.tool_missing" && (
+                      <div className="bws-missing" role="note">
+                        bws was not found{s.options.bwsPath ? ` at ${s.options.bwsPath}` : " at any of these locations"}. Install the Bitwarden
+                        Secrets Manager CLI there, then test again.
+                        {!s.options.bwsPath && <BwsPathList chosen={null} />}
+                      </div>
+                    )}
                     {o && <p role={o.tone === "err" ? "alert" : "status"} className={o.tone === "ok" ? "settings-ok" : o.tone === "err" ? "settings-err" : "field-hint"}>{o.text}</p>}
                   </div>
                   <div className="source-actions">
@@ -172,7 +195,7 @@ export function SecretSourcesCard() {
         </div>
       </div>
       {editing && (
-        <SecretSourceDialog source={editing.source} initialCredentialId={editing.credentialId ?? null} onClose={() => { setEditing(null); }}
+        <SecretSourceDialog source={editing.source} initialCredentialId={editing.credentialId ?? null} initialKind={editing.kind ?? "vault"} onClose={() => { setEditing(null); }}
           onSaved={(s) => {
             setEditing(null);
             setSelected(s.id);

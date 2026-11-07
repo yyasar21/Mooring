@@ -10,6 +10,7 @@ import type { MockOptions } from "./ipc.mock.exit";
 import type { RemoteTarget } from "./ipc.mock.remote";
 import { MockTreeBase } from "./ipc.mock.tree";
 import { MockHopChain, type MockHop } from "./ipc.mock.hops";
+import { MockLeaseBook } from "./ipc.mock.leases";
 
 export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
@@ -38,6 +39,12 @@ function askOf(c: ConnectionSummary, cred: CredentialMeta | null): { username: s
 export class MockTransport extends MockTreeBase implements Ipc {
   trustedHosts = new Set<string>();
   sessions = new Map<string, MockSession>();
+  /** ADR-0026: leases of sessions whose credential is a Vault `database` reference. */
+  leaseBook = new MockLeaseBook();
+  /** Knobs: the database role's lease TTL (s), whether Vault refuses the lease or its renewal. */
+  leaseTtl = 3600;
+  leaseRefused = false;
+  leaseRenewFails = false;
 
   constructor(opts: MockOptions = {}) {
     super(opts);
@@ -155,7 +162,17 @@ export class MockTransport extends MockTreeBase implements Ipc {
     if (c.protocol === "kubernetes") return this.openKubeExec(connectionId, onEvent, kube);
     if (onFrame && c.protocol === "ssh") throw new IpcError("input.invalid", "invalid onFrame: not accepted for ssh sessions");
     const ask = askOf(c, cred);
+    // R3 `connect_plan::prefetch`: a database reference resolves before the connect and needs a lease.
+    const dynamicDb = cred?.kind === "external_ref" && cred.fields.engine === "database";
+    if (dynamicDb && this.leaseRefused) {
+      this.record("secret_failed", { credential: cred.id, category: "lease" });
+      throw new IpcError("secret.lease_failed", "Vault returned database credentials without a lease");
+    }
     const sessionId = this.id("s");
+    if (dynamicDb) {
+      this.leaseBook.issue(sessionId, { ttl: this.leaseTtl, renewable: true, failRenew: this.leaseRenewFails });
+      this.record("secret_lease_issued", { credential: cred.id, engine: "database", ttl: String(this.leaseTtl) });
+    }
     const s: MockSession = {
       info: { sessionId, connectionId, protocol: c.protocol, state: "connecting", openedAt: new Date().toISOString() },
       host: c.host,
@@ -222,6 +239,7 @@ export class MockTransport extends MockTreeBase implements Ipc {
 
   private end(s: MockSession, reason: string, code: CloseCode = "server_ended"): void {
     s.info.state = "closed";
+    this.leaseBook.release(s.info.sessionId, code === "user" ? "closed" : "ended", this.recorder);
     this.dropSession(s.info.sessionId);
     this.sessions.delete(s.info.sessionId);
     this.record("session_closed", { connection: s.info.connectionId, reason });
@@ -291,5 +309,20 @@ export class MockTransport extends MockTreeBase implements Ipc {
     this.end(s, "closed by user", "user");
   };
 
-  sessionList: Ipc["sessionList"] = async () => [...[...this.sessions.values()].map((s) => ({ ...s.info })), ...this.remoteInfos(), ...this.kubeInfos()];
+  private recorder = (event: string, details: Record<string, string>): void => { this.record(event, details); };
+
+  sessionList: Ipc["sessionList"] = async () => [
+    ...[...this.sessions.values()].map((s) => {
+      const leases = this.leaseBook.status(s.info.sessionId, this.recorder);
+      return leases.length > 0 ? { ...s.info, leases } : { ...s.info };
+    }),
+    ...this.remoteInfos(),
+    ...this.kubeInfos(),
+  ];
+
+  /** R3 `on_lock`: leases are drained (revoked) before tokens; the sessions survive. */
+  protected override lockBackend(): void {
+    super.lockBackend();
+    this.leaseBook.drain(this.recorder);
+  }
 }

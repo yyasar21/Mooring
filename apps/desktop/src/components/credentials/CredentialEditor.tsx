@@ -252,7 +252,7 @@ export function CredentialEditor({
 
         {schema.kind === "external_ref" && (
           <ExternalRefSection schema={schema} kinds={kinds} s={s} meta={meta} tried={tried} problems={problems} setValue={setValue}
-            setFieldMap={(fieldMap) => { set({ fieldMap }); }} />
+            setFieldMap={(fieldMap) => { set({ fieldMap }); }} update={setS} />
         )}
         {schema.kind !== "external_ref" && (acct || plainFields(schema).length > 0) && <section className="space-y-3">
           <HudLabel>{acct || schema.fields.some((f) => !f.secret && /^(username|user|upn)$/.test(f.name)) ? "Account" : "Settings"}</HudLabel>

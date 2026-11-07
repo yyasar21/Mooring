@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { HudLabel } from "@mooring/ui";
-import { ipc, type CredentialMeta, type CredentialRole, type ExternalRefTest, type KindSchema, type SecretSource, type SecretSourceTest } from "../../lib/ipc";
+import { ENGINE_LABEL, SOURCE_KIND_LABEL, ipc, type CredentialMeta, type CredentialRole, type ExternalRefTest, type KindSchema, type SecretSource, type SecretSourceTest } from "../../lib/ipc";
+import { engineOf, roleOf } from "../../lib/validate.refs";
+import { useCredentials } from "../../stores/credentials";
 import { PROTOCOL_LABEL, accountSummary, schemaFor } from "../../lib/credentials";
 import { fmtStamp } from "../../lib/format";
 import { kindLabel } from "../../stores/credentials";
@@ -10,9 +12,11 @@ import { openSettingsCard } from "../SyncBanner";
 import { testText } from "../settings/SecretSourcesCard";
 import { refTestSummary } from "./ExternalRefSection";
 import { Fingerprint, KindBadge, MatrixStrip } from "./fields";
-import { APPROLE_HINT, KIND_BLURB, PROVIDERS } from "./kindMeta";
+import { APPROLE_HINT, BWS_TOKEN_HINT, KIND_BLURB, PROVIDERS } from "./kindMeta";
 
-const ROLE_TAG: Record<CredentialRole, string> = { primary: "", gateway: "gateway", become: "become" };
+const ROLE_TAG: Record<CredentialRole, string> = { primary: "", gateway: "gateway", become: "become", certificate: "certificate" };
+/** Kinds that only sign a secret source in: the sources that use them, and a Test. */
+const LOGIN_ONLY = new Set<CredentialMeta["kind"]>(["vault_approle", "bitwarden_access_token"]);
 
 /**
  * Read-only card for one credential: what it is, where it can sign in, who uses it. Shown after a
@@ -31,7 +35,7 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const usedConns = connections.filter((c) => c.credentialId === meta.id || c.gatewayCredentialId === meta.id || c.becomeCredentialId === meta.id);
+  const usedConns = connections.filter((c) => c.credentialId === meta.id || c.gatewayCredentialId === meta.id || c.becomeCredentialId === meta.id || c.certificateCredentialId === meta.id);
   const usedFolders = folders.filter((f) => f.defaultCredentialId === meta.id);
   const account = accountSummary(meta);
   const secretLabels = meta.secretNames.map((n) => schema?.fields.find((f) => f.name === n)?.label ?? (n === "otp_seed" ? "TOTP seed" : n));
@@ -53,8 +57,8 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
 
       <div className="cred-editor-body">
         <div className="flex flex-wrap items-center gap-2">
-          {meta.kind === "external_ref" && <RefTest id={meta.id} updatedAt={meta.updatedAt} />}
-          {meta.kind === "vault_approle" && <ApproleTest id={meta.id} />}
+          {meta.kind === "external_ref" && <RefTest id={meta.id} updatedAt={meta.updatedAt} engine={engineOf(meta.fields.engine)} />}
+          {LOGIN_ONLY.has(meta.kind) && <ApproleTest id={meta.id} />}
           <button type="button" className="btn btn-primary" onClick={onEdit}>Edit</button>
           {confirm ? (
             <>
@@ -124,7 +128,8 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
         </section>
 
         {meta.kind === "external_ref" && <ReferenceSection meta={meta} kinds={kinds} />}
-        {meta.kind === "vault_approle" && <ApproleSection meta={meta} />}
+        {LOGIN_ONLY.has(meta.kind) && <ApproleSection meta={meta} />}
+        {meta.kind === "ssh_key" && <CertificateSection id={meta.id} />}
         {meta.kind === "s3_access_key" && (
           <section className="kind-note flex items-center gap-3" role="note">
             <span className="flex-1">This access key is for vault sync only. Pick it in Settings → Vault sync; it never signs in to a connection.</span>
@@ -140,10 +145,14 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
 function ReferenceSection({ meta, kinds }: { meta: CredentialMeta; kinds: KindSchema[] }) {
   const sources = useSecretSources();
   const f = (k: string) => { const v = meta.fields[k]; return typeof v === "string" ? v : ""; };
+  const list = (k: string) => { const v = meta.fields[k]; return Array.isArray(v) ? v : []; };
   const provider = PROVIDERS.find((p) => p.value === f("provider"))?.label ?? f("provider");
   const source = sources?.find((s) => s.id === f("source"));
   const vault = f("provider") === "vault";
+  const engine = vault ? engineOf(meta.fields.engine) : "kv2";
+  const dynamic = engine !== "kv2";
   const version = meta.fields.version;
+  const ttl = meta.fields.ttl;
   const map = meta.fields.field_map;
   const target = f("target_kind");
   return (
@@ -151,24 +160,61 @@ function ReferenceSection({ meta, kinds }: { meta: CredentialMeta; kinds: KindSc
       <HudLabel>Reference</HudLabel>
       <dl className="prop-grid">
         <Prop k="Provider">{provider}</Prop>
-        {vault && (
-          <Prop k="Source">
-            {sources === null ? "Loading…" : source ? <>{source.name} <span className="mono text-text-faint">{source.address}</span></> : <span className="text-danger">Unknown source — choose another in Edit</span>}
-          </Prop>
-        )}
-        <Prop k="Path" mono>{f("reference")}</Prop>
+        <Prop k="Source">
+          {sources === null ? "Loading…" : source ? <>{source.name} <span className="mono text-text-faint">{source.address}</span></> : <span className="text-danger">Unknown source — choose another in Edit</span>}
+        </Prop>
+        {vault && <Prop k="Engine">{ENGINE_LABEL[engine]}</Prop>}
+        <Prop k={dynamic ? "Role" : "Path"} mono>{f("reference")}</Prop>
         <Prop k="Resolves to">{target ? kindLabel(kinds, target as CredentialMeta["kind"]) : <span className="text-text-faint">not set</span>}</Prop>
-        {vault && <Prop k="Version" mono>{typeof version === "number" ? version : <span className="text-text-faint">latest</span>}</Prop>}
+        {vault && !dynamic && <Prop k="Version" mono>{typeof version === "number" ? version : <span className="text-text-faint">latest</span>}</Prop>}
+        {list("principals").length > 0 && <Prop k="Principals" mono>{list("principals").join(", ")}</Prop>}
+        {f("common_name") && <Prop k="Common name" mono>{f("common_name")}</Prop>}
+        {list("alt_names").length > 0 && <Prop k="Alt names" mono>{list("alt_names").join(", ")}</Prop>}
+        {f("username") && <Prop k="Login" mono>{f("username")}</Prop>}
+        {(engine === "ssh_sign" || engine === "pki") && <Prop k="TTL" mono>{typeof ttl === "number" ? `${ttl} s` : <span className="text-text-faint">role default</span>}</Prop>}
+        {engine === "database" && <Prop k="Lease">Renewed while the session is open, revoked when it closes</Prop>}
         {map && typeof map === "object" && Object.keys(map).length > 0 && (
           <Prop k="Field map" mono>{Object.entries(map).map(([n, k]) => `${n} ← ${String(k)}`).join(", ")}</Prop>
         )}
       </dl>
-      {vault && (
-        <p className="field-hint mt-2">
-          At connect time Mooring signs in to the source, reads the secret and drops it after the handshake. Sources are managed in{" "}
-          <button type="button" className="cred-link underline" onClick={() => { openSettingsCard("sources-title"); }}>Settings → Secret sources</button>.
-        </p>
-      )}
+      <p className="field-hint mt-2">
+        {engine === "pki"
+          ? "PKI can only be tested for now: no connection signs in with an X.509 certificate from Vault yet. "
+          : engine === "ssh_sign"
+            ? "Attach this reference to an SSH connection as its certificate; Vault signs the connection's SSH key at each connect. "
+            : `At connect time Mooring signs in to the ${source ? SOURCE_KIND_LABEL[source.kind] : "secret"} source, ${dynamic ? "asks for fresh values" : "reads the secret"} and drops it after the handshake. `}
+        Sources are managed in{" "}
+        <button type="button" className="cred-link underline" onClick={() => { openSettingsCard("sources-title"); }}>Settings → Secret sources</button>.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * ADR-0026 §1: an SSH key that a connection certifies with a Vault `ssh_sign` reference
+ * (secondary role `certificate`). One line per connection; the role name, never a secret.
+ */
+function CertificateSection({ id }: { id: string }) {
+  const connections = useTree((s) => s.connections);
+  const creds = useCredentials((s) => s.items);
+  const rows = connections
+    .filter((c) => c.protocol === "ssh" && (c.effectiveCredentialId ?? c.credentialId) === id && c.certificateCredentialId)
+    .map((c) => ({ c, ref: creds.find((x) => x.id === c.certificateCredentialId) }));
+  if (rows.length === 0) return null;
+  return (
+    <section className="cred-detail-section" aria-label="Certificate">
+      <ul className="cert-roles">
+        {rows.map(({ c, ref }) => {
+          const role = ref && typeof ref.fields.reference === "string" ? roleOf(ref.fields.reference) : null;
+          return (
+            <li key={c.id}>
+              <span className="text-text-muted">Certificate: </span>
+              {role ? <>signed by Vault role <span className="mono">{role}</span> at connect</> : "the certificate reference was deleted"}
+              <span className="text-text-muted"> · {c.name}</span>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
@@ -176,12 +222,14 @@ function ReferenceSection({ meta, kinds }: { meta: CredentialMeta; kinds: KindSc
 /** The relationship an AppRole lives in: the secret sources that sign in with it, or how to create one. */
 function ApproleSection({ meta }: { meta: CredentialMeta }) {
   const sources = useSecretSources();
+  const bws = meta.kind === "bitwarden_access_token";
+  const what = bws ? "access token" : "AppRole";
   const using = sources?.filter((s) => s.credentialId === meta.id) ?? [];
   return (
     <section className="cred-detail-section m-hud">
       <HudLabel>Secret sources</HudLabel>
       {using.length > 0 ? (
-        <ul className="space-y-1" aria-label="Secret sources signing in with this AppRole">
+        <ul className="space-y-1" aria-label={`Secret sources signing in with this ${what}`}>
           {using.map((s) => (
             <li key={s.id} className="flex items-baseline gap-2 text-[length:var(--fs-s)]">
               <span className="text-text">{s.name}</span>
@@ -190,14 +238,14 @@ function ApproleSection({ meta }: { meta: CredentialMeta }) {
           ))}
         </ul>
       ) : (
-        <p className="text-[length:var(--fs-s)] text-text-muted">{sources === null ? "Loading…" : "No secret source signs in with this AppRole yet."}</p>
+        <p className="text-[length:var(--fs-s)] text-text-muted">{sources === null ? "Loading…" : `No secret source signs in with this ${what} yet.`}</p>
       )}
       <div className="kind-note mt-3 flex items-center gap-3" role="note">
-        <span className="flex-1">A Vault AppRole never signs in to a connection. {APPROLE_HINT}</span>
+        <span className="flex-1">{bws ? `A Bitwarden access token never signs in to a connection. ${BWS_TOKEN_HINT}` : `A Vault AppRole never signs in to a connection. ${APPROLE_HINT}`}</span>
         <button
           type="button"
           className="btn btn-primary"
-          onClick={() => { openSettingsCard("sources-title", { kind: "add-secret-source", credentialId: meta.id }); }}
+          onClick={() => { openSettingsCard("sources-title", { kind: "add-secret-source", credentialId: meta.id, ...(bws ? { sourceKind: "bitwarden" as const } : {}) }); }}
         >
           Create secret source
         </button>
@@ -207,7 +255,7 @@ function ApproleSection({ meta }: { meta: CredentialMeta }) {
 }
 
 /** `credential_external_test` from the card: names only, never values. */
-function RefTest({ id, updatedAt }: { id: string; updatedAt: string }) {
+function RefTest({ id, updatedAt, engine }: { id: string; updatedAt: string; engine: ReturnType<typeof engineOf> }) {
   const [test, setTest] = useState<ExternalRefTest | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -228,7 +276,7 @@ function RefTest({ id, updatedAt }: { id: string; updatedAt: string }) {
     <>
       <button type="button" className="btn" disabled={busy} onClick={() => void run()}>{busy ? "Testing…" : "Test"}</button>
       {err && <span role="alert" className="settings-err">{err}</span>}
-      {test && <span role="status" aria-label="Reference test" className={test.ok ? "settings-ok" : "settings-err"}>{refTestSummary(test)}</span>}
+      {test && <span role="status" aria-label="Reference test" className={test.ok ? "settings-ok" : "settings-err"}>{refTestSummary(test, engine)}</span>}
     </>
   );
 }
@@ -237,13 +285,13 @@ function RefTest({ id, updatedAt }: { id: string; updatedAt: string }) {
 function ApproleTest({ id }: { id: string }) {
   const sources = useSecretSources();
   const using = sources?.filter((s) => s.credentialId === id) ?? [];
-  const [results, setResults] = useState<{ name: string; test: SecretSourceTest }[] | null>(null);
+  const [results, setResults] = useState<{ name: string; kind: SecretSource["kind"]; test: SecretSourceTest }[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async () => {
     setBusy(true);
     try {
-      setResults(await Promise.all(using.map(async (s) => ({ name: s.name, test: await ipc.secretSourceTest({ id: s.id }) }))));
+      setResults(await Promise.all(using.map(async (s) => ({ name: s.name, kind: s.kind, test: await ipc.secretSourceTest({ id: s.id }) }))));
       setErr(null);
     } catch (e: unknown) {
       setResults(null);
@@ -254,12 +302,12 @@ function ApproleTest({ id }: { id: string }) {
   };
   return (
     <>
-      <button type="button" className="btn" disabled={busy || using.length === 0} title={using.length === 0 ? "No secret source uses this AppRole yet" : undefined} onClick={() => void run()}>
+      <button type="button" className="btn" disabled={busy || using.length === 0} title={using.length === 0 ? "No secret source uses this credential yet" : undefined} onClick={() => void run()}>
         {busy ? "Testing…" : "Test"}
       </button>
       {err && <span role="alert" className="settings-err">{err}</span>}
       {results?.map((r) => (
-        <span key={r.name} role="status" className={r.test.ok ? "settings-ok" : "settings-err"}>{r.name}: {testText(r.test)}</span>
+        <span key={r.name} role="status" className={r.test.ok ? "settings-ok" : "settings-err"}>{r.name}: {testText(r.test, r.kind)}</span>
       ))}
     </>
   );

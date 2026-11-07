@@ -239,6 +239,12 @@ export const KIND_SCHEMAS: KindSchema[] = [
       // version. `field_map` is stored too but has no schema row: the form owns it.
       field("source", "Secret source", 36, "enum", { placeholder: "required for Vault" }),
       field("version", "KV version", 20, "text", { placeholder: "latest" }),
+      // ADR-0026 §1: the Vault engine and its parameters. `principals` and `alt_names` are
+      // string arrays with no schema row (the kinds table has no array type): the form owns them.
+      field("engine", "Vault engine", 16, "enum", { options: ["kv2", "database", "ssh_sign", "ssh_otp", "pki"] }),
+      field("ttl", "TTL (seconds)", 8, "text", { placeholder: "role default" }),
+      field("common_name", "Common name", 255, "text", { placeholder: "required for PKI" }),
+      field("username", "One-time password login", 64, "text", { placeholder: "required for SSH OTP" }),
     ],
   },
   // ADR-0016 §1: the AppRole login of a secret source. Both halves are sealed.
@@ -268,5 +274,15 @@ export const KIND_SCHEMAS: KindSchema[] = [
       secret("secret_access_key", "Secret access key", 256, "text", { required: true }),
       secret("session_token", "Session token", 8 * KIB, "text", { placeholder: "optional" }),
     ],
+  },
+  // ADR-0026 §4: the Bitwarden Secrets Manager machine access token (a `bws` source login).
+  {
+    kind: "bitwarden_access_token",
+    label: "Bitwarden access token",
+    group: "Secret sources",
+    protocols: [],
+    consumers: ["secret_source"],
+    supportsOtp: false,
+    fields: [secret("access_token", "Access token", 4 * KIB, "text", { required: true })],
   },
 ];

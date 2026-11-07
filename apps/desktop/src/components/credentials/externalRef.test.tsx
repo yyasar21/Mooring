@@ -75,19 +75,27 @@ describe("external_ref credential form (ADR-0016 §2)", () => {
     expect(mock.audit.at(-1)?.event).toBe("secret_resolved");
   });
 
-  it("1Password references keep validating and storing without a source", async () => {
+  it("1Password references need a Connect source (R3) and resolve through it", async () => {
     act(() => { useUi.getState().showCredentials({ mode: "new" }); });
     fireEvent.click(within(view()).getByRole("button", { name: "Secret manager reference" }));
+    await settle();
     const form = within(view()).getByRole("form", { name: "New Secret manager reference" });
     fireEvent.click(within(form).getByRole("radio", { name: "1Password" }));
-    expect(within(form).queryByLabelText("Secret source")).toBeNull();
-    expect(form).toHaveTextContent("arrives in a later release");
+    const source = within(form).getByLabelText("Secret source");
+    // Only sources of the chosen provider are offered.
+    expect(within(source).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose…", "infra connect · https://connect.example.test:8080"]);
+    expect(within(form).queryByLabelText("Vault engine")).toBeNull();
     fireEvent.change(within(form).getByLabelText("Name"), { target: { value: "op db" } });
-    fireEvent.change(within(form).getByLabelText(/^Reference/), { target: { value: "op://Infra/prod-db/password" } });
+    fireEvent.change(within(form).getByLabelText(/^Reference/), { target: { value: "Infra/prod-db" } });
     fireEvent.change(within(form).getByLabelText(/^Resolves to/), { target: { value: "user_password" } });
     fireEvent.click(within(form).getByRole("button", { name: "Create credential" }));
+    expect(form).toHaveTextContent("Choose a secret source.");
+    expect(form).toHaveTextContent("A 1Password reference starts with op://");
+    fireEvent.change(source, { target: { value: "src-op" } });
+    fireEvent.change(within(form).getByLabelText(/^Reference/), { target: { value: "op://Infra/prod-db/password" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Create credential" }));
     await settle();
-    expect(useCredentials.getState().items.find((c) => c.name === "op db")?.fields).toEqual({ provider: "onepassword", reference: "op://Infra/prod-db/password", target_kind: "user_password" });
+    expect(useCredentials.getState().items.find((c) => c.name === "op db")?.fields).toEqual({ provider: "onepassword", source: "src-op", reference: "op://Infra/prod-db/password", target_kind: "user_password" });
   });
 
   it("summarises test results", () => {

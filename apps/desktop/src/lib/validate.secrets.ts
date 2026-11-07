@@ -2,8 +2,9 @@
 // shaped like the Rust validators (mooring-core `secret_source`, `credential::parse_vault_reference`,
 // src-tauri `sync_config`). Rust decides; these catch the common mistakes before the IPC hop and
 // feed MockTransport. Nothing here sees a secret value.
-import { EXTERNAL_TARGET_KINDS, SYNC_INTERVAL, type ExternalTargetKind, type SecretSourceInput, type SyncBackend, type SyncConfig } from "./ipc.types.secrets";
+import { BWS_PATHS, EXTERNAL_TARGET_KINDS, SYNC_INTERVAL, type ExternalTargetKind, type SecretSourceInput, type SyncBackend, type SyncConfig } from "./ipc.types.secrets";
 import { checkCaPem, checkUrl, originOf } from "./validate.options";
+import { checkBwsReference, checkEngine, checkOpReference } from "./validate.refs";
 
 export type SecretErrors = Record<string, string>;
 
@@ -38,10 +39,31 @@ export function checkSourceAddress(address: string, allowHttp: boolean): string 
 /** Field errors for a secret source; empty = valid. Keys are the input's field names. */
 export function validateSecretSource(a: SecretSourceInput): SecretErrors {
   const e: SecretErrors = {};
+  const kind = a.kind ?? "vault";
   const name = a.name.trim();
   if (name === "" || name.length > 200) e.name = "Name must be 1 to 200 characters.";
   const addr = checkSourceAddress(a.address, a.options.allowHttp);
   if (addr) e.address = addr;
+  const bws = a.options.bwsPath ?? null;
+  // ADR-0026: 1Password Connect and Bitwarden sign in with a token only and have no namespace.
+  if (kind !== "vault") {
+    if (a.namespace && a.namespace.trim() !== "") e.namespace = "Only Vault sources have a namespace.";
+    if (a.authMethod !== "token") e.authMethod = "This provider signs in with a token only.";
+    if (a.credentialId === null) {
+      e.credentialId = kind === "onepassword" ? "Choose the API token credential that holds the Connect token." : "Choose the Bitwarden access token credential.";
+    }
+    if (a.options.allowedOrigins.length > 0) e.allowedOrigins = "Only OIDC sources open a window.";
+    if (kind === "bitwarden") {
+      if (a.options.caPem !== null) e.caPem = "bws uses its own TLS, so a Bitwarden source has no CA.";
+      if (bws !== null && !(BWS_PATHS as readonly string[]).includes(bws)) e.bwsPath = "Choose one of the listed bws locations.";
+    } else {
+      if (bws !== null) e.bwsPath = "Only Bitwarden sources run bws.";
+      const ca = checkCaPem(a.options.caPem);
+      if (ca) e.caPem = ca;
+    }
+    return e;
+  }
+  if (bws !== null) e.bwsPath = "Only Bitwarden sources run bws.";
   if (a.namespace && a.namespace.trim() !== "") {
     const ns = checkPathlike(a.namespace.trim().replace(/^\/+|\/+$/g, ""), "Namespace");
     if (ns) e.namespace = ns;
@@ -99,6 +121,14 @@ export interface ExternalRefDraft {
   version: string;
   /** target name → KV key (names are validated against the target kind by the form). */
   field_map: Record<string, string>;
+  /** ADR-0026 (Vault only); empty or absent = `kv2`. */
+  engine?: string;
+  /** Raw text in seconds; empty = the role default. */
+  ttl?: string;
+  principals?: string[];
+  common_name?: string;
+  alt_names?: string[];
+  username?: string;
 }
 
 /** Field errors for an `external_ref` form; empty = valid. */
@@ -106,13 +136,22 @@ export function validateExternalRef(d: ExternalRefDraft, targetNames: string[]):
   const e: SecretErrors = {};
   if (!(EXTERNAL_TARGET_KINDS as readonly string[]).includes(d.target_kind)) e.target_kind = "Choose what the secret resolves to.";
   if (!["vault", "onepassword", "bitwarden"].includes(d.provider)) e.provider = "Choose a provider.";
+  // ADR-0026: every provider resolves through a secret source now.
+  if (d.source === "") e.source = "Choose a secret source.";
+  const dynamic = d.provider === "vault" && (d.engine ?? "") !== "" && d.engine !== "kv2";
   if (d.provider === "vault") {
-    if (d.source === "") e.source = "Choose a secret source.";
     const r = checkReference(d.reference);
+    if (r) e.reference = dynamic ? r.replace("<mount>/<path>, for example kv/ops/db", "<mount>/<role>, for example database/readonly") : r;
+  } else if (d.provider === "onepassword") {
+    const r = checkOpReference(d.reference);
+    if (r) e.reference = r;
+  } else if (d.provider === "bitwarden") {
+    const r = checkBwsReference(d.reference);
     if (r) e.reference = r;
   } else if (d.reference.trim() === "") e.reference = "Reference is required.";
   const v = d.version.trim();
-  if (v !== "" && !(/^\d{1,19}$/.test(v) && Number(v) >= 1)) e.version = "Version is a whole number from 1, or empty for the latest.";
+  if (v !== "" && d.provider !== "vault") e.version = "Only Vault KV references have a version.";
+  else if (v !== "" && !(/^\d{1,19}$/.test(v) && Number(v) >= 1)) e.version = "Version is a whole number from 1, or empty for the latest.";
   const entries = Object.entries(d.field_map);
   if (entries.length > 32) e.field_map = "At most 32 mappings.";
   for (const [name, key] of entries) {
@@ -120,7 +159,7 @@ export function validateExternalRef(d: ExternalRefDraft, targetNames: string[]):
     if (key.trim() === "") { e.field_map = `Enter the KV key for ${name}.`; break; }
     if (utf8Len(key) > 128 || CONTROL.test(key)) { e.field_map = `The key for ${name} must be visible text up to 128 bytes.`; break; }
   }
-  return e;
+  return { ...e, ...checkEngine(d) };
 }
 
 export const isExternalTargetKind = (k: string): k is ExternalTargetKind => (EXTERNAL_TARGET_KINDS as readonly string[]).includes(k);

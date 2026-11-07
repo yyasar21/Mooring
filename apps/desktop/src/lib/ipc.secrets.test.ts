@@ -21,11 +21,12 @@ const oidc = (p: Partial<SecretSourceInput> = {}) => input({ authMethod: "oidc",
 describe("mock · secret sources (ADR-0016, E2)", () => {
   it("creates, gets, tests, updates and deletes sources; nothing secret comes back", async () => {
     const m = new MockTransport();
-    expect((await m.secretSourceList()).map((s) => s.id)).toEqual(["src-ops"]);
+    expect((await m.secretSourceList()).map((s) => s.id)).toEqual(["src-ops", "src-op", "src-bws"]);
     const s = await m.secretSourceCreate(input());
     expect(s).toMatchObject({ kind: "vault", name: "team vault", authMount: "approle", credentialId: "cr-approle" });
     expect(await m.secretSourceGet({ id: s.id })).toEqual(s);
-    expect(JSON.stringify(await m.secretSourceList())).not.toMatch(/token|secret_id|role_id/i);
+    // `token` is a method and mount name of the Connect and Bitwarden seeds; no token value or secret name appears.
+    expect(JSON.stringify(await m.secretSourceList()).replace(/"auth(Method|Mount)":"token"|"credentialId":"cr-[a-z-]+"/g, "")).not.toMatch(/token|secret_id|role_id/i);
     expect(await m.secretSourceTest({ id: s.id })).toEqual({ ok: true, method: "approle", ttlSeconds: 3600, renewable: true, policiesCount: 2, error: null, category: null });
     await m.secretSourceUpdate({ id: s.id, ...input({ name: "renamed", address: "https://down.invalid" }) });
     expect(await m.secretSourceTest({ id: s.id })).toMatchObject({ ok: false, error: "credential.external_unavailable", category: "network" });
@@ -117,7 +118,9 @@ describe("mock · secret sources (ADR-0016, E2)", () => {
     expect(await bad({ provider: "vault", source: "src-ops", reference: "kv/ops/db", target_kind: "user_password", version: 0 })).toBe("input.invalid");
     expect(await bad({ provider: "vault", source: "src-ops", reference: "kv/ops/db", target_kind: "user_password", version: "3" })).toBe("input.invalid");
     expect(await bad({ provider: "vault", source: "src-ops", reference: "kv/ops/db", target_kind: "user_password", field_map: { password: "" } })).toBe("input.invalid");
-    expect(await bad({ provider: "onepassword", reference: "op://Infra/db/password", target_kind: "user_password" })).toBe("ok");
+    // R3: every provider needs a source of its own kind.
+    expect(await bad({ provider: "onepassword", reference: "op://Infra/db/password", target_kind: "user_password" })).toBe("input.invalid");
+    expect(await bad({ provider: "onepassword", source: "src-op", reference: "op://Infra/db/password", target_kind: "user_password" })).toBe("ok");
   });
 
   it("a used source cannot be deleted, and the refusal is audited", async () => {
@@ -125,6 +128,8 @@ describe("mock · secret sources (ADR-0016, E2)", () => {
     expect(await code(m.secretSourceDelete({ id: "src-ops" }))).toBe("source.in_use");
     expect(m.audit.at(-1)).toMatchObject({ event: "secret_refused", details: { source: "src-ops", action: "delete" } });
     await m.credentialDelete({ id: "cr-ext" });
+    expect(await code(m.secretSourceDelete({ id: "src-ops" }))).toBe("source.in_use");
+    await m.credentialDelete({ id: "cr-db-dyn" });
     expect(await code(m.secretSourceDelete({ id: "src-ops" }))).toBe("ok");
   });
 });

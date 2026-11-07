@@ -16,15 +16,45 @@ export const SECRET_AUTH_CREDENTIAL: Readonly<Record<SecretAuthMethod, Credentia
   oidc: null,
 };
 
+/** ADR-0026: the provider a source talks to. The kind is fixed once the source exists. */
+export type SecretSourceKind = "vault" | "onepassword" | "bitwarden";
+export const SECRET_SOURCE_KINDS: readonly SecretSourceKind[] = ["vault", "onepassword", "bitwarden"];
+export const SOURCE_KIND_LABEL: Readonly<Record<SecretSourceKind, string>> = {
+  vault: "HashiCorp Vault / OpenBao",
+  onepassword: "1Password Connect",
+  bitwarden: "Bitwarden Secrets Manager",
+};
+/** `SourceKind::login_kind`: 1Password and Bitwarden sign in with a token only. */
+export const SOURCE_LOGIN_KIND: Readonly<Record<Exclude<SecretSourceKind, "vault">, CredentialKind>> = {
+  onepassword: "api_token",
+  bitwarden: "bitwarden_access_token",
+};
+
+/**
+ * ADR-0026 §4 (`mooring-core::secret_source::BWS_PATHS`): the only places Mooring runs `bws`
+ * from. `%VAR%` is expanded at run time; `options.bwsPath` must be one of these or null.
+ */
+export const BWS_PATHS = [
+  "/usr/local/bin/bws",
+  "/opt/homebrew/bin/bws",
+  "%LOCALAPPDATA%\\Programs\\bws\\bws.exe",
+  "%ProgramFiles%\\bws\\bws.exe",
+] as const;
+
 export interface SecretSourceOptions {
+  /** Vault and 1Password Connect only: `bws` does its own TLS. */
   caPem: string | null;
   /** http only for 127.0.0.1 / [::1]; audited. */
   allowHttp: boolean;
   /** Extra IdP origins for the OIDC window (`https://host[:port]`), ≤ 16; OIDC only. */
   allowedOrigins: string[];
+  /** Bitwarden only: one of `BWS_PATHS`, or null = the first that exists. */
+  bwsPath?: string | null;
 }
 
 export interface SecretSourceInput {
+  /** Omitted = `vault` (A3 payloads); immutable on update. */
+  kind?: SecretSourceKind;
   name: string;
   address: string;
   namespace: string | null;
@@ -40,7 +70,7 @@ export interface SecretSourceInput {
 export interface SecretSource {
   id: string;
   name: string;
-  kind: "vault";
+  kind: SecretSourceKind;
   address: string;
   namespace: string | null;
   authMethod: SecretAuthMethod;
@@ -60,8 +90,9 @@ export interface SecretSourceTest {
   method: SecretAuthMethod;
   ttlSeconds: number | null;
   renewable: boolean;
+  /** Vault: policies of the token. 1Password: vaults the token sees. Bitwarden: projects. */
   policiesCount: number;
-  /** The error code when `ok` is false. */
+  /** The error code when `ok` is false (`secret.tool_missing` = no `bws` at the fixed paths). */
   error: string | null;
   /** A `SecretErrorCategory` (or a newer one this build does not know). */
   category: string | null;
@@ -74,16 +105,62 @@ export const EXTERNAL_TARGET_KINDS = [
 ] as const satisfies readonly CredentialKind[];
 export type ExternalTargetKind = (typeof EXTERNAL_TARGET_KINDS)[number];
 
+/** ADR-0026 §1: the Vault secret engine of a reference (`kv2` when absent). */
+export type VaultEngine = "kv2" | "database" | "ssh_sign" | "ssh_otp" | "pki";
+export const VAULT_ENGINES: readonly VaultEngine[] = ["kv2", "database", "ssh_sign", "ssh_otp", "pki"];
+/** `engine_target`: each dynamic engine fixes the kind it yields. */
+export const ENGINE_TARGET: Readonly<Record<VaultEngine, ExternalTargetKind | null>> = {
+  kv2: null,
+  database: "user_password",
+  ssh_sign: "ssh_key",
+  ssh_otp: "user_password",
+  pki: "x509",
+};
+export const ENGINE_LABEL: Readonly<Record<VaultEngine, string>> = {
+  kv2: "KV v2",
+  database: "Database",
+  ssh_sign: "SSH sign",
+  ssh_otp: "SSH OTP",
+  pki: "PKI",
+};
+/** `external_engine.rs` caps. */
+export const ENGINE_CAPS = { names: 16, principal: 64, commonName: 255, otpUser: 64, ttl: 86_400 } as const;
+
 /** `external_ref` credential fields as stored (E1: snake_case `field_map`, numeric `version`). */
 export interface ExternalRefFields {
   provider: "vault" | "onepassword" | "bitwarden";
   source?: string;
-  /** `<mount>/<path>`, segments `[A-Za-z0-9._-]+`, ≤ 1 KiB. */
+  /** Vault: `<mount>/<path>` (KV) or `<mount>/<role>`. 1Password: `op://…`. Bitwarden: `<uuid>` or `<project>/<key>`. */
   reference: string;
   target_kind: ExternalTargetKind;
   version?: number;
   /** target field or secret name → KV key. */
   field_map?: Record<string, string>;
+  /** Omitted = `kv2`. */
+  engine?: VaultEngine;
+  /** `ssh_sign`: valid principals (≤ 16). */
+  principals?: string[];
+  /** `ssh_sign` / `pki`: requested TTL in seconds, 1..=86400. */
+  ttl?: number;
+  /** `pki`: required. */
+  common_name?: string;
+  /** `pki`: ≤ 16. */
+  alt_names?: string[];
+  /** `ssh_otp`: the login the one-time password is for. */
+  username?: string;
+}
+
+/** ADR-0026 §2: one dynamic-secret lease of a session on `session_list` (expiry only, never an id). */
+export type LeaseState = "active" | "renew_failed" | "expired";
+export interface LeaseInfo {
+  /** `database` | `pki` (a newer build may send another engine). */
+  engine: string;
+  /** Seconds left; null = no TTL reported. */
+  expiresInSeconds: number | null;
+  /** Renewed automatically at 2/3 of its TTL. */
+  renewable: boolean;
+  /** A `LeaseState`, or a newer one this build does not know. */
+  state: string;
 }
 
 /** `credential_external_test`: KV key names only, never values. `ok` = nothing missing, nothing extra. */

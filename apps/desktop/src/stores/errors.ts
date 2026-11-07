@@ -153,7 +153,16 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "vault.import_source_password": "That is not the master password of the vault this backup came from.",
   "vault.import_too_large": "This file is larger than 64 MiB, which is more than a Mooring backup can be.",
   "vault.import_version": "This backup was made in an older format that cannot be imported. Export it again from a current Mooring.",
-  "credential.incompatible": "That credential cannot be used here. Pick a Windows domain or a user and password credential.",
+  // ADR-0026 (R3): dynamic Vault engines, 1Password Connect and Bitwarden `bws`.
+  "credential.external_engine":
+    "This reference cannot be used that way: an SSH sign reference only certifies an SSH key, and the other engines fill their own target kind. Check the engine and where the credential is used.",
+  "secret.lease_failed":
+    "Vault did not hand out a lease for the dynamic credential, so Mooring did not use it and did not connect. Check the role in Vault, then connect again.",
+  "secret.tool_missing": "bws was not found at the locations Mooring checks. Install the Bitwarden Secrets Manager CLI there, or choose its location in Settings → Secret sources.",
+  "secret.tool_version": "The bws found is older than 1.0. Install a current Bitwarden Secrets Manager CLI.",
+  "secret.tool_failed": "bws did not finish: it failed, timed out or printed something Mooring could not read. Test the source in Settings → Secret sources.",
+  "source.kind_unsupported": "This reference's provider does not match its secret source. Choose a source of the same provider.",
+  "credential.incompatible":"That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
 };
 
