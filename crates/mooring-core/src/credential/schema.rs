@@ -219,7 +219,7 @@ const WEB_ONLY: &[KindProtocol] = &[proto(Protocol::Web, &[P])];
 const KUBE_ONLY: &[KindProtocol] = &[proto(Protocol::Kubernetes, &[P])];
 const VNC_ONLY: &[KindProtocol] = &[proto(Protocol::Vnc, &[P])];
 
-static KINDS: [KindSchema; 17] = [
+static KINDS: [KindSchema; 18] = [
     KindSchema {
         kind: K::UserPassword,
         label: "Username and password",
@@ -457,10 +457,21 @@ static KINDS: [KindSchema; 17] = [
             opts(plain("target_kind", "Resolves to", true, v(32, Enum)), TARGET_KINDS),
             ph(plain("source", "Secret source", false, v(36, Enum)), "required for Vault"),
             ph(plain("version", "KV version", false, v(20, Text)), "latest"),
+            opts(
+                plain("engine", "Vault engine", false, v(16, Enum)),
+                &["kv2", "database", "ssh_sign", "ssh_otp", "pki"],
+            ),
+            ph(plain("ttl", "TTL (seconds)", false, v(8, Text)), "role default"),
+            ph(plain("common_name", "Common name", false, v(255, Text)), "required for PKI"),
+            ph(
+                plain("username", "One-time password login", false, v(64, Text)),
+                "required for SSH OTP",
+            ),
         ],
     },
     source::VAULT_APPROLE,
     source::S3_ACCESS_KEY,
+    source::BITWARDEN_ACCESS_TOKEN,
 ];
 
 #[path = "schema_source.rs"]

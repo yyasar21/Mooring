@@ -2,7 +2,7 @@
 //! only source of truth; this module answers questions about them and phrases refusals the way
 //! the UI shows them verbatim ("SSH key is for SSH, not RDP sign-in.").
 
-use super::{Consumer, CredentialError, CredentialFields, CredentialKind, Role};
+use super::{Consumer, CredentialError, CredentialFields, CredentialKind, Role, VaultEngine};
 use crate::model::Protocol;
 
 /// UI label of a protocol.
@@ -23,6 +23,7 @@ const fn role_label(r: Role) -> &'static str {
         Role::Primary => "sign-in",
         Role::Gateway => "RD Gateway",
         Role::Become => "become / sudo",
+        Role::Certificate => "certificate",
     }
 }
 
@@ -117,6 +118,23 @@ pub fn check_compatible(
     protocol: Protocol,
     role: Role,
 ) -> Result<(), CredentialError> {
+    // ADR-0026 §1: `ssh_sign` is a modifier of the SSH key credential, never a login of its
+    // own, and the `certificate` role takes nothing else.
+    let signs =
+        matches!(fields, CredentialFields::ExternalRef(f) if f.engine == VaultEngine::SshSign);
+    if signs || role == Role::Certificate {
+        return if signs && role == Role::Certificate && protocol == Protocol::Ssh {
+            Ok(())
+        } else if signs {
+            Err(CredentialError::Incompatible(
+                "A Vault SSH signing reference is only for the SSH certificate role.".into(),
+            ))
+        } else {
+            Err(CredentialError::Incompatible(
+                "Only a Vault SSH signing reference can fill the SSH certificate role.".into(),
+            ))
+        };
+    }
     let kind = match fields {
         CredentialFields::ExternalRef(f) => f.target_kind,
         other => other.kind(),
@@ -140,7 +158,7 @@ mod tests {
     const B: (bool, bool, bool) = (false, false, true);
     const N: (bool, bool, bool) = (false, false, false);
     type Row = [(bool, bool, bool); 6];
-    const ADR: [(K, Row); 16] = [
+    const ADR: [(K, Row); 17] = [
         (K::UserPassword, [T, G, N, T, N, T]),
         (K::DomainUser, [T, G, N, T, N, T]),
         (K::SshKey, [T, N, N, N, N, N]),
@@ -157,6 +175,7 @@ mod tests {
         (K::SudoBecome, [B, N, N, N, N, N]),
         (K::VaultApprole, [N, N, N, N, N, N]),
         (K::S3AccessKey, [N, N, N, N, N, N]),
+        (K::BitwardenAccessToken, [N, N, N, N, N, N]),
     ];
     const PROTOCOLS: [Protocol; 6] = [Ssh, Rdp, Vnc, Web, Kube, Vsc];
 
@@ -212,12 +231,37 @@ mod tests {
     fn consumers() {
         use Consumer::{SecretSource, Sync};
         for k in K::ALL {
-            let src = matches!(k, K::ApiToken | K::VaultApprole);
+            let src = matches!(k, K::ApiToken | K::VaultApprole | K::BitwardenAccessToken);
             assert_eq!(valid_for_consumer(k, SecretSource), src, "{k:?}");
             assert_eq!(valid_for_consumer(k, Sync), k == K::S3AccessKey, "{k:?}");
             assert_eq!(check_consumer(k, SecretSource).is_ok(), src);
         }
+        assert!(!valid_for(K::BitwardenAccessToken, Ssh, Role::Primary));
         let e = check_consumer(K::UserPassword, Sync).expect_err("refused");
         assert_eq!(e.to_string(), "Username and password cannot be used for vault sync.");
+    }
+
+    #[test]
+    fn certificate_role_takes_ssh_sign_only() {
+        use crate::credential::{ExternalRefFields, RefProvider};
+        let mut sign =
+            ExternalRefFields::new(RefProvider::Vault, "ssh/sign-user".into(), K::SshKey);
+        sign.engine = VaultEngine::SshSign;
+        let sign = CredentialFields::ExternalRef(sign);
+        assert!(check_compatible(&sign, Ssh, Role::Certificate).is_ok());
+        for (p, r) in [(Ssh, Role::Primary), (Ssh, Role::Become), (Rdp, Role::Certificate)] {
+            let e = check_compatible(&sign, p, r).expect_err("modifier only");
+            assert!(e.to_string().contains("certificate role"), "{e}");
+        }
+        let kv = CredentialFields::ExternalRef(ExternalRefFields::new(
+            RefProvider::Vault,
+            "secret/k".into(),
+            K::SshKey,
+        ));
+        assert!(check_compatible(&kv, Ssh, Role::Primary).is_ok());
+        assert!(check_compatible(&kv, Ssh, Role::Certificate).is_err());
+        for k in K::ALL {
+            assert!(!valid_for(k, Ssh, Role::Certificate), "{k:?}");
+        }
     }
 }

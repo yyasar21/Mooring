@@ -12,6 +12,8 @@
 mod account;
 mod error;
 pub mod external;
+pub mod external_engine;
+pub mod external_refs;
 mod fields;
 pub mod fingerprint;
 pub mod kubeconfig;
@@ -19,6 +21,7 @@ mod matrix;
 pub mod otp;
 mod schema;
 mod secrets;
+pub mod ssh_cert;
 mod structs;
 #[doc(hidden)]
 pub mod testdata;
@@ -30,6 +33,10 @@ use serde::{Deserialize, Serialize};
 pub use account::{parse_account, Account, AccountForm};
 pub use error::CredentialError;
 pub use external::{fuzz_external_ref, parse_vault_reference, VaultPath, MAX_FIELD_MAP};
+pub use external_engine::engine_target;
+pub use external_refs::{
+    fuzz_op_reference, parse_bws_reference, parse_op_reference, BwsReference, OpReference,
+};
 pub use fields::{CredentialFields, MAX_FIELDS_JSON};
 pub use matrix::{
     check_compatible, check_consumer, incompatibility_reason, protocol_label, valid_for,
@@ -40,6 +47,7 @@ pub use schema::{
     credential_kinds, Consumer, FieldFormat, FieldSchema, KindProtocol, KindSchema, Validation,
 };
 pub use secrets::{validate_secret, MAX_SECRET_BYTES};
+pub use ssh_cert::{check_signed_certificate, ssh_public_key_line, SignedCertificate};
 pub use structs::*;
 pub use text::is_forbidden;
 
@@ -82,11 +90,14 @@ pub enum CredentialKind {
     VaultApprole,
     /// S3 access key of the vault sync target (ADR-0017 §4).
     S3AccessKey,
+    /// Bitwarden Secrets Manager machine access token of a secret source (ADR-0026 §4).
+    /// The 19th kind of the ADRs: ADR-0024's `ssh_sk_key` (18th) is inserted before it.
+    BitwardenAccessToken,
 }
 
 impl CredentialKind {
     /// Every kind, in table order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::UserPassword,
         Self::DomainUser,
         Self::SshKey,
@@ -104,6 +115,7 @@ impl CredentialKind {
         Self::SudoBecome,
         Self::VaultApprole,
         Self::S3AccessKey,
+        Self::BitwardenAccessToken,
     ];
 
     /// Stable wire / database name.
@@ -127,6 +139,7 @@ impl CredentialKind {
             Self::SudoBecome => "sudo_become",
             Self::VaultApprole => "vault_approle",
             Self::S3AccessKey => "s3_access_key",
+            Self::BitwardenAccessToken => "bitwarden_access_token",
         }
     }
 
@@ -158,6 +171,7 @@ impl CredentialKind {
                 | Self::SshAgent
                 | Self::VaultApprole
                 | Self::S3AccessKey
+                | Self::BitwardenAccessToken
         )
     }
 }
@@ -172,9 +186,15 @@ pub enum Role {
     Gateway,
     /// Privilege escalation after login (per connection).
     Become,
+    /// OpenSSH certificate of the SSH key credential, signed at connect by a Vault `ssh_sign`
+    /// `external_ref` (per connection, ADR-0026 §1).
+    Certificate,
 }
 
 impl Role {
+    /// Every role.
+    pub const ALL: [Self; 4] = [Self::Primary, Self::Gateway, Self::Become, Self::Certificate];
+
     /// Wire / database name.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -182,13 +202,14 @@ impl Role {
             Self::Primary => "primary",
             Self::Gateway => "gateway",
             Self::Become => "become",
+            Self::Certificate => "certificate",
         }
     }
 
     /// Parse a wire name.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        [Self::Primary, Self::Gateway, Self::Become].into_iter().find(|r| r.name() == s)
+        Self::ALL.into_iter().find(|r| r.name() == s)
     }
 }
 
@@ -224,11 +245,13 @@ pub enum SecretName {
     SecretAccessKey,
     /// S3 / STS session token.
     SessionToken,
+    /// Bitwarden Secrets Manager machine access token (ADR-0026 §4).
+    AccessToken,
 }
 
 impl SecretName {
     /// Every name.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Password,
         Self::OtpSeed,
         Self::PrivateKey,
@@ -243,6 +266,7 @@ impl SecretName {
         Self::SecretId,
         Self::SecretAccessKey,
         Self::SessionToken,
+        Self::AccessToken,
     ];
 
     /// Wire / database name, also the vault AAD field.
@@ -263,6 +287,7 @@ impl SecretName {
             Self::SecretId => "secret_id",
             Self::SecretAccessKey => "secret_access_key",
             Self::SessionToken => "session_token",
+            Self::AccessToken => "access_token",
         }
     }
 
@@ -301,7 +326,7 @@ mod tests {
             assert_eq!(serde_json::to_string(&n).expect("ser"), format!("\"{n}\""));
         }
         assert_eq!(SecretName::parse("secret"), None, "legacy column names are not secret names");
-        for r in [Role::Primary, Role::Gateway, Role::Become] {
+        for r in Role::ALL {
             assert_eq!(Role::parse(r.name()), Some(r));
         }
         assert_eq!(Role::parse("owner"), None);

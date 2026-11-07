@@ -156,7 +156,11 @@ async fn fido_security_keys_are_refused_with_a_clear_reason() {
     let sk = SkEd25519::new(pk, 0, vec![1, 2, 3]).expect("sk");
     let key = russh::keys::PrivateKey::new(KeypairData::SkEd25519(sk), "").expect("sk key");
     let pem = key.to_openssh(russh::keys::ssh_key::LineEnding::LF).expect("pem").to_string();
-    let secret = ConnectSecret::PrivateKey { pem: SecretString::from(pem), passphrase: None };
+    let secret = ConnectSecret::PrivateKey {
+        pem: SecretString::from(pem),
+        passphrase: None,
+        certificate: None,
+    };
     let (mut s, _srv, _d) =
         trusted_with(ServerSpec::new(&[MethodKind::PublicKey]), params(0, secret)).await;
     assert_eq!(

@@ -31,6 +31,70 @@ macro_rules! secrets_variants {
             target_kind: String,
             /// Field and secret names filled.
             fields: Vec<String>,
+            /// ADR-0026: `vault` | `onepassword` | `bitwarden` (absent on A3 rows).
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            provider: Option<String>,
+            /// ADR-0026: `kv2` | `database` | `ssh_sign` | `ssh_otp` | `pki` (absent on A3 rows).
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            engine: Option<String>,
+        },
+        /// A dynamic secret came with a lease (`secret.lease_issued`, ADR-0026 §2).
+        SecretLeaseIssued {
+            /// Session id; `None` for a test resolve (revoked at once).
+            session: Option<String>,
+            /// Source id.
+            source: String,
+            /// Engine.
+            engine: String,
+            /// Lease duration (s).
+            ttl: u64,
+            /// Renewable.
+            renewable: bool,
+        },
+        /// A lease was renewed at 2/3 of its TTL (`secret.lease_renewed`).
+        SecretLeaseRenewed {
+            /// Session id.
+            session: String,
+            /// Source id.
+            source: String,
+            /// New duration (s).
+            ttl: u64,
+        },
+        /// A renewal failed; the session keeps running (`secret.lease_renew_failed`).
+        SecretLeaseRenewFailed {
+            /// Session id.
+            session: String,
+            /// Source id.
+            source: String,
+            /// Failure category.
+            category: String,
+        },
+        /// A lease (or a PKI certificate) was revoked, best effort (`secret.lease_revoked`).
+        SecretLeaseRevoked {
+            /// Session id; `None` for a test resolve.
+            session: Option<String>,
+            /// Source id.
+            source: String,
+            /// `closed` | `locked` | `exit` | `reconnect` | `test` | `refused`.
+            reason: String,
+            /// The server confirmed.
+            ok: bool,
+        },
+        /// The `bws` CLI ran (`secret.tool_spawned`; never its output).
+        SecretToolSpawned {
+            /// `bitwarden`.
+            provider: String,
+            /// `version` | `secret_get` | `secret_list` | `project_list`.
+            action: String,
+            /// Exit code (`None`: killed or ended by a signal).
+            exit: Option<i32>,
+        },
+        /// The pinned `bws` binary changed (`secret.tool_changed`, warning, R-SEC-CLI).
+        SecretToolChanged {
+            /// `bitwarden`.
+            provider: String,
+            /// Hex SHA-256 of the new binary.
+            sha256: String,
         },
         /// A login, resolution or OIDC flow failed (`secret.failed`).
         SecretFailed {

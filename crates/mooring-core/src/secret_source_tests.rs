@@ -147,3 +147,46 @@ fn method_names() {
     assert_eq!(SourceAuthMethod::Approle.credential_kind(), Some(CredentialKind::VaultApprole));
     assert_eq!(SourceAuthMethod::Token.credential_kind(), Some(CredentialKind::ApiToken));
 }
+
+#[test]
+fn onepassword_and_bitwarden_sources() {
+    let cred = CredentialId::new();
+    let op = json!({"kind": "onepassword", "name": "Connect", "address": "https://connect.example.test:8080",
+                    "authMethod": "token", "credentialId": cred});
+    let v = input(op.clone()).expect("connect");
+    assert_eq!(v.kind, SourceKind::Onepassword);
+    assert_eq!(SourceKind::Onepassword.login_kind(v.auth.method()), Some(CredentialKind::ApiToken));
+    let with = |mut o: serde_json::Value, k: &str, x: serde_json::Value| {
+        o[k] = x;
+        input(o)
+    };
+    assert!(with(op.clone(), "namespace", json!("team")).is_err());
+    assert!(with(op, "options", json!({"bwsPath": BWS_PATHS[0]})).is_err());
+    let approle = json!({"kind": "onepassword", "name": "c", "address": "https://c.example.test",
+                         "authMethod": "approle", "credentialId": cred});
+    assert!(input(approle).is_err(), "token only");
+    let bw = json!({"kind": "bitwarden", "name": "SM", "address": "https://vault.bitwarden.example.test",
+                    "authMethod": "token", "credentialId": cred});
+    let v = input(bw.clone()).expect("bitwarden");
+    assert_eq!(
+        SourceKind::Bitwarden.login_kind(v.auth.method()),
+        Some(CredentialKind::BitwardenAccessToken)
+    );
+    for p in BWS_PATHS {
+        assert!(with(bw.clone(), "options", json!({"bwsPath": p})).is_ok(), "{p}");
+    }
+    for p in ["/tmp/bws", "bws", "/usr/local/bin/bws ; rm", "/usr/local/bin/../bin/bws"] {
+        assert!(with(bw.clone(), "options", json!({"bwsPath": p})).is_err(), "{p}");
+    }
+    assert!(with(bw, "options", json!({"caPem": CERT_PEM})).is_err(), "bws: own TLS");
+    assert_eq!(SourceKind::parse("bitwarden"), Some(SourceKind::Bitwarden));
+    assert_eq!(SourceKind::parse("op"), None);
+    assert_eq!(SourceKind::Vault.login_kind(SourceAuthMethod::Oidc), None);
+    assert_eq!(SourceKind::Bitwarden.login_kind(SourceAuthMethod::Approle), None);
+    let legacy = token_src("https://vault.example.test");
+    assert_eq!(
+        input(legacy).expect("A3 payload").kind,
+        SourceKind::Vault,
+        "kind defaults to vault"
+    );
+}

@@ -63,6 +63,34 @@ pub struct SessionInfo {
     /// ADR-0014 K4: the cluster session of an `exec` session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
+    /// ADR-0026 §2: dynamic secret leases of the session (expiry only, never ids).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub leases: Vec<LeaseInfoDto>,
+}
+
+/// One lease of a session on the wire (the header chip "lease expires in …").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaseInfoDto {
+    /// `database` | `pki`.
+    pub engine: &'static str,
+    /// Seconds left (`None`: no TTL reported).
+    pub expires_in_seconds: Option<u64>,
+    /// Renewed automatically at 2/3 of its TTL.
+    pub renewable: bool,
+    /// `active` | `renew_failed` | `expired`.
+    pub state: &'static str,
+}
+
+impl From<&mooring_secrets::LeaseStatus> for LeaseInfoDto {
+    fn from(l: &mooring_secrets::LeaseStatus) -> Self {
+        Self {
+            engine: l.engine.name(),
+            expires_in_seconds: l.expires_in.map(|d| d.as_secs()),
+            renewable: l.renewable,
+            state: l.state,
+        }
+    }
 }
 
 /// `session_open` for SSH (no frame channel); see [`open_with`].
@@ -111,14 +139,16 @@ pub async fn open_with(
         route: Arc::clone(&route),
         audit: Arc::clone(&state.audit),
         registry: Arc::clone(&state.sessions),
+        secrets: Some(Arc::clone(&state.secrets)),
     };
     let opened_at = dto::ts(OffsetDateTime::now_utc());
     if is_graphical(protocol) {
         if frames.is_none() {
             return Err(IpcError::invalid("onFrame", "required for rdp and vnc"));
         }
-        let task = graphical(state, connection, check_desktop(size)?, protocol, route.frame_out())
-            .await?;
+        let task = graphical(state, connection, &session_id, check_desktop(size)?, protocol, route.frame_out())
+            .await
+            .inspect_err(|_| state.secrets.release_session(&session_id, "closed"))?;
         let control = task.control();
         route.set_on_switch(Arc::new(move || {
             control.flow.reset();
@@ -130,7 +160,10 @@ pub async fn open_with(
     if frames.is_some() {
         return Err(IpcError::invalid("onFrame", "only rdp and vnc sessions send frames"));
     }
-    let Plan { params, used, hops, .. } = connect_plan::plan(&state.ready(), connection_id, size).await?;
+    let planned = connect_plan::plan(&state.ready(), connection_id, size, &session_id).await;
+    let Plan { params, used, hops, .. } = planned.inspect_err(|_| {
+        state.secrets.release_session(&session_id, "closed");
+    })?;
     for cred in used {
         state.audit(AuditEvent::CredentialUsed {
             credential: cred,
@@ -148,6 +181,7 @@ pub async fn open_with(
     }
     .map_err(|e| {
         tracing::info!(error = %e, "ssh connect failed");
+        state.secrets.release_session(&session_id, "closed");
         IpcError::from(e)
     })?;
     sessions::spawn(session, ctx, opened_at)?;
@@ -165,6 +199,7 @@ pub fn hop_settings(state: &AppState) -> crate::hop_chain::HopSettings {
 async fn graphical(
     state: &AppState,
     connection_id: String,
+    session_id: &str,
     size: Size,
     protocol: Protocol,
     out: FrameOut,
@@ -180,6 +215,7 @@ async fn graphical(
                 blocked: Arc::default(),
             });
     let launcher = Launcher {
+        session_id: session_id.to_owned(),
         ready: state.ready(),
         factory: Arc::clone(&state.settings.graphical),
         connection_id,
@@ -272,6 +308,7 @@ pub fn list(state: &AppState) -> IpcResult<Vec<SessionInfo>> {
             opened_at: h.opened_at.clone(),
             kind: crate::kube_sessions::list_kind(&h.control).map(|k| k.0),
             parent_session_id: crate::kube_sessions::list_kind(&h.control).and_then(|k| k.1),
+            leases: state.secrets.lease_status(id).iter().map(LeaseInfoDto::from).collect(),
         })
         .collect();
     out.sort_by(|a, b| a.opened_at.cmp(&b.opened_at).then(a.session_id.cmp(&b.session_id)));

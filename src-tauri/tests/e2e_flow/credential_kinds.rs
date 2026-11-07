@@ -185,8 +185,10 @@ async fn incompatible_inherited_and_unsupported_kinds_fail_before_connecting() {
     let ext = cred(
         st,
         "external_ref",
-        // ADR-0016 E2: Vault references resolve now; 1Password stays unsupported at connect.
-        json!({"provider": "onepassword", "reference": "op://vault/app", "target_kind": "user_password"}),
+        // ADR-0026: 1Password references resolve now; one naming a source that does not exist
+        // fails before any connection is made.
+        json!({"provider": "onepassword", "reference": "op://vault/app", "target_kind": "user_password",
+               "source": mooring_core::SecretSourceId::new().to_string()}),
         &[],
     );
     let c2 = ssh_conn(
@@ -200,5 +202,5 @@ async fn incompatible_inherited_and_unsupported_kinds_fail_before_connecting() {
     );
     let (sk, _rx) = sink();
     let e = sess::open(st, &c2, SIZE, sk).await.expect_err("external ref");
-    assert_eq!(e.code, "credential.kind_unsupported");
+    assert_eq!(e.code, "source.not_found");
 }

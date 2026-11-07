@@ -1,5 +1,6 @@
 //! Credential roles on a connection (ADR-0009 §3): the primary credential (own or inherited
-//! through folders), per-connection secondary roles (`gateway`, `become`) and the username /
+//! through folders), per-connection secondary roles (`gateway`, `become`, `certificate`) and
+//! the username /
 //! domain overrides. Compatibility with the connection's protocol is checked against the
 //! matrix in `mooring_core::credential` whenever a credential is linked; an inherited
 //! credential is not skipped when incompatible, the caller reports it.
@@ -99,7 +100,7 @@ impl Store {
         credential: Option<CredentialId>,
     ) -> Result<Connection> {
         if role == Role::Primary {
-            return Err(invalid("role", "must be gateway or become"));
+            return Err(invalid("role", "must be gateway, become or certificate"));
         }
         let c = self.get_connection(connection)?;
         let tx = self.conn.unchecked_transaction()?;
@@ -171,6 +172,10 @@ impl Store {
                 Some(id) => (id, false),
                 None => return Ok(None),
             },
+            Role::Certificate => match c.certificate_credential {
+                Some(id) => (id, false),
+                None => return Ok(None),
+            },
         };
         let mut fields = self.credential_fields(id)?;
         check_compatible(&fields, c.protocol, role).map_err(StoreError::from)?;
@@ -194,9 +199,11 @@ impl Store {
 
     /// Ensure a credential exists before linking it.
     pub(crate) fn ensure_role_credentials(&self, c: &Connection) -> Result<()> {
-        for (role, cred) in
-            [(Role::Gateway, c.gateway_credential), (Role::Become, c.become_credential)]
-        {
+        for (role, cred) in [
+            (Role::Gateway, c.gateway_credential),
+            (Role::Become, c.become_credential),
+            (Role::Certificate, c.certificate_credential),
+        ] {
             if let Some(cred) = cred {
                 crate::credentials::ensure_credential(&self.conn, cred)?;
                 self.check_link(c, role, cred)?;
@@ -212,9 +219,11 @@ impl Store {
     pub(crate) fn write_roles(tx: &rusqlite::Connection, c: &Connection) -> Result<()> {
         let id = c.id.to_string();
         tx.execute("DELETE FROM connection_credential WHERE connection_id = ?1", [&id])?;
-        for (role, cred) in
-            [(Role::Gateway, c.gateway_credential), (Role::Become, c.become_credential)]
-        {
+        for (role, cred) in [
+            (Role::Gateway, c.gateway_credential),
+            (Role::Become, c.become_credential),
+            (Role::Certificate, c.certificate_credential),
+        ] {
             if let Some(cred) = cred {
                 tx.execute(
                     "INSERT INTO connection_credential (connection_id, role, credential_id)

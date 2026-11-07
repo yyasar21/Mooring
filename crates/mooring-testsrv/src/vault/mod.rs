@@ -6,7 +6,10 @@
 //! knobs. Token TTLs count down in real time. Every write to KV and every other path is a
 //! violation (500): the client only ever reads secrets.
 
+mod dynamic;
 mod routes;
+
+pub use dynamic::DynamicConfig;
 
 use std::collections::HashMap;
 use std::io;
@@ -99,6 +102,10 @@ pub struct VaultKnobs {
     pub raw_kv_body: Option<String>,
     /// KV `data` reads are padded to at least this many bytes (valid JSON).
     pub oversized_body: Option<usize>,
+    /// Dynamic-engine issues (`creds`, `sign`, `issue`) return exactly this body.
+    pub raw_dynamic_body: Option<String>,
+    /// `sys/leases/renew` fails with 400.
+    pub lease_renew_fails: bool,
 }
 
 /// Configuration of one Vault mock.
@@ -109,6 +116,8 @@ pub struct VaultConfig {
     pub oidc: OidcFixture,
     pub kv: Vec<KvSecret>,
     pub policies: Vec<Policy>,
+    /// ADR-0026 dynamic engines.
+    pub dynamic: DynamicConfig,
     /// Required `X-Vault-Namespace` (Enterprise / OpenBao namespaces); `None` = not checked.
     pub namespace: Option<String>,
     pub knobs: VaultKnobs,
@@ -165,6 +174,7 @@ impl Default for VaultConfig {
                 name: "mooring-read".to_owned(),
                 read: strings(&["secret/data/", "secret/metadata/"]),
             }],
+            dynamic: DynamicConfig::default(),
             namespace: None,
             knobs: VaultKnobs::default(),
             http: HttpKnobs::default(),
@@ -209,6 +219,22 @@ pub struct TokenEvent {
     pub accessor: String,
 }
 
+/// A dynamic lease event (`issue`, `renew`, `revoke`, `revoke_cert`) with its lease id (or
+/// the certificate serial for `revoke_cert`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaseEvent {
+    pub kind: String,
+    pub lease: String,
+}
+
+#[derive(Debug, Clone)]
+struct MockLease {
+    ttl: u64,
+    renewable: bool,
+    since: Instant,
+    revoked: bool,
+}
+
 #[derive(Debug, Clone)]
 struct Issued {
     policies: Vec<String>,
@@ -226,6 +252,9 @@ struct Dynamic {
     /// OIDC `state` → (`client_nonce`, `redirect_uri`).
     oidc_states: HashMap<String, (String, String)>,
     events: Vec<TokenEvent>,
+    leases: HashMap<String, MockLease>,
+    lease_events: Vec<LeaseEvent>,
+    sign_requests: Vec<Value>,
 }
 
 #[derive(Debug)]
@@ -276,6 +305,9 @@ pub async fn start(mut config: VaultConfig, port: u16) -> io::Result<VaultServer
             tokens,
             oidc_states: HashMap::new(),
             events: Vec::new(),
+            leases: HashMap::new(),
+            lease_events: Vec::new(),
+            sign_requests: Vec::new(),
         }),
     });
     let recorder = Recorder::default();
@@ -316,6 +348,25 @@ impl VaultServer {
 
     pub fn token_events(&self) -> Vec<TokenEvent> {
         self.state.lock().events.clone()
+    }
+
+    pub fn set_dynamic(&self, dynamic: DynamicConfig) {
+        self.state.lock().config.dynamic = dynamic;
+    }
+
+    /// Every lease issue / renew / revoke so far.
+    pub fn lease_events(&self) -> Vec<LeaseEvent> {
+        self.state.lock().lease_events.clone()
+    }
+
+    /// Leases issued and not revoked (expired ones included: Vault would revoke them itself).
+    pub fn live_leases(&self) -> usize {
+        self.state.lock().leases.values().filter(|l| !l.revoked).count()
+    }
+
+    /// The JSON bodies of every `ssh/sign` request.
+    pub fn sign_requests(&self) -> Vec<Value> {
+        self.state.lock().sign_requests.clone()
     }
 
     /// Tokens issued by logins (AppRole / OIDC) that are not revoked yet.

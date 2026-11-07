@@ -346,3 +346,54 @@ proptest! {
         prop_assert_eq!(m.secret_names.contains(&SecretName::OtpSeed), pp.is_some());
     }
 }
+
+/// ADR-0026 §1 (migration 0009): the `certificate` role takes a Vault `ssh_sign` reference on
+/// SSH only, round-trips, and that reference is refused as a primary credential.
+#[test]
+fn certificate_role_holds_an_ssh_sign_reference() {
+    let l = lab();
+    let s = &l.store;
+    let v = vault();
+    let (key, _) = ssh_key(s, &v, "key", b"pp");
+    let src = s
+        .create_credential(
+            &v,
+            "vault token",
+            CredentialKind::ApiToken,
+            &json!({}),
+            &secrets(&[(SecretName::Token, b"test-only-token")]),
+        )
+        .expect("token");
+    let source: mooring_core::secret_source::SecretSourceInput = serde_json::from_value(json!({
+        "name": "Vault", "address": "https://vault.example.test", "authMethod": "token",
+        "credentialId": src.id}))
+    .expect("input");
+    let source = s.create_secret_source(&source).expect("source");
+    let sign = s
+        .create_credential(
+            &v,
+            "ssh ca",
+            CredentialKind::ExternalRef,
+            &json!({"provider": "vault", "reference": "ssh/deploy", "target_kind": "ssh_key",
+                    "engine": "ssh_sign", "principals": ["deploy"], "ttl": 600, "source": source.id}),
+            &secrets(&[]),
+        )
+        .expect("ssh_sign ref");
+    let mut c = Connection::new(l.kube.id, "x", Protocol::Ssh, "h.example.test").expect("valid");
+    c.credential = Some(key.id);
+    c.certificate_credential = Some(sign.id);
+    let c = s.create_connection(&c).expect("create");
+    assert_eq!(s.get_connection(c.id).expect("c").certificate_credential, Some(sign.id));
+    let r = s.resolve_credential(c.id, Role::Certificate).expect("ok").expect("some");
+    assert_eq!(r.id, sign.id);
+    let mut primary = Connection::new(l.kube.id, "y", Protocol::Ssh, "h.example.test").expect("v");
+    primary.credential = Some(sign.id);
+    let e = s.create_connection(&primary).expect_err("modifier only");
+    assert!(e.to_string().contains("certificate role"), "{e}");
+    let mut rdp = Connection::new(l.kube.id, "w", Protocol::Rdp, "w.example.test").expect("v");
+    rdp.certificate_credential = Some(sign.id);
+    assert!(s.create_connection(&rdp).is_err(), "SSH only");
+    assert!(s.set_connection_role_credential(c.id, Role::Certificate, Some(key.id)).is_err());
+    s.set_connection_role_credential(c.id, Role::Certificate, None).expect("clear");
+    assert_eq!(s.get_connection(c.id).expect("c").certificate_credential, None);
+}

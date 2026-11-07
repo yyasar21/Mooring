@@ -49,6 +49,8 @@ pub struct Launcher {
     /// ADR-0025: trust store and agent policy of the jump hosts (every attempt rebuilds
     /// the whole chain).
     pub hops: crate::hop_chain::HopSettings,
+    /// ADR-0026 §2: the session that owns dynamic leases (a reconnect revokes the old ones).
+    pub session_id: String,
 }
 
 impl std::fmt::Debug for Launcher {
@@ -81,7 +83,7 @@ impl Launcher {
     /// Plan (credential from the vault), audit `credential_used` and connect.
     pub async fn connect(&self, trusted_once: Option<[u8; 32]>) -> IpcResult<Launched> {
         let size = *self.size.lock().map_err(|_| IpcError::poisoned())?;
-        let plan = connect_plan::plan(&self.ready, &self.connection_id, size).await?;
+        let plan = connect_plan::plan(&self.ready, &self.connection_id, size, &self.session_id).await?;
         for cred in plan.used {
             record_audit(&self.audit, AuditEvent::CredentialUsed {
                 credential: cred,

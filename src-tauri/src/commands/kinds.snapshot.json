@@ -921,6 +921,65 @@
      "maxBytes": 20,
      "format": "text"
     }
+   },
+   {
+    "name": "engine",
+    "label": "Vault engine",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16,
+     "format": "enum",
+     "options": [
+      "kv2",
+      "database",
+      "ssh_sign",
+      "ssh_otp",
+      "pki"
+     ]
+    }
+   },
+   {
+    "name": "ttl",
+    "label": "TTL (seconds)",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "role default",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 8,
+     "format": "text"
+    }
+   },
+   {
+    "name": "common_name",
+    "label": "Common name",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "required for PKI",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 255,
+     "format": "text"
+    }
+   },
+   {
+    "name": "username",
+    "label": "One-time password login",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "required for SSH OTP",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 64,
+     "format": "text"
+    }
    }
   ]
  },
@@ -1021,6 +1080,31 @@
     "copyable": false,
     "validation": {
      "maxBytes": 8192,
+     "format": "text"
+    }
+   }
+  ]
+ },
+ {
+  "kind": "bitwarden_access_token",
+  "label": "Bitwarden access token",
+  "group": "Secret sources",
+  "protocols": [],
+  "consumers": [
+   "secret_source"
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "access_token",
+    "label": "Access token",
+    "secret": true,
+    "required": true,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 4096,
      "format": "text"
     }
    }

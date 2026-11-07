@@ -150,7 +150,9 @@ pub(crate) fn normalise(f: &mut CredentialFields) -> Result<(), CredentialError>
                 _ => return Err(CredentialError::invalid("upn", "must be user@domain")),
             }
         }
-        CredentialFields::VncPassword(_) | CredentialFields::VaultApprole(_) => {}
+        CredentialFields::VncPassword(_)
+        | CredentialFields::VaultApprole(_)
+        | CredentialFields::BitwardenAccessToken(_) => {}
         CredentialFields::VncUserPassword(f) => set(&mut f.username, "username", MAX_USER)?,
         CredentialFields::Prompt(f) => {
             set_opt(&mut f.username, "username", MAX_USER)?;

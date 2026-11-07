@@ -224,6 +224,8 @@ pub fn update_connection(
         if keep_via {
             c.via.clone_from(&before.via);
         }
+        // ADR-0026: the `certificate` role is set with `connection_set_role_credential` only.
+        c.certificate_credential = before.certificate_credential;
         let stored = store.update_connection(&c)?;
         // ADR-0014 K4: a Kubernetes credential must fit the connection's options.
         if let Err(e) = crate::commands::kube::save_check(store, id) {
@@ -272,7 +274,7 @@ pub fn set_role_credential(
     let id = dto::connection_id("id", id)?;
     let role = Role::parse(role)
         .filter(|r| *r != Role::Primary)
-        .ok_or_else(|| IpcError::invalid("role", "must be gateway or become"))?;
+        .ok_or_else(|| IpcError::invalid("role", "must be gateway, become or certificate"))?;
     let cred = dto::opt_credential_id("credentialId", credential_id)?;
     state.with_ready(|_, store| {
         let c = store.set_connection_role_credential(id, role, cred)?;

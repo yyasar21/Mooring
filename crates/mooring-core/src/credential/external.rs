@@ -31,6 +31,20 @@ impl VaultPath {
     pub fn joined_path(&self) -> String {
         self.path.join("/")
     }
+
+    /// A dynamic-engine reference (ADR-0026 §1): `(<mount>, <role>)`, the role being the last
+    /// segment and the mount everything before it (`team/db/app-ro` → `team/db`, `app-ro`).
+    #[must_use]
+    pub fn mount_role(&self) -> (String, &str) {
+        let (role, rest) =
+            self.path.split_last().map_or(("", &[][..]), |(r, rest)| (r.as_str(), rest));
+        let mut mount = self.mount.clone();
+        for s in rest {
+            mount.push('/');
+            mount.push_str(s);
+        }
+        (mount, role)
+    }
 }
 
 fn segment_ok(s: &str) -> bool {
@@ -106,22 +120,29 @@ pub(crate) fn normalise(f: &mut ExternalRefFields) -> Result<(), CredentialError
             f.field_map = None;
         }
     }
-    if f.provider != RefProvider::Vault && (f.source.is_some() || f.field_map.is_some()) {
-        return Err(CredentialError::invalid("source", "only Vault references have a source"));
-    }
-    Ok(())
+    super::external_engine::check(f)
 }
 
 /// Input-only rules (stored A1/A2 rows keep validating): a Vault reference needs a source and
 /// the strict grammar.
 pub(crate) fn check_input(f: &ExternalRefFields) -> Result<(), CredentialError> {
-    if f.provider == RefProvider::Vault {
-        if f.source.is_none() {
-            return Err(CredentialError::invalid("source", "is required for a Vault reference"));
-        }
-        parse_vault_reference(&f.reference)?;
+    if f.source.is_none() {
+        return Err(CredentialError::invalid("source", "is required for a reference"));
     }
-    Ok(())
+    match f.provider {
+        RefProvider::Vault => parse_vault_reference(&f.reference).map(drop),
+        RefProvider::Onepassword => {
+            let r = super::external_refs::parse_op_reference(&f.reference)?;
+            if r.field.is_some() && f.field_map.is_some() {
+                return Err(CredentialError::invalid(
+                    "field_map",
+                    "a reference to one field cannot rename fields",
+                ));
+            }
+            Ok(())
+        }
+        RefProvider::Bitwarden => super::external_refs::parse_bws_reference(&f.reference).map(drop),
+    }
 }
 
 /// Fuzz entry (`fuzz/fuzz_targets/external_ref_parse.rs`): the reference grammar and the
@@ -153,6 +174,9 @@ mod tests {
         let p = parse_vault_reference("secret/team-a/db.prod").expect("ok");
         assert_eq!(p.mount, "secret");
         assert_eq!(p.joined_path(), "team-a/db.prod");
+        assert_eq!(p.mount_role(), ("secret/team-a".to_owned(), "db.prod"));
+        let p = parse_vault_reference("database/app-ro").expect("ok");
+        assert_eq!(p.mount_role(), ("database".to_owned(), "app-ro"));
         for bad in [
             "",
             "secret",
@@ -211,7 +235,18 @@ mod tests {
         assert!(CredentialFields::from_stored(CredentialKind::ExternalRef, legacy).is_ok());
         let op = json!({"provider": "onepassword", "reference": "op://v/i/f",
                         "target_kind": "api_token", "source": src});
-        assert!(input(&op).is_err(), "only vault has a source");
+        assert!(input(&op).is_ok(), "1Password references name a Connect source");
+        let mut op_no_src = op.clone();
+        op_no_src.as_object_mut().expect("obj").remove("source");
+        assert!(input(&op_no_src).is_err());
+        let mut op_map = op.clone();
+        op_map["field_map"] = json!({"token": "credential"});
+        assert!(input(&op_map).is_err(), "one field cannot be renamed");
+        op_map["reference"] = json!("op://v/i");
+        assert!(input(&op_map).is_ok(), "whole item: renames by label");
+        let bw = json!({"provider": "bitwarden", "reference": "not a uuid",
+                        "target_kind": "api_token", "source": src});
+        assert!(input(&bw).is_err());
     }
 
     #[test]

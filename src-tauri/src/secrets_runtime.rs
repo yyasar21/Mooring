@@ -6,7 +6,10 @@
 //!   [`SecretsRuntime::shutdown`] does the same at exit (bounded by the 3 s revoke deadline);
 //! * every [`SecretEvent`] goes to the hash-chained audit log; `secret_resolved` and
 //!   `secret_failed` carry the connection of the connect that triggered them
-//!   ([`with_connection`]).
+//!   ([`with_connection`]);
+//! * ADR-0026: a lease maintainer (30 s) renews dynamic leases; a session's leases are
+//!   revoked when it ends ([`SecretsRuntime::release_session`]) and every lease on lock and
+//!   exit, **before** the tokens that issued them.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -14,11 +17,11 @@ use std::time::Duration;
 
 use mooring_audit::{AuditEvent, AuditLog};
 use mooring_core::known_certs::CertProtocol;
-use mooring_core::secret_source::{SecretSource, SecretSourceAuth};
+use mooring_core::secret_source::{SecretSource, SecretSourceAuth, SourceKind};
 use mooring_core::SecretName;
 use mooring_secrets::{
     Category, ClientConfig, Clock, LoginMaterial, LoginProvider, SecretEvent, SecretsAudit,
-    SecretsEngine, SecretsError, SystemClock, TokenCache, REVOKE_TIMEOUT,
+    SecretsEngine, SecretsError, SystemClock, TokenCache, LEASE_TICK, REVOKE_TIMEOUT,
 };
 use tokio::task::JoinHandle;
 use zeroize::Zeroizing;
@@ -55,16 +58,58 @@ pub fn audit_event(e: SecretEvent, connection: Option<String>) -> AuditEvent {
         SecretEvent::Renewed { source, ttl } => {
             AuditEvent::SecretLogin { source: source.to_string(), method: "renew".into(), ttl }
         }
-        SecretEvent::Resolved { credential, source, reference, version, target_kind, fields } => {
-            AuditEvent::SecretResolved {
-                connection,
-                credential: credential.to_string(),
+        SecretEvent::Resolved {
+            credential,
+            source,
+            reference,
+            version,
+            target_kind,
+            fields,
+            provider,
+            engine,
+        } => AuditEvent::SecretResolved {
+            connection,
+            credential: credential.to_string(),
+            source: source.to_string(),
+            reference,
+            version,
+            target_kind: target_kind.name().into(),
+            fields: fields.into_iter().map(str::to_owned).collect(),
+            provider: Some(provider.to_owned()),
+            engine: Some(engine.name().to_owned()),
+        },
+        SecretEvent::LeaseIssued { owner, source, engine, ttl, renewable } => {
+            AuditEvent::SecretLeaseIssued {
+                session: owner,
                 source: source.to_string(),
-                reference,
-                version,
-                target_kind: target_kind.name().into(),
-                fields: fields.into_iter().map(str::to_owned).collect(),
+                engine: engine.name().into(),
+                ttl,
+                renewable,
             }
+        }
+        SecretEvent::LeaseRenewed { owner, source, ttl } => {
+            AuditEvent::SecretLeaseRenewed { session: owner, source: source.to_string(), ttl }
+        }
+        SecretEvent::LeaseRenewFailed { owner, source, category } => {
+            AuditEvent::SecretLeaseRenewFailed {
+                session: owner,
+                source: source.to_string(),
+                category: category.as_str().into(),
+            }
+        }
+        SecretEvent::LeaseRevoked { owner, source, reason, ok } => AuditEvent::SecretLeaseRevoked {
+            session: owner,
+            source: source.to_string(),
+            reason: reason.into(),
+            ok,
+        },
+        SecretEvent::ToolSpawned { provider, action, exit } => AuditEvent::SecretToolSpawned {
+            provider: provider.into(),
+            action: action.into(),
+            exit,
+        },
+        SecretEvent::ToolChanged { provider, sha256 } => {
+            AuditEvent::SecretToolChanged { provider: provider.into(), sha256 }
         }
         SecretEvent::Failed { source, category } => AuditEvent::SecretFailed {
             connection,
@@ -92,6 +137,12 @@ pub fn ipc_error(e: &SecretsError) -> IpcError {
         SecretsError::NotFound => "credential.external_not_found",
         SecretsError::Shape { .. } => "credential.external_shape",
         SecretsError::Invalid(_) => "input.invalid",
+        SecretsError::Engine(_) => "credential.external_engine",
+        SecretsError::Lease(_) => "secret.lease_failed",
+        SecretsError::ToolMissing => "secret.tool_missing",
+        SecretsError::ToolVersion => "secret.tool_version",
+        SecretsError::ToolFailed { .. } => "secret.tool_failed",
+        SecretsError::KindUnsupported(_) => "source.kind_unsupported",
     };
     debug_assert_eq!(code, e.code(), "ipc_error drifted from SecretsError::code()");
     IpcError::new(code, e.to_string())
@@ -115,6 +166,10 @@ pub fn login_provider(ready: Ready) -> impl LoginProvider {
         let opened = ready.with_ready(|vault, store| {
             let open = |n| store.open_secret(vault, id, n).map_err(IpcError::from);
             Ok(match &s.auth {
+                // ADR-0026 §4: a Bitwarden source logs in with its machine access token.
+                SecretSourceAuth::Token { .. } if s.kind == SourceKind::Bitwarden => LoginMaterial::Token(
+                    text(&open(SecretName::AccessToken)?).map_err(|e| ipc_error(&e))?,
+                ),
                 SecretSourceAuth::Token { .. } => {
                     LoginMaterial::Token(text(&open(SecretName::Token)?).map_err(|e| ipc_error(&e))?)
                 }
@@ -144,6 +199,7 @@ pub struct SecretsRuntime {
     /// OIDC flows and their windows.
     pub oidc: OidcSessions,
     renewer: Mutex<Option<JoinHandle<()>>>,
+    leases: Mutex<Option<JoinHandle<()>>>,
     background: Mutex<Vec<JoinHandle<()>>>,
 }
 
@@ -173,6 +229,7 @@ impl SecretsRuntime {
             audit,
             oidc: OidcSessions::default(),
             renewer: Mutex::new(None),
+            leases: Mutex::new(None),
             background: Mutex::new(Vec::new()),
         }
     }
@@ -201,7 +258,24 @@ impl SecretsRuntime {
         }
         if tokio::runtime::Handle::try_current().is_ok() {
             *slot = Some(self.engine.cache().spawn_renewer(RENEW_EVERY));
+            let mut leases = lock(&self.leases);
+            if leases.as_ref().is_none_or(tokio::task::JoinHandle::is_finished) {
+                *leases = Some(self.engine.leases().spawn_maintainer(LEASE_TICK));
+            }
         }
+    }
+
+    /// ADR-0026 §2: a session ended (or reconnects): revoke its leases in the background.
+    pub fn release_session(&self, session: &str, reason: &'static str) {
+        let released = self.engine.leases().release(session, reason);
+        if !released.is_empty() {
+            self.spawn(released.retire());
+        }
+    }
+
+    /// The lease state of a session (expiry only, never ids; ADR-0026 T5).
+    pub fn lease_status(&self, session: &str) -> Vec<mooring_secrets::LeaseStatus> {
+        self.engine.leases().status(session)
     }
 
     /// Run `f` in the background (current runtime, else Tauri's); [`Self::flush`] awaits it.
@@ -236,13 +310,17 @@ impl SecretsRuntime {
     /// after the key is gone. The drain comes first (6b L-34 b): once the epoch is bumped no
     /// `begin` can pass its post-open re-check and leave an `IdP` window over the lock screen.
     pub fn on_lock(&self) {
+        // ADR-0026 §2: leases are taken first and revoked with the tokens they hold, before
+        // the tokens themselves are revoked.
+        let leases = self.engine.leases().drain_for_lock("locked");
         let drained = self.engine.cache().drain_for_lock();
         self.oidc.fail_all(self, "locked");
-        if drained.is_empty() {
+        if drained.is_empty() && leases.is_empty() {
             return;
         }
         let n = drained.len();
         self.spawn(async move {
+            leases.retire().await;
             drained.retire().await;
             tracing::info!(tokens = n, "secret source tokens dropped on lock");
         });
@@ -254,12 +332,17 @@ impl SecretsRuntime {
         if let Some(h) = lock(&self.renewer).take() {
             h.abort();
         }
-        if self.engine.cache().is_empty() {
+        if let Some(h) = lock(&self.leases).take() {
+            h.abort();
+        }
+        if self.engine.cache().is_empty() && self.engine.leases().is_empty() {
             return;
         }
         let engine = Arc::clone(&self.engine);
+        let leases = engine.leases().drain_for_lock("exit");
         let revoke = async move {
             let deadline = REVOKE_TIMEOUT + Duration::from_secs(1);
+            let _ = tokio::time::timeout(deadline * 2, leases.retire()).await;
             let _ = tokio::time::timeout(deadline, engine.cache().revoke_all()).await;
         };
         if tokio::runtime::Handle::try_current().is_ok() {

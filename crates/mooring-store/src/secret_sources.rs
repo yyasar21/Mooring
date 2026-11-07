@@ -59,14 +59,13 @@ fn raw(r: &Row<'_>) -> rusqlite::Result<RawRow> {
 fn decode(row: RawRow) -> Result<SecretSource> {
     let (id, name, kind, address, namespace, method, mount, cred, role, options, created, updated) =
         row;
-    if kind != "vault" {
-        return Err(corrupt("secret source kind"));
-    }
+    let kind = SourceKind::parse(&kind).ok_or(corrupt("secret source kind"))?;
     let auth_method =
         SourceAuthMethod::parse(&method).ok_or(corrupt("secret source auth method"))?;
     let options: SourceOptions =
         serde_json::from_str(&options).map_err(|_| corrupt("secret source options"))?;
     let input = SecretSourceInput {
+        kind,
         name,
         address,
         namespace,
@@ -80,7 +79,7 @@ fn decode(row: RawRow) -> Result<SecretSource> {
     Ok(SecretSource {
         id: parse_id(&id)?,
         name: v.name,
-        kind: SourceKind::Vault,
+        kind: v.kind,
         address: v.address,
         namespace: v.namespace,
         auth: v.auth,
@@ -90,20 +89,22 @@ fn decode(row: RawRow) -> Result<SecretSource> {
     })
 }
 
-/// The login credential must exist and be of the method's kind.
-fn check_login_credential(store: &Store, auth: &SecretSourceAuth) -> Result<()> {
+/// The login credential must exist and be of the kind the source kind and method need.
+fn check_login_credential(store: &Store, kind: SourceKind, auth: &SecretSourceAuth) -> Result<()> {
     let Some(id) = auth.credential_id() else {
         return Ok(());
     };
     let meta = store.get_credential(id)?;
     check_consumer(meta.kind, Consumer::SecretSource)?;
-    if auth.method().credential_kind() != Some(meta.kind) {
+    let want = kind.login_kind(auth.method());
+    if want != Some(meta.kind) {
         return Err(StoreError::Invalid {
             field: "credentialId",
             reason: format!(
-                "the {} method needs a {} credential",
+                "a {} source with the {} method needs a {} credential",
+                kind.name(),
                 auth.method().name(),
-                auth.method().credential_kind().map_or("", CredentialKind::name)
+                want.map_or("", CredentialKind::name)
             ),
         });
     }
@@ -125,13 +126,13 @@ impl Store {
     /// Create a source (validated; the login credential's kind is checked).
     pub fn create_secret_source(&self, input: &SecretSourceInput) -> Result<SecretSource> {
         let v: ValidSource = input.validate()?;
-        check_login_credential(self, &v.auth)?;
+        check_login_credential(self, v.kind, &v.auth)?;
         let id = SecretSourceId::new();
         let ts = fmt_ts(now())?;
         self.conn.execute(
             &format!(
                 "INSERT INTO secret_source ({COLUMNS})
-                 VALUES (?1, ?2, 'vault', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)"
+                 VALUES (?1, ?2, ?11, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)"
             ),
             params![
                 id.to_string(),
@@ -143,7 +144,8 @@ impl Store {
                 v.auth.credential_id().map(|c| c.to_string()),
                 oidc_role(&v.auth),
                 options_json(&v.options)?,
-                ts
+                ts,
+                v.kind.name()
             ],
         )?;
         tracing::info!(source = %id, method = v.auth.method().name(), "secret source created");
@@ -180,7 +182,13 @@ impl Store {
     ) -> Result<(SecretSource, Vec<&'static str>)> {
         let before = self.get_secret_source(id)?;
         let v = input.validate()?;
-        check_login_credential(self, &v.auth)?;
+        if v.kind != before.kind {
+            return Err(StoreError::Invalid {
+                field: "kind",
+                reason: "a source keeps its kind; create a new one".to_owned(),
+            });
+        }
+        check_login_credential(self, v.kind, &v.auth)?;
         self.conn.execute(
             "UPDATE secret_source SET name = ?2, address = ?3, namespace = ?4, auth_method = ?5,
                     auth_mount = ?6, credential_id = ?7, oidc_role = ?8, options_json = ?9,
@@ -266,6 +274,7 @@ fn changed(a: &SecretSource, b: &SecretSource) -> Vec<&'static str> {
     diff("caPem", a.options.ca_pem != b.options.ca_pem);
     diff("allowHttp", a.options.allow_http != b.options.allow_http);
     diff("allowedOrigins", a.options.allowed_origins != b.options.allowed_origins);
+    diff("bwsPath", a.options.bws_path != b.options.bws_path);
     out
 }
 

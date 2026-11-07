@@ -182,3 +182,7 @@ impl AuditLog {
 #[cfg(test)]
 #[path = "chain_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "chain_tests_a5.rs"]
+mod tests_a5;

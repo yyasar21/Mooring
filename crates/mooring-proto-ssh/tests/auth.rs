@@ -54,17 +54,64 @@ async fn publickey_success() {
     let client_key = ed25519(1);
     let mut spec = ServerSpec::new(&[MethodKind::PublicKey]);
     spec.authorized_key = Some(client_key.public_key().clone());
-    let secret = ConnectSecret::PrivateKey { pem: pem(&client_key), passphrase: None };
+    let secret =
+        ConnectSecret::PrivateKey { pem: pem(&client_key), passphrase: None, certificate: None };
     let (mut s, _srv, _d) = trusted(spec, secret).await;
     expect_connected(&mut s).await;
     assert_eq!(succeeded_with(&mut s), Some(AuthMethod::PublicKey));
+}
+
+fn user_cert(key: &russh::keys::PrivateKey, ca: &russh::keys::PrivateKey) -> String {
+    use russh::keys::ssh_key::certificate::{Builder, CertType};
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_secs();
+    let mut b = Builder::new([3u8; 16], key.public_key().key_data().clone(), now - 60, now + 600)
+        .expect("builder");
+    b.cert_type(CertType::User).expect("type");
+    b.valid_principal(USER).expect("principal");
+    b.sign(ca).expect("sign").to_openssh().expect("line")
+}
+
+/// ADR-0026 §1: a CA-signed certificate logs in although the key itself is not authorized.
+#[tokio::test]
+async fn certificate_success_without_an_authorized_key() {
+    let (key, ca) = (ed25519(5), ed25519(6));
+    let mut spec = ServerSpec::new(&[MethodKind::PublicKey]);
+    spec.trusted_ca = Some(ca.public_key().clone());
+    let secret = ConnectSecret::PrivateKey {
+        pem: pem(&key),
+        passphrase: None,
+        certificate: Some(user_cert(&key, &ca)),
+    };
+    let (mut s, _srv, _d) = trusted(spec, secret).await;
+    expect_connected(&mut s).await;
+    assert_eq!(succeeded_with(&mut s), Some(AuthMethod::PublicKey));
+}
+
+/// An untrusted CA, or a certificate of another key, falls back to the plain key.
+#[tokio::test]
+async fn certificate_refused_falls_back_to_the_key() {
+    let (key, ca) = (ed25519(5), ed25519(6));
+    for cert in [user_cert(&key, &ca), user_cert(&ed25519(7), &ca), "garbage".to_owned()] {
+        let mut spec = ServerSpec::new(&[MethodKind::PublicKey]);
+        spec.trusted_ca = Some(ed25519(8).public_key().clone());
+        spec.authorized_key = Some(key.public_key().clone());
+        let secret =
+            ConnectSecret::PrivateKey { pem: pem(&key), passphrase: None, certificate: Some(cert) };
+        let (mut s, _srv, _d) = trusted(spec, secret).await;
+        expect_connected(&mut s).await;
+        assert_eq!(succeeded_with(&mut s), Some(AuthMethod::PublicKey));
+    }
 }
 
 #[tokio::test]
 async fn publickey_failure_is_generic() {
     let mut spec = ServerSpec::new(&[MethodKind::PublicKey]);
     spec.authorized_key = Some(ed25519(1).public_key().clone());
-    let secret = ConnectSecret::PrivateKey { pem: pem(&ed25519(2)), passphrase: None };
+    let secret =
+        ConnectSecret::PrivateKey { pem: pem(&ed25519(2)), passphrase: None, certificate: None };
     let (mut s, _srv, _d) = trusted(spec, secret).await;
     assert_generic_failure(&mut s, "PRIVATE KEY").await;
 }
@@ -72,8 +119,11 @@ async fn publickey_failure_is_generic() {
 #[tokio::test]
 async fn undecodable_key_falls_through_to_failure() {
     let spec = ServerSpec::new(&[MethodKind::PublicKey]);
-    let secret =
-        ConnectSecret::PrivateKey { pem: SecretString::from("not a key"), passphrase: None };
+    let secret = ConnectSecret::PrivateKey {
+        pem: SecretString::from("not a key"),
+        passphrase: None,
+        certificate: None,
+    };
     let (mut s, _srv, _d) = trusted(spec, secret).await;
     assert_generic_failure(&mut s, "not a key").await;
 }

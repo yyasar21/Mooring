@@ -4,7 +4,8 @@
 //! - [`rdp`]: an `ironrdp-acceptor` based RDP server (TLS or NLA, bitmap updates, input,
 //!   clipboard, display control).
 //! - A3 Q1 mock API servers over TLS (hyper 1), each with a request [`http::Recorder`]:
-//!   [`kube`] (ADR-0014), [`vcenter`] (ADR-0015), [`vault`] (ADR-0016), [`s3`] (ADR-0017).
+//!   [`kube`] (ADR-0014), [`vcenter`] (ADR-0015), [`vault`] (ADR-0016, dynamic engines of
+//!   ADR-0026), [`s3`] (ADR-0017), [`onepassword`] (1Password Connect, ADR-0026).
 //! - [`ldap`]: an LDAPS directory mock (bind, paged search, hostile frames) with its own
 //!   request recorder (ADR-0019 §4, A4 I2).
 //!
@@ -23,6 +24,7 @@ pub mod cli;
 pub mod http;
 pub mod kube;
 pub mod ldap;
+pub mod onepassword;
 pub mod rdp;
 pub mod rfb;
 pub mod s3;

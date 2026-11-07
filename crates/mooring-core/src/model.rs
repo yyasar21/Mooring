@@ -145,6 +145,10 @@ pub struct Connection {
     /// `sudo_become` credential (per connection).
     #[serde(default)]
     pub become_credential: Option<CredentialId>,
+    /// ADR-0026 §1: a Vault `ssh_sign` reference that certifies the SSH key credential at
+    /// connect (per connection, role `certificate`).
+    #[serde(default)]
+    pub certificate_credential: Option<CredentialId>,
     /// ADR-0025: jump hosts, first hop first (reached directly), the target through the last.
     /// Explicit on this connection: a hop's own `via` is ignored. At most [`MAX_VIA`] SSH
     /// connections, no duplicates, never this connection itself (see [`validate_via`]).
@@ -297,6 +301,7 @@ impl Connection {
             domain_override: None,
             gateway_credential: None,
             become_credential: None,
+            certificate_credential: None,
             via: Vec::new(),
             tags: Vec::new(),
             created_at: OffsetDateTime::now_utc(),

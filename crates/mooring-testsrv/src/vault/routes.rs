@@ -160,7 +160,15 @@ fn route(d: &mut Dynamic, ctx: &Ctx) -> Reply {
                 kv_metadata(d, &mount, &path)
             }
         }
-        _ => Reply::violation(format!("{m} {path} is not a read-only route of the Vault mock")),
+        _ => {
+            let allowed = token(d, ctx).is_some() && !k.force_403;
+            match super::dynamic::route(d, ctx, &segs, allowed) {
+                Some(r) => r,
+                None => Reply::violation(format!(
+                    "{m} {path} is not a read-only route of the Vault mock"
+                )),
+            }
+        }
     }
 }
 

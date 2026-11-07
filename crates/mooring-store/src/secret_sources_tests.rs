@@ -224,3 +224,44 @@ fn migration_0007_upgrades_a_v5_database_and_keeps_links() {
     let fk: bool = s.conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).expect("fk");
     assert!(fk);
 }
+
+/// ADR-0026: 1Password Connect and Bitwarden sources round-trip, check their login kind and
+/// keep their kind on update.
+#[test]
+fn onepassword_and_bitwarden_sources_round_trip() {
+    use mooring_core::secret_source::SourceKind;
+    let (s, v) = (Store::open_in_memory().expect("open"), vault());
+    let api = token_cred(&s, &v);
+    let secrets = [(SecretName::AccessToken, &b"0.test-only.machine"[..])].into_iter().collect();
+    let bwt = s
+        .create_credential(&v, "bws", CredentialKind::BitwardenAccessToken, &json!({}), &secrets)
+        .expect("bws")
+        .id;
+    let op = |cred: mooring_core::CredentialId| {
+        input(
+            json!({"kind": "onepassword", "name": "Connect", "address": "https://connect.example.test:8080",
+                     "authMethod": "token", "credentialId": cred}),
+        )
+    };
+    let src = s.create_secret_source(&op(api)).expect("connect");
+    assert_eq!(s.get_secret_source(src.id).expect("get").kind, SourceKind::Onepassword);
+    assert!(s.create_secret_source(&op(bwt)).is_err(), "Connect logs in with an api_token");
+    let bw = |cred: mooring_core::CredentialId| {
+        input(json!({"kind": "bitwarden", "name": "SM", "address": "https://bw.example.test",
+                     "authMethod": "token", "credentialId": cred,
+                     "options": {"bwsPath": "/usr/local/bin/bws"}}))
+    };
+    assert!(s.create_secret_source(&bw(api)).is_err(), "bws needs a bitwarden_access_token");
+    let b = s.create_secret_source(&bw(bwt)).expect("bitwarden");
+    let got = s.get_secret_source(b.id).expect("get");
+    assert_eq!(
+        (got.kind, got.options.bws_path.as_deref()),
+        (SourceKind::Bitwarden, Some("/usr/local/bin/bws"))
+    );
+    let e = s.update_secret_source(src.id, &bw(bwt)).expect_err("kind is fixed");
+    assert!(e.to_string().contains("kind"), "{e}");
+    let mut moved = bw(bwt);
+    moved.options.bws_path = Some("/opt/homebrew/bin/bws".into());
+    let (_, changed) = s.update_secret_source(b.id, &moved).expect("update");
+    assert_eq!(changed, ["bwsPath"]);
+}
