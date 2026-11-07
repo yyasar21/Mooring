@@ -4077,6 +4077,7 @@ dependencies = [
  "arboard",
  "base64 0.23.1",
  "hex",
+ "hkdf",
  "keyring",
  "mooring-app",
  "mooring-audit",
@@ -4098,6 +4099,7 @@ dependencies = [
  "russh",
  "russh-sftp",
  "secrecy",
+ "security-framework",
  "semver",
  "serde",
  "serde_json",
@@ -4114,6 +4116,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "windows",
  "zeroize",
 ]
 

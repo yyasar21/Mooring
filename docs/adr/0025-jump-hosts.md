@@ -1,6 +1,6 @@
 # ADR-0025: Jump hosts and bastions (`via` chains)
 
-Status: Proposed · 2026-11-07 (Phase A5 / v0.2.0; amends ADR-0004, ADR-0005 schema, ADR-0007,
+Status: Accepted 2026-11-07 (owner decisions: 31 depth 3; 32 explicit per connection (folder inheritance later); 33 one chain per session; 34 web-via SOCKS ships with refusal on macOS < 14) · 2026-11-07 (Phase A5 / v0.2.0; amends ADR-0004, ADR-0005 schema, ADR-0007,
 ADR-0009 §1 ("jump hosts are another connection"), ADR-0011, ADR-0012, ADR-0013, ADR-0014)
 
 ## Context

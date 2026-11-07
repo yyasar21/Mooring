@@ -43,6 +43,7 @@ mooring-import = { path = "../crates/mooring-import", version = "0.1.1", feature
 uuid = { workspace = true }
 time = { workspace = true }
 sha2 = { workspace = true }
+hkdf = "0.13"                      # ADR-0022: derive the vault wrapping key from the biometric-gated secret (RustCrypto)
 rand_core = { workspace = true } # review 4 B-4: random 128-bit pickId (already used by mooring-vault / proto-ssh)
 hex = { workspace = true }       # review 4 B-4: pickId encoding (already used by mooring-audit)
 base64 = { workspace = true }
@@ -69,6 +70,12 @@ tempfile = { workspace = true }
 russh = { workspace = true }   # in-process SSH server for session_open tests (already a workspace dep)
 russh-sftp = { workspace = true } # SFTP subsystem of the in-process test server (already a workspace dep)
 mooring-testsrv = { path = "../crates/mooring-testsrv" } # A2 e2e_flow: loopback RFB/RDP servers (QA, dev-only)
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"         # ADR-0022: Keychain item with BiometryCurrentSet ACL (safe API; FFI inside the crate)
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Security_Credentials", "Foundation", "Storage_Streams"] } # ADR-0022: KeyCredentialManager (Windows Hello), safe WinRT projections only
 
 [lints]
 workspace = true

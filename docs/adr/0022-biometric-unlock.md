@@ -1,6 +1,6 @@
 # ADR-0022: Biometric unlock — Touch ID and Windows Hello
 
-Status: Proposed · 2026-11-07 (Phase A5 / v0.2.0; amends ADR-0006 §Keyring wrap, lifts the
+Status: Accepted 2026-11-07 (owner decisions: 24 auto-disable after 3 failures in 10 min; 25 remove keyring (+zbus); 23 PENDING — Touch ID gated on the Developer ID certificate purchase, Windows Hello ships first) · 2026-11-07 (Phase A5 / v0.2.0; amends ADR-0006 §Keyring wrap, lifts the
 R-T2-KR HOLD; builds on ADR-0002, ADR-0003, ADR-0017 §1, ADR-0018 §2)
 
 ## Context

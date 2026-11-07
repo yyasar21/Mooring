@@ -1,6 +1,6 @@
 # ADR-0023: Vault export and import in the app (`age`)
 
-Status: Proposed · 2026-11-07 (Phase A5 / v0.2.0; completes ADR-0006 §Export; builds on
+Status: Accepted 2026-11-07 (owner decisions: 26 merge default, replace behind typed confirmation; 27 foreign import requires the source master password; 28 trust stores exported and unioned) · 2026-11-07 (Phase A5 / v0.2.0; completes ADR-0006 §Export; builds on
 ADR-0010 §SFTP pick pattern, ADR-0013, ADR-0017 §1/§3, ADR-0019 plan pattern)
 
 ## Context
