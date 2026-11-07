@@ -10,6 +10,8 @@ import { Shell } from "../Shell";
 import { SettingsView } from "./SettingsView";
 import { fmtBytes, fmtDate, fmtStamp } from "../../lib/format";
 import { MANUAL_REASON_TEXT, RELEASE_PAGE, UpdatesCard } from "./UpdatesCard";
+import { PORTABLE_UPDATE_TEXT } from "./PortableLine";
+import { PORTABLE_MANUAL_TEXT } from "../../lib/ipc.mock.update";
 
 describe("Settings → Updates (ADR-0018 §3, U0)", () => {
   let mock: MockTransport;
@@ -90,7 +92,7 @@ describe("Settings → Updates (ADR-0018 §3, U0)", () => {
   it("manual mode: no Install button, the reason text and a copyable release link", async () => {
     const written: string[] = [];
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (t: string) => { written.push(t); return Promise.resolve(); } } });
-    for (const reason of ["package_manager", "homebrew", "not_writable", "not_bundled"] as const) {
+    for (const reason of ["package_manager", "homebrew", "not_writable", "not_bundled", "portable"] as const) {
       mock = freshBackend();
       mock.updateRateWindowMs = 0;
       mock.updateMode = { installMode: "manual", manualReason: reason };
@@ -108,6 +110,38 @@ describe("Settings → Updates (ADR-0018 §3, U0)", () => {
       unmount();
     }
     expect(RELEASE_PAGE).toBe("https://github.com/yyasar21/Mooring/releases/latest");
+  });
+
+  it("ADR-0021: a portable build shows the data folder, disables the background toggle with the zip hint and still checks", async () => {
+    mock.portableDataDir = "/media/stick/Mooring Data";
+    mock.updateMode = { installMode: "manual", manualReason: "portable" };
+    await act(async () => { await useApp.getState().boot(); });
+    const c = await card();
+    const line = within(c).getByTestId("portable-line");
+    expect(line).toHaveTextContent("Portable build — data in /media/stick/Mooring Data");
+    expect(line.querySelector("code")).toHaveTextContent("/media/stick/Mooring Data");
+    const sw = within(c).getByRole("switch", { name: /^Check for updates in the background \(daily\)/ });
+    expect(sw).toBeDisabled();
+    expect(sw).not.toBeChecked();
+    expect(sw.closest("label")).toHaveTextContent(PORTABLE_UPDATE_TEXT);
+    expect(MANUAL_REASON_TEXT.portable).toBe(PORTABLE_UPDATE_TEXT);
+    expect(PORTABLE_UPDATE_TEXT).toBe(PORTABLE_MANUAL_TEXT); // same text as Rust's `update.manual_only`
+    expect(within(c).getByRole("button", { name: "Check for updates" })).toBeEnabled();
+    fireEvent.click(within(c).getByRole("button", { name: "Check for updates" }));
+    await settle();
+    const offer = within(c).getByLabelText("Available update");
+    expect(offer).toHaveTextContent(PORTABLE_UPDATE_TEXT);
+    expect(within(offer).queryByRole("button", { name: "Install and restart" })).toBeNull();
+    expect(mock.audit.filter((a) => a.event === "update.refused")).toHaveLength(0); // the toggle never fired update_settings_set
+  });
+
+  it("not portable: no portable line and the toggle keeps its own hint", async () => {
+    await act(async () => { await useApp.getState().boot(); });
+    const c = await card();
+    expect(within(c).queryByTestId("portable-line")).toBeNull();
+    const sw = within(c).getByRole("switch", { name: /^Check for updates in the background \(daily\)/ });
+    expect(sw).toBeEnabled();
+    expect(sw.closest("label")).not.toHaveTextContent(PORTABLE_UPDATE_TEXT);
   });
 
   it("Install and restart asks in the UI, names the open sessions, closes them and installs", async () => {

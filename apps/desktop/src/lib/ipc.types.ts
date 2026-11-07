@@ -34,6 +34,8 @@ export interface AppInfo {
   os: string;
   arch: string;
   debug: boolean;
+  /** ADR-0021 §1: the `Mooring Data` folder of a portable build (next to the marker), null when installed. */
+  portableDataDir: string | null;
 }
 
 export interface Folder extends SyncedRowFlags {

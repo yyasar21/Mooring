@@ -4,7 +4,7 @@
 /** `in_app` = the plugin can replace the bundle without elevation; `manual` = release page + package manager. */
 export type UpdateInstallMode = "in_app" | "manual";
 /** Why an install is manual (`update_check.manualReason`, only with `installMode: "manual"`). */
-export type UpdateManualReason = "package_manager" | "homebrew" | "not_writable" | "not_bundled";
+export type UpdateManualReason = "package_manager" | "homebrew" | "not_writable" | "not_bundled" | "portable";
 
 export interface UpdateAvailable {
   version: string;

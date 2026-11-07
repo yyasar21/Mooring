@@ -6,6 +6,8 @@ import { IpcError } from "./ipc.error";
 import { MockSecretsBase } from "./ipc.mock.secrets";
 
 export const MOCK_CURRENT_VERSION = "0.1.0";
+/** ADR-0021 §2: the exact message Rust sends with `update.manual_only` in a portable build. */
+export const PORTABLE_MANUAL_TEXT = "portable build: download the new zip and replace the folder";
 
 /** The offer a fresh mock serves: one version up, dated, with notes that exercise line breaks. */
 export const MOCK_UPDATE_OFFER: UpdateAvailable = {
@@ -39,6 +41,8 @@ export function semverBelow(a: string, b: string): boolean {
 export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIpc {
   /** False = the build has no `plugins.updater.pubkey`: every command answers `update.unconfigured`. */
   updateConfigured = true;
+  /** ADR-0021: a path makes the mock a portable build (`app_info.portableDataDir`; background checks refused). */
+  portableDataDir: string | null = null;
   /** What the next check finds; null = up to date. */
   updateOffer: UpdateAvailable | null = structuredClone(MOCK_UPDATE_OFFER);
   updateMode: { installMode: UpdateInstallMode; manualReason?: UpdateManualReason } = { installMode: "in_app" };
@@ -178,6 +182,10 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
     this.configured();
     if (typeof backgroundCheck !== "boolean") throw new IpcError("input.invalid", "invalid backgroundCheck");
     if (channel !== undefined && (channel as string) !== "stable") throw new IpcError("input.invalid", "invalid channel");
+    if (backgroundCheck && this.portableDataDir !== null) {
+      this.record("update.refused", { code: "update.manual_only" });
+      throw new IpcError("update.manual_only", PORTABLE_MANUAL_TEXT);
+    }
     if (this.updateSettings.backgroundCheck !== backgroundCheck) this.record("update.settings_changed", { background_check: String(backgroundCheck) });
     this.updateSettings = { ...this.updateSettings, backgroundCheck };
     return { ...this.updateSettings };

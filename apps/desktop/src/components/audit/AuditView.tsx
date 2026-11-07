@@ -26,6 +26,8 @@ const EVENT_LABEL: Record<string, string> = {
   "session.forward.close": "Forward closed",
   "session.sftp.transfer": "File transfer",
   "audit.syslog_changed": "Syslog mirror changed",
+  "app.start": "Application started",
+  "portable.acl_unavailable": "Portable data folder: owner-only ACL could not be applied (FAT/exFAT or policy)",
 };
 
 /** Audit log viewer: newest first, paged with `before`, client-side filter, chain verification. */

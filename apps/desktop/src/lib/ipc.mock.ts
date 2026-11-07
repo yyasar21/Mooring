@@ -136,7 +136,7 @@ export class MockTransport extends MockImportBase implements Ipc {
   // ---------- app / vault ----------
 
   appInfo: Ipc["appInfo"] = () =>
-    Promise.resolve({ name: "Mooring", version: "dev", os: "browser", arch: "mock", debug: true });
+    Promise.resolve({ name: "Mooring", version: "dev", os: "browser", arch: "mock", debug: true, portableDataDir: this.portableDataDir });
   vaultStatus: Ipc["vaultStatus"] = () => Promise.resolve(this.vault);
   vaultCreate: Ipc["vaultCreate"] = () => {
     this.vault = "unlocked";
