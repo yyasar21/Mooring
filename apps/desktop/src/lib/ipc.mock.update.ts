@@ -1,13 +1,15 @@
 // Mock ADR-0018 §3 updater as rust-core U0 serves it. No manifest is fetched: the offer, the
 // install mode and the failure modes are knobs. Nothing here holds a URL, a signature or bytes;
 // "installing" closes sessions (when asked), audits and flips `restarted`.
-import type { UpdateAvailable, UpdateAvailableHandler, UpdateInfo, UpdateInstallMode, UpdateIpc, UpdateManualReason, UpdateSettings } from "./ipc.types";
+import type { BuildChannel, UpdateAvailable, UpdateAvailableHandler, UpdateInfo, UpdateInstallMode, UpdateIpc, UpdateManualReason, UpdateSettings } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { MockSecretsBase } from "./ipc.mock.secrets";
 
 export const MOCK_CURRENT_VERSION = "0.1.0";
 /** ADR-0021 §2: the exact message Rust sends with `update.manual_only` in a portable build. */
 export const PORTABLE_MANUAL_TEXT = "portable build: download the new zip and replace the folder";
+/** ADR-0028: the exact message Rust sends with `update.manual_only` in a dev build. */
+export const DEV_MANUAL_TEXT = "development build: updates come from your own builds";
 
 /** The offer a fresh mock serves: one version up, dated, with notes that exercise line breaks. */
 export const MOCK_UPDATE_OFFER: UpdateAvailable = {
@@ -43,6 +45,8 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
   updateConfigured = true;
   /** ADR-0021: a path makes the mock a portable build (`app_info.portableDataDir`; background checks refused). */
   portableDataDir: string | null = null;
+  /** ADR-0028: `dev` = Mooring Dev; every update command answers `update.manual_only` (`dev_build`). */
+  buildChannel: BuildChannel = "release";
   /** What the next check finds; null = up to date. */
   updateOffer: UpdateAvailable | null = structuredClone(MOCK_UPDATE_OFFER);
   updateMode: { installMode: UpdateInstallMode; manualReason?: UpdateManualReason } = { installMode: "in_app" };
@@ -63,6 +67,13 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
   /** Sessions the install must close (`closeSessions`) or refuse over (`update.sessions_open`). */
   protected abstract liveSessionIds(): string[];
   protected abstract closeSessionForUpdate(sessionId: string): Promise<void>;
+
+  /** Dev builds never register the updater (ADR-0028): check, install and turning the background check on are refused. */
+  private notDev(): void {
+    if (this.buildChannel !== "dev") return;
+    this.record("update.refused", { code: "update.manual_only" });
+    throw new IpcError("update.manual_only", DEV_MANUAL_TEXT);
+  }
 
   private configured(): void {
     if (!this.updateConfigured) throw new IpcError("update.unconfigured", "updates are not configured in this build");
@@ -129,12 +140,14 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
 
   updateCheck: UpdateIpc["updateCheck"] = async () => {
     await this.unlocked();
+    this.notDev();
     this.configured();
     return this.networkCheck(true);
   };
 
   updateInstall: UpdateIpc["updateInstall"] = async ({ version, closeSessions }) => {
     await this.unlocked();
+    this.notDev();
     this.configured();
     if (typeof version !== "string" || !SEMVER.test(version)) throw new IpcError("input.invalid", "invalid version");
     const refuse = (e: IpcError): never => {
@@ -182,6 +195,7 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
     this.configured();
     if (typeof backgroundCheck !== "boolean") throw new IpcError("input.invalid", "invalid backgroundCheck");
     if (channel !== undefined && (channel as string) !== "stable") throw new IpcError("input.invalid", "invalid channel");
+    if (backgroundCheck) this.notDev();
     if (backgroundCheck && this.portableDataDir !== null) {
       this.record("update.refused", { code: "update.manual_only" });
       throw new IpcError("update.manual_only", PORTABLE_MANUAL_TEXT);

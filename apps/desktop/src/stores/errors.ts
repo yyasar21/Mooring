@@ -131,6 +131,28 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   // Security review 7, L-43 (F2): the native "Directory sign-in" confirmation before the first bind.
   "ldap.bind_declined": "You did not confirm the sign-in to the directory, so Mooring did not send the credential. Nothing was searched; try again and choose \"Sign in\" to continue.",
   "ldap.confirm_required": "The sign-in to the directory needs a confirmation dialog, and none could be shown here. Run the import again from the main window.",
+  // ADR-0025 (R1): jump hosts.
+  "connection.via_invalid":
+    "That jump host chain is not allowed. Use at most 3 SSH connections, each once, not this connection itself, and no chain that leads back here. vCenter connections cannot use jump hosts.",
+  "connection.in_use_as_hop": "Another connection uses this one as a jump host, so it was not deleted. Remove it from that connection's “Connect via” list first.",
+  "session.hop_failed": "A jump host of this connection cannot be used: it is missing, it is not an SSH connection, or its credential is an external reference.",
+  "web.via_unsupported": "Web connections cannot open through a jump host yet. Remove the jump hosts from this connection to open it.",
+  "vault.unlock": "The master password is wrong.",
+  // ADR-0022 (R2): biometric unlock.
+  "biometric.unavailable": "Biometric unlock is not available on this device.",
+  "biometric.cancelled": "The system prompt was cancelled. Nothing changed.",
+  "biometric.failed": "The system could not verify you. Use the master password.",
+  "biometric.suspended": "Biometric unlock was turned off for safety. Unlock with the master password, then turn it on again in Settings → Security.",
+  "biometric.not_enrolled": "Biometric unlock is not set up for this vault. Unlock with the master password.",
+  "biometric.sync_enabled": "Biometric unlock is not available while vault sync is configured.",
+  // ADR-0023 (R2): age backups. Messages name no path.
+  "vault.export": "The backup could not be written there. Nothing was changed; choose another location.",
+  "vault.export_passphrase": "The backup passphrase must be at least 12 characters and differ from the master password.",
+  "vault.import_format": "This file is not a Mooring backup, or it is damaged. Nothing was imported.",
+  "vault.import_passphrase": "That passphrase does not open this backup. Check it and try again.",
+  "vault.import_source_password": "That is not the master password of the vault this backup came from.",
+  "vault.import_too_large": "This file is larger than 64 MiB, which is more than a Mooring backup can be.",
+  "vault.import_version": "This backup was made in an older format that cannot be imported. Export it again from a current Mooring.",
   "credential.incompatible": "That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
 };

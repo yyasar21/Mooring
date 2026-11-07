@@ -1,20 +1,7 @@
 import { create } from "zustand";
-import {
-  ipc,
-  isIpcError,
-  type CertificateInfo,
-  type CloseCode,
-  type PromptAccount,
-  type PromptPurpose,
-  type Protocol,
-  type SessionEvent,
-  type SessionInfo,
-  type SessionInput,
-  type Size,
-  type VncConnOptions,
-} from "../lib/ipc";
+import { ipc, isIpcError, type CloseCode, type HopStatus, type Protocol, type SessionEvent, type SessionInfo, type SessionInput, type Size, type VncConnOptions } from "../lib/ipc";
 import { optionsOf, useConnOptions } from "./connOptions";
-import type { LineState } from "@mooring/ui";
+import { DEFAULT_DESKTOP, canDetach, isGraphical, type CredentialAnswer, type Tab, type TabState } from "./sessions.types";
 import { describeError, errorText } from "./errors";
 import { drainFrames, dropFrames, pushFrame } from "./frames";
 import { peekSeq } from "../lib/frame/mfr1";
@@ -25,70 +12,8 @@ import { detachedSessions } from "./sessions.detach";
 import { adoptKube, openCluster, useKube, type KubeTab } from "./kube";
 
 export { subscribeOutput } from "./output";
+export * from "./sessions.types";
 
-export type TabState = "connecting" | "connected" | "reconnecting" | "detached" | "closed";
-
-export interface PendingPrompt {
-  id: number;
-  message: string;
-  secret: boolean;
-  purpose: PromptPurpose;
-  /** Only for `purpose: "credential"`: what to ask and the pre-fills. */
-  account?: PromptAccount | null;
-  /** Only for `purpose: "certificate_trust"`: the leaf to decide on. */
-  certificate?: CertificateInfo | null;
-}
-
-export interface CredentialAnswer {
-  username: string;
-  domain: string | null;
-  password: string;
-}
-
-export interface Reconnect {
-  attempt: number;
-  delayMs: number;
-  /** `Date.now()` when the event arrived; the countdown runs from here. */
-  since: number;
-}
-
-export interface Tab {
-  /** Local tab id (exists before the backend hands out a session id). */
-  id: string;
-  connectionId: string;
-  protocol: Protocol | null;
-  sessionId: string | null;
-  state: TabState;
-  peerIdentity: string | null;
-  /** `Connected.security`: "nla", "tls", "vnc-auth", "none", ... */
-  security: string | null;
-  prompt: PendingPrompt | null;
-  reason: string | null;
-  closeCode: CloseCode | "unknown" | null;
-  reconnect: Reconnect | null;
-  /** Remote desktop size after `desktop_resized` (rdp/vnc). */
-  desktop: Size | null;
-  /** VNC view-only (advisory in the UI; Rust drops the input). */
-  viewOnly: boolean;
-  /** Bumped each time this view re-attaches after a detach: the terminal resends its size. */
-  attachEpoch: number;
-  /** Kubernetes tabs only (ADR-0014): cluster browser, exec shell or log viewer. */
-  kube?: KubeTab;
-}
-
-/** The three-state rail and dot of the design system: a reconnect reads as connecting. */
-export function lineState(s: TabState): LineState {
-  if (s === "reconnecting") return "connecting";
-  if (s === "detached") return "connected";
-  return s;
-}
-
-/** Protocols whose live session can move to a `detached-<sessionId>` window (ADR-0013). */
-export const canDetach = (p: Protocol | null | undefined): boolean => p === "ssh" || p === "rdp" || p === "vnc";
-/** rdp/vnc sessions draw MFR1 frames on a canvas instead of a terminal. */
-export const isGraphical = (p: Protocol | null | undefined): boolean => p === "rdp" || p === "vnc";
-/** Initial desktop request before the canvas has measured itself. */
-export const DEFAULT_DESKTOP: Size = { width: 1280, height: 800 };
 
 /**
  * Which local tab a backend session's event channel feeds. Ids only, no vault data, so it is kept
@@ -169,6 +94,14 @@ function openFailureCode(e: unknown): CloseCode | null {
   return (isIpcError(e) && OPEN_FAILURE_CODES[e.code]) || null;
 }
 
+/** ADR-0025: keep the latest status per hop; a hop 0 `connecting` starts a fresh chain (reconnect). */
+export function withHop(hops: HopStatus[], ev: HopStatus): HopStatus[] {
+  const next = ev.hop === 0 && ev.state === "connecting" ? [] : hops.slice(0, ev.of);
+  for (let i = next.length; i < ev.hop; i++) next.push({ hop: i, of: ev.of, state: "connecting", host: "", peerIdentity: null });
+  next[ev.hop] = { hop: ev.hop, of: ev.of, state: ev.state, host: ev.host, peerIdentity: ev.peerIdentity };
+  return next;
+}
+
 let tabSeq = 0;
 /** A fresh local tab id. */
 export function nextTabId(): string {
@@ -204,8 +137,11 @@ export const useSessions = create<SessionState>((set, get) => {
         break;
       case "prompt":
         patch(tabId, {
-          prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account, certificate: ev.certificate },
+          prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account, certificate: ev.certificate, hop: ev.hop ?? null },
         });
+        break;
+      case "hop_status":
+        patch(tabId, { hops: withHop(tabOf(tabId)?.hops ?? [], ev) });
         break;
       case "desktop_resized":
         patch(tabId, { desktop: { width: ev.width, height: ev.height } });
@@ -425,7 +361,7 @@ export const useSessions = create<SessionState>((set, get) => {
     reconnect: async (tabId) => {
       const tab = tabOf(tabId);
       if (!tab || tab.state !== "closed") return;
-      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null });
+      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null, hops: [] });
       await begin(tabId, tab.connectionId, tab.protocol, tab.desktop ?? initialSize(tab.protocol));
     },
 

@@ -254,6 +254,18 @@ export class TauriTransport implements Ipc {
   netPing: Ipc["netPing"] = (a) => call("net_ping", { ...a });
   netTraceroute: Ipc["netTraceroute"] = (a) => call("net_traceroute", { ...a });
   netWgShow: Ipc["netWgShow"] = () => call("net_wg_show");
+
+  // ---------- ADR-0022 (biometric unlock), ADR-0023 (age backups) ----------
+
+  biometricStatus: Ipc["biometricStatus"] = () => call("biometric_status");
+  biometricEnroll: Ipc["biometricEnroll"] = (a) => call("biometric_enroll", { ...a });
+  biometricUnlock: Ipc["biometricUnlock"] = () => call("biometric_unlock");
+  biometricDisable: Ipc["biometricDisable"] = (a) => call("biometric_disable", { ...a });
+  vaultExportPick: Ipc["vaultExportPick"] = () => call("vault_export_pick");
+  vaultExportAge: Ipc["vaultExportAge"] = (a) => call("vault_export_age", { ...a });
+  vaultImportPick: Ipc["vaultImportPick"] = () => call("vault_import_pick");
+  vaultImportInspect: Ipc["vaultImportInspect"] = (a) => call("vault_import_inspect", { ...a });
+  vaultImportAge: Ipc["vaultImportAge"] = (a) => call("vault_import_age", { ...a });
 }
 
 /** Subscribe to a Tauri event; the returned function unsubscribes, also when called before `listen` resolved. */

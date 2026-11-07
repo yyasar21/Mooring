@@ -9,6 +9,7 @@ import type { SecretsIpc, SyncIpc } from "./ipc.types.secrets";
 import type { UpdateIpc } from "./ipc.types.update";
 import type { NetIpc } from "./ipc.types.net";
 import type { ImportIpc } from "./ipc.types.import";
+import type { A5Ipc, BuildChannel, HopStatus } from "./ipc.types.a5";
 
 export * from "./ipc.types.exit";
 export * from "./ipc.types.remote";
@@ -18,6 +19,7 @@ export * from "./ipc.types.secrets";
 export * from "./ipc.types.update";
 export * from "./ipc.types.net";
 export * from "./ipc.types.import";
+export * from "./ipc.types.a5";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -36,6 +38,9 @@ export interface AppInfo {
   debug: boolean;
   /** ADR-0021 §1: the `Mooring Data` folder of a portable build (next to the marker), null when installed. */
   portableDataDir: string | null;
+  /** ADR-0028: `dev` = Mooring Dev (own identifier and data); absent from builds before A5 = release. */
+  channel?: BuildChannel;
+  identifier?: string;
 }
 
 export interface Folder extends SyncedRowFlags {
@@ -66,6 +71,8 @@ export interface ConnectionSummary extends SyncedRowFlags {
   options?: ProtocolOptions;
   /** ADR-0015 (V2): only on VM rows inside a synced subtree; `missing` = not reported by vCenter. */
   syncState?: SyncState | null;
+  /** ADR-0025: SSH jump hosts, first hop first (≤ 3). Absent from a backend before A5 = none. */
+  via?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +92,8 @@ export interface ConnectionFields {
   tags: string[];
   /** Omitted = leave the stored options unchanged (update) or `{}` (create). */
   options?: ProtocolOptions;
+  /** ADR-0025: omitted on update keeps the stored chain; `[]` clears it. */
+  via?: string[];
 }
 
 export interface ConnectionHit {
@@ -258,7 +267,10 @@ export type SessionEvent =
       purpose: PromptPurpose;
       account: PromptAccount | null;
       certificate: CertificateInfo | null;
+      /** ADR-0025: the 0-based jump host that asks; absent/null = the target. */
+      hop?: number | null;
     }
+  | ({ kind: "hop_status" } & HopStatus)
   | { kind: "desktop_resized"; width: number; height: number }
   | { kind: "reconnecting"; attempt: number; delayMs: number }
   | { kind: "detached" }
@@ -311,7 +323,7 @@ export interface AuditVerify {
 }
 
 /** Every command of ADR-0008 … ADR-0020 (plus the A0 vault/app commands). */
-export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, UpdateIpc, NetIpc, ImportIpc {
+export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, UpdateIpc, NetIpc, ImportIpc, A5Ipc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;

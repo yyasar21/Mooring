@@ -21,11 +21,12 @@ export function Toggle({ checked, onChange, label, hint, disabled }: {
 }
 
 /** Card frame shared by the settings sections. */
-export function SettingsCard({ title, kicker, children, labelledBy }: { title: string; kicker: string; children: ReactNode; labelledBy: string }) {
+/** `kicker` is optional: A5 cards leave it out (the Harbor redesign drops the micro labels). */
+export function SettingsCard({ title, kicker, children, labelledBy }: { title: string; kicker?: string; children: ReactNode; labelledBy: string }) {
   return (
     <section aria-labelledby={labelledBy} className="settings-card m-hud">
       <header className="settings-card-head">
-        <span className="m-micro">{kicker}</span>
+        {kicker && <span className="m-micro">{kicker}</span>}
         <h2 id={labelledBy} className="m-display text-[length:var(--fs-l)]">{title}</h2>
       </header>
       {children}

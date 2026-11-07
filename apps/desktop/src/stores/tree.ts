@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { ipc, type ConnectionFields, type ConnectionHit, type ConnectionSummary, type Folder } from "../lib/ipc";
-import { errorText } from "./errors";
+import { isIpcError } from "../lib/ipc";
+import { describeError, errorText } from "./errors";
+
+/** ADR-0025 refusals whose friendly text says what to do; other codes keep Rust's specific message. */
+const FRIENDLY_TREE_CODES: ReadonlySet<string> = new Set(["connection.via_invalid", "connection.in_use_as_hop"]);
+const treeError = (e: unknown): string => (isIpcError(e) && FRIENDLY_TREE_CODES.has(e.code) ? describeError(e) : errorText(e));
 
 /** A node id in the tree: folders and connections share one selection. */
 export type NodeRef = { kind: "folder"; id: string } | { kind: "connection"; id: string };
@@ -54,7 +59,7 @@ export const useTree = create<TreeState>((set, get) => {
       await get().load();
       return out;
     } catch (e: unknown) {
-      set({ error: errorText(e) });
+      set({ error: treeError(e) });
       return null;
     }
   }
@@ -135,6 +140,18 @@ export function connectionFields(c: ConnectionSummary): ConnectionFields {
     becomeCredentialId: c.becomeCredentialId,
     tags: [...c.tags],
   };
+}
+
+/** Connections that use `id` as a jump host (ADR-0025): a delete of `id` is refused while any exist. */
+export function hopUsers(connections: ConnectionSummary[], id: string): ConnectionSummary[] {
+  return connections.filter((c) => c.id !== id && (c.via ?? []).includes(id));
+}
+
+/** "bastion01 → bastion02" for a connection's chain; null when it connects directly. */
+export function viaNames(connections: ConnectionSummary[], c: ConnectionSummary): string | null {
+  const via = c.via ?? [];
+  if (via.length === 0) return null;
+  return via.map((id) => connections.find((x) => x.id === id)?.name ?? "missing jump host").join(" → ");
 }
 
 /** Root folder (parentId null). */

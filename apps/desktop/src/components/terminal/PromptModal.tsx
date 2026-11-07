@@ -3,6 +3,19 @@ import type { PendingPrompt } from "../../stores/sessions";
 import { useSessions } from "../../stores/sessions";
 import { CredentialPrompt } from "./CredentialPrompt";
 import { CertificateTrustDialog } from "../remote/CertificateTrustDialog";
+import { useTree } from "../../stores/tree";
+import { hopName } from "./HopStrip";
+
+/** ADR-0025: the jump host a hop-tagged prompt comes from, by name (null = the target asks). */
+function useHopName(tabId: string, prompt: PendingPrompt): string | null {
+  const connectionId = useSessions((s) => s.tabs.find((t) => t.id === tabId)?.connectionId);
+  const hops = useSessions((s) => s.tabs.find((t) => t.id === tabId)?.hops);
+  const connections = useTree((s) => s.connections);
+  const hop = prompt.hop;
+  if (hop === null || hop === undefined) return null;
+  const target = connections.find((c) => c.id === connectionId);
+  return hopName(connections, target, hop, hops?.[hop]?.host ?? "");
+}
 
 /**
  * Inline modal over the terminal for a session `Prompt` (TOFU host key, keyboard-interactive).
@@ -12,12 +25,13 @@ import { CertificateTrustDialog } from "../remote/CertificateTrustDialog";
  * The typed answer lives only in this component and is cleared as soon as it is sent.
  */
 export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
-  if (prompt.purpose === "credential") return <CredentialPrompt tabId={tabId} prompt={prompt} host={host} />;
+  const hop = useHopName(tabId, prompt);
+  if (prompt.purpose === "credential") return <CredentialPrompt tabId={tabId} prompt={prompt} host={host} hop={hop} />;
   if (prompt.purpose === "certificate_trust" && !prompt.secret) return <CertificateTrustDialog tabId={tabId} prompt={prompt} />;
-  return <AnswerPrompt tabId={tabId} prompt={prompt} host={host} />;
+  return <AnswerPrompt tabId={tabId} prompt={prompt} host={host} hop={hop} />;
 }
 
-function AnswerPrompt({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
+function AnswerPrompt({ tabId, prompt, host, hop }: { tabId: string; prompt: PendingPrompt; host: string; hop: string | null }) {
   const answer = useSessions((s) => s.answer);
   const [text, setText] = useState("");
   const firstRef = useRef<HTMLInputElement & HTMLButtonElement>(null);
@@ -55,7 +69,7 @@ function AnswerPrompt({ tabId, prompt, host }: { tabId: string; prompt: PendingP
         </p>
         <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
           <span aria-hidden className="tab-attn" />
-          {isTrust ? "Verify host identity" : `${host} asks`}
+          {isTrust ? (hop ? `Jump host ${hop}: verify host identity` : "Verify host identity") : hop ? `Jump host ${hop} asks` : `${host} asks`}
         </h2>
         <p id={bodyId} className="mono mt-3 whitespace-pre-wrap border-l-2 border-[var(--hot-line)] bg-bg-sunken p-3 text-text select-text">
           {prompt.message}

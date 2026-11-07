@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
-import type { TreeRow } from "../../stores/tree";
+import { useTree, viaNames, type TreeRow } from "../../stores/tree";
 import { lineState, type TabState } from "../../stores/sessions";
 import { SyncBadge } from "../vsphere/SyncBadge";
 
@@ -37,6 +37,8 @@ export function TreeRowView(p: Props) {
   const synced = p.syncSource !== null;
   const missing = !isFolder && p.connection?.syncState === "missing";
   const syncedRoot = isFolder && synced && !p.folder?.externalId;
+  // ADR-0025: a connection with a chain says which jump hosts it goes through.
+  const via = useTree((s) => (p.connection ? viaNames(s.connections, p.connection) : null));
 
   useEffect(() => {
     if (p.focused && !p.renaming && document.activeElement !== ref.current) {
@@ -55,7 +57,7 @@ export function TreeRowView(p: Props) {
       aria-posinset={p.posInSet}
       aria-selected={p.selected}
       aria-expanded={isFolder ? p.expanded : undefined}
-      aria-label={`${isFolder ? name : `${name}, ${p.connection?.host ?? ""}`}${synced ? `, synced from ${p.syncSource ?? ""}` : ""}${missing ? ", missing in vCenter" : ""}`}
+      aria-label={`${isFolder ? name : `${name}, ${p.connection?.host ?? ""}`}${via ? `, via ${via}` : ""}${synced ? `, synced from ${p.syncSource ?? ""}` : ""}${missing ? ", missing in vCenter" : ""}`}
       aria-readonly={synced || undefined}
       tabIndex={p.focused ? 0 : -1}
       data-drop={p.dropTarget || undefined}
@@ -106,6 +108,7 @@ export function TreeRowView(p: Props) {
       ) : (
         <span className="tree-name">{name}</span>
       )}
+      {via && !p.renaming && <span className="tree-via" aria-hidden title={`Connects via ${via}`}>via {via}</span>}
       {missing && <span className="tree-missing" aria-hidden>missing</span>}
       {!p.renaming && <span aria-hidden className="tree-link" data-state={p.sessionState ?? undefined} />}
       {isFolder && synced && <SyncBadge source={p.syncSource ?? ""} compact={!syncedRoot} />}

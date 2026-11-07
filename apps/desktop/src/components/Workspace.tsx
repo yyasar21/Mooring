@@ -8,6 +8,8 @@ import { DetachedPlaceholder } from "./detached/DetachedPlaceholder";
 import { useTree } from "../stores/tree";
 import { TabStrip } from "./TabStrip";
 import { PromptModal } from "./terminal/PromptModal";
+import { HopStrip } from "./terminal/HopStrip";
+import { CLOSE_TEXT } from "./remote/ConnectionBanner";
 import { SessionToolbar, type SessionTool } from "./SessionToolbar";
 import { ForwardsPanel } from "./forwards/ForwardsPanel";
 import { SftpPanel } from "./sftp/SftpPanel";
@@ -125,12 +127,16 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       {tab.state === "closed" && !graphical && kube?.view !== "cluster" && kube?.view !== "logs" && (
         <div className="dropped m-hud" data-tone="hot">
           <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>
-          <span className="text-text-muted">Disconnected: {tab.reason ?? "session ended"}</span>
+          <span className="dropped-text">
+            <span className="text-text-muted">Disconnected: {tab.reason ?? "session ended"}</span>
+            {(tab.closeCode === "hop_failed" || tab.closeCode === "hop_lost") && <span className="dropped-hint">{CLOSE_TEXT[tab.closeCode].hint}</span>}
+          </span>
           <button type="button" className="btn" onClick={() => void reconnect(tab.id)}>
             Reconnect
           </button>
         </div>
       )}
+      {!web && kube?.view !== "cluster" && kube?.view !== "logs" && <HopStrip tab={tab} />}
       {detached && <DetachedPlaceholder tabId={tab.id} name={c?.name ?? "This session"} />}
       {tab.prompt && active && <PromptModal tabId={tab.id} prompt={tab.prompt} host={c?.host ?? ""} />}
     </div>

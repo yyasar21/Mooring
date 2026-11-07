@@ -7,12 +7,13 @@ import { SyncCard } from "./SyncCard";
 import { UpdatesCard } from "./UpdatesCard";
 import { AboutCard } from "./AboutCard";
 import { ImportCard } from "../import/ImportCard";
+import { SecurityCard } from "./SecurityCard";
+import { BackupCard } from "./BackupCard";
 
 /**
- * Application settings: auto-lock policy, the audit syslog mirror (ADR-0010), the trusted
- * certificates (ADR-0011), secret sources (ADR-0016), vault sync (ADR-0017), updates
- * (ADR-0018 §3) and About.
- * certificates (ADR-0011), secret sources (ADR-0016), vault sync (ADR-0017), importers (ADR-0019) and About.
+ * Application settings: auto-lock policy and biometric unlock (ADR-0010, ADR-0022), the audit
+ * syslog mirror, the trusted certificates (ADR-0011), secret sources (ADR-0016), vault sync
+ * (ADR-0017), backups (ADR-0023), importers (ADR-0019), updates (ADR-0018 §3) and About.
  */
 export function SettingsView() {
   const setView = useUi((s) => s.setView);
@@ -26,10 +27,12 @@ export function SettingsView() {
       </header>
       <div className="settings-scroll">
         <AutoLockCard />
+        <SecurityCard />
         <SyslogCard />
         <KnownCertsCard />
         <SecretSourcesCard />
         <SyncCard />
+        <BackupCard />
         <ImportCard />
         <UpdatesCard />
         <AboutCard />

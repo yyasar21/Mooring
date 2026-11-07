@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../../stores/app";
 import { PortableLine } from "./PortableLine";
 import { SettingsCard } from "./Toggle";
+import { DevBadge } from "../DevBadge";
 
 /** Public places a user may want to reach from the app. No command opens a browser from the main window (no opener capability), so each one is shown as text with a Copy button. */
 export const ABOUT_LINKS: readonly { label: string; url: string }[] = [
@@ -22,6 +23,7 @@ export function versionLine(info: { version: string; os: string; arch: string; d
 /** Settings → About: name, version from `app_info`, the icon, links, licence, the no-telemetry promise. */
 export function AboutCard() {
   const info = useApp((s) => s.info);
+  const dev = info?.channel === "dev";
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,8 +47,13 @@ export function AboutCard() {
         <div className="about-head">
           <img src="/favicon.svg" alt="" width={72} height={72} className="about-icon" />
           <div className="min-w-0">
-            <p className="about-name">{info?.name ?? "Mooring"}</p>
+            <p className="about-name">{info?.name ?? "Mooring"}{dev && <> <DevBadge /></>}</p>
             <p className="about-version" data-testid="about-version">{versionLine(info)}</p>
+            {dev && (
+              <p className="about-dev" data-testid="about-dev">
+                Mooring Dev — development build, separate data from Mooring{info.identifier ? <> (<span className="mono">{info.identifier}</span>)</> : null}.
+              </p>
+            )}
             <p className="about-tagline">Remote access, kept local: your connections and credentials never leave this machine unless you sync them yourself.</p>
           </div>
         </div>

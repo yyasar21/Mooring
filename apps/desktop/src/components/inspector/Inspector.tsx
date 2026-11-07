@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { HudLabel, ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
-import { folderPath, useTree } from "../../stores/tree";
+import { folderPath, useTree, viaNames } from "../../stores/tree";
 import { lineState, useSessions } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
@@ -91,6 +91,7 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
           <Prop k="Host" mono>{c.host}</Prop>
           <Prop k="Port" mono>{c.port ?? "default"}</Prop>
           <Prop k="Protocol">{c.protocol.toUpperCase()}</Prop>
+          {viaNames(connections, c) && <Prop k="Connect via">{viaNames(connections, c)}</Prop>}
           <Prop k="Tags">{c.tags.length ? c.tags.join(", ") : <span className="text-text-faint">none</span>}</Prop>
           {vm && <Prop k="Synced from">{sourceName(connections, c.syncSource)}</Prop>}
           {tab && (

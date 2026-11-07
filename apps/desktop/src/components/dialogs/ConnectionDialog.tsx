@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { HudLabel } from "@mooring/ui";
-import type { CredentialRole, KubeConnOptions, Protocol } from "../../lib/ipc";
+import type { CredentialRole, KubeConnOptions, Protocol, VncConnOptions } from "../../lib/ipc";
+import { supportsVia } from "../../lib/via";
 import { kubeCredentialFit } from "../../lib/validate.kube";
 import { credentialValidFor, supportsOverride } from "../../lib/credentials";
-import { folderPath, useTree } from "../../stores/tree";
+import { folderPath, hopUsers, useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
 import { useSessions } from "../../stores/sessions";
 import { useToasts } from "../../stores/toast";
@@ -14,6 +15,7 @@ import { ProtocolOptionsSection, useOptionsDraft } from "./options/ProtocolOptio
 import { useConnOptions } from "../../stores/connOptions";
 import { describeError } from "../../stores/errors";
 import { READONLY_REASON } from "../vsphere/vsphere";
+import { ViaSection } from "./ViaSection";
 
 const PROTOCOLS: { value: Protocol; label: string; port: number | null }[] = [
   { value: "ssh", label: "SSH", port: 22 },
@@ -75,6 +77,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const [gateway, setGateway] = useState(picked("gateway") ?? r?.gateway ?? existing?.gatewayCredentialId ?? "");
   const [become, setBecome] = useState(picked("become") ?? r?.become ?? existing?.becomeCredentialId ?? "");
   const [tags, setTags] = useState(r?.tags ?? existing?.tags.join(" ") ?? "");
+  const [via, setVia] = useState<string[]>(r?.via ?? existing?.via ?? []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const options = useOptionsDraft(id, existing?.protocol, protocol, r?.options);
@@ -138,6 +141,8 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
       gatewayCredentialId: gw || null,
       becomeCredentialId: bc || null,
       tags: tags.split(/[\s,]+/).filter(Boolean),
+      // ADR-0025: the form owns the chain, so it always sends it ([] clears it).
+      via: supportsVia(protocol) ? via : [],
     };
     const t = useTree.getState();
     const saved = existing ? await t.updateConnection(existing.id, fields) : await t.createConnection(fields);
@@ -165,7 +170,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
 
   /** "New…" next to a picker: leave for the credentials view, keeping everything typed so far. */
   function newCredential(role: CredentialRole) {
-    const draft: ConnectionDraft = { name, protocol, host, port, folder, cred, userOv, domainOv, gateway, become, tags, options: options.drafts };
+    const draft: ConnectionDraft = { name, protocol, host, port, folder, cred, userOv, domainOv, gateway, become, tags, via, options: options.drafts };
     const conn = id ?? createdId;
     useUi.getState().showCredentials({
       mode: "new",
@@ -180,10 +185,11 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
     for (const tab of useSessions.getState().tabs.filter((x) => x.connectionId === existing.id)) {
       await useSessions.getState().close(tab.id);
     }
+    const users = hopUsers(useTree.getState().connections, existing.id).map((c) => c.name);
     const ok = await useTree.getState().deleteConnection(existing.id);
     setBusy(false);
     if (ok) onClose();
-    else setError(useTree.getState().error ?? "could not delete the connection");
+    else setError(`${useTree.getState().error ?? "could not delete the connection"}${users.length > 0 ? ` Used by: ${users.join(", ")}.` : ""}`);
   }
 
   return (
@@ -314,6 +320,15 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
           )}
           {dropped && <p className="field-hint">A previous choice does not fit {protocol.toUpperCase()} and was cleared.</p>}
         </div>
+
+        <ViaSection
+          selfId={existing?.id ?? null}
+          protocol={protocol}
+          target={name.trim() || host.trim()}
+          via={via}
+          onChange={setVia}
+          vnc={protocol === "vnc" ? (options.value as Partial<VncConnOptions>) : null}
+        />
 
         {/* ADR-0015: refresh, power and VMRC opt-ins belong to the vCenter connection, not to a VM row. */}
         {!synced && <ProtocolOptionsSection draft={options} credential={effective} extraErrors={fit} />}

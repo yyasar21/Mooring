@@ -25,6 +25,8 @@ export interface ConnectionDraft {
   gateway: string;
   become: string;
   tags: string;
+  /** ADR-0025 jump hosts, first hop first (absent in drafts from before A5). */
+  via?: string[];
   options: Partial<Record<Protocol, ProtocolOptions>>;
 }
 
