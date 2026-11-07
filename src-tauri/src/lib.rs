@@ -110,9 +110,8 @@ pub fn run() {
         .setup(move |app| {
             // ADR-0021 §1, §3: the marker decides the directories; an unusable portable
             // set-up or a missing WebView2 runtime is a message box and exit 2, no window.
-            let dirs = match startup::resolve_dirs(app)
-                .and_then(|d| startup::check_webview(&d).map(|()| d))
-            {
+            // The WebView2 check runs before anything is created (review 8 N-65).
+            let dirs = match startup::resolve_dirs(app) {
                 Ok(dirs) => dirs,
                 Err(refusal) => {
                     startup::refuse(app.handle(), &refusal);
@@ -122,7 +121,8 @@ pub fn run() {
             let portable = dirs.portable();
             // macOS: WKWebView has no profile directory knob; nothing to create there.
             let webview_dir = dirs.webview_dir().filter(|_| !cfg!(target_os = "macos"));
-            let mut acl_unavailable = false;
+            // L-45: a volume without POSIX modes (vfat / exFAT) is audited like FAT on Windows.
+            let mut acl_unavailable = portable && dirs.mode_unavailable;
             if let Some(root) = dirs.portable_root.as_deref() {
                 // Windows: owner-only ACL on NTFS; FAT32 / policy failures are audited below.
                 if let Err(e) = portable_acl::apply(root) {
@@ -324,20 +324,43 @@ pub fn run() {
     });
 }
 
+/// What [`create_private_dir`] could do about the directory's mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// Owner-only (unix 0700), or Windows where the parent's ACL applies.
+    Private,
+    /// The volume has no POSIX modes (vfat / exFAT: `chmod` → `EPERM` / `ENOTSUP`, review 8
+    /// L-45): the directory exists, its mode is whatever the mount gives every file.
+    Unavailable,
+}
+
 /// Create the app data dir owner-only on unix (review M2): it holds the vault header, the audit
 /// log, `known_hosts` and `mooring.db` (whose own mode is set to 0600 by
 /// `mooring_store::Store::open`). An existing directory is tightened too. Windows relies on the
-/// per-user `AppData` ACL (a portable root gets its own ACL, `portable_acl`, ADR-0021).
-pub(crate) fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+/// per-user `AppData` ACL (a portable root gets its own ACL, `portable_acl`, ADR-0021). A
+/// create failure is an error; a mode the volume cannot hold is [`Mode::Unavailable`].
+pub(crate) fn create_private_dir(dir: &std::path::Path) -> std::io::Result<Mode> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        match std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)) {
+            Ok(()) => Ok(Mode::Private),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::Unsupported
+                ) =>
+            {
+                tracing::warn!(error = %e.kind(), "directory mode not applied: the volume has no POSIX modes");
+                Ok(Mode::Unavailable)
+            }
+            Err(e) => Err(e),
+        }
     }
     #[cfg(not(unix))]
     {
-        std::fs::create_dir_all(dir)
+        std::fs::create_dir_all(dir).map(|()| Mode::Private)
     }
 }
 

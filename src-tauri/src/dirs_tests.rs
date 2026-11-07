@@ -2,7 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{Dirs, DirsError};
+use super::{Dirs, DirsError, Located};
+use crate::Mode;
 use crate::updater::install_mode::dir_writable;
 
 fn os_default_in(base: &Path) -> impl Fn() -> tauri::Result<(PathBuf, PathBuf)> {
@@ -216,5 +217,211 @@ fn errors_name_the_directory_only() {
     for e in [DirsError::MarkerInvalid(p.clone()), DirsError::DataDirInvalid(p.clone()), DirsError::Unwritable(p.clone())] {
         assert_eq!(e.path(), Some(p.as_path()));
         assert!(e.to_string().contains("/media/usb/Mooring"));
+    }
+}
+
+// ------------------------------------------------------------ review 8 fixes
+
+#[test]
+fn locate_creates_nothing_and_create_finishes_the_job() {
+    // N-65: the WebView2 check runs between the two halves, so a refusal leaves no root.
+    let tmp = tempfile::tempdir().expect("tmp");
+    let app = tmp.path().join("app");
+    let exe = exe_in(&app);
+    assert_eq!(Dirs::locate(&exe, None).expect("locate"), Located::Os);
+    std::fs::write(app.join(Dirs::MARKER), b"").expect("marker");
+    let located = Dirs::locate(&exe, None).expect("locate");
+    assert_eq!(located, Located::Portable(app.clone()));
+    assert!(located.portable());
+    assert!(!app.join(Dirs::ROOT).exists(), "locate must not create the root");
+    let d = Dirs::create(located, &never_os, &writable).expect("create");
+    assert_eq!(d, Dirs::resolve(&exe, None, &never_os, &writable).expect("resolve"));
+    assert!(d.data.is_dir() && !d.mode_unavailable);
+}
+
+#[test]
+fn translocated_paths_are_detected_by_component() {
+    // M-18: LaunchServices' copy lives under /private/var/folders/<xx>/<yyy>/T/AppTranslocation.
+    for p in [
+        "/private/var/folders/9q/abc/T/AppTranslocation/2E5B-4A1C/d/Mooring.app/Contents/MacOS/Mooring",
+        "/var/folders/9q/abc/T/AppTranslocation/2E5B-4A1C/d/Mooring.app/Contents/MacOS/Mooring",
+        "/AppTranslocation/x",
+    ] {
+        assert!(Dirs::translocated(Path::new(p)), "{p}");
+    }
+    for p in [
+        "/Users/u/Desktop/Mooring/Mooring.app/Contents/MacOS/Mooring",
+        "/Users/u/AppTranslocation.app/Contents/MacOS/Mooring",
+        "/Users/u/MyAppTranslocation/Mooring.app/Contents/MacOS/Mooring",
+        "/private/var/folders/9q/abc/T/apptranslocation/x/d/Mooring.app/Contents/MacOS/Mooring",
+        "/Volumes/USB/Mooring/Mooring.app/Contents/MacOS/Mooring",
+    ] {
+        assert!(!Dirs::translocated(Path::new(p)), "{p}");
+    }
+    let e = DirsError::Translocated(PathBuf::from("/private/var/folders/x/AppTranslocation/u/d/Mooring.app"));
+    assert_eq!(e.code(), "portable.translocated");
+    assert!(e.path().is_some());
+    assert!(e.to_string().contains("Finder") && !e.to_string().contains("xattr"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn translocated_exe_is_refused_before_the_marker_is_looked_up() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let d = tmp.path().join("T").join(Dirs::TRANSLOCATION).join("uuid").join("d");
+    let exe = exe_in(&d.join("Mooring.app").join("Contents").join("MacOS"));
+    // Even with a marker in the copy (it never has one) the answer is the refusal.
+    std::fs::write(d.join(Dirs::MARKER), b"").expect("marker");
+    let e = Dirs::locate(&exe, None).expect_err("translocated");
+    assert!(matches!(&e, DirsError::Translocated(p) if *p == d.join("Mooring.app")), "{e:?}");
+    let e = Dirs::resolve(&exe, None, &never_os, &writable).expect_err("translocated");
+    assert_eq!(e.code(), "portable.translocated");
+    assert!(!d.join(Dirs::ROOT).exists());
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn translocation_component_is_an_ordinary_folder_name_elsewhere() {
+    let tmp = tempfile::tempdir().expect("tmp");
+    let app = tmp.path().join(Dirs::TRANSLOCATION).join("app");
+    let exe = exe_in(&app);
+    std::fs::write(app.join(Dirs::MARKER), b"").expect("marker");
+    let d = Dirs::resolve(&exe, None, &never_os, &writable).expect("not macOS");
+    assert!(d.portable());
+}
+
+#[test]
+fn exe_in_appimage_mount_shapes() {
+    let exe = Path::new("/tmp/.mount_MoorinAbC/usr/bin/mooring");
+    assert!(Dirs::exe_in_appimage_mount(exe, None));
+    assert!(Dirs::exe_in_appimage_mount(Path::new("/home/u/x/mooring"), Some(Path::new("/home/u/x"))));
+    assert!(!Dirs::exe_in_appimage_mount(Path::new("/home/u/x/mooring"), Some(Path::new("/home/u/y"))));
+    // A degenerate `$APPDIR` never matches: relative, root, or empty.
+    assert!(!Dirs::exe_in_appimage_mount(Path::new("/home/u/x/mooring"), Some(Path::new("home/u/x"))));
+    assert!(!Dirs::exe_in_appimage_mount(Path::new("/home/u/x/mooring"), Some(Path::new("/"))));
+    assert!(!Dirs::exe_in_appimage_mount(Path::new("/home/u/x/mooring"), Some(Path::new(""))));
+    for p in ["/tmp/.mount_", "/tmp/mount_x/mooring", "/var/tmp/.mount_x/mooring", "/home/u/.mount_x/mooring", "tmp/.mount_x/m"] {
+        assert!(!Dirs::exe_in_appimage_mount(Path::new(p), None), "{p}");
+    }
+}
+
+#[test]
+fn appimage_env_is_validated_before_it_relocates_the_marker() {
+    // L-44: a real image file, the exe inside its mount, Linux → honoured.
+    let tmp = tempfile::tempdir().expect("tmp");
+    let image = tmp.path().join("Mooring.AppImage");
+    std::fs::write(&image, b"").expect("image");
+    let mount = tmp.path().join("mount");
+    let exe = exe_in(&mount.join("usr").join("bin"));
+    let ok = Dirs::appimage_from_env(&exe, Some(&image), Some(&mount), true);
+    assert_eq!(ok.as_deref(), Some(image.as_path()));
+    // Not Linux: ignored, whatever the value.
+    assert_eq!(Dirs::appimage_from_env(&exe, Some(&image), Some(&mount), false), None);
+    // The exe is not under $APPDIR / a mount: an inherited value from another AppImage.
+    assert_eq!(Dirs::appimage_from_env(&exe, Some(&image), None, true), None);
+    assert_eq!(Dirs::appimage_from_env(&exe, Some(&image), Some(&tmp.path().join("other")), true), None);
+    // The image does not exist, is a directory, or is relative: ignored.
+    assert_eq!(Dirs::appimage_from_env(&exe, Some(&tmp.path().join("missing")), Some(&mount), true), None);
+    assert_eq!(Dirs::appimage_from_env(&exe, Some(&mount), Some(&mount), true), None);
+    assert_eq!(Dirs::appimage_from_env(&exe, Some(Path::new("Mooring.AppImage")), Some(&mount), true), None);
+    assert_eq!(Dirs::appimage_from_env(&exe, None, Some(&mount), true), None);
+    #[cfg(unix)]
+    {
+        let link = tmp.path().join("link.AppImage");
+        std::os::unix::fs::symlink(&image, &link).expect("symlink");
+        assert_eq!(Dirs::appimage_from_env(&exe, Some(&link), Some(&mount), true), None);
+    }
+}
+
+#[test]
+fn inherited_appimage_keeps_the_marker_next_to_the_real_exe() {
+    // L-44 (a): a terminal that is an AppImage sets $APPIMAGE for Mooring; the marker next to
+    // Mooring's own executable must still win, and the other image's folder is never read.
+    let tmp = tempfile::tempdir().expect("tmp");
+    let other = tmp.path().join("Terminal.AppImage");
+    std::fs::write(&other, b"").expect("other image");
+    let app = tmp.path().join("app");
+    let exe = exe_in(&app);
+    std::fs::write(app.join(Dirs::MARKER), b"").expect("marker");
+    let appimage = Dirs::appimage_from_env(&exe, Some(&other), None, true);
+    assert_eq!(appimage, None);
+    let d = Dirs::resolve(&exe, appimage.as_deref(), &never_os, &writable).expect("portable");
+    assert_eq!(d.portable_root.as_deref(), Some(app.join(Dirs::ROOT).as_path()));
+    assert!(!tmp.path().join(Dirs::ROOT).exists(), "nothing next to the other image");
+}
+
+/// Scripted `create_private_dir`: creates the directory and reports `mode`.
+fn mkdir_reporting(mode: Mode) -> impl Fn(&Path) -> std::io::Result<Mode> {
+    move |p: &Path| std::fs::create_dir_all(p).map(|()| mode)
+}
+
+#[test]
+fn volume_without_posix_modes_is_not_unwritable() {
+    // L-45: vfat / exFAT answer `chmod` with EPERM; the folder is writable all the same.
+    let tmp = tempfile::tempdir().expect("tmp");
+    let app = tmp.path().join("app");
+    exe_in(&app);
+    let d = Dirs::portable_under(&app, &writable, &mkdir_reporting(Mode::Unavailable)).expect("usable");
+    assert!(d.portable() && d.mode_unavailable);
+    assert!(d.data.is_dir() && d.cache.is_dir());
+    let d = Dirs::portable_under(&app, &writable, &mkdir_reporting(Mode::Private)).expect("usable");
+    assert!(!d.mode_unavailable);
+    // A real create failure is still `Unwritable(root)`.
+    let failing = |_: &Path| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+    let e = Dirs::portable_under(&app, &writable, &failing).expect_err("create failed");
+    assert!(matches!(&e, DirsError::Unwritable(p) if *p == app.join(Dirs::ROOT)), "{e:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn create_private_dir_reports_the_mode_it_applied() {
+    // The real function on a POSIX volume: `Private`, and an existing 0755 is tightened. The
+    // `Unavailable` branch (vfat / exFAT: EPERM from chmod) needs such a mount; it is covered
+    // by the scripted test above and the macOS USB gate.
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().expect("tmp");
+    let dir = tmp.path().join("d");
+    std::fs::create_dir(&dir).expect("mkdir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(crate::create_private_dir(&dir).expect("existing dir"), Mode::Private);
+    assert_eq!(std::fs::metadata(&dir).expect("m").permissions().mode() & 0o777, 0o700);
+}
+
+#[cfg(unix)]
+#[test]
+fn entry_swapped_between_check_and_create_is_refused() {
+    // N-68: the scripted `mkdir` plays the co-located writer who swaps `Mooring Data` (or a
+    // subdir) for a link to elsewhere after the pre-check passed.
+    let tmp = tempfile::tempdir().expect("tmp");
+    let elsewhere = tmp.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("mkdir");
+    for victim in ["", "data", "cache"] {
+        let app = tmp.path().join(format!("app-{victim}"));
+        exe_in(&app);
+        let root = app.join(Dirs::ROOT);
+        let target = if victim.is_empty() { root.clone() } else { root.join(victim) };
+        let swap = |p: &Path| -> std::io::Result<Mode> {
+            std::fs::create_dir_all(p)?;
+            if p == target {
+                std::fs::remove_dir(p)?;
+                std::os::unix::fs::symlink(&elsewhere, p)?;
+            }
+            Ok(Mode::Private)
+        };
+        let e = Dirs::portable_under(&app, &writable, &swap).expect_err("swapped");
+        assert!(matches!(&e, DirsError::DataDirInvalid(p) if *p == root), "{victim:?}: {e:?}");
+        assert!(std::fs::read_dir(&elsewhere).expect("ls").next().is_none(), "{victim:?}: written through the link");
+    }
+    // A plain directory replaced by another plain directory is only caught when the inode
+    // differs (ext4 / tmpfs reuse it at once), so that case is best-effort and not pinned.
+}
+
+#[test]
+fn invalid_texts_mention_cloud_sync_placeholders() {
+    // L-46: a OneDrive / iCloud "files on demand" placeholder is a reparse point; the user
+    // must be able to tell why the folder was refused.
+    let p = PathBuf::from("/x");
+    for e in [DirsError::MarkerInvalid(p.clone()), DirsError::DataDirInvalid(p)] {
+        assert!(e.to_string().contains("cloud-sync placeholder"), "{e}");
     }
 }

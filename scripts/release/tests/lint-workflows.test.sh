@@ -102,6 +102,20 @@ portsel=$(fixture portsel)
 sed -i "s/-name '\*.AppImage'/-name '*.AppImage' -o -name '*_portable.zip'/" "$portsel/release.yml"
 expect nonzero "sign-updater find selecting *_portable.zip despite the exclusion" "$portsel"
 
+# N-70: the quoting style of the `-name` pattern does not matter.
+dqzip=$(fixture dqzip)
+sed -i "s/-name '\*.AppImage'/-name '*.AppImage' -o -name \"*.zip\"/" "$dqzip/release.yml"
+grep -q -- '-name "\*.zip"' "$dqzip/release.yml" || { fail=$((fail + 1)); echo "FAIL fixture edit (dqzip)"; }
+expect nonzero "sign-updater find selecting a double-quoted *.zip" "$dqzip"
+
+barezip=$(fixture barezip)
+sed -i "s/-name '\*.AppImage'/-name '*.AppImage' -o -name Mooring_portable.zip/" "$barezip/release.yml"
+expect nonzero "sign-updater find selecting a bare zip name" "$barezip"
+
+dqok=$(fixture dqok)
+sed -i "s/-name '\*.AppImage'/-name \"*.AppImage\"/" "$dqok/release.yml"
+expect 0 "double-quoted non-zip patterns still pass" "$dqok"
+
 nofind=$(fixture nofind)
 sed -i '/find artifacts/,/LC_ALL=C sort)/d' "$nofind/release.yml"
 expect nonzero "sign-updater without an artifact selector" "$nofind"

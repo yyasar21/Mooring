@@ -228,7 +228,7 @@ impl AppState {
     /// store, and create the root folder on first start. `dirs` comes from
     /// [`Dirs::resolve`] (ADR-0021): every file location derives from its two directories.
     pub fn new(dirs: Dirs, settings: Settings) -> Result<Self, StateError> {
-        let Dirs { data: data_dir, cache: cache_dir, portable_root } = dirs;
+        let Dirs { data: data_dir, cache: cache_dir, portable_root, mode_unavailable: _ } = dirs;
         let header_path = data_dir.join(Self::HEADER_FILE);
         let vault = match std::fs::read(&header_path) {
             Ok(bytes) => Some(Vault::from_header_bytes(&bytes)?),
