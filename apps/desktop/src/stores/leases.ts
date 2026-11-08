@@ -1,7 +1,7 @@
 // ADR-0026 §2: dynamic-secret leases per session tab, read from the `leases` field of
 // `session_list` rows (passive, R3). Rust sends engine, seconds left, renewable and state, never a
-// lease id. The UI keeps only those facts plus the largest TTL it has seen, to say when the next
-// renewal (at two thirds of the TTL) is due.
+// lease id. The UI keeps those facts plus the TTL (`ttlSeconds` since R6; older builds: the largest
+// seconds-left seen), to say when the next renewal (at two thirds of the TTL) is due.
 import { create } from "zustand";
 import { ipc, type LeaseInfo, type LeaseState, type SessionInfo } from "../lib/ipc";
 import type { Tab } from "./sessions.types";
@@ -14,7 +14,7 @@ export interface LeaseView {
   renewable: boolean;
   /** `Date.now()` + seconds left when last read; null = no TTL reported. */
   expiresAt: number | null;
-  /** Largest seconds-left seen since the last renewal (≈ the lease TTL). */
+  /** The lease TTL: Rust's `ttlSeconds`, else the largest seconds-left seen since the last renewal. */
   ttlSeconds: number | null;
 }
 
@@ -27,14 +27,19 @@ export function decodeLease(raw: unknown): LeaseInfo | null {
   if (typeof r.engine !== "string" || r.engine.length > 32 || typeof r.renewable !== "boolean" || typeof r.state !== "string") return null;
   const exp = r.expiresInSeconds;
   if (exp !== null && exp !== undefined && (typeof exp !== "number" || !Number.isFinite(exp) || exp < 0)) return null;
-  return { engine: r.engine, renewable: r.renewable, state: r.state, expiresInSeconds: typeof exp === "number" ? exp : null };
+  // R6 `ttlSeconds`: a positive number, else unknown (null); a bad value never drops the row.
+  const ttl = r.ttlSeconds;
+  const ttlSeconds = typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0 ? ttl : null;
+  return { engine: r.engine, renewable: r.renewable, state: r.state, expiresInSeconds: typeof exp === "number" ? exp : null, ttlSeconds };
 }
 
 /** Merge a fresh read into the previous view of the same lease (by position). */
 export function nextView(prev: LeaseView | undefined, l: LeaseInfo, now: number): LeaseView {
   const left = l.expiresInSeconds;
   let ttl = left;
-  if (prev && prev.engine === l.engine && left !== null && prev.ttlSeconds !== null && prev.expiresAt !== null) {
+  // R6: Rust reports the TTL itself; the estimate below is only for builds that do not.
+  if (typeof l.ttlSeconds === "number") ttl = l.ttlSeconds;
+  else if (prev && prev.engine === l.engine && left !== null && prev.ttlSeconds !== null && prev.expiresAt !== null) {
     const expectedLeft = (prev.expiresAt - now) / 1000;
     // Seconds left went up by more than polling jitter: Rust renewed it, so this is the new TTL.
     ttl = left > expectedLeft + 5 ? left : Math.max(prev.ttlSeconds, left);

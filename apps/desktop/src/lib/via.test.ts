@@ -43,7 +43,9 @@ describe("via picker rules", () => {
     expect(moveItem(["a", "b", "c"], 2, -1)).toEqual(["a", "c", "b"]);
     expect(moveItem(["a", "b", "c"], 0, -1)).toEqual(["a", "b", "c"]);
     expect(supportsVia("ssh") && supportsVia("rdp") && supportsVia("vnc") && supportsVia("kubernetes")).toBe(true);
-    expect(supportsVia("web") || supportsVia("vsphere-console")).toBe(false);
+    // R6: web windows go through the chain as a SOCKS proxy on the last hop; vCenter stays refused.
+    expect(supportsVia("web")).toBe(true);
+    expect(supportsVia("vsphere-console")).toBe(false);
   });
 });
 
@@ -94,6 +96,8 @@ describe("mock via store checks", () => {
     // a subtree that holds the whole chain cascades
     expect(await code(m.folderDelete({ id: "f-prod" }))).toBe("ok");
     expect(await code(m.connectionDelete({ id: "c-stg" }))).toBe("ok");
+    expect(await code(m.connectionDelete({ id: "c-bastion" }))).toBe("connection.in_use_as_hop"); // stage-wiki (web) too
+    expect(await code(m.connectionDelete({ id: "c-wiki" }))).toBe("ok");
     expect(await code(m.connectionDelete({ id: "c-bastion" }))).toBe("ok");
   });
 });

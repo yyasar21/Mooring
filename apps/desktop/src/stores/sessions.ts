@@ -270,7 +270,7 @@ export const useSessions = create<SessionState>((set, get) => {
   /** Web windows, cluster handles and sessions open differently (ADR-0013, ADR-0014). */
   const begin = (tabId: string, connectionId: string, protocol: Protocol | null, size: Size) => {
     if (protocol === "web") return openWeb(tabId, connectionId);
-    if (tabOf(tabId)?.kube?.view === "cluster") return openCluster(tabId, connectionId);
+    if (tabOf(tabId)?.kube?.view === "cluster") return openCluster(tabId, connectionId, onEvent(tabId, nextGen(tabId)));
     return start(tabId, connectionId, size);
   };
 

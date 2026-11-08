@@ -127,7 +127,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </div>
         </div>
       )}
-      {tab.state === "closed" && !graphical && kube?.view !== "cluster" && kube?.view !== "logs" && !tab.touch?.timedOut && (
+      {tab.state === "closed" && !graphical && !web && kube?.view !== "cluster" && kube?.view !== "logs" && !tab.touch?.timedOut && (
         <div className="dropped m-hud" data-tone="hot">
           {sk ? <span className="dropped-title">{sk.title}</span> : <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>}
           <span className="dropped-text">
@@ -140,7 +140,8 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
           </button>
         </div>
       )}
-      {!web && kube?.view !== "cluster" && kube?.view !== "logs" && <HopStrip tab={tab} />}
+      {/* ADR-0025: cluster tabs get the hop strip too (R1 sends `hop_status` on the kube_open channel). */}
+      {!web && kube?.view !== "logs" && <HopStrip tab={tab} />}
       {!web && !graphical && <TouchBanner tab={tab} onRetry={() => void reconnect(tab.id)} />}
       {detached && <DetachedPlaceholder tabId={tab.id} name={c?.name ?? "This session"} />}
       {tab.prompt && active && <PromptModal tabId={tab.id} prompt={tab.prompt} host={c?.host ?? ""} />}

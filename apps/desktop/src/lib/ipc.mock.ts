@@ -106,6 +106,13 @@ export class MockTransport extends MockTreeBase implements Ipc {
     });
   }
 
+  protected viaHopsOf(connectionId: string): MockHop[] { return this.hopsOf(this.resolve(this.connection(connectionId))); }
+  protected hopTrusted(host: string): boolean { return this.trustedHosts.has(host); }
+  protected hopChainOf(connectionId: string, emit: SessionEventHandler, done: () => void, fail: (reason: string) => void): MockHopChain | null {
+    const hops = this.viaHopsOf(connectionId);
+    return hops.length > 0 ? new MockHopChain(hops, this.hopEnv(emit, done, fail), connectionId) : null;
+  }
+
   private hopEnv(emit: SessionEventHandler, done: () => void, fail: (reason: string) => void) {
     return {
       emit,

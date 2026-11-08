@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ENGINE_LABEL } from "../../lib/ipc";
 import { isVaultEngine, roleOf } from "../../lib/validate.refs";
 import { useCredentials } from "../../stores/credentials";
-import { LEASE_POLL_MS, leaseChip, useLeases, worstLease, type LeaseView } from "../../stores/leases";
+import { LEASE_POLL_MS, leaseChip, leaseDuration, useLeases, worstLease, type LeaseView } from "../../stores/leases";
 import { useSessions, type Tab } from "../../stores/sessions";
 import { useTree } from "../../stores/tree";
 
@@ -59,7 +59,14 @@ export function useLeaseChip(tab: Tab): { state: string; text: string; title: st
       : chip.state === "expired" ? "Vault may already have removed the account; the session keeps running until the server ends it."
         : chip.state === "renew_failed" ? "Mooring could not renew it. The session goes on until the lease expires; reconnect for a new one."
           : lease.renewable ? "Mooring renews it at two thirds of its TTL and revokes it when the session closes." : "It is not renewable and ends at its TTL.";
-  return { state: chip.state, text: chip.text, title: `${what}. ${detail}` };
+  return { state: chip.state, text: chip.text, title: `${what}. ${detail}${remaining(lease, chip.state, now)}` };
+}
+
+/** " Expires in 52 min (TTL 1 h)." while the lease is live; the TTL is Rust's `ttlSeconds` since R6. */
+export function remaining(lease: LeaseView, state: string, now: number): string {
+  if (lease.expiresAt === null || state === "revoked" || state === "expired") return "";
+  const left = Math.max(0, (lease.expiresAt - now) / 1000);
+  return ` Expires in ${leaseDuration(left)}${lease.ttlSeconds !== null ? ` (TTL ${leaseDuration(lease.ttlSeconds)})` : ""}.`;
 }
 
 /** "Lease · renews in 23 min" on a session tab whose credential is dynamic. */

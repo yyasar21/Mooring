@@ -17,7 +17,7 @@ async function logsTab(pod = "api-7f9c8d6b5-2kqzt", container = "api", namespace
   before?.(mock);
   await useTree.getState().load();
   render(<Workspace />);
-  const { sessionId } = await mock.kubeOpen({ connectionId: "c-k8s" });
+  const { sessionId } = await mock.kubeOpen({ connectionId: "c-k8s", onEvent: () => undefined });
   await act(async () => { await openLogs("c-k8s", { parentSessionId: sessionId, namespace, pod, container }); });
   await settle(4);
   return { sessionId, region: screen.getByRole("region", { name: new RegExp(`Logs of ${pod}`) }) };

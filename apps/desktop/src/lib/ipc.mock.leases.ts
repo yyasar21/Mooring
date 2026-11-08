@@ -103,7 +103,7 @@ export class MockLeaseBook {
     return (this.leases.get(sessionId) ?? []).map((l) => {
       this.advance(l, now, record);
       const left = Math.max(0, Math.round((l.ttl * 1000 - (now - l.since)) / 1000));
-      return { engine: l.engine, expiresInSeconds: left, renewable: l.renewable, state: l.state };
+      return { engine: l.engine, expiresInSeconds: left, renewable: l.renewable, state: l.state, ttlSeconds: l.ttl };
     });
   }
 

@@ -78,8 +78,8 @@ describe("Security key (FIDO2) credentials (ADR-0024)", () => {
     await settle();
     const note = within(form).getAllByRole("alert").find((el) => el.classList.contains("kind-note"));
     if (!note) throw new Error("no refusal note");
-    expect(note).toHaveTextContent("This is a security-key key — create a Security key (FIDO2) credential instead");
-    fireEvent.click(within(note).getByRole("button", { name: "Create Security key (FIDO2) credential" }));
+    expect(note).toHaveTextContent("This is a security-key key — create an SSH security key (FIDO2) credential instead");
+    fireEvent.click(within(note).getByRole("button", { name: "Create SSH security key (FIDO2) credential" }));
     const next = within(view).getByRole("form", { name: "New SSH security key (FIDO2)" });
     expect(within(next).getByLabelText("Name")).toHaveValue("old key");
     expect(within(next).getByLabelText("Username")).toHaveValue("ops");
@@ -92,7 +92,7 @@ describe("Security key (FIDO2) credentials (ADR-0024)", () => {
     const { view, form } = newKind("SSH key");
     fireEvent.change(within(form).getByLabelText(/^Public key/), { target: { value: SK_PUBLIC } });
     const note = within(form).getByRole("note");
-    fireEvent.click(within(note).getByRole("button", { name: "Create Security key (FIDO2) credential" }));
+    fireEvent.click(within(note).getByRole("button", { name: "Create SSH security key (FIDO2) credential" }));
     const next = within(view).getByRole("form", { name: "New SSH security key (FIDO2)" });
     expect(within(next).getByLabelText(/^Public key/)).toHaveValue(SK_PUBLIC);
   });

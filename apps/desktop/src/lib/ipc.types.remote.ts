@@ -174,6 +174,14 @@ export interface WebWindowInfo {
   title: string;
   persistent: boolean;
   openedAt: string;
+  /** ADR-0025 §3 (R6): jump hosts the page goes through (SOCKS on the last hop); absent = direct. */
+  viaHops?: number;
+}
+
+/** `web_open` result. Through jump hosts it can take up to 90 s (the chain deadline). */
+export interface WebOpened {
+  windowLabel: string;
+  viaHops?: number;
 }
 
 export const WEB_ZOOM = { min: 0.25, max: 5 } as const;
@@ -204,7 +212,7 @@ export interface RemoteIpc {
   knownCertsList(args: { protocol: KnownCertProtocol }): Promise<KnownCert[]>;
   knownCertsRemove(args: { protocol: KnownCertProtocol; host: string; port: number }): Promise<{ removed: number }>;
 
-  webOpen(args: { connectionId: string; onEvent: WebEventHandler }): Promise<{ windowLabel: string }>;
+  webOpen(args: { connectionId: string; onEvent: WebEventHandler }): Promise<WebOpened>;
   webClose(args: { connectionId: string }): Promise<void>;
   webFocus(args: { connectionId: string }): Promise<void>;
   webReload(args: { connectionId: string }): Promise<void>;

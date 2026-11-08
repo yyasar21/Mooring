@@ -1,6 +1,6 @@
 // ADR-0014 mock contract and decoders: the cluster handle, RBAC, lists, watches, log streams with
 // the byte cap, exec from the allow-list only, pod forwards on the cluster session, close cascade.
-import { IpcError, type LogChunk, type PodEvent, type SessionEvent } from "./ipc";
+import { IpcError, type ClusterEvent, type LogChunk, type PodEvent, type SessionEvent } from "./ipc";
 import { MockTransport } from "./ipc.mock";
 import { decodeAccess, decodeLogChunk, decodePodEvent, decodePodList } from "./ipc.decode.kube";
 import { decodeForward } from "./ipc.decode.exit";
@@ -18,23 +18,25 @@ const code = async (p: Promise<unknown>) => {
 
 async function cluster(m = new MockTransport()) {
   m.logFollowMs = 0;
-  const r = await m.kubeOpen({ connectionId: "c-k8s" });
-  return { m, sid: r.sessionId, r };
+  const events: ClusterEvent[] = [];
+  const r = await m.kubeOpen({ connectionId: "c-k8s", onEvent: (e) => events.push(e) });
+  await until(() => events.some((e) => e.kind === "connected"));
+  return { m, sid: r.sessionId, r, events };
 }
+const none = () => undefined;
 
 describe("mock · kube_open / access / lists", () => {
   it("opens a cluster session with identity and audits it", async () => {
-    const { m, r } = await cluster();
-    expect(r.identity.user).toBe("ops@example.test");
-    expect(r.server).toBe("https://k8s.stage.example.test:6443");
+    const { m, r, events } = await cluster();
+    expect(events).toEqual([{ kind: "connected", server: "https://k8s.stage.example.test:6443", identity: { user: "ops@example.test", groups: ["system:authenticated", "platform-ops"] }, contextNamespace: "payments" }]);
     expect(m.audit.at(-1)?.event).toBe("kube.connected");
     expect((await m.sessionList()).find((s) => s.sessionId === r.sessionId)).toMatchObject({ protocol: "kubernetes", kube: { parentSessionId: null } });
-    expect(await code(m.kubeOpen({ connectionId: "c-web01" }))).toBe("input.invalid");
+    expect(await code(m.kubeOpen({ connectionId: "c-web01", onEvent: none }))).toBe("input.invalid");
   });
 
   it("refuses while the vault is locked", async () => {
     const m = new MockTransport({ vault: "locked" });
-    expect(await code(m.kubeOpen({ connectionId: "c-k8s" }))).toBe("vault.locked");
+    expect(await code(m.kubeOpen({ connectionId: "c-k8s", onEvent: none }))).toBe("vault.locked");
   });
 
   it("answers the RBAC pre-flight per namespace and enforces it", async () => {

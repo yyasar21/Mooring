@@ -5,6 +5,7 @@ import { useSessions, type Tab } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { dismissNotice, useWebTabs, webAction, webZoomStep, type WebAction, type WebNotice } from "../../stores/web";
 import { Modal } from "../dialogs/Modal";
+import { WebOpenError, WebOpening, WebViaChip } from "./WebVia";
 
 const NOTICE_TEXT: Record<WebNotice["kind"], { title: string; hint: string }> = {
   blocked: {
@@ -61,6 +62,7 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
             Ephemeral
           </span>
         )}
+        {open && web?.viaHops ? <WebViaChip connection={connection} hops={web.viaHops} /> : null}
         <span className="spacer" />
         {note && (
           <span role="status" className="remote-note">
@@ -99,6 +101,7 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
           <p className="m-micro">{open ? "Open in its own window" : tab.state === "connecting" ? "Opening window" : "Window closed"}</p>
           <p className="m-display web-title" data-testid="web-title">{web?.title || name}</p>
           <p className="readout-host select-text" data-testid="web-origin">{web?.origin || connection?.host || ""}</p>
+          {tab.state === "connecting" && web?.viaHops ? <WebOpening hops={web.viaHops} /> : null}
           <p className="web-note">
             The page runs in a separate window with no access to Mooring. Nothing is filled in for you: copy the
             credential from the inspector when the page asks for it.
@@ -108,6 +111,14 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
               {error}
             </p>
           )}
+          {tab.state === "closed" && <WebOpenError code={tab.openError} />}
+          {tab.state === "connecting" && web?.viaHops ? (
+            <div className="actions">
+              <button type="button" className="btn btn-ghost" onClick={() => void closeTab(tab.id)}>
+                Close tab
+              </button>
+            </div>
+          ) : null}
           {tab.state === "closed" && (
             <div className="actions">
               {tab.reason && <span className="text-text-muted">{tab.reason}</span>}

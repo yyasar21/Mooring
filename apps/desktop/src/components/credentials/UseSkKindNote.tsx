@@ -20,11 +20,11 @@ export function UseSkKindNote({ values, refused, onSwitch }: {
   return (
     <div className="kind-note flex items-center gap-3" role={refused ? "alert" : "note"}>
       <span className="flex-1">
-        This is a security-key key — create a Security key (FIDO2) credential instead.
+        This is a security-key key — create an SSH security key (FIDO2) credential instead.
         {!carry.public_key && " Paste the key's .pub line there; the key handle file is not carried over."}
       </span>
       <button type="button" className="btn btn-primary" onClick={() => { onSwitch(carry); }}>
-        Create Security key (FIDO2) credential
+        Create SSH security key (FIDO2) credential
       </button>
     </div>
   );

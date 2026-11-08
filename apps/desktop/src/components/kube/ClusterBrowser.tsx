@@ -8,6 +8,7 @@ import { PodDetail } from "./PodDetail";
 import { RbacSummary } from "./RbacSummary";
 import { age, matchesPod, podStatus, readyCount, restartCount } from "./podStatus";
 import { useCluster, useKubeOptions } from "./useCluster";
+import { CLOSE_TEXT } from "../remote/ConnectionBanner";
 
 type View = "pods" | "forwards";
 
@@ -44,6 +45,9 @@ export function ClusterBrowser({ tab, connection }: { tab: Tab; connection: Conn
           <p className="m-micro">Kubernetes</p>
           <p className="m-display mt-2 text-[length:var(--fs-xl)]">{connection?.name}</p>
           <p className="mt-3 text-text-muted" role="status">{tab.state === "closed" ? (tab.reason ?? "The cluster session ended.") : "Connecting to the API server…"}</p>
+          {tab.state === "closed" && (tab.closeCode === "hop_failed" || tab.closeCode === "hop_lost") && (
+            <p className="dropped-hint mt-2">{CLOSE_TEXT[tab.closeCode].hint}</p>
+          )}
           {tab.state === "closed" && (
             <button type="button" className="btn mt-4" onClick={() => void useSessions.getState().reconnect(tab.id)}>Reconnect</button>
           )}

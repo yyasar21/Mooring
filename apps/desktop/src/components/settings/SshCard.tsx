@@ -11,7 +11,7 @@ export function SshCard() {
       <div className="settings-body">
         <div className="ssh-row">
           <div className="min-w-0 flex-1">
-            <p className="ssh-row-title">Security keys (FIDO2) sign through your ssh-agent</p>
+            <p className="ssh-row-title">SSH security keys (FIDO2) sign through your ssh-agent</p>
             <p className="field-hint">
               Mooring asks the agent at SSH_AUTH_SOCK (macOS, Linux) or the OpenSSH agent pipe (Windows); Pageant has no
               security-key support. Add a key with ssh-add -K (resident) or ssh-add with its key handle file. Mooring never falls

@@ -3,7 +3,7 @@
 import { IpcError, type UpdateInfo } from "./ipc";
 import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
 import { MockTransport } from "./ipc.mock";
-import { MOCK_CURRENT_VERSION, MOCK_UPDATE_OFFER, PORTABLE_MANUAL_TEXT, semverBelow } from "./ipc.mock.update";
+import { MOCK_CURRENT_VERSION, MOCK_UPDATE_OFFER, PORTABLE_MANUAL_TEXT, WINGET_MANUAL_TEXT, semverBelow } from "./ipc.mock.update";
 
 const code = async (p: Promise<unknown>) => {
   try {
@@ -59,6 +59,8 @@ describe("mock · updater (ADR-0018 §3, U0)", () => {
     expect(m.audit.at(-1)).toMatchObject({ event: "update.refused", details: { code: "update.manual_only" } });
     m.updateMode = { installMode: "manual", manualReason: "not_writable" };
     expect(await code(m.updateInstall({ version: "0.2.0" }))).toBe("update.not_writable");
+    m.updateMode = { installMode: "manual", manualReason: "winget" };
+    await expect(m.updateInstall({ version: "0.2.0" })).rejects.toMatchObject({ code: "update.manual_only", message: WINGET_MANUAL_TEXT });
     m.updateMode = { installMode: "in_app" };
     expect(await code(m.updateInstall({ version: "0.3.0" }))).toBe("update.none");
     m.trustedHosts.add("web01.example.test");
@@ -105,6 +107,7 @@ describe("mock · updater (ADR-0018 §3, U0)", () => {
     expect(decodeUpdateInfo({ installMode: "in_app", manualReason: "homebrew" }).manualReason).toBeUndefined();
     expect(decodeUpdateInfo({ installMode: "manual", manualReason: "portable" }).manualReason).toBe("portable"); // ADR-0021 §2
     expect(decodeUpdateInfo({ installMode: "manual", manualReason: "snap" }).manualReason).toBeUndefined();
+    expect(decodeUpdateInfo({ installMode: "manual", manualReason: "winget" }).manualReason).toBe("winget"); // ADR-0018 A2 (R6)
     expect(decodeUpdateInfo(null)).toEqual({ current: "", available: null, installMode: "manual", checkedAt: "" });
   });
 

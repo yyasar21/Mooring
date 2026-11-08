@@ -11,6 +11,9 @@ export const PORTABLE_MANUAL_TEXT = "portable build: download the new zip and re
 /** ADR-0028: the exact message Rust sends with `update.manual_only` in a dev build. */
 export const DEV_MANUAL_TEXT = "development build: updates come from your own builds";
 
+/** ADR-0018 A2 (R6): the exact message Rust sends with `update.manual_only` for a winget install. */
+export const WINGET_MANUAL_TEXT = "installed by winget: run `winget upgrade yyasar21.Mooring`";
+
 /** The offer a fresh mock serves: one version up, dated, with notes that exercise line breaks. */
 export const MOCK_UPDATE_OFFER: UpdateAvailable = {
   version: "0.2.0",
@@ -156,6 +159,7 @@ export abstract class MockUpdateBase extends MockSecretsBase implements UpdateIp
     };
     if (this.updateMode.installMode === "manual") {
       if (this.updateMode.manualReason === "not_writable") refuse(new IpcError("update.not_writable", "the installed bundle is not writable by this user"));
+      if (this.updateMode.manualReason === "winget") refuse(new IpcError("update.manual_only", WINGET_MANUAL_TEXT));
       refuse(new IpcError("update.manual_only", "this install is managed outside Mooring"));
     }
     const live = this.liveSessionIds();

@@ -79,6 +79,8 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-yubi", "f-staging", "build-runner", "ssh", "runner.example.test", 22, "cr-yubi", ["fido2"]),
     // ADR-0027: reached through an RD Gateway; the gateway gets the sign-in ("Same as sign-in").
     c("c-rdg", "f-desk", "finance-desk", "rdp", "fin01.example.test", 3389, "cr-ad", ["rdg"]),
+    // ADR-0025 §3 (R6): a web console behind bastion01 (SOCKS on the last hop). It opens once bastion01's key is trusted.
+    c("c-wiki", "f-staging", "stage-wiki", "web", "https://wiki.stage.example.test", 443, null, ["intranet"]),
   ].map((x) => {
     if (x.id === "c-stg") return { ...x, via: ["c-bastion"] };
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
@@ -87,6 +89,7 @@ export function seedConnections(): ConnectionSummary[] {
       return { ...x, options: { ...DEFAULT_RDP_OPTIONS, gateway: { host: "gw01.example.test", port: 443, usage: "always" as const, allowBasicGateway: false, caPem: null } } };
     }
     if (x.id === "c-kiosk") return { ...x, options: { ...DEFAULT_VNC_OPTIONS, viewOnly: true } };
+    if (x.id === "c-wiki") return { ...x, via: ["c-bastion"], options: { url: "https://wiki.stage.example.test", allowedOrigins: [], persistent: false, allowHttp: false } };
     if (x.id === "c-lb") return { ...x, options: { url: "https://lb.example.test", allowedOrigins: [], persistent: false, allowHttp: false } };
     return x;
   });

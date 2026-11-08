@@ -157,6 +157,8 @@ export interface LeaseInfo {
   engine: string;
   /** Seconds left; null = no TTL reported. */
   expiresInSeconds: number | null;
+  /** R6: the full TTL since issue or the last renewal; null = Vault reports none (absent from older builds). */
+  ttlSeconds?: number | null;
   /** Renewed automatically at 2/3 of its TTL. */
   renewable: boolean;
   /** A `LeaseState`, or a newer one this build does not know. */

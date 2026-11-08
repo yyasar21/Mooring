@@ -9,7 +9,7 @@ import { freshBackend, settle } from "../../test/harness";
 import { Shell } from "../Shell";
 import { SettingsView } from "./SettingsView";
 import { fmtBytes, fmtDate, fmtStamp } from "../../lib/format";
-import { MANUAL_REASON_TEXT, RELEASE_PAGE, UpdatesCard } from "./UpdatesCard";
+import { MANUAL_REASON_TEXT, RELEASE_PAGE, UpdatesCard, WINGET_COMMAND } from "./UpdatesCard";
 import { PORTABLE_UPDATE_TEXT } from "./PortableLine";
 import { PORTABLE_MANUAL_TEXT } from "../../lib/ipc.mock.update";
 
@@ -110,6 +110,26 @@ describe("Settings → Updates (ADR-0018 §3, U0)", () => {
       unmount();
     }
     expect(RELEASE_PAGE).toBe("https://github.com/yyasar21/Mooring/releases/latest");
+  });
+
+  it("winget (ADR-0018 A2): names winget and copies the winget command, not the release page", async () => {
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (t: string) => { written.push(t); return Promise.resolve(); } } });
+    mock.updateRateWindowMs = 0;
+    mock.updateMode = { installMode: "manual", manualReason: "winget" };
+    render(<UpdatesCard />);
+    const c = screen.getByRole("region", { name: "Updates" });
+    fireEvent.click(within(c).getByRole("button", { name: "Check for updates" }));
+    await settle();
+    const offer = within(c).getByLabelText("Available update");
+    expect(offer).toHaveTextContent("Installed with winget — update with winget upgrade yyasar21.Mooring.");
+    expect(within(c).queryByRole("button", { name: "Install and restart" })).toBeNull();
+    expect(within(offer).getByText(WINGET_COMMAND).tagName).toBe("CODE");
+    expect(within(c).queryByRole("button", { name: "Copy release page link" })).toBeNull();
+    fireEvent.click(within(c).getByRole("button", { name: "Copy winget command" }));
+    await settle();
+    expect(written.at(-1)).toBe("winget upgrade yyasar21.Mooring");
+    expect(within(c).getByRole("status")).toHaveTextContent("Command copied.");
   });
 
   it("ADR-0021: a portable build shows the data folder, disables the background toggle with the zip hint and still checks", async () => {

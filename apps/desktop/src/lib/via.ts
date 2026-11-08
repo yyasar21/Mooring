@@ -3,9 +3,9 @@
 import type { ConnectionSummary, Protocol } from "./ipc.types";
 import { MAX_VIA } from "./ipc.types.a5";
 
-/** Protocols that can open through a chain today (web waits for R6; vCenter is refused). */
+/** Protocols that can open through a chain (web since R6, as a SOCKS proxy on the last hop; vCenter is refused). */
 export function supportsVia(p: Protocol): boolean {
-  return p === "ssh" || p === "rdp" || p === "vnc" || p === "kubernetes";
+  return p === "ssh" || p === "rdp" || p === "vnc" || p === "kubernetes" || p === "web";
 }
 
 /**
