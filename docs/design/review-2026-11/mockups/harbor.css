@@ -7,14 +7,14 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
 
   --canvas: #f6f7f9;  --surface: #ffffff; --surface-2: #f1f3f5; --surface-3: #e9ecef;
-  --border: #e1e4e8;  --border-strong: #c9ced4; --border-input: #8b939d;
-  --text: #1b1f24;    --text-2: #59616b; --text-3: #646b75;
+  --border: #e1e4e8;  --border-strong: #c9ced4; --border-input: #7d858f;
+  --text: #1b1f24;    --text-2: #59616b; --text-3: #5f6670;
 
   --accent: #1a5fb4; --accent-hover: #154e95; --accent-text: #ffffff;
   --accent-subtle: #e8f0fb; --accent-border: #9dbbe6; --selection: #dbe7f8;
 
-  --success: #1a7f37; --success-bg: #e6f4ea; --success-border: #a8d5b5;
-  --warning: #9a6700; --warning-bg: #fff4d6; --warning-border: #e9cc7a;
+  --success: #176f32; --success-bg: #e6f4ea; --success-border: #a8d5b5;
+  --warning: #8a5c00; --warning-bg: #fff4d6; --warning-border: #e9cc7a;
   --danger: #c62828;  --danger-bg: #fdecec;  --danger-border: #f0b0b0;
   --neutral-bg: #eef0f2;
   --term-bg: #ffffff; --term-fg: #1b1f24;
@@ -34,8 +34,8 @@
 }
 :root[data-theme="dark"] {
   --canvas: #1b1c1f;  --surface: #1f2023; --surface-2: #26272b; --surface-3: #2e3035;
-  --border: #33353a;  --border-strong: #43464c; --border-input: #6c727b;
-  --text: #e3e5e8;    --text-2: #a9aeb6; --text-3: #8a9099;
+  --border: #33353a;  --border-strong: #43464c; --border-input: #747a83;
+  --text: #e3e5e8;    --text-2: #a9aeb6; --text-3: #959ba4;
   --accent: #5b9cf5; --accent-hover: #7cb0f7; --accent-text: #0d1a2e;
   --accent-subtle: rgba(91, 156, 245, 0.14); --accent-border: rgba(91, 156, 245, 0.45); --selection: rgba(91, 156, 245, 0.22);
   --success: #4fbf72; --success-bg: rgba(79, 191, 114, 0.13); --success-border: rgba(79, 191, 114, 0.4);
