@@ -52,7 +52,7 @@ export function CommandPalette() {
       { id: "new-folder", label: "New folder", run: () => { ui.openDialog({ kind: "folder", parentId: root }); } },
       { id: "creds", label: "Manage credentials", run: () => { ui.showCredentials(); } },
       { id: "audit", label: "Show audit log", run: () => { ui.setView("audit"); } },
-      { id: "theme", label: "Toggle light and dark theme", run: () => { ui.toggleTheme(); close(); } },
+      { id: "theme", label: "Switch theme", run: () => { ui.toggleTheme(); close(); } },
       { id: "lock", label: "Lock vault", run: () => { close(); void useApp.getState().lock(); } },
     ];
   }, [setPalette]);

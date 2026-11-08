@@ -16,6 +16,49 @@ describe("shortcuts", () => {
     expect(appCommandFor(key("k", { ctrlKey: true }), false)).toBe("palette");
     expect(appCommandFor(key("Tab", { ctrlKey: true }), true)).toBe("nextTab");
   });
+
+  it("mod+1…4 open the rail's views; inside a terminal only with Shift", () => {
+    expect(appCommandFor(key("1", { ctrlKey: true }), false)).toBe("viewHosts");
+    expect(appCommandFor(key("2", { ctrlKey: true }), false)).toBe("viewCredentials");
+    expect(appCommandFor(key("3", { ctrlKey: true }), false)).toBe("viewAudit");
+    expect(appCommandFor(key("4", { ctrlKey: true }), false)).toBe("viewSettings");
+    expect(appCommandFor(key("5", { ctrlKey: true }), false)).toBeNull();
+    expect(appCommandFor(key("1", { ctrlKey: true }), true)).toBeNull();
+    expect(appCommandFor(key("!", { ctrlKey: true, shiftKey: true, code: "Digit1" }), true)).toBe("viewHosts");
+  });
+});
+
+describe("navigation rail", () => {
+  beforeEach(() => { freshBackend(); });
+
+  it("switches views, marks the current one, returns to Hosts on a second press and answers mod+1…4", async () => {
+    render(<App />);
+    await screen.findByText("Nothing open yet");
+    await settle();
+    const rail = within(screen.getByRole("navigation", { name: "Views" }));
+    expect(rail.getByRole("button", { name: "Hosts" })).toHaveAttribute("aria-current", "page");
+    // Q7 / M1: only Hosts has the tree and the details pane.
+    expect(screen.getByRole("complementary", { name: "Details" })).toBeInTheDocument();
+
+    fireEvent.click(rail.getByRole("button", { name: "Audit log" }));
+    expect(screen.getByRole("region", { name: "Audit log" })).toBeInTheDocument();
+    expect(rail.getByRole("button", { name: "Audit log" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("complementary", { name: "Details" })).toBeNull();
+    expect(screen.queryByRole("tree", { name: "Connections" })).toBeNull();
+
+    fireEvent.click(rail.getByRole("button", { name: "Audit log" }));
+    expect(useUi.getState().view).toBe("workspace");
+    expect(screen.getByRole("tree", { name: "Connections" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "2", code: "Digit2", ctrlKey: true });
+    expect(useUi.getState().view).toBe("credentials");
+    fireEvent.keyDown(window, { key: "2", code: "Digit2", ctrlKey: true });
+    expect(useUi.getState().view).toBe("credentials");
+    fireEvent.keyDown(window, { key: "4", code: "Digit4", ctrlKey: true });
+    expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "1", code: "Digit1", ctrlKey: true });
+    expect(useUi.getState().view).toBe("workspace");
+  });
 });
 
 describe("editor dialogs", () => {

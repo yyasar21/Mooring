@@ -16,7 +16,6 @@ export function CredentialsView() {
   const kinds = useCredentials((s) => s.kinds);
   const pane = useUi((s) => s.credentialPane);
   const show = useUi((s) => s.showCredentials);
-  const setView = useUi((s) => s.setView);
   const connections = useTree((s) => s.connections);
   const folders = useTree((s) => s.folders);
   const [filter, setFilter] = useState("");
@@ -133,11 +132,6 @@ export function CredentialsView() {
           })}
         </ul>
         {error && <p role="alert" className="px-4 py-2 text-[length:var(--fs-s)] text-danger">{error}</p>}
-        <footer className="cred-list-foot">
-          <button type="button" className="btn btn-ghost" onClick={() => { setView("workspace"); }}>
-            Back to sessions
-          </button>
-        </footer>
       </div>
 
       <div className="cred-detail-pane">
