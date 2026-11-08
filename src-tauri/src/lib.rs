@@ -252,6 +252,7 @@ pub fn run() {
             conn_options::connection_options_set,
             audit::audit_tail,
             audit::audit_verify,
+            commands::audit_export::audit_export,
             // ADR-0010 §Port forwarding / §SFTP
             forward::forward_open,
             forward::forward_close,

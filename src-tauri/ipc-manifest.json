@@ -2,6 +2,9 @@
   "app_info": [
     "main"
   ],
+  "audit_export": [
+    "main"
+  ],
   "audit_tail": [
     "main"
   ],

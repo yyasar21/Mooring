@@ -14,5 +14,5 @@ mod redact;
 pub mod syslog;
 
 pub use chain::{AuditEntry, AuditError, AuditLog, VerifyReport};
-pub use event::AuditEvent;
+pub use event::{is_known_event, AuditEvent};
 pub use redact::redact;

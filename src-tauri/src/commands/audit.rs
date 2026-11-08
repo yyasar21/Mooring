@@ -2,57 +2,61 @@
 //! (`mooring_audit::AuditEvent`), so returning them is safe; the vault must be unlocked because
 //! they reveal inventory (hosts, ids).
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+//!
+//! `audit_tail` takes an optional `filter` (`commands::audit_query`): one call tests at most
+//! [`SCAN_CAP`] candidate rows and returns a `scannedTo` cursor to continue from.
 
-use mooring_audit::{AuditEntry, AuditLog};
+use mooring_audit::AuditLog;
 use serde::Serialize;
 use tauri::State;
 
+use crate::commands::audit_query::{
+    self, AuditFilter, AuditFilterInput, Redacted, TailPage, SCAN_CAP,
+};
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
 
 /// Most entries per `audit_tail` page.
 pub const MAX_TAIL: u32 = 500;
-/// Longest line read from the log; longer lines are skipped (the file is ours, but bounded).
-const MAX_LINE_BYTES: usize = 64 * 1024;
 
 fn io_error(e: &std::io::Error) -> IpcError {
     tracing::error!(kind = ?e.kind(), "audit log read failed");
     IpcError::new("audit.io", "the audit log could not be read")
 }
 
-/// Entries newest first, `seq < before` when given, at most `limit` (clamped to 1..=500).
-pub fn tail(state: &AppState, limit: u32, before: Option<u64>) -> IpcResult<Vec<AuditEntry>> {
+/// One filtered page, testing at most `cap` candidate rows (`seq < before`), newest first.
+/// `limit` is clamped to 1..=500. Broken lines are skipped (reported by `audit_verify`).
+pub fn tail_page(
+    state: &AppState,
+    limit: u32,
+    before: Option<u64>,
+    filter: Option<&AuditFilterInput>,
+    cap: usize,
+) -> IpcResult<TailPage> {
     state.with_ready(|_, _| Ok(()))?;
+    let filter = AuditFilter::compile(filter)?;
     let limit = usize::try_from(limit.clamp(1, MAX_TAIL)).unwrap_or(1);
     let path = state.data_dir.join(AppState::AUDIT_FILE);
     // Hold the log mutex so a concurrent append is not read half-written.
     let _guard = state.audit.lock().map_err(|_| IpcError::poisoned())?;
-    let file = match File::open(&path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(io_error(&e)),
-    };
-    // Keep only the newest `limit` matches while streaming, so memory stays bounded.
-    let mut window = std::collections::VecDeque::with_capacity(limit);
-    for line in BufReader::new(file).lines() {
-        let line = line.map_err(|e| io_error(&e))?;
-        if line.len() > MAX_LINE_BYTES || line.trim().is_empty() {
-            continue;
-        }
-        let Ok(entry) = serde_json::from_str::<AuditEntry>(&line) else {
-            continue; // a broken line is reported by audit_verify, not here
-        };
-        if before.is_some_and(|b| entry.seq >= b) {
-            continue;
-        }
-        if window.len() == limit {
-            window.pop_front();
-        }
-        window.push_back(entry);
-    }
-    Ok(window.into_iter().rev().collect())
+    audit_query::scan_page(&path, &filter, limit, before, cap).map_err(|e| io_error(&e))
+}
+
+/// Entries newest first, `seq < before` when given, at most `limit` (clamped to 1..=500),
+/// details redacted. The unfiltered shape of `audit_tail`.
+pub fn tail(state: &AppState, limit: u32, before: Option<u64>) -> IpcResult<Vec<Redacted>> {
+    Ok(tail_page(state, limit, before, None, SCAN_CAP)?.entries)
+}
+
+/// `audit_tail` answer: the bare array without `filter` (unchanged wire shape), the page with
+/// its cursor when a filter was given.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum TailReply {
+    /// `AuditEntry[]`.
+    Entries(Vec<Redacted>),
+    /// `{ entries, scannedTo, done }`.
+    Page(TailPage),
 }
 
 /// `{ ok, entries, brokenAt }`.
@@ -84,14 +88,19 @@ pub fn verify(state: &AppState) -> IpcResult<VerifyResult> {
 
 // ------------------------------------------------------------------ Tauri wrappers
 
-/// `audit_tail({ limit, before })`.
+/// `audit_tail({ limit, before, filter? })`: `AuditEntry[]` without `filter`, otherwise
+/// `{ entries, scannedTo, done }`.
 #[tauri::command]
 pub fn audit_tail(
     state: State<'_, AppState>,
     limit: u32,
     before: Option<u64>,
-) -> IpcResult<Vec<AuditEntry>> {
-    tail(&state, limit, before)
+    filter: Option<AuditFilterInput>,
+) -> IpcResult<TailReply> {
+    match filter {
+        None => tail(&state, limit, before).map(TailReply::Entries),
+        Some(f) => tail_page(&state, limit, before, Some(&f), SCAN_CAP).map(TailReply::Page),
+    }
 }
 
 /// `audit_verify()`.
@@ -121,6 +130,26 @@ mod tests {
         assert_eq!(tail(&f.state, 0, None).expect("clamped").len(), 1);
         let json = serde_json::to_value(&page[0]).expect("json");
         assert_eq!(json["event"], "vault_locked", "flattened as the UI expects");
+    }
+
+    #[test]
+    fn filtered_tail_returns_a_page_and_the_bare_tail_keeps_its_shape() {
+        let f = unlocked();
+        f.state.audit(AuditEvent::VaultLocked { reason: "token=abc".into() });
+        f.state.audit(AuditEvent::VaultUnlocked);
+        let flt: AuditFilterInput =
+            serde_json::from_value(serde_json::json!({ "events": ["vault_locked"] })).expect("f");
+        let page = tail_page(&f.state, 10, None, Some(&flt), SCAN_CAP).expect("page");
+        let json = serde_json::to_value(TailReply::Page(page)).expect("json");
+        assert_eq!(json["entries"][0]["reason"], "token=[REDACTED]");
+        assert_eq!((json["scannedTo"].as_u64(), json["done"].as_bool()), (Some(1), Some(true)));
+        let bare = serde_json::to_value(TailReply::Entries(tail(&f.state, 10, None).expect("t")))
+            .expect("json");
+        assert_eq!(bare.as_array().map(Vec::len), Some(3), "a plain array, as before");
+        let bad: AuditFilterInput =
+            serde_json::from_value(serde_json::json!({ "events": ["nope"] })).expect("f");
+        let e = tail_page(&f.state, 10, None, Some(&bad), SCAN_CAP).expect_err("bad");
+        assert_eq!(e.code, "input.invalid");
     }
 
     #[test]
