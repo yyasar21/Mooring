@@ -8,6 +8,7 @@ import type {
   CloseCode,
   FrameHandler,
   KnownCert,
+  KnownCertProtocol,
   Protocol,
   ProtocolOptions,
   RemoteIpc,
@@ -23,6 +24,7 @@ import { T0 } from "./ipc.seed";
 import { MockExitBase } from "./ipc.mock.exit";
 import { SyntheticDesktop } from "./frame/synthetic";
 import { hashHost, hostMatches } from "./hostHash";
+import { DEFAULT_GATEWAY_KNOBS, gatewayMismatchReason, gatewayOf, gatewayPinKey, signInToGateway, type MockGateway, type MockGatewayKnobs } from "./ipc.mock.gateway";
 
 /** What the remote mock needs to know about a connection. */
 export interface RemoteTarget {
@@ -41,7 +43,9 @@ export interface MockRemoteSession {
   emit: SessionEventHandler;
   onFrame: FrameHandler;
   desktop: SyntheticDesktop;
-  pending: "cert" | null;
+  pending: "cert" | "gw-cert" | null;
+  /** ADR-0027: the RD Gateway in front of the target (null = direct). */
+  gateway: MockGateway | null;
   viewOnly: boolean;
   seq: number;
   acked: number;
@@ -67,7 +71,7 @@ export function clampDesktop(size: Size): Size {
 }
 
 /** A fake but stable fingerprint per host (hex SHA-256 shaped). */
-function fakeSha256(host: string): string {
+export function fakeSha256(host: string): string {
   let h = 0x811c9dc5;
   let out = "";
   for (let i = 0; out.length < 64; i++) {
@@ -88,6 +92,8 @@ export abstract class MockRemoteBase extends MockExitBase {
   frameIntervalMs = 33;
   /** Backoff the mock announces per attempt (ADR-0011 schedule, scaled for tests). */
   reconnectDelaysMs: number[] = [1000, 2000];
+  /** ADR-0027 knob: how the mock RD Gateway answers once its certificate is trusted. */
+  rdg: MockGatewayKnobs = { ...DEFAULT_GATEWAY_KNOBS };
   private remoteIds = 0;
 
   protected pinKey(t: RemoteTarget): string {
@@ -96,6 +102,11 @@ export abstract class MockRemoteBase extends MockExitBase {
 
   /** `host:port` of every connection of `protocol` (`known_certs_list` names the pins that match one). */
   protected abstract connectionHosts(protocol: "rdp" | "vnc"): { host: string; port: number }[];
+
+  /** `known_certs_list` candidates: Rust does not name RD Gateway pins from connection options yet (R5). */
+  private candidateHosts(protocol: KnownCertProtocol): { host: string; port: number }[] {
+    return protocol === "rdg" ? [] : this.connectionHosts(protocol);
+  }
 
   certificateFor(t: RemoteTarget): CertificateInfo {
     return {
@@ -115,13 +126,18 @@ export abstract class MockRemoteBase extends MockExitBase {
    * existing fingerprint is kept once, as Rust does.
    */
   async pin(t: RemoteTarget, addedAt = new Date().toISOString(), label = ""): Promise<void> {
+    await this.pinAt(this.pinKey(t), t.host, t.port, addedAt, label);
+  }
+
+  /** The same for any store key (`rdg|host:port` for an RD Gateway, ADR-0027). */
+  async pinAt(key: string, host: string, port: number, addedAt = new Date().toISOString(), label = ""): Promise<void> {
     const salt = new Uint8Array(32);
     crypto.getRandomValues(salt);
-    const hostHash = await hashHost(t.host, t.port, salt);
-    const fingerprint = `SHA256:${fakeSha256(label + t.host)}`;
-    const pins = this.knownCerts.get(this.pinKey(t)) ?? [];
+    const hostHash = await hashHost(host, port, salt);
+    const fingerprint = `SHA256:${fakeSha256(label + host)}`;
+    const pins = this.knownCerts.get(key) ?? [];
     if (pins.some((p) => p.fingerprint === fingerprint)) return;
-    this.knownCerts.set(this.pinKey(t), [...pins, { hostHash, fingerprint, addedAt }]);
+    this.knownCerts.set(key, [...pins, { hostHash, fingerprint, addedAt }]);
   }
 
   /** `protocol|host:port` keys with conflicting pins (`KnownCerts::distinct_pins > 1`). */
@@ -130,7 +146,7 @@ export abstract class MockRemoteBase extends MockExitBase {
   }
 
   /** `known_certs_remove`: every pin of the host:port goes, so the next connect is a fresh prompt. */
-  protected removePins(protocol: "rdp" | "vnc", host: string, port: number): number {
+  protected removePins(protocol: KnownCertProtocol, host: string, port: number): number {
     const key = `${protocol}|${host.toLowerCase()}:${String(port)}`;
     const n = this.knownCerts.get(key)?.length ?? 0;
     this.knownCerts.delete(key);
@@ -151,6 +167,7 @@ export abstract class MockRemoteBase extends MockExitBase {
       onFrame,
       desktop: new SyntheticDesktop(Math.min(d.width, MOCK_MAX.width), Math.min(d.height, MOCK_MAX.height)),
       pending: null,
+      gateway: gatewayOf(t),
       viewOnly: vnc?.viewOnly === true,
       seq: 0,
       acked: 0,
@@ -168,21 +185,53 @@ export abstract class MockRemoteBase extends MockExitBase {
         this.endRemote(s, `the trust store holds conflicting certificates for ${t.host}:${String(t.port)}; remove them in Settings → Trust`, "trust_conflict");
         return;
       }
-      // The mock RDP host presents a self-signed certificate; the mock VNC host has no TLS.
-      if (t.protocol === "rdp" && !this.knownCerts.has(this.pinKey(t))) {
-        s.pending = "cert";
-        onEvent({
-          kind: "prompt",
-          id: 1,
-          message: `The certificate of ${t.host}:${t.port} is not trusted.`,
-          secret: false,
-          purpose: "certificate_trust",
-          account: null,
-          certificate: this.certificateFor(t),
-        });
-      } else this.remoteConnected(s);
+      if (s.gateway) this.openGateway(s);
+      else this.targetTrust(s);
     });
     return { sessionId };
+  }
+
+  /** ADR-0027: the gateway's TLS (TOFU over `known_rdg_certs`), then its sign-in, then the target. */
+  private openGateway(s: MockRemoteSession, trustedOnce = false): void {
+    const g = s.gateway;
+    if (!g) return;
+    const fingerprint = `SHA256:${fakeSha256(g.host)}`;
+    s.emit({ kind: "gateway_status", host: g.label, state: "connecting", peerIdentity: null });
+    if (this.rdg.outcome === "mismatch") {
+      this.endRemote(s, gatewayMismatchReason(g), "trust_mismatch");
+      return;
+    }
+    if (!trustedOnce && !this.knownCerts.has(gatewayPinKey(g))) {
+      s.pending = "gw-cert";
+      s.emit({
+        kind: "prompt", id: 2, message: `The certificate of the RD Gateway ${g.label} is not trusted.`, secret: false,
+        purpose: "gateway_certificate_trust", account: null,
+        certificate: this.certificateFor({ ...s.target, host: g.host, port: g.port }),
+      });
+      return;
+    }
+    const env = {
+      connectionId: s.info.connectionId, emit: s.emit, later: (fn: () => void) => { this.later(fn); },
+      record: (e: string, d: Record<string, string>) => { this.record(e, d); }, live: () => this.remote.has(s.info.sessionId),
+    };
+    signInToGateway(env, g, this.rdg, fingerprint, () => { this.targetTrust(s); }, (reason, code) => { this.endRemote(s, reason, code); });
+  }
+
+  /** The target's own certificate: the mock RDP host presents a self-signed one; the mock VNC host has no TLS. */
+  private targetTrust(s: MockRemoteSession): void {
+    const t = s.target;
+    if (t.protocol === "rdp" && !this.knownCerts.has(this.pinKey(t))) {
+      s.pending = "cert";
+      s.emit({
+        kind: "prompt",
+        id: 1,
+        message: `The certificate of ${t.host}:${t.port} is not trusted.`,
+        secret: false,
+        purpose: "certificate_trust",
+        account: null,
+        certificate: this.certificateFor(t),
+      });
+    } else this.remoteConnected(s);
   }
 
   private remoteConnected(s: MockRemoteSession): void {
@@ -196,7 +245,7 @@ export abstract class MockRemoteBase extends MockExitBase {
       kind: "connected",
       protocol: t.protocol,
       peerIdentity: rdp ? `x509 SHA256:${fakeSha256(t.host)}` : null,
-      security: rdp ? "nla" : "vnc-auth",
+      security: rdp ? (s.gateway ? "nla+rdg" : "nla") : "vnc-auth",
     });
     s.emit({ kind: "desktop_resized", width: s.desktop.width, height: s.desktop.height });
     this.startPump(s);
@@ -271,6 +320,18 @@ export abstract class MockRemoteBase extends MockExitBase {
   protected sendRemote(s: MockRemoteSession, input: SessionInput): void {
     switch (input.kind) {
       case "answer": {
+        if (s.pending === "gw-cert" && input.id === 2 && s.gateway) {
+          // ADR-0027 Gate: `yes` pins the gateway, `once` trusts it for this connect, anything else rejects.
+          const g = s.gateway;
+          const a = input.text.trim().toLowerCase();
+          const decision = a === "yes" ? "accepted" : a === "once" ? "trusted_once" : "rejected";
+          s.pending = null;
+          this.record("trust_decision", { protocol: "rdg", host: g.label, fingerprint: `SHA256:${fakeSha256(g.host)}`, decision });
+          if (decision === "rejected") this.later(() => { this.endRemote(s, `certificate for ${g.label} was not trusted`, "trust_rejected"); });
+          else if (decision === "trusted_once") this.later(() => { this.openGateway(s, true); });
+          else void this.pinAt(gatewayPinKey(g), g.host, g.port).then(() => { this.later(() => { this.openGateway(s); }); });
+          return;
+        }
         if (s.pending !== "cert" || input.id !== 1) throw new IpcError("input.invalid", "invalid id: no such prompt");
         const yes = /^(y|yes|accept)$/i.test(input.text.trim());
         const t = s.target;
@@ -338,7 +399,7 @@ export abstract class MockRemoteBase extends MockExitBase {
   /** Like `KnownCerts::list_named`: the HMAC check runs here (the mock's side of the wire), never in the UI. */
   knownCertsList: RemoteIpc["knownCertsList"] = async ({ protocol }) => {
     await this.unlocked();
-    const candidates = this.connectionHosts(protocol);
+    const candidates = this.candidateHosts(protocol);
     const out: KnownCert[] = [];
     for (const [k, pins] of this.knownCerts.entries()) {
       if (!k.startsWith(`${protocol}|`)) continue;

@@ -3,6 +3,7 @@ import type { PendingPrompt } from "../../stores/sessions";
 import { useSessions } from "../../stores/sessions";
 import { CredentialPrompt } from "./CredentialPrompt";
 import { CertificateTrustDialog } from "../remote/CertificateTrustDialog";
+import { SmartCardPinDialog } from "./SmartCardPinDialog";
 import { useTree } from "../../stores/tree";
 import { hopName } from "./HopStrip";
 
@@ -27,7 +28,10 @@ function useHopName(tabId: string, prompt: PendingPrompt): string | null {
 export function PromptModal({ tabId, prompt, host }: { tabId: string; prompt: PendingPrompt; host: string }) {
   const hop = useHopName(tabId, prompt);
   if (prompt.purpose === "credential") return <CredentialPrompt tabId={tabId} prompt={prompt} host={host} hop={hop} />;
-  if (prompt.purpose === "certificate_trust" && !prompt.secret) return <CertificateTrustDialog tabId={tabId} prompt={prompt} />;
+  if ((prompt.purpose === "certificate_trust" || prompt.purpose === "gateway_certificate_trust") && !prompt.secret) {
+    return <CertificateTrustDialog tabId={tabId} prompt={prompt} />;
+  }
+  if (prompt.purpose === "smart_card_pin") return <SmartCardPinDialog tabId={tabId} prompt={prompt} hop={hop} />;
   return <AnswerPrompt tabId={tabId} prompt={prompt} host={host} hop={hop} />;
 }
 

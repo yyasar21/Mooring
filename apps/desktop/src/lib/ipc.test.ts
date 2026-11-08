@@ -111,7 +111,7 @@ describe("MockTransport", () => {
 
   it("serves all 19 kinds with English labels and the ADR matrix", async () => {
     const kinds = await new MockTransport().credentialKinds();
-    expect(kinds.map((k) => k.kind).sort()).toHaveLength(19);
+    expect(kinds.map((k) => k.kind).sort()).toHaveLength(20);
     const of = (k: string) => kinds.find((x) => x.kind === k);
     expect(of("user_password")?.protocols).toContainEqual({ protocol: "rdp", roles: ["primary", "gateway"] });
     expect(of("sudo_become")?.protocols).toEqual([{ protocol: "ssh", roles: ["become"] }]);

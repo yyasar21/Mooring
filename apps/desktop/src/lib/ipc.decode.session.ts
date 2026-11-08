@@ -66,10 +66,11 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
         kind: "prompt",
         id: num(w.id),
         message: str(w.message),
-        secret: w.secret === true,
         purpose,
+        // ADR-0027: a smart-card PIN is always a masked answer, whatever the wire says.
+        secret: w.secret === true || purpose === "smart_card_pin",
         account: purpose === "credential" ? promptAccount(w.account) : null,
-        certificate: purpose === "certificate_trust" ? decodeCertificate(w.certificate) : null,
+        certificate: purpose === "certificate_trust" || purpose === "gateway_certificate_trust" ? decodeCertificate(w.certificate) : null,
         ...(hop !== null ? { hop } : {}),
       };
     }
@@ -82,6 +83,12 @@ export function decodeSessionEvent(raw: unknown): SessionEvent {
         return { kind: "closed", reason: "unrecognised session event", code: "unknown" };
       }
       return { kind: "hop_status", hop, of, state: state satisfies HopState, host: str(w.host), peerIdentity: optStr(field(w, "peer_identity", "peerIdentity")) };
+    }
+    // ADR-0027: the RD Gateway's progress. An unknown state is not a status we can show: close the tab.
+    case "gateway_status": {
+      const state = HOP_STATES.find((x) => x === w.state);
+      if (!state) return { kind: "closed", reason: "unrecognised session event", code: "unknown" };
+      return { kind: "gateway_status", host: str(w.host).slice(0, 300), state, peerIdentity: optStr(field(w, "peer_identity", "peerIdentity")) };
     }
     // ADR-0024: the touch banner. An id or fingerprint that is not usable is still a banner, never a prompt.
     case "touch_required": {
@@ -121,9 +128,13 @@ function closeCode(v: unknown): CloseCode | "unknown" {
   return CLOSE_CODES.includes(v as CloseCode) ? (v as CloseCode) : "unknown";
 }
 
+const PROMPT_PURPOSES: readonly PromptPurpose[] = [
+  "host_key_trust", "certificate_trust", "keyboard_interactive", "credential", "gateway_certificate_trust", "smart_card_pin",
+];
+
 /** Unknown or missing purposes fall back to "other": never a trust dialog. */
 function promptPurpose(v: unknown): PromptPurpose {
-  return v === "host_key_trust" || v === "certificate_trust" || v === "keyboard_interactive" || v === "credential" ? v : "other";
+  return PROMPT_PURPOSES.includes(v as PromptPurpose) ? (v as PromptPurpose) : "other";
 }
 
 /** `account` of a credential prompt (snake_case on the wire). Missing = ask for everything. */

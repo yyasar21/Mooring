@@ -9,6 +9,11 @@ export const SK_PUBLIC =
   "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIAcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmAAAABHNzaDo=";
 export const SK_FINGERPRINT = "SHA256:0f/IntG4BPp3d8fT9X/gGHh5if5mE+U8QZtkqXrdDv4";
 
+/** ADR-0027: a PIV card's ECDSA P-256 key line (made-up point; the fingerprint is its real SHA-256). */
+export const PIV_PUBLIC =
+  "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=";
+export const PIV_FINGERPRINT = "SHA256:GIU4ybieeLjdOEuH/yYndvEe5hnX23ys7LuuE//Wdr0";
+
 export function seedFolders(): Folder[] {
   const f = (id: string, parentId: string | null, name: string, sort: number, cred: string | null = null): Folder => ({
     id,
@@ -72,10 +77,15 @@ export function seedConnections(): ConnectionSummary[] {
     c("c-report", "f-db", "pg-reporting", "ssh", "report.example.test", 22, "cr-db-dyn", ["postgres"]),
     // ADR-0024: signs in with a FIDO2 key through the agent; connecting shows the touch banner.
     c("c-yubi", "f-staging", "build-runner", "ssh", "runner.example.test", 22, "cr-yubi", ["fido2"]),
+    // ADR-0027: reached through an RD Gateway; the gateway gets the sign-in ("Same as sign-in").
+    c("c-rdg", "f-desk", "finance-desk", "rdp", "fin01.example.test", 3389, "cr-ad", ["rdg"]),
   ].map((x) => {
     if (x.id === "c-stg") return { ...x, via: ["c-bastion"] };
     if (x.id === "c-pg") return { ...x, becomeCredentialId: "cr-sudo" };
     if (x.id === "c-dc") return { ...x, usernameOverride: "dc-admin", gatewayCredentialId: "cr-ad", options: { ...DEFAULT_RDP_OPTIONS } };
+    if (x.id === "c-rdg") {
+      return { ...x, options: { ...DEFAULT_RDP_OPTIONS, gateway: { host: "gw01.example.test", port: 443, usage: "always" as const, allowBasicGateway: false, caPem: null } } };
+    }
     if (x.id === "c-kiosk") return { ...x, options: { ...DEFAULT_VNC_OPTIONS, viewOnly: true } };
     if (x.id === "c-lb") return { ...x, options: { url: "https://lb.example.test", allowedOrigins: [], persistent: false, allowHttp: false } };
     return x;
@@ -111,6 +121,10 @@ export function seedCredentials(): CredentialMeta[] {
     m("cr-yubi", "yubikey ops", "ssh_sk_key", {
       username: "ops", public_key: `${SK_PUBLIC} ops@yubikey`, backend: "agent", resident: true, application: "ssh:", fingerprint: SK_FINGERPRINT,
     }, [], SK_FINGERPRINT),
+    // ADR-0027: a PIV card; nothing is sealed (the PIN is asked at connect when the agent lacks the key).
+    m("cr-piv", "piv badge", "smart_card", {
+      username: "ops", reader_hint: "Yubico YubiKey", public_key: `${PIV_PUBLIC} piv@yubikey`, pkcs11_module: "ykcs11", fingerprint: PIV_FINGERPRINT,
+    }, [], PIV_FINGERPRINT),
     m("cr-db-dyn", "reporting db (dynamic)", "external_ref", { provider: "vault", source: "src-ops", engine: "database", reference: "database/reporting", target_kind: "user_password" }, []),
   ];
 }

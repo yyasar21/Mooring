@@ -5,11 +5,11 @@ import { useTree } from "../../stores/tree";
 import { CertificateDetails, PROBLEM } from "./CertificateDetails";
 
 /**
- * The answers R2 accepts for a `certificate_trust` prompt (`graphical_task::Gate`): `yes` pins the
- * leaf and reconnects; anything else closes with `trust_rejected`. There is no "trust once"
- * answer: `trusted_once` is used by Rust only when the pin cannot be written.
+ * The answers `graphical_task::Gate` accepts: `yes` pins the leaf and reconnects; anything else
+ * closes with `trust_rejected`. `once` (trust for this connect, nothing stored) is offered for
+ * the RD Gateway only (ADR-0027 contract); the server dialog keeps its two answers.
  */
-export const CERT_ANSWER = { trust: "yes", reject: "no" } as const;
+export const CERT_ANSWER = { trust: "yes", once: "once", reject: "no" } as const;
 
 /** Problems that need an explicit "I checked" before Trust is enabled: more than a missing CA. */
 const SERIOUS: readonly CertificateProblem[] = ["name_mismatch", "expired", "not_yet_valid"];
@@ -35,7 +35,10 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
   const hot = problems.length > 0;
   const protocol = tab?.protocol ?? conn?.protocol ?? "rdp";
   const port = conn?.port ?? DEFAULT_PORT[protocol] ?? 0;
-  const target = `${conn?.host ?? "?"}:${String(port)}`;
+  // ADR-0027: the RD Gateway's own certificate, pinned at the gateway's host:port (`known_rdg_certs`).
+  const gateway = prompt.purpose === "gateway_certificate_trust";
+  const target = gateway ? (tab?.gateway?.host ?? "RD Gateway") : `${conn?.host ?? "?"}:${String(port)}`;
+  const who = gateway ? "RD Gateway" : "host and port";
   const headingId = `cert-h-${tabId}`;
   const bodyId = `cert-b-${tabId}`;
 
@@ -88,14 +91,15 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
         </p>
         <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
           <span aria-hidden className={hot ? "tab-attn" : undefined} />
-          Verify server certificate
+          {gateway ? "RD Gateway certificate" : "Verify server certificate"}
         </h2>
         <p className="cert-target mono mt-2">
-          <span className="chip">{protocol.toUpperCase()}</span>
+          <span className="chip">{gateway ? "RD Gateway" : protocol.toUpperCase()}</span>
           <span className="select-text">{target}</span>
         </p>
         <p id={bodyId} className="mt-3 text-[length:var(--fs-s)] text-text-muted">
-          Mooring has no stored certificate for this host and port{hot ? ", and no trusted authority vouches for this one" : ""}. Compare
+          {gateway && `Before it reaches ${conn?.name ?? "the computer"}, Mooring connects through this RD Gateway. `}
+          Mooring has no stored certificate for this {who}{hot ? ", and no trusted authority vouches for this one" : ""}. Compare
           the SHA-256 fingerprint with one you got from the server owner before you trust it.
         </p>
 
@@ -113,8 +117,8 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
         {cert ? <CertificateDetails cert={cert} /> : <p className="field-hint field-problem mt-3">The server sent no certificate details.</p>}
 
         <p className="mt-3 text-[length:var(--fs-xs)] text-text-muted">
-          Trust and remember stores this fingerprint for {target} and connects again. If the certificate changes later, the connection
-          stops until you remove the stored one in Settings → Trust.
+          Trust and remember stores this fingerprint for {target} and connects again.{gateway && " Trust once uses it for this connection only and stores nothing."}{" "}
+          If the certificate changes later, the connection stops until you remove the stored one in Settings → Trust.
         </p>
         {serious && (
           <label className="cert-ack mt-3">
@@ -126,6 +130,11 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
           <button ref={rejectRef} type="button" className="btn" disabled={sent} onClick={() => { send(CERT_ANSWER.reject); }}>
             Reject
           </button>
+          {gateway && (
+            <button type="button" className="btn" disabled={sent || !cert || (serious && !checked)} onClick={() => { send(CERT_ANSWER.once); }}>
+              Trust once
+            </button>
+          )}
           <button
             type="button"
             className={hot ? "btn btn-danger" : "btn btn-primary"}

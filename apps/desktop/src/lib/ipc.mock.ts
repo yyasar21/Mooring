@@ -12,6 +12,7 @@ import { MockTreeBase } from "./ipc.mock.tree";
 import { MockHopChain, type MockHop } from "./ipc.mock.hops";
 import { MockLeaseBook } from "./ipc.mock.leases";
 import { DEFAULT_SK_KNOBS, signWithTouch, skPreflight, type MockSkKnobs } from "./ipc.mock.sk";
+import { DEFAULT_PIV_KNOBS, PIN_PROMPT_ID, askPin, pinOutcome, pivPreflight, type MockPivKnobs } from "./ipc.mock.piv";
 
 export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
@@ -22,7 +23,7 @@ interface MockSession {
   info: SessionInfo;
   host: string;
   emit: SessionEventHandler;
-  pending: "tofu" | "otp" | "credential" | null;
+  pending: "tofu" | "otp" | "credential" | "pin" | null;
   needsOtp: boolean;
   /** The connection's effective credential is `prompt`: ask for the account after TOFU. */
   askCredential: { username: string | null; domain: string | null; needsDomain: boolean } | null;
@@ -31,6 +32,8 @@ interface MockSession {
   chain: MockHopChain | null;
   /** ADR-0024: the target signs in with this security key (its fingerprint). */
   skFingerprint: string | null;
+  /** ADR-0027: the target signs in with this smart card (through the agent, with a PIN if needed). */
+  piv: CredentialMeta | null;
 }
 
 /** The `prompt` credential pre-fills of a connection (null = it stores its own secret). */
@@ -50,6 +53,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
   leaseRenewFails = false;
   /** ADR-0024 knobs: does the agent hold the security key, and is it touched in time. */
   sk: MockSkKnobs = { ...DEFAULT_SK_KNOBS };
+  /** ADR-0027 knobs: does the agent hold the card's key, and does the card take the PIN. */
+  piv: MockPivKnobs = { ...DEFAULT_PIV_KNOBS };
 
   constructor(opts: MockOptions = {}) {
     super(opts);
@@ -176,6 +181,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
     }
     // R4 `sk_keys::preflight`: before any network I/O.
     if (cred?.kind === "ssh_sk_key") skPreflight(cred.fields, this.sk);
+    // R5 pre-flight: a card key the agent lacks, with no module to load it, is refused before any I/O.
+    if (cred?.kind === "smart_card") pivPreflight(cred, this.piv);
     const sessionId = this.id("s");
     if (dynamicDb) {
       this.leaseBook.issue(sessionId, { ttl: this.leaseTtl, renewable: true, failRenew: this.leaseRenewFails });
@@ -191,6 +198,7 @@ export class MockTransport extends MockTreeBase implements Ipc {
       line: "",
       chain: null,
       skFingerprint: cred?.kind === "ssh_sk_key" ? (cred.fingerprint ?? "") : null,
+      piv: cred?.kind === "smart_card" ? cred : null,
     };
     this.sessions.set(sessionId, s);
     const target = () => {
@@ -216,6 +224,14 @@ export class MockTransport extends MockTreeBase implements Ipc {
   };
 
   private afterTrust(s: MockSession): void {
+    if (s.piv) {
+      if (this.piv.agentHolds) this.signedInWithCard(s, "ok");
+      else {
+        s.pending = "pin";
+        askPin(s.emit, s.piv);
+      }
+      return;
+    }
     if (s.skFingerprint !== null) {
       const fingerprint = s.skFingerprint;
       signWithTouch(s.emit, fingerprint, this.sk, (ok) => {
@@ -246,6 +262,14 @@ export class MockTransport extends MockTreeBase implements Ipc {
       return;
     }
     this.connect(s);
+  }
+
+  /** `session.auth_sk { backend: piv }`, then the shell or the close. Never a password fallback. */
+  private signedInWithCard(s: MockSession, outcome: "ok" | "cancelled" | "refused"): void {
+    this.record("session.auth_sk", { connection: s.info.connectionId, fingerprint: s.piv?.fingerprint ?? "", backend: "piv", outcome });
+    if (outcome === "ok") this.connect(s);
+    else if (outcome === "cancelled") this.end(s, "smart card PIN cancelled", "user");
+    else this.end(s, "the smart card refused the PIN, or the module could not load it", "auth_failed");
   }
 
   private connect(s: MockSession): void {
@@ -297,6 +321,11 @@ export class MockTransport extends MockTreeBase implements Ipc {
             this.trustedHosts.add(s.host);
             this.later(() => { this.afterTrust(s); });
           } else this.later(() => { this.end(s, "host key rejected", "trust_rejected"); });
+        } else if (s.pending === "pin" && input.id === PIN_PROMPT_ID) {
+          const outcome = pinOutcome(input.text, this.piv);
+          s.pending = null;
+          this.record("credential.pin_prompted", { fingerprint: s.piv?.fingerprint ?? "", outcome: outcome === "cancelled" ? "cancelled" : "entered" });
+          this.later(() => { this.signedInWithCard(s, outcome); });
         } else if (s.pending === "otp" && input.id === 2) {
           this.later(() => { if (input.text.length > 0) this.connect(s); else this.end(s, "authentication failed", "auth_failed"); });
         } else throw new IpcError("input.invalid", "no such prompt");

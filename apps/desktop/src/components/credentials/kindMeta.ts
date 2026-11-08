@@ -23,10 +23,11 @@ export const KIND_CODE: Record<CredentialKind, string> = {
   vault_approle: "ROLE",
   s3_access_key: "S3",
   bitwarden_access_token: "BWS",
+  smart_card: "PIV",
 };
 
 /** Picker sections, in order. The served `group` maps onto these (Windows + vSphere are accounts). */
-export const SECTIONS = ["Accounts", "SSH", "Certificates & tokens", "Kubernetes", "VNC", "Other", "Secret sources & sync"] as const;
+export const SECTIONS = ["Accounts", "SSH", "Smart card", "Certificates & tokens", "Kubernetes", "VNC", "Other", "Secret sources & sync"] as const;
 export type Section = (typeof SECTIONS)[number];
 
 const SECTION_OF: Record<KindGroup, Section> = {
@@ -39,6 +40,7 @@ const SECTION_OF: Record<KindGroup, Section> = {
   Other: "Other",
   "Secret sources": "Secret sources & sync",
   Sync: "Secret sources & sync",
+  "Smart card": "Smart card",
 };
 
 export function sectionOf(k: KindSchema): Section {
@@ -82,6 +84,7 @@ export const KIND_BLURB: Record<CredentialKind, string> = {
   vault_approle: "The AppRole a secret source signs in to Vault with. Both halves are sealed.",
   s3_access_key: "The access key vault sync uses for the S3 bucket. Never usable for a connection.",
   bitwarden_access_token: "The machine access token a Bitwarden Secrets Manager source runs bws with. Sealed.",
+  smart_card: "A PIV smart card or YubiKey PIV slot, used through your ssh-agent. The PIN is asked at connect and never stored.",
 };
 
 export const PROVIDERS: { value: string; label: string; placeholder: string; hint: string }[] = [

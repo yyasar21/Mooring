@@ -5,6 +5,7 @@
 import type { Protocol, SessionEventHandler, Size } from "./ipc.types";
 import type { KubeConnOptions } from "./ipc.types.kube";
 import type { VsphereConnOptions } from "./ipc.types.vsphere";
+import type { RdGatewayOptions } from "./ipc.types.rdg";
 
 // ---------- per-protocol connection options (connection.options, migration 0005) ----------
 
@@ -23,6 +24,8 @@ export interface RdpConnOptions {
   /** Certificate PEM blocks only, ≤ 64 KiB (B-3). */
   caPem: string | null;
   maxFps: MaxFps;
+  /** ADR-0027: the RD Gateway in front of the target; `null` (or absent on the wire) = direct. */
+  gateway: RdGatewayOptions | null;
 }
 
 export type VncSecurity = "require_tls" | "prefer_tls" | "allow_plaintext";
@@ -56,6 +59,7 @@ export const DEFAULT_RDP_OPTIONS: RdpConnOptions = {
   allowTlsWithoutNla: false,
   caPem: null,
   maxFps: 30,
+  gateway: null,
 };
 
 export const DEFAULT_WEB_OPTIONS: WebConnOptions = { url: "", allowedOrigins: [], persistent: false, allowHttp: false };
@@ -95,10 +99,16 @@ export type CloseCode =
   /** ADR-0025: a jump host never came up; the target was never contacted. */
   | "hop_failed"
   /** ADR-0025: a jump host dropped; graphical sessions reconnect and rebuild the chain. */
-  | "hop_lost";
+  | "hop_lost"
+  /** ADR-0027: the RD Gateway refused the credentials (`rdp.gateway_auth`). Never retried. */
+  | "gateway_auth"
+  /** ADR-0027: the gateway refused the tunnel or the channel; the reason carries the hex HRESULT. */
+  | "gateway_refused"
+  /** ADR-0027: no MS-TSGU WebSocket endpoint (legacy RPC over HTTP), or another protocol version. */
+  | "gateway_unsupported";
 export const CLOSE_CODES: readonly CloseCode[] = [
   "user", "network", "auth_failed", "trust_rejected", "trust_mismatch", "trust_conflict", "server_ended", "protocol_error", "vault_locked",
-  "hop_failed", "hop_lost",
+  "hop_failed", "hop_lost", "gateway_auth", "gateway_refused", "gateway_unsupported",
 ];
 
 export type CertificateProblem = "self_signed" | "unknown_issuer" | "name_mismatch" | "expired" | "not_yet_valid";
@@ -133,6 +143,9 @@ export const WHEEL_NOTCH = 120;
 export const INPUT_LIMITS = { codeChars: 32, keyBytes: 32, unicodeChars: 64, minDesktop: 200, maxDesktop: 8192 } as const;
 
 // ---------- trust store ----------
+
+/** The `CertProtocol` stores the known-certificates manager shows. */
+export type KnownCertProtocol = "rdp" | "vnc" | "rdg";
 
 export interface KnownCert {
   /** `|2|salt|hmac` form: the host is never stored in the clear (or the plain `host:port` of a hand-written line). */
@@ -187,8 +200,9 @@ export interface RemoteIpc {
   /** Replaces every option (`input.invalid` for unknown fields, wrong protocol, maxFps ∉ {30,60}). */
   connectionOptionsSet(args: { connectionId: string; options: ProtocolOptions }): Promise<ProtocolOptions>;
 
-  knownCertsList(args: { protocol: "rdp" | "vnc" }): Promise<KnownCert[]>;
-  knownCertsRemove(args: { protocol: "rdp" | "vnc"; host: string; port: number }): Promise<{ removed: number }>;
+  /** `rdg` (ADR-0027): RD Gateway pins. Rust does not name them from connection options yet, so they list hashed. */
+  knownCertsList(args: { protocol: KnownCertProtocol }): Promise<KnownCert[]>;
+  knownCertsRemove(args: { protocol: KnownCertProtocol; host: string; port: number }): Promise<{ removed: number }>;
 
   webOpen(args: { connectionId: string; onEvent: WebEventHandler }): Promise<{ windowLabel: string }>;
   webClose(args: { connectionId: string }): Promise<void>;

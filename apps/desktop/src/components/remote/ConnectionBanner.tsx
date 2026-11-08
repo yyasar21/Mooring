@@ -33,7 +33,57 @@ export const CLOSE_TEXT: Record<CloseCode | "unknown", { title: string; hint: st
     hint: "The link through a jump host dropped. Remote desktops reconnect and rebuild the whole chain; a terminal needs Reconnect.",
     hot: true,
   },
+  // ADR-0027: the RD Gateway. None of these is retried; the target was never reached.
+  gateway_auth: {
+    title: "The RD Gateway refused the credentials",
+    hint: "Check the RD Gateway credential of this connection, or choose Same as sign-in. A gateway that offers only Basic needs “Allow Basic authentication”; Kerberos-only gateways are not supported yet.",
+    hot: true,
+  },
+  gateway_refused: {
+    title: "The RD Gateway refused the connection",
+    hint: "The gateway's policy did not let this account reach this computer. Send the error code in the reason to the gateway's administrator.",
+    hot: true,
+  },
+  gateway_unsupported: {
+    title: "RD Gateway not supported",
+    hint: "No RD Gateway WebSocket endpoint (RPC over HTTP gateways are not supported). The gateway needs Windows Server 2016 or later.",
+    hot: true,
+  },
   unknown: { title: "Disconnected", hint: null, hot: true },
+};
+
+/** ADR-0027: the reason Rust gives when the stored RD Gateway pin no longer matches. */
+const GATEWAY_MISMATCH = /^RD GATEWAY CERTIFICATE CHANGED/;
+
+/** Pre-flight refusals (`session_open` errors) of an RDP tab that deserve their own heading. */
+const OPEN_ERROR_TEXT: Readonly<Record<string, { title: string; hint: string; hot: boolean }>> = {
+  "rdp.smart_card_unsupported": {
+    title: "Smart-card logon over RDP is not available",
+    hint: "Pick a user and password or a Windows domain credential for this connection, then press Reconnect.",
+    hot: true,
+  },
+};
+
+/** The heading and hint of a closed remote tab: the close code, refined by the gateway and pre-flight cases. */
+export function closeTextFor(tab: Pick<Tab, "closeCode" | "reason" | "openError">): { title: string; hint: string | null; hot: boolean } {
+  const open = tab.openError ? OPEN_ERROR_TEXT[tab.openError] : undefined;
+  if (open) return open;
+  if (tab.closeCode === "trust_mismatch" && GATEWAY_MISMATCH.test(tab.reason ?? "")) {
+    return {
+      title: "RD Gateway certificate changed",
+      hint: "Mooring stopped before sending anything to the gateway. Confirm the new fingerprint with the gateway's owner, then remove the stored certificate in Settings → Trust → RD Gateway.",
+      hot: true,
+    };
+  }
+  return CLOSE_TEXT[tab.closeCode ?? "unknown"];
+}
+
+/** ADR-0027: "Connecting through RD Gateway …" lines while the gateway comes up. */
+const GATEWAY_STEP: Record<string, string> = {
+  connecting: "Opening the RD Gateway",
+  authenticating: "Signing in to the RD Gateway",
+  up: "RD Gateway tunnel open, connecting to the computer",
+  failed: "The RD Gateway failed",
 };
 
 /** `Date.now()`, ticking every 250 ms while `on`. */
@@ -74,6 +124,11 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
       <div className="link-banner m-hud" role="status" aria-live="polite">
         <span className="m-micro">Connecting</span>
         <span className="text-text-muted">Opening a session to {host}…</span>
+        {tab.gateway && (
+          <span className="gw-step" data-state={tab.gateway.state}>
+            {GATEWAY_STEP[tab.gateway.state]} <span className="mono">{tab.gateway.host}</span>
+          </span>
+        )}
       </div>
     );
   }
@@ -115,7 +170,7 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
   }
 
   if (tab.state === "closed") {
-    const t = CLOSE_TEXT[tab.closeCode ?? "unknown"];
+    const t = closeTextFor(tab);
     return (
       <div className="link-banner m-hud" data-tone={t.hot ? "hot" : undefined} role="alert">
         <span className="m-micro" style={t.hot ? { color: "var(--hot)" } : undefined}>{t.title}</span>

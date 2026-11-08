@@ -3,7 +3,7 @@
 // DOM element until submit, and React state learns only "filled / bytes / problem".
 import { useId } from "react";
 import type { CredentialKind, CredentialMeta, FieldSchema, KindSchema, OtpSettings } from "../../lib/ipc";
-import { CREDENTIAL_KINDS } from "../../lib/ipc";
+import { CREDENTIAL_KINDS, PKCS11_MODULE_LABEL } from "../../lib/ipc";
 import { OTP_SEED_SCHEMA, formatBytes, isAccountError, parseAccount } from "../../lib/credentials";
 import { kindLabel } from "../../stores/credentials";
 import { KIND_CODE, MATRIX, PROVIDERS } from "./kindMeta";
@@ -61,6 +61,7 @@ const OPTION_LABEL: Record<string, string> = {
   vault: "Vault",
   onepassword: "1Password",
   bitwarden: "Bitwarden",
+  ...PKCS11_MODULE_LABEL,
 };
 
 function optionLabel(v: string, kinds: KindSchema[]): string {

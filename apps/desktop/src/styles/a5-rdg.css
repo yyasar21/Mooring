@@ -1,0 +1,15 @@
+/* ADR-0027 RD Gateway and smart cards: the gateway section of the RDP options, the gateway step in
+   the connecting banner and the smart-card PIN dialog. Today's tokens only, sentence case in the
+   sans face, plain borders, as a5-sk.css. */
+
+.rdg-section {
+  grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; margin: 4px 0 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-m); min-width: 0;
+}
+.rdg-section > legend { padding: 0 4px; }
+
+.gw-step { font-size: var(--fs-xs); color: var(--text-muted); }
+.gw-step .mono { color: var(--text); }
+.gw-step[data-state="failed"] { color: var(--hot); }
+
+.pin-dialog .field-hint { margin-top: 6px; }

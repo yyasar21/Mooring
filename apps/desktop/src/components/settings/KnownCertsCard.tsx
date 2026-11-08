@@ -6,15 +6,12 @@ import { fingerprintGroups } from "../remote/CertificateDetails";
 import { DialogFooter, Modal } from "../dialogs/Modal";
 import { Seg } from "../dialogs/options/controls";
 import { SettingsCard } from "./Toggle";
-import { filterPins, useKnownCerts, type CertProtocol, type PinRow } from "./useKnownCerts";
+import { DEFAULT_PORT, STORE_LABEL, filterPins, useKnownCerts, type CertProtocol, type PinRow } from "./useKnownCerts";
 
 // TODO(A2-U2): SSH host keys (`known_hosts`) have no list/remove IPC command yet; add a section
 // here once rust-core exposes one (ADR-0007 keeps the file hashed like known_*_certs).
 
-const PROTOCOLS: { value: CertProtocol; label: string }[] = [
-  { value: "rdp", label: "RDP" },
-  { value: "vnc", label: "VNC" },
-];
+const PROTOCOLS: { value: CertProtocol; label: string }[] = (["rdp", "vnc", "rdg"] as const).map((value) => ({ value, label: STORE_LABEL[value] }));
 
 function fingerprintHex(fp: string): string {
   return fp.replace(/^SHA256:/i, "");
@@ -42,7 +39,7 @@ export function KnownCertsCard() {
     <SettingsCard title="Known certificates" kicker="Trust" labelledBy="trust-title">
       <div className="settings-body">
         <p className="field-hint">
-          Certificates you trusted for RDP and VNC hosts. If a server is reinstalled and its certificate changes, Mooring stops the
+          Certificates you trusted for RDP and VNC hosts and for RD Gateways. If a server is reinstalled and its certificate changes, Mooring stops the
           connection; remove the old entry here after the server owner confirms the new fingerprint. When vault sync brings in a different
           certificate for the same host from another device, both are kept and marked as a conflict: Mooring refuses to connect until you
           remove one.
@@ -68,14 +65,14 @@ export function KnownCertsCard() {
             <div className="trust-empty">
               <span className="m-micro">No stored certificates</span>
               <span className="field-hint">
-                {protocol.toUpperCase()} certificates appear here after you choose “Trust and remember” when connecting.
+                {STORE_LABEL[protocol]} certificates appear here after you choose “Trust and remember” when connecting.
               </span>
             </div>
           )
         ) : shown.length === 0 ? (
           <p className="field-hint">Nothing matches “{query}”.</p>
         ) : (
-          <ul className="trust-list" aria-label={`${protocol.toUpperCase()} certificates`}>
+          <ul className="trust-list" aria-label={`${STORE_LABEL[protocol]} certificates`}>
             {shown.map((r) => (
               <li key={`${r.hostHash}-${r.fingerprint}`} className="trust-row" data-conflict={r.conflict || undefined}>
                 <div className="min-w-0">
@@ -84,7 +81,9 @@ export function KnownCertsCard() {
                     {r.target ? (
                       <span className="mono select-text">{r.target.host}:{r.target.port}</span>
                     ) : (
-                      <span className="text-text-muted">Host not in your connections (stored hashed)</span>
+                      <span className="text-text-muted">
+                        {protocol === "rdg" ? "RD Gateway (host stored hashed)" : "Host not in your connections (stored hashed)"}
+                      </span>
                     )}
                     {r.connections.length > 0 && <span className="trust-names">{r.connections.join(", ")}</span>}
                   </p>
@@ -120,7 +119,8 @@ export function KnownCertsCard() {
 /** Confirm a removal. A hashed pin without a matching connection needs the host and port typed in. */
 function RemoveDialog({ protocol, row, onClose, onRemoved }: { protocol: CertProtocol; row: PinRow; onClose: () => void; onRemoved: (target: string) => void }) {
   const [host, setHost] = useState(row.target?.host ?? "");
-  const [port, setPort] = useState(row.target ? String(row.target.port) : protocol === "rdp" ? "3389" : "5900");
+  const [port, setPort] = useState(String(row.target ? row.target.port : DEFAULT_PORT[protocol]));
+  const store = STORE_LABEL[protocol];
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const portNum = Number(port);
@@ -133,7 +133,7 @@ function RemoveDialog({ protocol, row, onClose, onRemoved }: { protocol: CertPro
     try {
       const { removed } = await ipc.knownCertsRemove({ protocol, host: host.trim(), port: portNum });
       if (removed > 0) onRemoved(target);
-      else setError(`No stored ${protocol.toUpperCase()} certificate matches ${target}.`);
+      else setError(`No stored ${store} certificate matches ${target}.`);
     } catch (e: unknown) {
       setError(describeError(e));
     } finally {
@@ -147,13 +147,15 @@ function RemoveDialog({ protocol, row, onClose, onRemoved }: { protocol: CertPro
         <div className="space-y-3 px-4 py-4 text-[length:var(--fs-s)]">
           {row.target ? (
             <p>
-              Remove the stored {protocol.toUpperCase()} certificate for <span className="mono">{target}</span>
+              Remove the stored {store} certificate for <span className="mono">{target}</span>
               {row.connections.length > 0 ? ` (${row.connections.join(", ")})` : ""}?
               {row.conflict && " This host has conflicting stored certificates (synced from another device); removing clears all of them."}
             </p>
           ) : (
             <>
-              <p>The host of this certificate is stored hashed. Enter the host and port it belongs to.</p>
+              <p>
+                The host of this certificate is stored hashed. Enter the {protocol === "rdg" ? "RD Gateway's host and port (as in the connection's RD Gateway section)" : "host and port it belongs to"}.
+              </p>
               <div className="grid grid-cols-[1fr_96px] gap-3">
                 <div>
                   <label className="field-label" htmlFor="trust-host">Host</label>

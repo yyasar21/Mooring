@@ -15,12 +15,24 @@ export function securityBadge(security: string | null): { text: string; hot: boo
       return { text: "NLA", hot: false };
     case "tls":
       return { text: "TLS without NLA", hot: true };
+    // ADR-0027: the same, through an RD Gateway (the gateway chip names it).
+    case "nla+rdg":
+      return { text: "NLA", hot: false };
+    case "tls+rdg":
+      return { text: "TLS without NLA", hot: true };
     case "vnc-auth":
     case "none":
       return { text: "Unencrypted", hot: true };
     default:
       return { text: security.toUpperCase().slice(0, 24), hot: false };
   }
+}
+
+/** ADR-0027: "via RD Gateway gw01" while the gateway tunnel is up; the default port is not repeated. */
+export function gatewayChip(tab: Pick<Tab, "gateway">): string | null {
+  const g = tab.gateway;
+  if (g?.state !== "up") return null;
+  return `via RD Gateway ${g.host.replace(/:443$/, "")}`;
 }
 
 function clipboardPolicy(o: ProtocolOptions | undefined): ClipboardPolicy {
@@ -51,6 +63,7 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
   const inputEnabled = connected && !viewOnly && tab.prompt === null;
   const badge = securityBadge(connected ? tab.security : null);
   const name = connection?.name ?? "remote desktop";
+  const viaGateway = tab.state === "closed" ? null : gatewayChip(tab);
 
   useEffect(() => {
     if (note === null) return;
@@ -87,6 +100,11 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
         {badge && (
           <span className="chip" data-tone={badge.hot ? "hot" : "ok"} title="Negotiated security">
             {badge.text}
+          </span>
+        )}
+        {viaGateway && (
+          <span className="chip" title={tab.gateway?.peerIdentity ? `RD Gateway certificate ${tab.gateway.peerIdentity}` : "RD Gateway"}>
+            {viaGateway}
           </span>
         )}
         {vnc && (

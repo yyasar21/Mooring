@@ -62,7 +62,8 @@ describe("certificate trust dialog", () => {
   });
 
   it("Trust and remember sends R2's `yes`; Reject and Escape send `no`; never twice", () => {
-    expect(CERT_ANSWER).toEqual({ trust: "yes", reject: "no" });
+    // `once` exists for the RD Gateway dialog only (ADR-0027); the server dialog never offers it.
+    expect(CERT_ANSWER).toEqual({ trust: "yes", once: "once", reject: "no" });
     const a = show(cert());
     fireEvent.click(within(a.dialog).getByRole("button", { name: "Trust and remember" }));
     fireEvent.click(within(a.dialog).getByRole("button", { name: "Trust and remember" }));

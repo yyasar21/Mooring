@@ -13,6 +13,7 @@ import { testText } from "../settings/SecretSourcesCard";
 import { refTestSummary } from "./ExternalRefSection";
 import { Fingerprint, KindBadge, MatrixStrip } from "./fields";
 import { SkKeyDetail } from "./SkKeyDetail";
+import { SmartCardDetail } from "./SmartCard";
 import { APPROLE_HINT, BWS_TOKEN_HINT, KIND_BLURB, PROVIDERS } from "./kindMeta";
 
 const ROLE_TAG: Record<CredentialRole, string> = { primary: "", gateway: "gateway", become: "become", certificate: "certificate" };
@@ -131,6 +132,7 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
         {meta.kind === "external_ref" && <ReferenceSection meta={meta} kinds={kinds} />}
         {LOGIN_ONLY.has(meta.kind) && <ApproleSection meta={meta} />}
         {meta.kind === "ssh_sk_key" && <SkKeyDetail meta={meta} />}
+        {meta.kind === "smart_card" && <SmartCardDetail meta={meta} />}
         {(meta.kind === "ssh_key" || meta.kind === "ssh_sk_key") && <CertificateSection id={meta.id} />}
         {meta.kind === "s3_access_key" && (
           <section className="kind-note flex items-center gap-3" role="note">

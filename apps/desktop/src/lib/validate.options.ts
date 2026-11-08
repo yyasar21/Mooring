@@ -23,6 +23,7 @@ import {
 import { DEFAULT_KUBE_OPTIONS, type KubeConnOptions } from "./ipc.types.kube";
 import { DEFAULT_VSPHERE_OPTIONS, type VsphereConnOptions } from "./ipc.types.vsphere";
 import { normalizeKube, normalizeVsphere, validateKube, validateVsphere } from "./validate.kube";
+import { normalizeGateway, validateGateway } from "./validate.rdg";
 
 /** Field → message. Empty = valid. */
 export type OptionErrors = Partial<Record<string, string>>;
@@ -131,7 +132,7 @@ export function validateRdp(o: RdpConnOptions): OptionErrors {
   if (!MAX_FPS_VALUES.includes(o.maxFps)) e.maxFps = "Frame rate is 30 or 60.";
   const ca = checkCaPem(o.caPem);
   if (ca) e.caPem = ca;
-  return e;
+  return { ...e, ...validateGateway(o.gateway ?? null, checkCaPem) };
 }
 
 export function validateVnc(o: VncConnOptions): OptionErrors {
@@ -215,6 +216,7 @@ export function normalizeOptions(p: Protocol, raw: unknown): ProtocolOptions {
         allowTlsWithoutNla: pick(w.allowTlsWithoutNla, isBool, false),
         caPem: pick<string | null>(w.caPem, isPem, null),
         maxFps: fps(w.maxFps),
+        gateway: normalizeGateway(w.gateway),
       };
     case "vnc":
       return {
