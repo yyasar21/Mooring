@@ -17,16 +17,36 @@
 @import "./a5-rdg.css" layer(components);
 
 @theme {
+  /* Harbor names (design review 2026-11) */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-input: var(--border-input);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  /* deprecated aliases, kept for one release (see tokens.css) */
   --color-bg: var(--bg);
   --color-bg-sunken: var(--bg-sunken);
-  --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
-  --color-text: var(--text);
   --color-text-muted: var(--text-muted);
   --color-text-faint: var(--text-faint);
-  --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
   --color-hot: var(--hot);
@@ -34,29 +54,28 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
-  --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --font-display: var(--font-display);
-  --radius-s: var(--radius-s);
-  --radius-m: var(--radius-m);
+  --radius-s: var(--r-s);
+  --radius-m: var(--r-m);
+  --radius-l: var(--r-l);
 }
 
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  background: var(--void);
+  background: var(--canvas);
   color: var(--text);
-  font: 400 var(--fs-m)/1.45 var(--font-sans);
+  font: 400 var(--fs-13)/20px var(--font-sans);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;
 }
 input, textarea, select { user-select: text; }
-::selection { background: var(--accent-dim); }
-.mono { font-family: var(--font-mono); font-size: var(--fs-s); }
+::selection { background: var(--selection); }
+.mono { font-family: var(--font-mono); font-size: 12.5px; }
 .tnum { font-variant-numeric: tabular-nums; }
 
-/* Thin, quiet scrollbars: a hairline that lights on hover. */
-* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+/* Thin, quiet scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }

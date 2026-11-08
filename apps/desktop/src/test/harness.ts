@@ -33,7 +33,7 @@ export function freshBackend(opts: MockOptions = {}): MockTransport {
   useBiometric.setState({ status: null, busy: false, error: null, notice: null });
   useOnboarding.setState({ vaultId: null, dismissed: [], hidden: false, importing: false });
   detachedSessions.clear(); // mock session ids repeat across tests
-  useUi.setState({ theme: "dark", inspectorOpen: true });
+  useUi.setState({ theme: "dark", themePref: "system", inspectorOpen: true });
   useApp.setState({ info: null, vault: "unknown", lastError: null, lockReason: null });
   return mock;
 }

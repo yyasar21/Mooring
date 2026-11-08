@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
 
 /**
- * Bracketed section heading used by the inspector and dialogs: a tracked micro-label between
- * corner ticks, followed by a hairline that runs to the edge of the pane. HUD frames themselves
- * are a class (`m-hud`, light it with `data-active`), not a component, so any element can be one.
+ * Section heading used by the inspector, cards and dialogs: 13 px semibold, sentence case. The
+ * name survives from the bridge-console system; `m-hud` is now a plain hairline frame.
  */
 export function HudLabel({ children, id }: { children: ReactNode; id?: string }) {
   return (

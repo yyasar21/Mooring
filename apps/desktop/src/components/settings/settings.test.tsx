@@ -101,15 +101,33 @@ describe("SyslogCard", () => {
 });
 
 describe("Settings view", () => {
-  it("opens from the title bar and shows both cards", async () => {
+  it("opens from the navigation rail and shows both cards; Hosts leads back", async () => {
     freshBackend();
     render(<App />);
     await screen.findByText("Nothing open yet");
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const rail = screen.getByRole("navigation", { name: "Views" });
+    fireEvent.click(within(rail).getByRole("button", { name: "Settings" }));
     await settle();
     expect(screen.getByRole("region", { name: "Auto-lock" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Syslog mirror" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Back to sessions" }));
+    fireEvent.click(within(rail).getByRole("button", { name: "Hosts" }));
     expect(screen.queryByRole("region", { name: "Auto-lock" })).toBeNull();
+  });
+
+  it("Appearance sets the theme: System, Light or Dark", async () => {
+    freshBackend();
+    render(<App />);
+    await screen.findByText("Nothing open yet");
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Views" })).getByRole("button", { name: "Settings" }));
+    await settle();
+    const card = screen.getByRole("region", { name: "Appearance" });
+    expect(within(card).getByRole("radio", { name: "System" })).toBeChecked();
+    fireEvent.click(within(card).getByRole("radio", { name: "Light" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(within(card).getByRole("radio", { name: "Light" })).toBeChecked();
+    fireEvent.click(within(card).getByRole("radio", { name: "Dark" }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    fireEvent.click(within(card).getByRole("radio", { name: "System" }));
+    expect(localStorage.getItem("mooring.theme")).toBeNull();
   });
 });

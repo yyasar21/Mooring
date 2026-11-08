@@ -135,6 +135,24 @@ describe("shell sync banner (ADR-0017)", () => {
     expect(hint()).toBeNull();
   });
 
+  it("shows the sync state as a title-bar pill that opens the sync settings", async () => {
+    await boot();
+    const pill = screen.getByRole("button", { name: "Vault synced. Open sync settings" });
+    expect(pill).toHaveTextContent("Synced");
+    expect(pill).toHaveAttribute("data-tone", "success");
+    const status = useSync.getState().status;
+    if (!status) throw new Error("status not loaded");
+    act(() => { useSync.setState({ status: { ...status, state: "running" } }); });
+    expect(screen.queryByRole("button", { name: /Open sync settings/ })).toBeNull();
+    act(() => { useSync.setState({ status: { ...status, state: "fork" } }); });
+    const paused = screen.getByRole("button", { name: "Sync paused. Open sync settings" });
+    expect(paused).toHaveAttribute("data-tone", "danger");
+    fireEvent.click(paused);
+    expect(useUi.getState().view).toBe("settings");
+    act(() => { useSync.setState({ status: { ...status, state: "disabled" } }); });
+    expect(screen.queryByRole("button", { name: /Open sync settings/ })).toBeNull();
+  });
+
   it("alarmKey tells alarms apart and is null when nothing is wrong", () => {
     const base = useSync.getState().status;
     expect(alarmKey(null)).toBeNull();

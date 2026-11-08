@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ProtocolPip, StateDot } from "@mooring/ui";
+import { dotTone, Icon, ProtocolIcon } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import { useTree, viaNames, type TreeRow } from "../../stores/tree";
 import { lineState, type TabState } from "../../stores/sessions";
@@ -19,6 +19,8 @@ interface Props {
   syncSource: string | null;
   setSize: number;
   posInSet: number;
+  /** Connections inside a folder row (sub-folders included); null for connection rows. */
+  count: number | null;
   onClick: () => void;
   onDoubleClick: () => void;
   onToggle: () => void;
@@ -28,12 +30,18 @@ interface Props {
   onDrop: () => void;
 }
 
-/** One `treeitem`. Indentation guides are drawn per depth level; the row itself is the focus target. */
+const INDENT = 16;
+
+/**
+ * One `treeitem` (design review 2026-11, M3): chevron, folder icon with a count, or a protocol
+ * icon with a status dot. The accessible name is unchanged (an e2e contract). Indentation guides
+ * are drawn per depth level; the row itself is the focus target.
+ */
 export function TreeRowView(p: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const isFolder = p.row.ref.kind === "folder";
   const name = (isFolder ? p.folder?.name : p.connection?.name) ?? "";
-  const pad = 8 + p.row.depth * 14;
+  const pad = 4 + p.row.depth * INDENT;
   const synced = p.syncSource !== null;
   const missing = !isFolder && p.connection?.syncState === "missing";
   const syncedRoot = isFolder && synced && !p.folder?.externalId;
@@ -83,25 +91,36 @@ export function TreeRowView(p: Props) {
       }}
     >
       {Array.from({ length: p.row.depth }, (_, i) => (
-        <span key={i} aria-hidden className="tree-guide" style={{ left: 13 + i * 14 }} />
+        <span key={i} aria-hidden className="tree-guide" style={{ left: 11.5 + i * INDENT }} />
       ))}
       {isFolder ? (
         <button
           type="button"
           tabIndex={-1}
           aria-hidden
-          className="grid h-4 w-4 flex-none place-items-center text-text-faint"
+          className="tree-chev"
           onClick={(e) => {
             e.stopPropagation();
             p.onToggle();
           }}
         >
-          <svg width="8" height="8" viewBox="0 0 8 8" style={{ transform: p.expanded ? "rotate(90deg)" : "none", transition: "transform 90ms" }}>
-            <path d="M2 1l4 3-4 3z" fill="currentColor" />
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: p.expanded ? "rotate(90deg)" : "none" }}>
+            <path d="M6.25 4.5L9.75 8l-3.5 3.5" />
           </svg>
         </button>
       ) : (
-        p.connection && <ProtocolPip protocol={p.connection.protocol} live={p.sessionState === "connected"} />
+        <span aria-hidden className="tree-chev" />
+      )}
+      {isFolder ? (
+        <span aria-hidden className="tree-folder-icon"><Icon name="folder" /></span>
+      ) : (
+        p.connection && (
+          <ProtocolIcon
+            protocol={p.connection.protocol}
+            tone={p.sessionState ? dotTone(lineState(p.sessionState)) : null}
+            {...(p.sessionState ? { dotLabel: `session ${p.sessionState}` } : {})}
+          />
+        )
       )}
       {p.renaming ? (
         <RenameField initial={name} onDone={p.onRename} />
@@ -110,9 +129,10 @@ export function TreeRowView(p: Props) {
       )}
       {via && !p.renaming && <span className="tree-via" aria-hidden title={`Connects via ${via}`}>via {via}</span>}
       {missing && <span className="tree-missing" aria-hidden>missing</span>}
-      {!p.renaming && <span aria-hidden className="tree-link" data-state={p.sessionState ?? undefined} />}
       {isFolder && synced && <SyncBadge source={p.syncSource ?? ""} compact={!syncedRoot} />}
-      {p.sessionState && <StateDot state={lineState(p.sessionState)} label={`session ${p.sessionState}`} />}
+      {isFolder && p.count !== null && !p.renaming && (
+        <span className="tree-count" aria-hidden title={`${p.count} ${p.count === 1 ? "connection" : "connections"}`}>{p.count}</span>
+      )}
       {isFolder && p.folder?.defaultCredentialId && (
         <span title="Folder supplies a default credential" aria-label="has default credential" className="flex-none text-text-faint">
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>

@@ -3,6 +3,7 @@ import { appCommandFor } from "../lib/shortcuts";
 import { useApp } from "../stores/app";
 import { useSessions } from "../stores/sessions";
 import { useUi } from "../stores/ui";
+import { goToView } from "./NavRail";
 
 /** Window-level shortcuts. Capture phase so they win over focused widgets; see lib/shortcuts.ts. */
 export function useShortcuts(): void {
@@ -47,6 +48,18 @@ export function useShortcuts(): void {
           break;
         case "audit":
           ui.setView(ui.view === "audit" ? "workspace" : "audit");
+          break;
+        case "viewHosts":
+          ui.setView("workspace");
+          break;
+        case "viewCredentials":
+          if (ui.view !== "credentials") goToView("credentials");
+          break;
+        case "viewAudit":
+          if (ui.view !== "audit") goToView("audit");
+          break;
+        case "viewSettings":
+          if (ui.view !== "settings") goToView("settings");
           break;
       }
     }

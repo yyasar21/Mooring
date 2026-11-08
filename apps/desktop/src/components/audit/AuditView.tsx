@@ -3,7 +3,6 @@ import { ipc, type AuditEntry, type AuditVerify } from "../../lib/ipc";
 import { errorText } from "../../stores/errors";
 import { useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
-import { useUi } from "../../stores/ui";
 
 const PAGE = 200;
 
@@ -44,7 +43,6 @@ export function AuditView() {
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [more, setMore] = useState(false);
-  const setView = useUi((s) => s.setView);
   const connections = useTree((s) => s.connections);
   const creds = useCredentials((s) => s.items);
 
@@ -113,9 +111,6 @@ export function AuditView() {
         <button type="button" className="btn flex-none" onClick={() => { void load(null); void runVerify(); }}>
           Refresh
         </button>
-        <button type="button" className="btn btn-ghost flex-none" onClick={() => { setView("workspace"); }}>
-          Back to sessions
-        </button>
       </header>
       {error && <p role="alert" className="bg-danger-soft px-4 py-1.5 text-danger">{error}</p>}
       <div className="audit-row audit-head border-b border-line-strong py-2" aria-hidden>
@@ -149,11 +144,11 @@ export function AuditView() {
 function VerifyBadge({ v }: { v: AuditVerify | null }) {
   if (!v) return <span className="chip">checking chain…</span>;
   return v.ok ? (
-    <span role="status" className="chip tnum" data-tone="ok">
+    <span role="status" className="chip tnum" data-tone="success">
       <span aria-hidden className="state-dot" data-state="connected" /> Chain intact, {v.entries} entries
     </span>
   ) : (
-    <span role="status" className="chip" data-tone="hot">
+    <span role="status" className="chip" data-tone="danger">
       Chain broken at entry {v.brokenAt ?? "?"}. Entries from there on cannot be trusted.
     </span>
   );

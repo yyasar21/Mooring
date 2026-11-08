@@ -96,8 +96,8 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
           {vm && <Prop k="Synced from">{sourceName(connections, c.syncSource)}</Prop>}
           {tab && (
             <Prop k="Session">
-              <span className="inline-flex items-center gap-2" style={{ color: tab.prompt ? "var(--hot)" : undefined }}>
-                <StateDot state={lineState(tab.state)} /> {tab.prompt ? "waiting for you" : tab.state}
+              <span className="inline-flex items-center gap-2" style={{ color: tab.prompt ? "var(--warning)" : undefined }}>
+                <StateDot {...(tab.prompt ? { tone: "wait" as const } : { state: lineState(tab.state) })} /> {tab.prompt ? "waiting for you" : tab.state}
               </span>
             </Prop>
           )}

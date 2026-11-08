@@ -16,9 +16,18 @@ export const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "mod I", label: "Show or hide details" },
   { keys: "mod ⇧ L", label: "Lock vault" },
   { keys: "mod ⇧ Y", label: "Audit log" },
+  { keys: "mod 1", label: "Hosts" },
+  { keys: "mod 2", label: "Credentials" },
+  { keys: "mod 3", label: "Audit log" },
+  { keys: "mod 4", label: "Settings" },
 ];
 
-export type AppCommand = "palette" | "closeTab" | "detachTab" | "nextTab" | "prevTab" | "inspector" | "lock" | "audit";
+export type AppCommand =
+  | "palette" | "closeTab" | "detachTab" | "nextTab" | "prevTab" | "inspector" | "lock" | "audit"
+  | "viewHosts" | "viewCredentials" | "viewAudit" | "viewSettings";
+
+/** mod+1…4: the navigation rail, top to bottom. */
+const VIEW_KEYS: Record<string, AppCommand> = { "1": "viewHosts", "2": "viewCredentials", "3": "viewAudit", "4": "viewSettings" };
 
 /**
  * Map a key event to an app command. Inside a terminal on Linux/Windows, Ctrl+K/W/I belong to
@@ -36,6 +45,9 @@ export function appCommandFor(e: KeyboardEvent, inTerminal: boolean): AppCommand
   if (e.shiftKey && k === "d") return "detachTab";
   if (e.shiftKey && k === "l") return "lock";
   if (e.shiftKey && k === "y") return "audit";
+  // `code` too, so mod+Shift+1 (key "!") reaches the rail from inside a terminal.
+  const digit = /^Digit([1-4])$/.exec(e.code)?.[1] ?? (/^[1-4]$/.test(k) ? k : null);
+  if (digit && plainAllowed) return VIEW_KEYS[digit] ?? null;
   return null;
 }
 

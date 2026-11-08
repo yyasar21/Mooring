@@ -5,6 +5,9 @@ import { useTree, visibleRows, type NodeRef, type TreeRow } from "../../stores/t
 import { useSessions, type TabState } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { TreeRowView } from "./TreeRowView";
+import { SidebarToolbar } from "./SidebarToolbar";
+import { filterTree, subtreeCounts } from "./treeFilter";
+import { Icon } from "@mooring/ui";
 import { READONLY_REASON, sourceName } from "../vsphere/vsphere";
 
 /**
@@ -22,8 +25,15 @@ export function Sidebar() {
   const renaming = useUi((s) => s.renaming);
   const [dragging, setDragging] = useState<NodeRef | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
 
-  const rows = useMemo(() => visibleRows(folders, connections, collapsed), [folders, connections, collapsed]);
+  // M3: the filter narrows the tree to matches and their folders, all expanded while it is set.
+  const rows = useMemo(() => {
+    if (!filter.trim()) return visibleRows(folders, connections, collapsed);
+    const f = filterTree(folders, connections, filter);
+    return visibleRows(f.folders, f.connections, {});
+  }, [folders, connections, collapsed, filter]);
+  const counts = useMemo(() => subtreeCounts(folders, connections), [folders, connections]);
   const focusIndex = Math.max(0, rows.findIndex((r) => r.ref.id === selected?.id));
   const siblings = useMemo(() => {
     const m = new Map<string, TreeRow[]>();
@@ -70,7 +80,7 @@ export function Sidebar() {
       if (r) select(r.ref);
     };
     const isFolder = cur.ref.kind === "folder";
-    const open = isFolder && !(cur.ref.id in collapsed);
+    const open = isFolder && (filter.trim() !== "" || !(cur.ref.id in collapsed));
     let handled = true;
     switch (e.key) {
       case "ArrowDown": go(focusIndex + 1); break;
@@ -109,8 +119,23 @@ export function Sidebar() {
   return (
     <nav aria-label="Connection tree" className="deck-pane flex h-full flex-col">
       <SidebarToolbar />
+      <div className="tree-filter">
+        <span className="tree-filter-wrap block">
+          <span className="tree-filter-icon" aria-hidden><Icon name="filter" size={14} /></span>
+          <input
+            type="search"
+            className="field"
+            aria-label="Filter connections"
+            placeholder="Filter by name, host or tag"
+            value={filter}
+            onChange={(e) => { setFilter(e.target.value); }}
+            onKeyDown={(e) => { if (e.key === "Escape" && filter) { e.stopPropagation(); setFilter(""); } }}
+          />
+        </span>
+      </div>
+      {filter.trim() && !rows.some((r) => r.ref.kind === "connection") && <p className="tree-empty" role="status">No connections match.</p>}
       {error && (
-        <p role="alert" className="mx-2 my-1 border border-[var(--hot-line)] bg-danger-soft px-2 py-1 text-[length:var(--fs-xs)] text-danger">
+        <p role="alert" className="callout mx-3 mb-2 text-[length:var(--fs-12)]" data-tone="danger">
           {error}
         </p>
       )}
@@ -137,7 +162,8 @@ export function Sidebar() {
               connection={r.ref.kind === "connection" ? connections.find((c) => c.id === r.ref.id) : undefined}
               selected={selected?.id === r.ref.id}
               focused={i === focusIndex}
-              expanded={!(r.ref.id in collapsed)}
+              expanded={filter.trim() !== "" || !(r.ref.id in collapsed)}
+              count={r.ref.kind === "folder" ? (counts.get(r.ref.id) ?? 0) : null}
               renaming={renaming === r.ref.id}
               dropTarget={dropOn === r.ref.id}
               sessionState={r.ref.kind === "connection" ? sessionState(r.ref.id) : null}
@@ -161,62 +187,5 @@ export function Sidebar() {
         })}
       </div>
     </nav>
-  );
-}
-
-function SidebarToolbar() {
-  const openDialog = useUi((s) => s.openDialog);
-  const selected = useTree((s) => s.selected);
-  const folders = useTree((s) => s.folders);
-  const connections = useTree((s) => s.connections);
-  const targetFolder =
-    selected?.kind === "folder"
-      ? selected.id
-      : (connections.find((c) => c.id === selected?.id)?.folderId ?? folders.find((f) => f.parentId === null)?.id ?? "");
-  // ADR-0015: nothing is created inside a synced subtree.
-  const readonly = folders.find((f) => f.id === targetFolder)?.syncSource ? READONLY_REASON : null;
-
-  return (
-    <div className="deck-head">
-      <span className="m-micro flex-1">Connections</span>
-      <button
-        type="button"
-        className="icon-btn"
-        title={readonly ?? "New connection in the selected folder"}
-        aria-label="New connection"
-        disabled={!targetFolder || readonly !== null}
-        onClick={() => { openDialog({ kind: "connection", folderId: targetFolder }); }}
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-          <rect x="1.5" y="3" width="11" height="8" rx="1" />
-          <path d="M7 5v4M5 7h4" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        className="icon-btn"
-        title={readonly ?? "New folder in the selected folder"}
-        aria-label="New folder"
-        disabled={!targetFolder || readonly !== null}
-        onClick={() => { openDialog({ kind: "folder", parentId: targetFolder }); }}
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-          <path d="M1.5 3.5h4l1 1.5h6v6.5h-11z" />
-          <path d="M7 6.5v3.5M5.25 8.25h3.5" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        className="icon-btn"
-        title="Credentials"
-        aria-label="Credentials"
-        onClick={() => { useUi.getState().showCredentials(); }}
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-          <circle cx="4.5" cy="7" r="2.75" />
-          <path d="M7.25 7H13M11 7v2.5M12.75 7v1.75" />
-        </svg>
-      </button>
-    </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Icon } from "@mooring/ui";
 import type { SyncStatus } from "../lib/ipc";
 import { alarmKey, trustConflictText, trustConflicts, useSync } from "../stores/sync";
 import { useUi, type SettingsIntent } from "../stores/ui";
@@ -91,9 +92,32 @@ export function SyncIndicator() {
   const running = useSync((s) => s.status?.state === "running");
   if (!running) return null;
   return (
-    <span className="sync-indicator" role="status">
-      <span aria-hidden className="state-dot" data-state="connecting" />
+    <span className="sync-indicator pill" data-tone="info" role="status">
+      <span aria-hidden className="state-dot" data-tone="busy" />
       Syncing…
     </span>
+  );
+}
+
+/**
+ * Title-bar sync state at rest (design review 2026-11, M1): "Synced" or "Sync paused", a button
+ * to Settings → Sync. Nothing while sync is off or a run is in progress (the Syncing… hint shows
+ * then). The banner under the title bar still carries the detail of an alarm.
+ */
+export function SyncPill() {
+  const state = useSync((s) => s.status?.state);
+  if (state === undefined || state === "disabled" || state === "running") return null;
+  const ok = state === "idle";
+  return (
+    <button
+      type="button"
+      className="sync-pill pill"
+      data-tone={ok ? "success" : "danger"}
+      aria-label={ok ? "Vault synced. Open sync settings" : "Sync paused. Open sync settings"}
+      onClick={() => { openSettingsCard("sync-title"); }}
+    >
+      <Icon name={ok ? "sync" : "alert"} size={12} />
+      {ok ? "Synced" : "Sync paused"}
+    </button>
   );
 }

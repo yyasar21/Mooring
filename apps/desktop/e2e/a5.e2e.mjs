@@ -147,6 +147,8 @@ test("dynamic secret: a database reference, a connection that uses it, the lease
     await card.getByRole("button", { name: "Test" }).click();
     await card.getByRole("status", { name: "Reference test" }).filter({ hasText: "Mooring revoked them at once" }).waitFor();
 
+    // Harbor M1: the tree (and its "New connection") lives in Hosts; Credentials is full width.
+    await views(page).getByRole("button", { name: "Hosts" }).click();
     await page.getByRole("button", { name: "New connection" }).click();
     const dlg = page.getByRole("dialog", { name: "New connection" });
     await dlg.getByLabel("Name", { exact: true }).fill("analytics");
@@ -157,7 +159,6 @@ test("dynamic secret: a database reference, a connection that uses it, the lease
     await dlg.getByRole("button", { name: "Create connection" }).click();
     await dlg.waitFor({ state: "detached" });
 
-    await views(page).getByRole("button", { name: "Credentials" }).click(); // back to the sessions
     const prompt = await openSession(page, tree(page).getByRole("treeitem", { name: /^analytics, analytics\.example\.test/ }));
     await prompt.getByRole("button", { name: "Trust and connect" }).click();
     await waitForProbe(page, (s) => s.events.includes("connected"), "the session to connect");

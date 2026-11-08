@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { MooringLine, ProtocolPip } from "@mooring/ui";
+import { dotTone, MooringLine, ProtocolIcon } from "@mooring/ui";
 import { canDetach, lineState, useSessions, type Tab } from "../stores/sessions";
 import { kubeTabLabel } from "../stores/kube";
 import { useTree } from "../stores/tree";
@@ -130,10 +130,9 @@ function TabItem({ tab, index, count, active, focusable, dragging, onFocusIndex,
         }
       }}
     >
-      {c && <ProtocolPip protocol={c.protocol} live={tab.state === "connected"} />}
+      {c && <ProtocolIcon protocol={c.protocol} tone={tab.prompt ? "wait" : dotTone(lineState(tab.state))} />}
       <span className="tab-name min-w-0 flex-1 truncate">{name}</span>
       {lease && <LeaseChip chip={lease} />}
-      {tab.prompt && <span aria-hidden className="tab-attn" />}
       {canDetach(tab.protocol) && <button
         type="button"
         className="tab-action icon-btn flex-none"
