@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ipc, isIpcError, type CloseCode, type HopStatus, type Protocol, type SessionEvent, type SessionInfo, type SessionInput, type Size, type VncConnOptions } from "../lib/ipc";
+import { IpcError, ipc, isIpcError, type CloseCode, type HopStatus, type Protocol, type SessionEvent, type SessionInfo, type SessionInput, type Size, type VncConnOptions } from "../lib/ipc";
 import { optionsOf, useConnOptions } from "./connOptions";
 import { DEFAULT_DESKTOP, canDetach, isGraphical, type CredentialAnswer, type Tab, type TabState } from "./sessions.types";
 import { describeError, errorText } from "./errors";
@@ -243,13 +243,12 @@ export const useSessions = create<SessionState>((set, get) => {
     dropFrames(tabId);
     const k = tabOf(tabId)?.kube;
     try {
-      const { sessionId } = await ipc.sessionOpen({
-        connectionId,
-        size,
-        onEvent: onEvent(tabId, gen),
-        ...(graphical ? { onFrame: onFrame(tabId, gen) } : {}),
-        ...(k?.view === "exec" && k.exec ? { kube: k.exec } : {}),
-      });
+      // K4: an exec shell opens with `kube_exec_open` on its cluster handle; an adopted shell has no target to reopen.
+      const x = k?.view === "exec" ? k.exec : undefined;
+      if (x === null) throw new IpcError("session.not_found", "reopen this shell from the cluster tab");
+      const { sessionId } = x
+        ? await ipc.kubeExecOpen({ sessionId: x.parentSessionId, namespace: x.namespace, pod: x.pod, container: x.container, command: x.command, size, onEvent: onEvent(tabId, gen) })
+        : await ipc.sessionOpen({ connectionId, size, onEvent: onEvent(tabId, gen), ...(graphical ? { onFrame: onFrame(tabId, gen) } : {}) });
       if (tabOf(tabId)) {
         tabOfSession.set(sessionId, tabId);
         patch(tabId, { sessionId });

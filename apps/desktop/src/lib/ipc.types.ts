@@ -3,7 +3,7 @@
 import type { ProtocolName } from "@mooring/ui";
 import type { ExitIpc } from "./ipc.types.exit";
 import type { CertificateInfo, CloseCode, FrameHandler, ProtocolOptions, RemoteIpc } from "./ipc.types.remote";
-import type { KubeExecTarget, KubeIpc } from "./ipc.types.kube";
+import type { KubeIpc } from "./ipc.types.kube";
 import type { SyncedRowFlags, SyncState, VsphereIpc } from "./ipc.types.vsphere";
 import type { LeaseInfo, SecretsIpc, SyncIpc } from "./ipc.types.secrets";
 import type { UpdateIpc } from "./ipc.types.update";
@@ -330,8 +330,10 @@ export interface SessionInfo {
   protocol: Protocol;
   state: string;
   openedAt: string;
-  /** ASSUMED (ADR-0014): kubernetes sessions say whether they are a cluster handle or an exec shell. */
-  kube?: { parentSessionId: string | null };
+  /** K4: `cluster` | `exec` for Kubernetes sessions, absent otherwise. */
+  kind?: "cluster" | "exec";
+  /** K4: the cluster session of an exec shell. */
+  parentSessionId?: string;
   /** ADR-0026 §2: the session's dynamic-secret leases; omitted when it holds none. */
   leases?: LeaseInfo[];
 }
@@ -390,8 +392,8 @@ export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc
   credentialCopyOtp(args: { id: string }): Promise<{ clearsInMs: number; validForMs: number }>;
   credentialParseAccount(args: { input: string }): Promise<ParsedAccount>;
 
-  /** `onFrame` is required for rdp/vnc and refused for ssh (`input.invalid "onFrame"`). `kube` opens an exec shell (ADR-0014). */
-  sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler; onFrame?: FrameHandler; kube?: KubeExecTarget }): Promise<{ sessionId: string }>;
+  /** `onFrame` is required for rdp/vnc and refused for ssh (`input.invalid "onFrame"`). Kubernetes uses `kube_open` / `kube_exec_open`. */
+  sessionOpen(args: { connectionId: string; size: Size; onEvent: SessionEventHandler; onFrame?: FrameHandler }): Promise<{ sessionId: string }>;
   sessionSend(args: { sessionId: string; input: SessionInput }): Promise<void>;
   sessionClose(args: { sessionId: string }): Promise<void>;
   sessionList(): Promise<SessionInfo[]>;

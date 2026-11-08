@@ -9,17 +9,14 @@ import type {
   ForwardInfo,
   KubeAccess,
   KubeConnOptions,
-  KubeExecTarget,
   KubeIpc,
   LogChunkHandler,
-  PodEvent,
-  PodEventHandler,
   PodSummary,
   SessionEventHandler,
   SessionInfo,
   SessionInput,
 } from "./ipc.types";
-import { KUBE_EXEC_COMMANDS, KUBE_LIMITS, isPodTarget } from "./ipc.types.kube";
+import { KUBE_EXEC_COMMANDS, KUBE_LIMITS, isPodTarget, type KubeExecTarget } from "./ipc.types.kube";
 import { IpcError } from "./ipc.error";
 import { MockOptionsBase } from "./ipc.mock.options";
 import { ACCESS, DENY_ALL, FLOOD_LINE, logLine, seedPods } from "./ipc.mock.kube.data";
@@ -31,7 +28,6 @@ import type { MockHopChain } from "./ipc.mock.hops";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-interface MockWatch { namespace: string; emit: PodEventHandler }
 interface MockLogStream { timer: ReturnType<typeof setTimeout> | null; emit: LogChunkHandler }
 
 export interface MockCluster {
@@ -41,7 +37,6 @@ export interface MockCluster {
   emit: ClusterEventHandler;
   /** ADR-0025: the jump hosts in front of the API server (null = direct). */
   chain: MockHopChain | null;
-  watches: Map<string, MockWatch>;
   logs: Map<string, MockLogStream>;
 }
 
@@ -101,8 +96,8 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
     if (t.protocol !== "kubernetes") throw new IpcError("input.invalid", "invalid connectionId: not a Kubernetes connection");
     const options = normalizeOptions("kubernetes", t.options ?? {}) as KubeConnOptions;
     const sessionId = this.kubeId("k");
-    const info: SessionInfo = { sessionId, connectionId, protocol: "kubernetes", state: "connecting", openedAt: new Date().toISOString(), kube: { parentSessionId: null } };
-    const c: MockCluster = { info, options, emit: onEvent, chain: null, watches: new Map(), logs: new Map() };
+    const info: SessionInfo = { sessionId, connectionId, protocol: "kubernetes", state: "connecting", openedAt: new Date().toISOString(), kind: "cluster" };
+    const c: MockCluster = { info, options, emit: onEvent, chain: null, logs: new Map() };
     this.clusters.set(sessionId, c);
     const server = options.server ?? t.host;
     // K4: the handle comes back at once; `connected` follows once the API server answered.
@@ -145,31 +140,17 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
     return { items: structuredClone(prefix ? list.filter((p) => p.name.startsWith(prefix)) : list), truncated: false };
   };
 
-  kubeWatch: KubeIpc["kubeWatch"] = async ({ sessionId, namespace, onEvent }) => {
-    const c = this.cluster(sessionId);
-    this.podsIn(namespace);
-    this.allow(namespace, "listPods", "watch pods");
-    const watchId = this.kubeId("w");
-    c.watches.set(watchId, { namespace, emit: onEvent });
-    return { watchId };
-  };
-
-  kubeUnwatch: KubeIpc["kubeUnwatch"] = async ({ sessionId, watchId }) => {
-    const c = this.cluster(sessionId);
-    if (!c.watches.delete(watchId)) throw new IpcError("kube.not_found", "watch not found");
-  };
-
-  /** Test/dev hook: a pod changed; the store is updated and every watch on that namespace hears it. */
-  kubeEmit(namespace: string, ev: PodEvent): void {
-    if (ev.type !== "resync") {
-      const list = (this.pods[namespace] ??= []);
-      const i = list.findIndex((p) => p.name === ev.pod.name);
-      if (ev.type === "deleted") { if (i >= 0) list.splice(i, 1); } else if (i >= 0) list[i] = ev.pod; else list.push(ev.pod);
-    }
-    for (const c of this.clusters.values()) for (const w of c.watches.values()) if (w.namespace === namespace) w.emit(structuredClone(ev));
+  /**
+   * Test/dev hook: a pod changed in the "cluster". K4 has no watch command, so nothing is pushed:
+   * the browser sees it on its next `kube_pods` poll.
+   */
+  kubeSetPod(namespace: string, pod: PodSummary, deleted = false): void {
+    const list = (this.pods[namespace] ??= []);
+    const i = list.findIndex((p) => p.name === pod.name);
+    if (deleted) { if (i >= 0) list.splice(i, 1); } else if (i >= 0) list[i] = pod; else list.push(pod);
   }
 
-  kubeLogs: KubeIpc["kubeLogs"] = async ({ sessionId, namespace, pod, container, follow, tailLines, sinceSeconds, timestamps, onChunk }) => {
+  kubeLogsOpen: KubeIpc["kubeLogsOpen"] = async ({ sessionId, namespace, pod, container, follow, tailLines, sinceSeconds, timestamps, onChunk }) => {
     const c = this.cluster(sessionId);
     const bad = checkLogsArgs({ namespace, pod, container, tailLines, sinceSeconds });
     if (bad) throw new IpcError("input.invalid", bad);
@@ -216,7 +197,7 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
     return { streamId };
   };
 
-  kubeLogsStop: KubeIpc["kubeLogsStop"] = async ({ sessionId, streamId }) => {
+  kubeLogsClose: KubeIpc["kubeLogsClose"] = async ({ sessionId, streamId }) => {
     const c = this.cluster(sessionId);
     const s = c.logs.get(streamId);
     if (!s) throw new IpcError("kube.not_found", "log stream not found");
@@ -224,32 +205,33 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
     c.logs.delete(streamId);
   };
 
-  // ---------- exec (a Session, called from session_open) ----------
+  // ---------- exec (K4 `kube_exec_open`: a terminal session on the cluster handle) ----------
 
-  protected openKubeExec(connectionId: string, onEvent: SessionEventHandler, kube: KubeExecTarget | undefined): { sessionId: string } {
-    if (!kube) throw new IpcError("input.invalid", "invalid kube: Kubernetes sessions open with kube_open or an exec target");
-    const c = this.cluster(kube.parentSessionId);
-    if (c.info.connectionId !== connectionId) throw new IpcError("input.invalid", "invalid kube: the cluster session belongs to another connection");
-    const [argv0, ...rest] = kube.argv;
-    if (rest.length > 0 || !KUBE_EXEC_COMMANDS.includes(argv0 as (typeof KUBE_EXEC_COMMANDS)[number])) {
-      throw new IpcError("input.invalid", "invalid argv: choose one of the allowed shells");
-    }
-    const p = this.findPod(kube.namespace, kube.pod);
-    if (!p.containers.some((x) => x.name === kube.container)) throw new IpcError("kube.not_found", "container not found");
-    this.allow(kube.namespace, "exec", "exec into pods");
+  kubeExecOpen: KubeIpc["kubeExecOpen"] = async ({ sessionId: parent, namespace, pod, container, command, size, onEvent }) => {
+    await this.unlocked();
+    const c = this.cluster(parent);
+    if (c.info.state !== "connected") throw new IpcError("session.not_connected", "the cluster session is not connected yet");
+    if (!Number.isInteger(size.width) || !Number.isInteger(size.height) || size.width < 1 || size.height < 1) throw new IpcError("input.invalid", "invalid size");
+    if (command !== null && !KUBE_EXEC_COMMANDS.includes(command)) throw new IpcError("input.invalid", "invalid command: must be one of /bin/sh, /bin/bash, /bin/ash, sh, bash");
+    const shell = command ?? c.options.execCommand;
+    const p = this.findPod(namespace, pod);
+    const box = container ?? p.containers[0]?.name ?? "";
+    if (!p.containers.some((x) => x.name === box)) throw new IpcError("kube.not_found", "container not found");
+    this.allow(namespace, "exec", "exec into pods");
+    const connectionId = c.info.connectionId;
     const sessionId = this.kubeId("x");
-    const info: SessionInfo = { sessionId, connectionId, protocol: "kubernetes", state: "connecting", openedAt: new Date().toISOString(), kube: { parentSessionId: kube.parentSessionId } };
-    const x: MockExec = { info, target: structuredClone(kube), emit: onEvent, line: "" };
+    const info: SessionInfo = { sessionId, connectionId, protocol: "kubernetes", state: "connecting", openedAt: new Date().toISOString(), kind: "exec", parentSessionId: parent };
+    const x: MockExec = { info, target: { parentSessionId: parent, namespace, pod, container: box, command: shell }, emit: onEvent, line: "" };
     this.execs.set(sessionId, x);
-    this.record("kube.exec.open", { connection: connectionId, namespace: kube.namespace, pod: kube.pod, container: kube.container, argv0: argv0 ?? "" });
+    this.record("kube.exec.open", { connection: connectionId, namespace, pod, container: box, argv0: shell });
     this.later(() => {
       if (!this.execs.has(sessionId)) return;
       info.state = "connected";
-      onEvent({ kind: "connected", protocol: "kubernetes", peerIdentity: `${kube.namespace}/${kube.pod}/${kube.container}`, security: null });
-      onEvent({ kind: "bytes", data: enc.encode(`Mock ${argv0 ?? "sh"} in ${kube.pod} (${kube.container}). Input is echoed.\r\n# `) });
+      onEvent({ kind: "connected", protocol: "kubernetes", peerIdentity: `${namespace}/${pod}/${box}`, security: null });
+      onEvent({ kind: "bytes", data: enc.encode(`Mock ${shell} in ${pod} (${box}). Input is echoed.\r\n# `) });
     });
     return { sessionId };
-  }
+  };
 
   protected kubeHandles(sessionId: string): boolean {
     return this.clusters.has(sessionId) || this.execs.has(sessionId);
@@ -280,7 +262,6 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
     const c = this.cluster(sessionId);
     for (const e of [...this.execs.values()]) if (e.target.parentSessionId === sessionId) this.endExec(e, "the cluster session closed", "user");
     for (const s of c.logs.values()) { if (s.timer) clearTimeout(s.timer); s.emit({ kind: "end", truncated: false, reason: "the cluster session closed" }); }
-    c.watches.clear();
     this.dropSession(sessionId);
     this.clusters.delete(sessionId);
     this.record("session_closed", { connection: c.info.connectionId, reason });

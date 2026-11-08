@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ipc, isIpcError, type ConnectionSummary, type KubeAccess, type KubeConnOptions, type PodEvent, type PodSummary } from "../../lib/ipc";
+import { ipc, isIpcError, type ConnectionSummary, type KubeAccess, type KubeConnOptions, type PodSummary } from "../../lib/ipc";
 import { normalizeOptions } from "../../lib/validate.options";
 import { optionsOf, useConnOptions } from "../../stores/connOptions";
 import { describeError } from "../../stores/errors";
 
-/** Pods are re-listed this often while a namespace is open (watches drop events above 50/s). */
+/**
+ * Pods are re-listed this often while a namespace is open. K4 has no pod watch command
+ * (`kube_watch` was never built), so the passive `kube_pods` poll is the only live update.
+ */
 export const KUBE_POLL_MS = 15_000;
 
 export interface ClusterView {
@@ -31,16 +34,10 @@ export function useKubeOptions(connection: ConnectionSummary | undefined): KubeC
   return normalizeOptions("kubernetes", cached ?? (connection ? optionsOf(connection.id) : undefined) ?? {}) as KubeConnOptions;
 }
 
-/** Applies one watch event to the list (a `resync` is handled by the caller with a re-list). */
-export function applyPodEvent(list: PodSummary[], ev: Exclude<PodEvent, { type: "resync" }>): PodSummary[] {
-  const rest = list.filter((p) => p.name !== ev.pod.name);
-  return ev.type === "deleted" ? rest : [...rest, ev.pod].sort((a, b) => a.name.localeCompare(b.name));
-}
-
 /**
  * Namespaces, RBAC pre-flight and pods of one cluster session. `kube_namespaces`, `kube_access`
  * and `kube_pods` are passive (POLLED_COMMANDS), so the auto-refresh never keeps the vault
- * unlocked; the watch keeps the list live in between.
+ * unlocked.
  */
 export function useCluster(sessionId: string | null, preferred: string | null, allowed: string[]): ClusterView {
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -100,9 +97,7 @@ export function useCluster(sessionId: string | null, preferred: string | null, a
     setAccess(null);
     setError(null);
     if (!sessionId || !namespace) return;
-    const run = { live: true, watchId: null as string | null };
-    /** Read through a call: the cleanup flips it while the await is pending. */
-    const alive = () => run.live;
+    const run = { live: true };
     setLoading(true);
     void (async () => {
       try {
@@ -114,17 +109,6 @@ export function useCluster(sessionId: string | null, preferred: string | null, a
           return;
         }
         await listPods();
-        const w = await ipc.kubeWatch({
-          sessionId,
-          namespace,
-          onEvent: (ev) => {
-            if (!run.live) return;
-            if (ev.type === "resync") void listPods();
-            else setPods((cur) => applyPodEvent(cur, ev));
-          },
-        });
-        if (alive()) run.watchId = w.watchId;
-        else void ipc.kubeUnwatch({ sessionId, watchId: w.watchId }).catch(() => undefined);
       } catch (e: unknown) {
         if (run.live) {
           setError(describeError(e));
@@ -136,7 +120,6 @@ export function useCluster(sessionId: string | null, preferred: string | null, a
     return () => {
       run.live = false;
       clearInterval(timer);
-      if (run.watchId) void ipc.kubeUnwatch({ sessionId, watchId: run.watchId }).catch(() => undefined);
     };
   }, [sessionId, namespace, listPods]);
 

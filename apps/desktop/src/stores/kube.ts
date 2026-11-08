@@ -73,8 +73,8 @@ export async function openCluster(tabId: string, connectionId: string, sink: Ses
 /** Adopting a live kubernetes session after unlock: a cluster handle or an exec shell. */
 export function adoptKube(info: SessionInfo): Partial<Tab> {
   if (info.protocol !== "kubernetes") return {};
-  const parent = info.kube?.parentSessionId ?? null;
-  return { kube: parent === null ? { view: "cluster" } : { view: "exec", exec: null } };
+  // K4 `session_list`: `kind` says cluster handle or exec shell (an exec row carries its parent).
+  return { kube: info.kind === "exec" ? { view: "exec", exec: null } : { view: "cluster" } };
 }
 
 /** The cluster tab a kube tab belongs to (exec and logs tabs carry the parent session id). */

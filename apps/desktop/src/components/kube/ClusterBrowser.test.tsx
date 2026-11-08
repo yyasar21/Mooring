@@ -6,7 +6,7 @@ import { useSessions } from "../../stores/sessions";
 import { useTree } from "../../stores/tree";
 import { freshBackend, settle } from "../../test/harness";
 import { Workspace } from "../Workspace";
-import { applyPodEvent } from "./useCluster";
+import { KUBE_POLL_MS } from "./useCluster";
 import { matchesPod, podStatus } from "./podStatus";
 
 let mock: MockTransport;
@@ -80,18 +80,19 @@ describe("ClusterBrowser", () => {
     expect(screen.getByText("No pod matches the search.")).toBeInTheDocument();
   });
 
-  it("exec opens a terminal tab through session_open with the chosen allow-listed shell", async () => {
+  it("exec opens a terminal tab through kube_exec_open with the chosen allow-listed shell", async () => {
     await openCluster();
-    const spy = vi.spyOn(mock, "sessionOpen");
+    const spy = vi.spyOn(mock, "kubeExecOpen");
+    const session = vi.spyOn(mock, "sessionOpen");
     fireEvent.click(row("api-7f9c8d6b5-2kqzt"));
     fireEvent.change(screen.getByLabelText("Exec command"), { target: { value: "/bin/bash" } });
     act(() => { fireEvent.click(screen.getByRole("button", { name: "Exec into envoy" })); });
     await settle(5);
     const parent = useSessions.getState().tabs[0]?.sessionId;
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({
-      connectionId: "c-k8s",
-      kube: { parentSessionId: parent, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "envoy", argv: ["/bin/bash"] },
+      sessionId: parent, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "envoy", command: "/bin/bash", size: { width: 80, height: 24 },
     }));
+    expect(session).not.toHaveBeenCalled();
     const exec = useSessions.getState().tabs[1];
     expect(exec).toMatchObject({ kube: { view: "exec" }, state: "connected", protocol: "kubernetes" });
     expect(useSessions.getState().activeTab).toBe(exec?.id);
@@ -140,14 +141,26 @@ describe("ClusterBrowser", () => {
     expect(within(ns).getAllByRole("button").map((b) => b.textContent)).toEqual(["payments", "monitoring"]);
   });
 
-  it("follows watch events, and closing the tab closes the cluster session", async () => {
-    await openCluster();
-    const pod = mock.pods.payments?.find((p) => p.name === "ledger-0");
-    if (!pod) throw new Error("seed");
-    act(() => { mock.kubeEmit("payments", { type: "modified", pod: { ...pod, phase: "Running", node: "node-a", containers: pod.containers.map((c) => ({ ...c, ready: true })) } }); });
-    expect(within(row("ledger-0")).getByText("Running")).toBeInTheDocument();
-    act(() => { mock.kubeEmit("payments", { type: "deleted", pod }); });
-    expect(screen.queryByText("ledger-0")).toBeNull();
+  it("follows pod changes with the kube_pods poll (K4 has no watch), and closing the tab closes the cluster session", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      await openCluster();
+      const pod = mock.pods.payments?.find((p) => p.name === "ledger-0");
+      if (!pod) throw new Error("seed");
+      const poll = async () => {
+        await act(async () => { await vi.advanceTimersByTimeAsync(KUBE_POLL_MS); });
+        await settle();
+      };
+      mock.kubeSetPod("payments", { ...pod, phase: "Running", node: "node-a", containers: pod.containers.map((c) => ({ ...c, ready: true })) });
+      expect(within(row("ledger-0")).queryByText("Running")).toBeNull(); // not before the next poll
+      await poll();
+      expect(within(row("ledger-0")).getByText("Running")).toBeInTheDocument();
+      mock.kubeSetPod("payments", pod, true);
+      await poll();
+      expect(screen.queryByText("ledger-0")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
     const sid = useSessions.getState().tabs[0]?.sessionId ?? "";
     await act(async () => { await useSessions.getState().close(useSessions.getState().tabs[0]?.id ?? ""); });
     expect(mock.clusters.has(sid)).toBe(false);
@@ -168,12 +181,10 @@ describe("ClusterBrowser", () => {
 
 describe("pod helpers", () => {
   const p = { name: "a", phase: "Running" as const, node: "n1", createdAt: "", containers: [{ name: "c", image: "registry.example.test/x:1", ready: true, restarts: 0, ports: [] }] };
-  it("badges, search and watch application", () => {
+  it("badges and search", () => {
     expect(podStatus(p)).toEqual({ label: "Running", tone: "ok" });
     expect(podStatus({ ...p, phase: "Unknown" }).tone).toBe("hot");
     expect(matchesPod(p, "n1 x:1")).toBe(true);
     expect(matchesPod(p, "n2")).toBe(false);
-    expect(applyPodEvent([p], { type: "added", pod: { ...p, name: "b" } }).map((x) => x.name)).toEqual(["a", "b"]);
-    expect(applyPodEvent([p], { type: "deleted", pod: p })).toEqual([]);
   });
 });

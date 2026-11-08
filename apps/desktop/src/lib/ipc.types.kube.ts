@@ -3,7 +3,7 @@
 // Same conventions as ADR-0008: command args camelCase, `IpcError` on failure, no secret outward.
 // Shapes marked ASSUMED are not spelled out in the ADR; see docs/handoff/a3-ui-u1.md.
 import type { Exposure, ForwardInfo, HostPort } from "./ipc.types.exit";
-import type { SessionEvent } from "./ipc.types";
+import type { SessionEvent, SessionEventHandler, Size } from "./ipc.types";
 
 // ---------- connection options (KubeConnOptions, deny_unknown_fields) ----------
 
@@ -121,12 +121,6 @@ export interface PodSummary {
   containers: ContainerSummary[];
 }
 
-/** ASSUMED shape of `Channel<PodEvent>`; `resync` = events were dropped (> 50/s), re-list. */
-export type PodEvent =
-  | { type: "added" | "modified" | "deleted"; pod: PodSummary }
-  | { type: "resync" };
-export type PodEventHandler = (e: PodEvent) => void;
-
 /** `Channel<LogChunk>`; `data` is decoded from base64 before it reaches the UI. */
 export type LogChunk =
   | { kind: "data"; data: Uint8Array }
@@ -145,13 +139,27 @@ export interface KubeLogsArgs {
   onChunk: LogChunkHandler;
 }
 
-/** `session_open({ ..., kube })`: the exec target. `argv` is one of KUBE_EXEC_COMMANDS. */
+/** An exec tab's target (the tab keeps it to reconnect). `command` is one of KUBE_EXEC_COMMANDS. */
 export interface KubeExecTarget {
   parentSessionId: string;
   namespace: string;
   pod: string;
   container: string;
-  argv: string[];
+  command: KubeExecCommand;
+}
+
+/** `kube_exec_open` (K4): a terminal session on the cluster handle `sessionId`. */
+export interface KubeExecOpenArgs {
+  /** The cluster session. */
+  sessionId: string;
+  namespace: string;
+  pod: string;
+  /** null = the pod's default container. */
+  container: string | null;
+  /** null = the connection's `execCommand`. */
+  command: KubeExecCommand | null;
+  size: Size;
+  onEvent: SessionEventHandler;
 }
 
 // ---------- pod port-forward (ADR-0010 panel, kind "pod") ----------
@@ -183,8 +191,8 @@ export interface KubeIpc {
   kubeNamespaces(args: { sessionId: string }): Promise<KubeList<string>>;
   /** Passive (POLLED_COMMANDS). */
   kubePods(args: { sessionId: string; namespace: string; labelSelector: string | null }): Promise<KubeList<PodSummary>>;
-  kubeWatch(args: { sessionId: string; namespace: string; onEvent: PodEventHandler }): Promise<{ watchId: string }>;
-  kubeUnwatch(args: { sessionId: string; watchId: string }): Promise<void>;
-  kubeLogs(args: KubeLogsArgs): Promise<{ streamId: string }>;
-  kubeLogsStop(args: { sessionId: string; streamId: string }): Promise<void>;
+  /** K4 has no pod watch: the browser re-lists with the passive `kube_pods` (KUBE_POLL_MS). */
+  kubeLogsOpen(args: KubeLogsArgs): Promise<{ streamId: string }>;
+  kubeLogsClose(args: { sessionId: string; streamId: string }): Promise<void>;
+  kubeExecOpen(args: KubeExecOpenArgs): Promise<{ sessionId: string }>;
 }

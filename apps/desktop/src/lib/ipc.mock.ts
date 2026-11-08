@@ -166,7 +166,7 @@ export class MockTransport extends MockTreeBase implements Ipc {
 
   // ---------- sessions ----------
 
-  sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, size, onEvent, onFrame, kube }) => {
+  sessionOpen: Ipc["sessionOpen"] = async ({ connectionId, size, onEvent, onFrame }) => {
     await this.unlocked();
     const c = this.resolve(this.connection(connectionId));
     const cred = c.effectiveCredentialId ? this.creds.get(c.effectiveCredentialId) : null;
@@ -177,7 +177,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
       if (hops.length > 0) new MockHopChain(hops, this.hopEnv(onEvent, () => undefined, () => undefined), c.id).startQuiet();
       return this.openRemote(this.target(connectionId), size, onEvent, onFrame);
     }
-    if (c.protocol === "kubernetes") return this.openKubeExec(connectionId, onEvent, kube);
+    // K4: Kubernetes opens with kube_open (the cluster) and kube_exec_open (a shell), never session_open.
+    if (c.protocol === "kubernetes") throw new IpcError("input.invalid", "invalid connectionId: Kubernetes sessions open with kube_open");
     if (onFrame && c.protocol === "ssh") throw new IpcError("input.invalid", "invalid onFrame: not accepted for ssh sessions");
     const ask = askOf(c, cred);
     // R3 `connect_plan::prefetch`: a database reference resolves before the connect and needs a lease.

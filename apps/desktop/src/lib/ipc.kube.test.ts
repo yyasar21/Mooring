@@ -1,8 +1,8 @@
-// ADR-0014 mock contract and decoders: the cluster handle, RBAC, lists, watches, log streams with
+// ADR-0014 / K4 mock contract and decoders: the cluster handle, RBAC, lists, log streams with
 // the byte cap, exec from the allow-list only, pod forwards on the cluster session, close cascade.
-import { IpcError, type ClusterEvent, type LogChunk, type PodEvent, type SessionEvent } from "./ipc";
+import { IpcError, type ClusterEvent, type KubeExecOpenArgs, type LogChunk, type SessionEvent } from "./ipc";
 import { MockTransport } from "./ipc.mock";
-import { decodeAccess, decodeLogChunk, decodePodEvent, decodePodList } from "./ipc.decode.kube";
+import { decodeAccess, decodeLogChunk, decodePodList } from "./ipc.decode.kube";
 import { decodeForward } from "./ipc.decode.exit";
 import { bytesToBase64 } from "./ipc.decode.session";
 import { until } from "../test/ssh";
@@ -30,7 +30,7 @@ describe("mock · kube_open / access / lists", () => {
     const { m, r, events } = await cluster();
     expect(events).toEqual([{ kind: "connected", server: "https://k8s.stage.example.test:6443", identity: { user: "ops@example.test", groups: ["system:authenticated", "platform-ops"] }, contextNamespace: "payments" }]);
     expect(m.audit.at(-1)?.event).toBe("kube.connected");
-    expect((await m.sessionList()).find((s) => s.sessionId === r.sessionId)).toMatchObject({ protocol: "kubernetes", kube: { parentSessionId: null } });
+    expect((await m.sessionList()).find((s) => s.sessionId === r.sessionId)).toMatchObject({ protocol: "kubernetes", kind: "cluster" });
     expect(await code(m.kubeOpen({ connectionId: "c-web01", onEvent: none }))).toBe("input.invalid");
   });
 
@@ -44,7 +44,7 @@ describe("mock · kube_open / access / lists", () => {
     expect(await m.kubeAccess({ sessionId: sid, namespace: "payments" })).toEqual({ listPods: true, getLogs: true, exec: true, portForward: true, listNamespaces: true });
     expect(await m.kubeAccess({ sessionId: sid, namespace: "kube-system" })).toMatchObject({ exec: false, getLogs: false, portForward: false });
     expect(await code(m.kubeAccess({ sessionId: sid, namespace: "Bad_NS" }))).toBe("input.invalid");
-    expect(await code(m.kubeLogs({ sessionId: sid, namespace: "kube-system", pod: "kube-proxy-p7m2c", container: "kube-proxy", follow: false, tailLines: 10, sinceSeconds: null, timestamps: false, onChunk: () => undefined }))).toBe("kube.rbac_denied");
+    expect(await code(m.kubeLogsOpen({ sessionId: sid, namespace: "kube-system", pod: "kube-proxy-p7m2c", container: "kube-proxy", follow: false, tailLines: 10, sinceSeconds: null, timestamps: false, onChunk: () => undefined }))).toBe("kube.rbac_denied");
   });
 
   it("lists namespaces and pods, refuses unknown ones, and a denied namespace list", async () => {
@@ -60,24 +60,18 @@ describe("mock · kube_open / access / lists", () => {
     expect(await code(m.kubeNamespaces({ sessionId: "k-none" }))).toBe("session.not_found");
   });
 
-  it("delivers watch events to the namespace's watches until unwatched", async () => {
+  it("has no pod watch (K4): a changed pod shows on the next kube_pods", async () => {
     const { m, sid } = await cluster();
-    const seen: PodEvent[] = [];
-    const { watchId } = await m.kubeWatch({ sessionId: sid, namespace: "payments", onEvent: (e) => seen.push(e) });
+    expect("kubeWatch" in m || "kubeUnwatch" in m).toBe(false);
     const pod = (await m.kubePods({ sessionId: sid, namespace: "payments", labelSelector: null })).items[0];
     if (!pod) throw new Error("seed");
-    m.kubeEmit("payments", { type: "modified", pod: { ...pod, phase: "Failed" } });
-    m.kubeEmit("monitoring", { type: "resync" });
-    expect(seen).toHaveLength(1);
-    await m.kubeUnwatch({ sessionId: sid, watchId });
-    m.kubeEmit("payments", { type: "resync" });
-    expect(seen).toHaveLength(1);
-    expect(await code(m.kubeUnwatch({ sessionId: sid, watchId }))).toBe("kube.not_found");
+    m.kubeSetPod("payments", { ...pod, phase: "Failed" });
+    expect((await m.kubePods({ sessionId: sid, namespace: "payments", labelSelector: null })).items.find((p) => p.name === pod.name)?.phase).toBe("Failed");
   });
 });
 
-describe("mock · kube_logs", () => {
-  const args = (sid: string, p: Partial<Parameters<MockTransport["kubeLogs"]>[0]> = {}) => ({
+describe("mock · kube_logs_open / kube_logs_close", () => {
+  const args = (sid: string, p: Partial<Parameters<MockTransport["kubeLogsOpen"]>[0]> = {}) => ({
     sessionId: sid, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "api", follow: false,
     tailLines: 5, sinceSeconds: null, timestamps: true, onChunk: () => undefined, ...p,
   });
@@ -85,7 +79,7 @@ describe("mock · kube_logs", () => {
   it("sends the tail then ends; follow keeps sending until stopped", async () => {
     const { m, sid } = await cluster();
     const chunks: LogChunk[] = [];
-    await m.kubeLogs(args(sid, { onChunk: (c) => chunks.push(c) }));
+    await m.kubeLogsOpen(args(sid, { onChunk: (c) => chunks.push(c) }));
     await until(() => chunks.some((c) => c.kind === "end"));
     const text = new TextDecoder().decode((chunks[0] as { data: Uint8Array }).data);
     expect(text.split("\n").filter(Boolean)).toHaveLength(5);
@@ -93,14 +87,14 @@ describe("mock · kube_logs", () => {
     expect(chunks.at(-1)).toEqual({ kind: "end", truncated: false, reason: null });
 
     const live: LogChunk[] = [];
-    const { streamId } = await m.kubeLogs(args(sid, { follow: true, onChunk: (c) => live.push(c) }));
+    const { streamId } = await m.kubeLogsOpen(args(sid, { follow: true, onChunk: (c) => live.push(c) }));
     await until(() => live.length >= 3);
-    await m.kubeLogsStop({ sessionId: sid, streamId });
+    await m.kubeLogsClose({ sessionId: sid, streamId });
     const n = live.length;
     await until(() => false, 5);
     expect(live.length).toBe(n);
     expect(live.every((c) => c.kind === "data")).toBe(true);
-    expect(await code(m.kubeLogsStop({ sessionId: sid, streamId }))).toBe("kube.not_found");
+    expect(await code(m.kubeLogsClose({ sessionId: sid, streamId }))).toBe("kube.not_found");
   });
 
   it("stops at maxLogBytes with truncated: true", async () => {
@@ -108,7 +102,7 @@ describe("mock · kube_logs", () => {
     m.connections = m.connections.map((c) => (c.id === "c-k8s" ? { ...c, options: { maxLogBytes: 65_536 } as never } : c));
     const { sid } = await cluster(m);
     const chunks: LogChunk[] = [];
-    await m.kubeLogs(args(sid, { namespace: "monitoring", pod: "log-flood-8c7d6-zz1aa", container: "flood", follow: true, tailLines: 10_000, onChunk: (c) => chunks.push(c) }));
+    await m.kubeLogsOpen(args(sid, { namespace: "monitoring", pod: "log-flood-8c7d6-zz1aa", container: "flood", follow: true, tailLines: 10_000, onChunk: (c) => chunks.push(c) }));
     await until(() => chunks.some((c) => c.kind === "end"));
     const bytes = chunks.reduce((n, c) => n + (c.kind === "data" ? c.data.length : 0), 0);
     expect(bytes).toBe(65_536);
@@ -117,32 +111,35 @@ describe("mock · kube_logs", () => {
 
   it("validates arguments and caps streams per cluster", async () => {
     const { m, sid } = await cluster();
-    expect(await code(m.kubeLogs(args(sid, { tailLines: 10_001 })))).toBe("input.invalid");
-    expect(await code(m.kubeLogs(args(sid, { container: "nope" })))).toBe("kube.not_found");
-    expect(await code(m.kubeLogs(args(sid, { pod: "../etc" })))).toBe("input.invalid");
-    for (let i = 0; i < 8; i++) await m.kubeLogs(args(sid, { follow: true }));
-    expect(await code(m.kubeLogs(args(sid)))).toBe("kube.stream_limit");
+    expect(await code(m.kubeLogsOpen(args(sid, { tailLines: 10_001 })))).toBe("input.invalid");
+    expect(await code(m.kubeLogsOpen(args(sid, { container: "nope" })))).toBe("kube.not_found");
+    expect(await code(m.kubeLogsOpen(args(sid, { pod: "../etc" })))).toBe("input.invalid");
+    for (let i = 0; i < 8; i++) await m.kubeLogsOpen(args(sid, { follow: true }));
+    expect(await code(m.kubeLogsOpen(args(sid)))).toBe("kube.stream_limit");
   });
 });
 
 describe("mock · exec and forwards", () => {
-  const exec = (sid: string, argv = ["/bin/sh"], p: Record<string, string> = {}) => ({
-    parentSessionId: sid, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "api", argv, ...p,
+  const size = { width: 80, height: 24 };
+  const exec = (sid: string, p: Partial<KubeExecOpenArgs> = {}): KubeExecOpenArgs => ({
+    sessionId: sid, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "api", command: "/bin/sh", size, onEvent: () => undefined, ...p,
   });
 
-  it("opens an exec session only for an allow-listed shell the token may run", async () => {
+  it("opens an exec shell with kube_exec_open for an allow-listed shell the token may run; session_open refuses", async () => {
     const { m, sid } = await cluster();
     const events: SessionEvent[] = [];
-    const size = { width: 80, height: 24 };
-    const { sessionId } = await m.sessionOpen({ connectionId: "c-k8s", size, onEvent: (e) => events.push(e), kube: exec(sid) });
+    const { sessionId } = await m.kubeExecOpen(exec(sid, { onEvent: (e) => events.push(e) }));
     await until(() => events.some((e) => e.kind === "connected"));
     expect(events[0]).toMatchObject({ kind: "connected", protocol: "kubernetes" });
     expect(m.audit.some((a) => a.event === "kube.exec.open" && a.details.argv0 === "/bin/sh")).toBe(true);
-    const open = (k: ReturnType<typeof exec> | undefined) => code(m.sessionOpen({ connectionId: "c-k8s", size, onEvent: () => undefined, ...(k ? { kube: k } : {}) }));
-    expect(await open(exec(sid, ["/bin/sh", "-c", "id"]))).toBe("input.invalid");
-    expect(await open(exec(sid, ["/usr/bin/python3"]))).toBe("input.invalid");
-    expect(await open(undefined)).toBe("input.invalid");
-    expect(await open(exec(sid, ["sh"], { namespace: "monitoring", pod: "prometheus-0", container: "prometheus" }))).toBe("kube.rbac_denied");
+    expect((await m.sessionList()).find((s) => s.sessionId === sessionId)).toMatchObject({ kind: "exec", parentSessionId: sid });
+    // null = the connection's execCommand and the pod's default container
+    await m.kubeExecOpen(exec(sid, { command: null, container: null }));
+    expect(m.audit.at(-1)?.details).toMatchObject({ argv0: "/bin/sh", container: "api" });
+    expect(await code(m.kubeExecOpen(exec(sid, { command: "/usr/bin/python3" as never })))).toBe("input.invalid");
+    expect(await code(m.kubeExecOpen(exec(sid, { command: "sh", namespace: "monitoring", pod: "prometheus-0", container: "prometheus" })))).toBe("kube.rbac_denied");
+    expect(await code(m.kubeExecOpen(exec("k-none")))).toBe("session.not_found");
+    expect(await code(m.sessionOpen({ connectionId: "c-k8s", size, onEvent: () => undefined }))).toBe("input.invalid");
     // Input echoes; `exit` ends the shell with server_ended.
     await m.sessionSend({ sessionId, input: { kind: "bytes", data: new TextEncoder().encode("exit\r") } });
     await until(() => events.some((e) => e.kind === "closed"));
@@ -152,9 +149,9 @@ describe("mock · exec and forwards", () => {
   it("closing the cluster session ends its exec shells, log streams and forwards", async () => {
     const { m, sid } = await cluster();
     const events: SessionEvent[] = [];
-    await m.sessionOpen({ connectionId: "c-k8s", size: { width: 80, height: 24 }, onEvent: (e) => events.push(e), kube: exec(sid, ["bash"]) });
+    await m.kubeExecOpen(exec(sid, { command: "bash", onEvent: (e) => events.push(e) }));
     const chunks: LogChunk[] = [];
-    await m.kubeLogs({ sessionId: sid, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "api", follow: true, tailLines: 1, sinceSeconds: null, timestamps: false, onChunk: (c) => chunks.push(c) });
+    await m.kubeLogsOpen({ sessionId: sid, namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "api", follow: true, tailLines: 1, sinceSeconds: null, timestamps: false, onChunk: (c) => chunks.push(c) });
     await m.forwardOpen({ sessionId: sid, kind: "pod", bind: { host: "127.0.0.1", port: 18080 }, target: { namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", port: 8080 }, exposure: "loopback" });
     expect(await m.forwardList({ sessionId: sid })).toHaveLength(1);
     await m.sessionClose({ sessionId: sid });
@@ -189,9 +186,7 @@ describe("kube decoders", () => {
     expect(list).toEqual({ items: [{ name: "a", phase: "Unknown", node: null, createdAt: "", containers: [{ name: "c", image: "", ready: false, restarts: 0, ports: [80] }] }], truncated: false });
   });
 
-  it("turns unknown watch events into a resync and bad log chunks into an end", () => {
-    expect(decodePodEvent({ type: "BOOKMARK" })).toEqual({ type: "resync" });
-    expect(decodePodEvent({ type: "ADDED", pod: { name: "p", phase: "Running" } })).toMatchObject({ type: "added", pod: { name: "p" } });
+  it("turns bad log chunks into an end", () => {
     const chunk = decodeLogChunk({ kind: "data", data: bytesToBase64(new TextEncoder().encode("hi\n")) });
     expect(chunk.kind === "data" ? new TextDecoder().decode(chunk.data) : null).toBe("hi\n");
     expect(decodeLogChunk({ kind: "data", data: "%%%" })).toEqual({ kind: "end", truncated: false, reason: "unreadable log data" });

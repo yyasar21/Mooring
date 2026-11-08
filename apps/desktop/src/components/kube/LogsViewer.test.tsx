@@ -28,7 +28,7 @@ const lines = () => within(screen.getByLabelText("Log lines")).queryAllByText(/.
 describe("LogsViewer", () => {
   it("streams the tail with follow on by default and shows the byte count", async () => {
     let spy: unknown = null;
-    await logsTab(undefined, undefined, undefined, (m) => { spy = vi.spyOn(m, "kubeLogs"); });
+    await logsTab(undefined, undefined, undefined, (m) => { spy = vi.spyOn(m, "kubeLogsOpen"); });
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ namespace: "payments", pod: "api-7f9c8d6b5-2kqzt", container: "api", follow: true, tailLines: 500, timestamps: false, sinceSeconds: null }));
     expect(lines().length).toBeGreaterThan(100);
     expect(screen.getByText("Following")).toBeInTheDocument();
@@ -62,8 +62,8 @@ describe("LogsViewer", () => {
 
   it("restarts the stream when the container, tail or timestamps change, and stops it on close", async () => {
     const { sessionId } = await logsTab();
-    const spy = vi.spyOn(mock, "kubeLogs");
-    const stop = vi.spyOn(mock, "kubeLogsStop");
+    const spy = vi.spyOn(mock, "kubeLogsOpen");
+    const stop = vi.spyOn(mock, "kubeLogsClose");
     fireEvent.change(screen.getByLabelText("Container"), { target: { value: "envoy" } });
     await settle(3);
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ container: "envoy" }));

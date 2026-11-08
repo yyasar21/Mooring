@@ -102,18 +102,47 @@ and no manifest, lockfile or capability change. The contract is the "UI contract
   with `update.manual_only` and Rust's message (`WINGET_MANUAL_TEXT`).
 - **Leases.** `session_list` lease rows carry `ttlSeconds` (the issued TTL).
 
-## Left open
-- **Kubernetes Tauri transport drift (not fixed, needs its own round).** `kube_open` is aligned
-  now, but other kube commands in `TauriTransport` still use the A3 U1 names and shapes, which
-  K4 changed:
-  - `kube_logs` / `kube_logs_stop` are now `kube_logs_open` / `kube_logs_close`;
-  - `kube_watch` / `kube_unwatch` do not exist;
-  - exec goes through `session_open({ kube })`, but Rust has `kube_exec_open({ sessionId,
-    namespace, pod, container, command, size, onEvent })`.
+### 8. Kubernetes real-backend alignment (follow-up, after the merge of `dcf1467`)
+The coordinator asked for this after round 1. The worktree was rebased on `main` first. The
+command names and argument shapes were read from `src-tauri/src/commands/kube.rs` and
+`kube_logs.rs` and from `a3-rust-core-k4.md`.
+- **Logs.** `kubeLogs` / `kubeLogsStop` → **`kubeLogsOpen` / `kubeLogsClose`**, calling
+  `kube_logs_open({ sessionId, namespace, pod, container, follow, tailLines, sinceSeconds,
+  timestamps, onChunk })` and `kube_logs_close({ sessionId, streamId })`.
+- **Exec.** **`kubeExecOpen`** calls `kube_exec_open({ sessionId, namespace, pod, container,
+  command, size, onEvent })`, where `sessionId` is the cluster handle. It returns a terminal
+  session id that `session_send` and `session_close` use as before.
+  - `session_open` no longer takes or sends `kube`. The mock now refuses `session_open` on a
+    Kubernetes connection, as Rust does.
+  - `KubeExecTarget` swaps `argv: string[]` for `command: KubeExecCommand`.
+  - `sessions.start` opens exec tabs with `kube_exec_open`. An adopted exec tab has no target,
+    so it cannot be reopened. Its Reconnect says "reopen this shell from the cluster tab"; it
+    does not open a plain session.
+- **Pod watch removed.** `kubeWatch`, `kubeUnwatch`, `PodEvent`, `decodePodEvent` and
+  `applyPodEvent` are gone, because K4 never built `kube_watch` (K4 alignment item 6).
+  - **Choice:** the cluster browser keeps the list live with the passive `kube_pods` poll every
+    `KUBE_POLL_MS` (15 s), plus the poll on namespace change and on Refresh. `kube_pods` is in
+    `POLLED_COMMANDS` / `ipc-passive.json`, so it never holds off the idle lock.
+  - I did not use the `kube_open` event channel: it carries no pod events.
+  - The mock's `kubeEmit` became `kubeSetPod` (a store-only change), so a test sees a change only
+    after a poll, as it would on the real backend.
+- **`session_list`.** Kubernetes rows are typed as Rust sends them: `kind: "cluster" | "exec"`
+  and `parentSessionId`. The assumed `kube: { parentSessionId }` is gone. `adoptKube` reads
+  `kind`, and the mock emits the same shape.
+- **Guard test** (`lib/ipc.commands.test.ts`). It parses the `generate_handler![…]` list in
+  `src-tauri/src/lib.rs` and every `call(...)` / `invoke(...)` literal in `lib/ipc.ts`.
+  - It **fails** on any command invoked from `ipc.ts` that Rust does not register.
+  - It prints Rust commands the UI never invokes, as information only. Today these are
+    `kube_contexts` and `kube_pod`. The UI reads contexts from the credential fields and the pod
+    from `kube_pods`.
+  - Both parsers have their own unit case.
 
-  On a real build, logs, watch and exec from the cluster browser should therefore fail. The mock
-  hides this. I kept to the brief. Tell me if this round should fix it: it is UI-only, but it
-  needs the K4 shapes checked against `ipc-manifest.json`.
+## Left open
+- **The remaining K4 differences are not checked by the guard.** It checks command names only.
+  - Payload drift is covered by hand in `ipc.tauri.a3.test.ts`, which checks the argument keys
+    of `kube_open`, `kube_exec_open` and `kube_logs_open`.
+  - `PodSummary.ageSeconds` / `restarts` from Rust are not read. The UI computes the age from
+    `createdAt`, and a `null` there decodes as `""`.
 - **Prompt before the handle id.** If a `kube_open` channel prompt arrived before the invoke reply
   (an IPC ordering edge), `answer` would find no `sessionId` and send nothing. Rust's `kube_open`
   is synchronous and the chain runs in a task, so in practice the reply comes first. Not handled.
@@ -145,6 +174,25 @@ pnpm lint        ok (0 problems)
 pnpm test        Test Files 97 passed (97) · Tests 713 passed (713)
 pnpm build       ok (index chunk 471 kB)
 ```
+
+Follow-up (K4 alignment), rebased on `main`:
+```
+pnpm typecheck   ok
+pnpm lint        ok (0 problems)
+pnpm test        Test Files 98 passed (98) · Tests 716 passed (716)
+pnpm build       ok
+```
+- New `lib/ipc.commands.test.ts` (3): the parsers, invoked ⊆ registered, and the unused list
+  (info).
+- `ipc.tauri.a3.test.ts`: `kube_exec_open` and `kube_logs_open` names and argument keys;
+  `session_open` sends no `kube`.
+- `ipc.kube.test.ts`:
+  - `kube_exec_open` (allow-list, `null` defaults, RBAC, unknown handle; `session_open` refused,
+    `session_list` `kind`/`parentSessionId`);
+  - no watch: a change shows on the next `kube_pods`.
+- `ClusterBrowser.test.tsx`:
+  - exec through `kube_exec_open` (no `session_open`);
+  - pod changes appear only after a `KUBE_POLL_MS` tick (fake `setInterval`).
 
 New:
 - `components/web/webVia.test.tsx` (6):

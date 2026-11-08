@@ -31,7 +31,7 @@ export interface LogStream {
 const UNSAFE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
 export const sanitizeLogLine = (s: string): string => s.replace(/\r$/, "").replace(UNSAFE, "\ufffd");
 
-/** Streams one container's log with `kube_logs`; a parameter change restarts, unmount stops it. */
+/** Streams one container's log with `kube_logs_open` (closed with `kube_logs_close`); a parameter change restarts, unmount stops it. */
 export function useLogStream(p: LogParams | null, epoch: number): LogStream {
   const [lines, setLines] = useState<string[]>([]);
   const [dropped, setDropped] = useState(0);
@@ -70,11 +70,11 @@ export function useLogStream(p: LogParams | null, epoch: number): LogStream {
       if (!live) return;
       live = false;
       setRunning(false);
-      if (streamId) void ipc.kubeLogsStop({ sessionId: params.sessionId, streamId }).catch(() => undefined);
+      if (streamId) void ipc.kubeLogsClose({ sessionId: params.sessionId, streamId }).catch(() => undefined);
     };
     stopRef.current = stop;
     setRunning(true);
-    ipc.kubeLogs({
+    ipc.kubeLogsOpen({
       ...params,
       sinceSeconds: null,
       onChunk: (c) => {
@@ -92,7 +92,7 @@ export function useLogStream(p: LogParams | null, epoch: number): LogStream {
     }).then(
       (r) => {
         streamId = r.streamId;
-        if (!live) void ipc.kubeLogsStop({ sessionId: params.sessionId, streamId: r.streamId }).catch(() => undefined);
+        if (!live) void ipc.kubeLogsClose({ sessionId: params.sessionId, streamId: r.streamId }).catch(() => undefined);
       },
       (e: unknown) => {
         if (!live) return;

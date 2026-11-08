@@ -5,10 +5,10 @@
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, PodEventHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
+import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
-import { decodeAccess, decodeClusterEvent, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
+import { decodeAccess, decodeClusterEvent, decodeLogChunk, decodeNamespaces, decodePodList } from "./ipc.decode.kube";
 import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebOpened, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 import { decodeSyncStatus } from "./ipc.decode.sync";
 import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
@@ -113,8 +113,8 @@ export class TauriTransport implements Ipc {
   credentialCopyOtp: Ipc["credentialCopyOtp"] = (a) => call("credential_copy_otp", { ...a });
   credentialParseAccount: Ipc["credentialParseAccount"] = (a) => call("credential_parse_account", { ...a });
 
-  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame, kube }) =>
-    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}), ...(kube ? { kube } : {}) });
+  sessionOpen: Ipc["sessionOpen"] = ({ connectionId, size, onEvent, onFrame }) =>
+    call("session_open", { connectionId, size, onEvent: eventChannel(onEvent), ...(onFrame ? { onFrame: frameChannel(onFrame) } : {}) });
   sessionSend: Ipc["sessionSend"] = ({ sessionId, input }) =>
     call("session_send", { sessionId, input: encodeSessionInput(input) });
   sessionClose: Ipc["sessionClose"] = (a) => call("session_close", { ...a });
@@ -198,10 +198,10 @@ export class TauriTransport implements Ipc {
   kubeAccess: Ipc["kubeAccess"] = async (a) => decodeAccess(await call<unknown>("kube_access", { ...a }));
   kubeNamespaces: Ipc["kubeNamespaces"] = async (a) => decodeNamespaces(await call<unknown>("kube_namespaces", { ...a }));
   kubePods: Ipc["kubePods"] = async (a) => decodePodList(await call<unknown>("kube_pods", { ...a }));
-  kubeWatch: Ipc["kubeWatch"] = ({ onEvent, ...a }) => call("kube_watch", { ...a, onEvent: podChannel(onEvent) });
-  kubeUnwatch: Ipc["kubeUnwatch"] = (a) => call("kube_unwatch", { ...a });
-  kubeLogs: Ipc["kubeLogs"] = ({ onChunk, ...a }) => call("kube_logs", { ...a, onChunk: logChannel(onChunk) });
-  kubeLogsStop: Ipc["kubeLogsStop"] = (a) => call("kube_logs_stop", { ...a });
+  // K4: there is no pod watch command; the browser polls the passive `kube_pods`.
+  kubeLogsOpen: Ipc["kubeLogsOpen"] = ({ onChunk, ...a }) => call("kube_logs_open", { ...a, onChunk: logChannel(onChunk) });
+  kubeLogsClose: Ipc["kubeLogsClose"] = (a) => call("kube_logs_close", { ...a });
+  kubeExecOpen: Ipc["kubeExecOpen"] = ({ onEvent, ...a }) => call("kube_exec_open", { ...a, onEvent: eventChannel(onEvent) });
 
   // ---------- ADR-0015 (vSphere) ----------
 
@@ -313,12 +313,6 @@ function frameChannel(onFrame: FrameHandler): Channel {
 function progressChannel(onProgress: ProgressHandler): Channel {
   const channel = new Channel<unknown>();
   channel.onmessage = (msg) => { onProgress(decodeProgress(msg)); };
-  return channel;
-}
-
-function podChannel(onEvent: PodEventHandler): Channel {
-  const channel = new Channel<unknown>();
-  channel.onmessage = (msg) => { onEvent(decodePodEvent(msg)); };
   return channel;
 }
 

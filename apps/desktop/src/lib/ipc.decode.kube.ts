@@ -1,7 +1,7 @@
 // Defensive decoders for ADR-0014 payloads. Pod lists, watch events and log chunks carry
 // cluster-controlled strings: they are decoded field by field, capped, and anything unknown
 // becomes a safe default (a phase we do not know is "Unknown", never "Running").
-import { POD_PHASES, type ClusterEvent, type ContainerSummary, type KubeAccess, type KubeList, type LogChunk, type PodEvent, type PodPhase, type PodSummary } from "./ipc.types.kube";
+import { POD_PHASES, type ClusterEvent, type ContainerSummary, type KubeAccess, type KubeList, type LogChunk, type PodPhase, type PodSummary } from "./ipc.types.kube";
 import { base64ToBytes, decodeSessionEvent } from "./ipc.decode.session";
 
 type Wire = Record<string, unknown>;
@@ -54,17 +54,6 @@ export function decodeAccess(raw: unknown): KubeAccess {
     portForward: b("portForward", "port_forward"),
     listNamespaces: b("listNamespaces", "list_namespaces"),
   };
-}
-
-/** Unknown event types become a `resync` (re-list), never a silent drop. */
-export function decodePodEvent(raw: unknown): PodEvent {
-  const w = rec(raw);
-  const t = typeof w.type === "string" ? w.type.toLowerCase() : "";
-  if ((t === "added" || t === "modified" || t === "deleted") && typeof w.pod === "object" && w.pod !== null) {
-    const pod = decodePod(w.pod);
-    if (pod.name !== "") return { type: t, pod };
-  }
-  return { type: "resync" };
 }
 
 /** A chunk that is neither valid data nor an end ends the stream (shape drift is not data). */

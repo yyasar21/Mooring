@@ -58,7 +58,7 @@ export function ClusterBrowser({ tab, connection }: { tab: Tab; connection: Conn
 
   const execInto = (container: string) => {
     if (!pod || !ns || !connection) return;
-    void openExec(connection.id, { parentSessionId: sessionId, namespace: ns, pod: pod.name, container, argv: [command] });
+    void openExec(connection.id, { parentSessionId: sessionId, namespace: ns, pod: pod.name, container, command });
   };
   const logsOf = (container: string) => {
     if (!pod || !ns || !connection) return;
