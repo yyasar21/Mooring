@@ -180,8 +180,23 @@
 .palette-group { padding: var(--s3) var(--s4) var(--s1); }
 
 /* ---------- audit log ---------- */
+.audit-view { display: flex; flex-direction: column; height: 100%; min-width: 0; background: var(--surface); }
+.audit-head { display: flex; align-items: center; gap: 12px; height: 64px; flex: none; padding: 0 var(--s6); }
+.audit-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 0 var(--s6) 12px; border-bottom: 1px solid var(--border); }
+.audit-filters > .field { width: auto; min-width: 140px; max-width: 220px; }
+.audit-filters > .audit-filter-text { flex: 1 1 220px; max-width: 320px; }
+.audit-count { margin-left: auto; font-size: var(--fs-12); color: var(--text-3); white-space: nowrap; }
+.audit-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.audit-view[data-drawer] .audit-body { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); }
 .audit-table { min-height: 0; }
 .audit-table .dt th:first-child, .audit-table .dt td:first-child { padding-left: var(--s6); }
+.audit-drawer { min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); }
+.audit-drawer-head { display: flex; align-items: flex-start; gap: 8px; padding: 16px 16px 12px 20px; border-bottom: 1px solid var(--border); }
+.audit-drawer-title { margin: 2px 0 0; font: 600 var(--fs-16)/24px var(--font-sans); overflow-wrap: anywhere; }
+.audit-fields { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 8px 12px; margin: 0; padding: 16px 20px; font-size: var(--fs-13); }
+.audit-fields dt { color: var(--text-2); }
+.audit-fields dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.audit-hash { font-size: var(--fs-12); color: var(--text-2); }
 .audit-event { display: inline-flex; align-items: center; gap: var(--s2); }
 .audit-event::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--border-input); }
 .audit-event[data-tone="hot"], .audit-event[data-tone="danger"] { color: var(--danger); }

@@ -164,7 +164,7 @@ describe("audit viewer", () => {
     await act(async () => { await useCredentials.getState().copySecret("cr-ad", "password"); });
     act(() => { useUi.getState().setView("audit"); });
     await settle();
-    const list = screen.getByRole("table", { name: "Entries, newest first" });
+    const list = screen.getByRole("grid", { name: "Entries, newest first" });
     const items = within(list).getAllByRole("row").slice(1);
     expect(items[0]).toHaveTextContent("Secret copied");
     expect(items[0]).toHaveTextContent("domain admin");
