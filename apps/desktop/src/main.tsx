@@ -6,6 +6,8 @@ import { bootTransport } from "./lib/ipc";
 import { applyTheme, useUi } from "./stores/ui";
 
 applyTheme(useUi.getState().theme);
+// Appearance "System" follows the OS live (Settings → Appearance).
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { useUi.getState().syncSystemTheme(); });
 
 // Outside Tauri the mock transport is a lazy chunk; inside, this resolves at once.
 await bootTransport();

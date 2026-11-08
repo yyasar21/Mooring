@@ -1,7 +1,10 @@
 import { create } from "zustand";
 import type { CredentialRole, Protocol, ProtocolOptions } from "../lib/ipc.types";
 
+/** The theme in effect. */
 export type Theme = "dark" | "light";
+/** What the user chose in Settings → Appearance; "system" follows the OS. */
+export type ThemePref = Theme | "system";
 export type View = "workspace" | "audit" | "credentials" | "settings";
 
 /** Which editor dialog is open. `id` absent = create. */
@@ -66,12 +69,24 @@ export const INSPECTOR = { min: 240, max: 520, initial: 312 };
 
 const THEME_KEY = "mooring.theme";
 
-function readTheme(): Theme {
+function readThemePref(): ThemePref {
   try {
-    return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+    const v = localStorage.getItem(THEME_KEY);
+    return v === "light" || v === "dark" ? v : "system";
   } catch {
-    return "dark";
+    return "system";
   }
+}
+
+/** The OS theme; dark where the platform cannot say (the app's historical default). */
+export function systemTheme(): Theme {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "dark";
+  if (window.matchMedia("(prefers-color-scheme: light)").matches) return "light";
+  return "dark";
+}
+
+export function resolveTheme(pref: ThemePref): Theme {
+  return pref === "system" ? systemTheme() : pref;
 }
 
 export function applyTheme(theme: Theme): void {
@@ -81,7 +96,10 @@ export function applyTheme(theme: Theme): void {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
 
 interface UiState {
+  /** Resolved theme (what is painted). */
   theme: Theme;
+  /** The Appearance setting. */
+  themePref: ThemePref;
   view: View;
   sidebarWidth: number;
   inspectorWidth: number;
@@ -95,8 +113,14 @@ interface UiState {
   /** Row id currently being renamed inline in the tree. */
   renaming: string | null;
 
+  /** Settings → Appearance: System, Light or Dark. Persisted on this device only. */
+  setThemePref: (p: ThemePref) => void;
+  /** An explicit light or dark choice (same as `setThemePref`). */
   setTheme: (t: Theme) => void;
+  /** Palette "Switch theme": the opposite of what is painted, as an explicit choice. */
   toggleTheme: () => void;
+  /** The OS theme changed; only repaints while the preference is "system". */
+  syncSystemTheme: () => void;
   setView: (v: View) => void;
   setSidebarWidth: (w: number) => void;
   setInspectorWidth: (w: number) => void;
@@ -118,7 +142,8 @@ interface UiState {
 }
 
 export const useUi = create<UiState>((set, get) => ({
-  theme: readTheme(),
+  theme: resolveTheme(readThemePref()),
+  themePref: readThemePref(),
   view: "workspace",
   sidebarWidth: SIDEBAR.initial,
   inspectorWidth: INSPECTOR.initial,
@@ -130,16 +155,25 @@ export const useUi = create<UiState>((set, get) => ({
   settingsIntent: null,
   renaming: null,
 
-  setTheme: (theme) => {
+  setThemePref: (themePref) => {
     try {
-      localStorage.setItem(THEME_KEY, theme);
+      if (themePref === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, themePref);
     } catch {
       // storage blocked: the choice still applies for this window
     }
+    const theme = resolveTheme(themePref);
+    applyTheme(theme);
+    set({ themePref, theme });
+  },
+  setTheme: (theme) => { get().setThemePref(theme); },
+  toggleTheme: () => { get().setThemePref(get().theme === "dark" ? "light" : "dark"); },
+  syncSystemTheme: () => {
+    if (get().themePref !== "system") return;
+    const theme = systemTheme();
     applyTheme(theme);
     set({ theme });
   },
-  toggleTheme: () => { get().setTheme(get().theme === "dark" ? "light" : "dark"); },
   setView: (view) => { set({ view, paletteOpen: false }); },
   setSidebarWidth: (w) => { set({ sidebarWidth: clamp(w, SIDEBAR.min, SIDEBAR.max) }); },
   setInspectorWidth: (w) => { set({ inspectorWidth: clamp(w, INSPECTOR.min, INSPECTOR.max) }); },
