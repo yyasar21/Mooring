@@ -24,16 +24,16 @@ if (new URLSearchParams(location.search).get("channel") === "dev") transport.bui
 const probe: Probe = { transport, output: "", events: [] };
 const dec = new TextDecoder();
 
+const tap = (onEvent: (e: SessionEvent) => void) => (e: SessionEvent) => {
+  probe.events.push(e.kind);
+  if (e.kind === "bytes") probe.output += dec.decode(e.data);
+  onEvent(e);
+};
 const open = transport.sessionOpen;
-transport.sessionOpen = (args) =>
-  open({
-    ...args,
-    onEvent: (e: SessionEvent) => {
-      probe.events.push(e.kind);
-      if (e.kind === "bytes") probe.output += dec.decode(e.data);
-      args.onEvent(e);
-    },
-  });
+transport.sessionOpen = (args) => open({ ...args, onEvent: tap(args.onEvent) });
+// K4: a Kubernetes exec shell opens with kube_exec_open, not session_open.
+const execOpen = transport.kubeExecOpen;
+transport.kubeExecOpen = (args) => execOpen({ ...args, onEvent: tap(args.onEvent) });
 
 setIpc(transport);
 window.__mooringE2E = probe;
