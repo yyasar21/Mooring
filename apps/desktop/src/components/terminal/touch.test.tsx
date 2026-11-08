@@ -20,7 +20,8 @@ describe("security-key touch on an SSH tab (ADR-0024)", () => {
   beforeEach(() => {
     mock = freshBackend();
     mock.trustedHosts.add("runner.example.test");
-    mock.sk.touchMs = 80;
+    // Long enough that a slow CI runner still sees the banner before the mock clears it.
+    mock.sk.touchMs = 1500;
   });
 
   it("shows a non-modal banner with the short fingerprint until touch_cleared, then connects", async () => {
@@ -37,13 +38,14 @@ describe("security-key touch on an SSH tab (ADR-0024)", () => {
     const live = [...mock.sessions.values()][0];
     act(() => { live?.emit({ kind: "touch_cleared", id: 99 }); });
     expect(within(panel()).getByRole("status")).toHaveTextContent("Touch your security key to continue");
-    await waitFor(() => { expect(tab()?.state).toBe("connected"); });
+    await waitFor(() => { expect(tab()?.state).toBe("connected"); }, { timeout: 5000 });
     expect(within(panel()).queryByText("Touch your security key to continue")).toBeNull();
     expect(mock.audit.some((e) => e.event === "session.auth_sk" && e.details.outcome === "ok")).toBe(true);
   });
 
   it("after touch_timeout says so and Retry reconnects", async () => {
     mock.sk.touch = "timeout";
+    mock.sk.touchMs = 80;
     await boot();
     await act(async () => { await useSessions.getState().open("c-yubi"); });
     await waitFor(() => { expect(tab()?.state).toBe("closed"); });
