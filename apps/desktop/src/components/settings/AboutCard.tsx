@@ -42,7 +42,7 @@ export function AboutCard() {
   };
 
   return (
-    <SettingsCard title="About" kicker="Mooring" labelledBy="about-title">
+    <SettingsCard title="About" labelledBy="about-title">
       <div className="settings-body about">
         <div className="about-head">
           <img src="/favicon.svg" alt="" width={72} height={72} className="about-icon" />

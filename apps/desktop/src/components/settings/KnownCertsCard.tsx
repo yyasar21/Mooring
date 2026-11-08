@@ -36,7 +36,7 @@ export function KnownCertsCard() {
   const shown = rows ? filterPins(rows, query) : [];
 
   return (
-    <SettingsCard title="Known certificates" kicker="Trust" labelledBy="trust-title">
+    <SettingsCard title="Known certificates" labelledBy="trust-title">
       <div className="settings-body">
         <p className="field-hint">
           Certificates you trusted for RDP and VNC hosts and for RD Gateways. If a server is reinstalled and its certificate changes, Mooring stops the

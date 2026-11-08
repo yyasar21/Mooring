@@ -110,6 +110,8 @@ interface UiState {
   /** Draft + preselection for the connection form reopened after a "New…" round trip. */
   connectionResume: ConnectionResume | null;
   settingsIntent: SettingsIntent | null;
+  /** M6: the Settings search. Cleared whenever Settings is opened from elsewhere. */
+  settingsQuery: string;
   /** Row id currently being renamed inline in the tree. */
   renaming: string | null;
 
@@ -137,6 +139,7 @@ interface UiState {
   /** Switch to Settings with something for a card to do on mount. */
   showSettings: (intent?: SettingsIntent) => void;
   takeSettingsIntent: () => SettingsIntent | null;
+  setSettingsQuery: (q: string) => void;
   setRenaming: (id: string | null) => void;
   reset: () => void;
 }
@@ -153,6 +156,7 @@ export const useUi = create<UiState>((set, get) => ({
   credentialPane: { mode: "none" },
   connectionResume: null,
   settingsIntent: null,
+  settingsQuery: "",
   renaming: null,
 
   setThemePref: (themePref) => {
@@ -198,7 +202,8 @@ export const useUi = create<UiState>((set, get) => ({
     if (r) set({ connectionResume: null });
     return r;
   },
-  showSettings: (intent) => { set({ view: "settings", paletteOpen: false, dialog: null, settingsIntent: intent ?? null }); },
+  showSettings: (intent) => { set({ view: "settings", paletteOpen: false, dialog: null, settingsIntent: intent ?? null, settingsQuery: "" }); },
+  setSettingsQuery: (settingsQuery) => { set({ settingsQuery }); },
   takeSettingsIntent: () => {
     const i = get().settingsIntent;
     if (i) set({ settingsIntent: null });
@@ -208,7 +213,7 @@ export const useUi = create<UiState>((set, get) => ({
   reset: () => {
     set({
       view: "workspace", paletteOpen: false, dialog: null, credentialPane: { mode: "none" },
-      connectionResume: null, settingsIntent: null, renaming: null,
+      connectionResume: null, settingsIntent: null, settingsQuery: "", renaming: null,
     });
   },
 }));

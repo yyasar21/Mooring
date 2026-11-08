@@ -144,7 +144,7 @@ export function UpdatesCard() {
   const offer = info?.available ?? null;
 
   return (
-    <SettingsCard title="Updates" kicker="Application" labelledBy="updates-title">
+    <SettingsCard title="Updates" labelledBy="updates-title">
       <div className="settings-body" aria-busy={busy || undefined}>
         <div className="update-head">
           <div className="min-w-0">

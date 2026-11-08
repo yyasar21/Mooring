@@ -93,7 +93,7 @@ export function SyslogCard() {
   };
 
   return (
-    <SettingsCard title="Syslog mirror" kicker="Audit" labelledBy="syslog-title">
+    <SettingsCard title="Syslog mirror" labelledBy="syslog-title">
       <form
         className="settings-body"
         aria-busy={!loaded || undefined}

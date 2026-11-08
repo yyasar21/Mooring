@@ -25,7 +25,7 @@ export function ImportCard() {
   }, []);
 
   return (
-    <SettingsCard kicker="Bring your connections" title="Import" labelledBy="settings-import">
+    <SettingsCard title="Import" labelledBy="settings-import">
       <div className="settings-body">
         <p className="text-text-muted">
           Read another tool's export into a new folder of this vault. Nothing is merged or overwritten, no password is decrypted, and nothing leaves this computer.

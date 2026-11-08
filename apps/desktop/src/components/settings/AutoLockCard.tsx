@@ -51,7 +51,7 @@ export function AutoLockCard() {
   };
 
   return (
-    <SettingsCard title="Auto-lock" kicker="Vault" labelledBy="autolock-title">
+    <SettingsCard title="Auto-lock" labelledBy="autolock-title">
       <form
         className="settings-body"
         onSubmit={(e) => { e.preventDefault(); void save(); }}

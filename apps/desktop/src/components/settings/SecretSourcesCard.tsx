@@ -115,7 +115,7 @@ export function SecretSourcesCard() {
   });
 
   return (
-    <SettingsCard title="Secret sources" kicker="External secrets" labelledBy="sources-title">
+    <SettingsCard title="Secret sources" labelledBy="sources-title">
       <div className="settings-body">
         <p className="field-hint mt-0">
           Vault or OpenBao, 1Password Connect and Bitwarden Secrets Manager servers that "Secret manager reference" credentials resolve

@@ -111,7 +111,7 @@ export function SyncCard() {
   const trustHint = s?.lastError?.code === "http.trust_prompt";
 
   return (
-    <SettingsCard title="Vault sync" kicker="Devices" labelledBy="sync-title">
+    <SettingsCard title="Vault sync" labelledBy="sync-title">
       <div className="settings-body" aria-busy={busy || undefined}>
         <p className="field-hint mt-0">
           Keeps this vault's folders, connections, credentials and trust stores in an S3 bucket as one encrypted blob (sealed with a key

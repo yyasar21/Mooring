@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** A labelled switch (native checkbox with role="switch"); cyan when on. */
+/** A labelled switch (native checkbox with role="switch"); the accent when on. */
 export function Toggle({ checked, onChange, label, hint, disabled }: {
   checked: boolean;
   onChange: (on: boolean) => void;
@@ -20,14 +20,12 @@ export function Toggle({ checked, onChange, label, hint, disabled }: {
   );
 }
 
-/** Card frame shared by the settings sections. */
-/** `kicker` is optional: A5 cards leave it out (the Harbor redesign drops the micro labels). */
-export function SettingsCard({ title, kicker, children, labelledBy }: { title: string; kicker?: string; children: ReactNode; labelledBy: string }) {
+/** Card frame shared by the settings sections. The heading id is the `openSettingsCard` contract. */
+export function SettingsCard({ title, children, labelledBy }: { title: string; children: ReactNode; labelledBy: string }) {
   return (
-    <section aria-labelledby={labelledBy} className="settings-card m-hud">
+    <section aria-labelledby={labelledBy} className="settings-card">
       <header className="settings-card-head">
-        {kicker && <span className="m-micro">{kicker}</span>}
-        <h2 id={labelledBy} className="m-display text-[length:var(--fs-l)]">{title}</h2>
+        <h2 id={labelledBy} className="settings-card-title">{title}</h2>
       </header>
       {children}
     </section>
