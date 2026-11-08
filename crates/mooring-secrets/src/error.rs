@@ -88,6 +88,10 @@ pub enum SecretsError {
     /// `bws --version` is older than 1.0 or unreadable (`secret.tool_version`).
     #[error("the bws CLI version is not supported (1.0 or later is required)")]
     ToolVersion,
+    /// The `bws` binary differs from the one last trusted (`secret.tool_changed`, review 9
+    /// L-50). Testing the source trusts it again.
+    #[error("the bws CLI changed since it was last trusted; test the secret source in Settings → Secret sources to trust it again")]
+    ToolChanged,
     /// `bws` failed: exit status, deadline or output cap (`secret.tool_failed`). Its output is
     /// never echoed.
     #[error("the bws CLI failed ({detail})")]
@@ -142,6 +146,7 @@ impl SecretsError {
             Self::Lease(_) => "secret.lease_failed",
             Self::ToolMissing => "secret.tool_missing",
             Self::ToolVersion => "secret.tool_version",
+            Self::ToolChanged => "secret.tool_changed",
             Self::ToolFailed { .. } => "secret.tool_failed",
             Self::KindUnsupported(_) => "source.kind_unsupported",
         }
@@ -160,7 +165,9 @@ impl SecretsError {
             | Self::Engine(_)
             | Self::Lease(_)
             | Self::KindUnsupported(_) => Category::Shape,
-            Self::ToolMissing | Self::ToolVersion | Self::ToolFailed { .. } => Category::Tool,
+            Self::ToolMissing | Self::ToolVersion | Self::ToolChanged | Self::ToolFailed { .. } => {
+                Category::Tool
+            }
         }
     }
 
@@ -322,6 +329,7 @@ mod tests {
             (SecretsError::Lease("x"), "secret.lease_failed"),
             (SecretsError::ToolMissing, "secret.tool_missing"),
             (SecretsError::ToolVersion, "secret.tool_version"),
+            (SecretsError::ToolChanged, "secret.tool_changed"),
             (SecretsError::ToolFailed { exit: Some(1), detail: "x" }, "secret.tool_failed"),
             (SecretsError::KindUnsupported("x"), "source.kind_unsupported"),
         ] {

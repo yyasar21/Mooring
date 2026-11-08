@@ -58,11 +58,23 @@ impl Fake {
 }
 
 fn engine(path: &Path, deadline: Duration) -> (SecretsEngine, Arc<MemoryAudit>, tempfile::TempDir) {
+    engine_with(path, deadline, None)
+}
+
+/// `pins`: the persisted pin file (review 9 L-50); `None` keeps them in memory.
+fn engine_with(
+    path: &Path,
+    deadline: Duration,
+    pins: Option<&Path>,
+) -> (SecretsEngine, Arc<MemoryAudit>, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let audit = Arc::new(MemoryAudit::default());
     let cache = Arc::new(TokenCache::new(Arc::new(FakeClock::default()), audit.clone()));
     let mut cfg = ClientConfig::new(dir.path().join("known_vault_certs"));
     cfg.bws = BwsConfig::custom(path.to_owned());
+    if let Some(p) = pins {
+        cfg.bws = cfg.bws.with_pins(p.to_owned());
+    }
     cfg.bws.deadline = deadline;
     (SecretsEngine::new(cache, audit.clone(), cfg), audit, dir)
 }
@@ -215,9 +227,48 @@ async fn deadline_version_missing_and_changed() {
     let (e, audit, _d) = engine(&fake.path(), Duration::from_secs(10));
     resolve(&e, &src, &f).await.expect("first");
     fake.write("echo 'bws 1.0.1'", &format!("true; {}", print(&body)));
-    resolve(&e, &src, &f).await.expect("changed binary still runs");
+    // Review 9 L-50: a changed binary is refused (and audited), not run with the token.
+    let err = resolve(&e, &src, &f).await.expect_err("changed binary refused");
+    assert_eq!(err.code(), "secret.tool_changed");
+    assert!(err.to_string().contains("to trust it again"), "{err}");
     assert!(audit.take().iter().any(|x| matches!(x, SecretEvent::ToolChanged { .. })));
+    assert_eq!(
+        fake.read("argv.txt").matches("--version").count(),
+        1,
+        "the changed binary never ran"
+    );
+    // The explicit Test re-trusts it (its project list then fails on this fake's output).
+    let t = e.test_source(&src, &login()).await.expect_err("not a project list");
+    assert_ne!(t.code(), "secret.tool_changed");
     assert_eq!(fake.read("argv.txt").matches("--version").count(), 2, "re-checked after a change");
-    let t = e.test_source(&src, &login()).await;
-    assert!(t.is_err(), "the fake prints a secret, not a project list");
+    resolve(&e, &src, &f).await.expect("trusted again");
+}
+
+/// Review 9 L-50: the pin outlives the process; a binary swapped between two runs (two
+/// engines over one pin file) is refused until a Test trusts it.
+#[tokio::test]
+async fn the_bws_pin_persists_across_restarts() {
+    let _serial = SERIAL.lock().await;
+    let src = source();
+    let f = bw(&src, ID, CredentialKind::ApiToken);
+    let pins = tempfile::tempdir().expect("pins");
+    let pin_file = pins.path().join("bws_pins.json");
+    let fake = Fake::new();
+    let body = format!(r#"{{"id":"{ID}","key":"api","value":"t"}}"#);
+    fake.write("echo 'bws 1.0.0'", &print(&body));
+    let (e, _a, _d) = engine_with(&fake.path(), Duration::from_secs(10), Some(&pin_file));
+    resolve(&e, &src, &f).await.expect("first use pins");
+    drop(e);
+    assert!(pin_file.is_file());
+    let (e, _a, _d) = engine_with(&fake.path(), Duration::from_secs(10), Some(&pin_file));
+    resolve(&e, &src, &f).await.expect("same binary after a restart");
+    drop(e);
+    fake.write("echo 'bws 1.0.0'", &format!("true; {}", print(&body)));
+    let (e, audit, _d) = engine_with(&fake.path(), Duration::from_secs(10), Some(&pin_file));
+    let err = resolve(&e, &src, &f).await.expect_err("swapped while Mooring was closed");
+    assert_eq!(err.code(), "secret.tool_changed");
+    assert!(audit.take().iter().any(|x| matches!(x, SecretEvent::ToolChanged { .. })));
+    let _ = e.test_source(&src, &login()).await;
+    let (e, _a, _d) = engine_with(&fake.path(), Duration::from_secs(10), Some(&pin_file));
+    resolve(&e, &src, &f).await.expect("re-trusted pin persisted");
 }

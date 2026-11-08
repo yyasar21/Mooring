@@ -98,6 +98,7 @@
   "rdp.gateway_unsupported",
   "rdp.smart_card_unsupported",
   "secret.lease_failed",
+  "secret.tool_changed",
   "secret.tool_failed",
   "secret.tool_missing",
   "secret.tool_version",

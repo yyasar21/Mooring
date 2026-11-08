@@ -227,6 +227,7 @@ fn every_secrets_error_code_is_in_the_golden_list() {
         SecretsError::Lease("x"),
         SecretsError::ToolMissing,
         SecretsError::ToolVersion,
+        SecretsError::ToolChanged,
         SecretsError::ToolFailed { exit: Some(2), detail: "x" },
         SecretsError::KindUnsupported("x"),
     ];
@@ -250,6 +251,7 @@ fn every_secrets_error_code_is_in_the_golden_list() {
             "credential.external_unavailable",
             "input.invalid",
             "secret.lease_failed",
+            "secret.tool_changed",
             "secret.tool_failed",
             "secret.tool_missing",
             "secret.tool_version",
