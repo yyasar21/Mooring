@@ -181,10 +181,12 @@ export function visibleRows(folders: Folder[], connections: ConnectionSummary[],
 }
 
 /** Folder path from the root, e.g. ["Production", "Web tier"] (root excluded). */
-export function folderPath(folders: Folder[], id: string | null): string[] {
+export function folderPath(folders: readonly Folder[], id: string | null | undefined): string[] {
   const out: string[] = [];
+  const seen = new Set<string>(); // a cycle in hostile synced data must not hang the UI
   let cur = folders.find((f) => f.id === id);
-  while (cur && cur.parentId !== null) {
+  while (cur && cur.parentId !== null && !seen.has(cur.id)) {
+    seen.add(cur.id);
     out.unshift(cur.name);
     const parent = cur.parentId;
     cur = folders.find((f) => f.id === parent);

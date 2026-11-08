@@ -2,7 +2,9 @@ import { useState, type ReactNode } from "react";
 import { HudLabel, ProtocolPip, StateDot } from "@mooring/ui";
 import type { ConnectionSummary, Folder } from "../../lib/ipc";
 import { folderPath, useTree, viaNames } from "../../stores/tree";
-import { lineState, useSessions } from "../../stores/sessions";
+import { useSessions } from "../../stores/sessions";
+import { sessionStatus } from "../../stores/sessionClock";
+import { InspectorTabs, panelId, tabId, type InspectorTab } from "./InspectorTabs";
 import { useUi } from "../../stores/ui";
 import { ConnectionCredentials, FolderCredential } from "./CredentialReadout";
 import { hasNetworkCard, NetworkCard } from "./NetworkCard";
@@ -21,8 +23,8 @@ export function Inspector() {
   return (
     <aside aria-label="Details" className="deck-pane flex h-full flex-col overflow-y-auto">
       <div className="deck-head">
-        <span className="m-micro flex-1">Details</span>
-        {selected && <span className="m-micro tnum">{selected.kind === "folder" ? "Folder" : connection && isSyncedVm(connection) ? "VM" : "Host"}</span>}
+        <span className="deck-head-title flex-1">Details</span>
+        {selected && <span className="badge">{selected.kind === "folder" ? "Folder" : connection && isSyncedVm(connection) ? "VM" : "Host"}</span>}
       </div>
       {connection ? (
         <ConnectionDetails c={connection} />
@@ -47,13 +49,21 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
   const vcenter = isVcenter(c);
   const synced = vcenter && syncedRootOf(folders, c.id) !== undefined;
   const vm = isSyncedVm(c);
+  // M4: Properties | Network | History. The choice survives moving between rows; a row without
+  // network tools falls back to Properties.
+  const [section, setSection] = useState<InspectorTab>("properties");
+  const network = hasNetworkCard(c);
+  const sections: InspectorTab[] = network ? ["properties", "network", "history"] : ["properties", "history"];
+  const shown = sections.includes(section) ? section : "properties";
+  const base = `insp-${c.id}`;
+  const status = tab ? sessionStatus(tab) : null;
 
   return (
-    <div>
-      <header className="m-hud mx-3.5 mt-3.5 px-3 pb-3 pt-2.5" data-active={tab?.state === "connected" ? true : undefined}>
+    <div className="flex min-h-0 flex-col">
+      <header className="inspector-head">
         <div className="flex items-center gap-2">
           <ProtocolPip protocol={c.protocol} live={tab?.state === "connected"} />
-          <p className="m-micro min-w-0 flex-1 truncate">{path.join(" / ") || "Top level"}</p>
+          <p className="inspector-path min-w-0 flex-1 truncate">{path.join(" / ") || "Top level"}</p>
           {vm && <SyncBadge source={sourceName(connections, c.syncSource)} missing={c.syncState === "missing"} />}
         </div>
         <h2 className="readout-title mt-2 truncate">{c.name}</h2>
@@ -82,6 +92,20 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
       </div>
       {wizard && <ImportWizard connection={c} onClose={() => { setWizard(false); }} />}
 
+      <InspectorTabs base={base} tabs={sections} value={shown} onChange={setSection} />
+      {shown === "network" && (
+        <div role="tabpanel" id={panelId(base, "network")} aria-labelledby={tabId(base, "network")}>
+          <NetworkCard key={c.id} c={c} />
+        </div>
+      )}
+      {shown === "history" && (
+        <div role="tabpanel" id={panelId(base, "history")} aria-labelledby={tabId(base, "history")} className="inspector-placeholder">
+          <p className="m-0">Session history for this connection arrives in a later release.</p>
+          <p className="field-hint">Until then, the audit log lists every session that was opened, with its time and outcome.</p>
+        </div>
+      )}
+      {shown === "properties" && (
+      <div role="tabpanel" id={panelId(base, "properties")} aria-labelledby={tabId(base, "properties")}>
       {vm && <VmPanel vm={c} />}
       {synced && <SyncPanel vcenter={c} />}
 
@@ -94,10 +118,10 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
           {viaNames(connections, c) && <Prop k="Connect via">{viaNames(connections, c)}</Prop>}
           <Prop k="Tags">{c.tags.length ? c.tags.join(", ") : <span className="text-text-faint">none</span>}</Prop>
           {vm && <Prop k="Synced from">{sourceName(connections, c.syncSource)}</Prop>}
-          {tab && (
+          {status && (
             <Prop k="Session">
-              <span className="inline-flex items-center gap-2" style={{ color: tab.prompt ? "var(--warning)" : undefined }}>
-                <StateDot {...(tab.prompt ? { tone: "wait" as const } : { state: lineState(tab.state) })} /> {tab.prompt ? "waiting for you" : tab.state}
+              <span className="pill" data-tone={status.tone === "neutral" ? undefined : status.tone}>
+                <StateDot tone={status.dot} /> {status.label}
               </span>
             </Prop>
           )}
@@ -109,10 +133,11 @@ function ConnectionDetails({ c }: { c: ConnectionSummary }) {
         <HudLabel>Credential</HudLabel>
         <ConnectionCredentials c={c} inheritedFrom={source} />
       </section>
-      <p className="px-3.5 pb-1 pt-3 text-[length:var(--fs-xs)] leading-snug text-text-faint">
+      <p className="field-hint px-4 pb-3">
         Copying writes an audit entry. Mooring clears the clipboard after 30 seconds.
       </p>
-      {hasNetworkCard(c) && <NetworkCard key={c.id} c={c} />}
+      </div>
+      )}
     </div>
   );
 }
@@ -129,9 +154,9 @@ function FolderDetails({ f }: { f: Folder }) {
 
   return (
     <div>
-      <header className="m-hud mx-3.5 mt-3.5 px-3 pb-3 pt-2.5">
+      <header className="inspector-head">
         <div className="flex items-center gap-2">
-          <p className="m-micro min-w-0 flex-1 truncate">{folderPath(folders, f.parentId).join(" / ") || "Top level"}</p>
+          <p className="inspector-path min-w-0 flex-1 truncate">{folderPath(folders, f.parentId).join(" / ") || "Top level"}</p>
           {synced && <SyncBadge source={vcenter?.name ?? "vCenter"} />}
         </div>
         <h2 className="readout-title mt-2 truncate">{f.name}</h2>

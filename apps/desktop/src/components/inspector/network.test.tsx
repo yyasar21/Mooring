@@ -36,9 +36,13 @@ describe("Inspector → Network (ADR-0020, N1)", () => {
     render(<Inspector />);
     act(() => { useTree.getState().select({ kind: "connection", id: "c-k8s" }); });
     await settle();
+    // M4: no Network tab for a cluster row, only Properties and History
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Properties", "History"]);
     expect(screen.queryByRole("region", { name: "Network" })).toBeNull();
     act(() => { useTree.getState().select({ kind: "connection", id: "c-dc" }); });
     await settle();
+    expect(screen.queryByRole("region", { name: "Network" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Network" }));
     expect(screen.getByRole("region", { name: "Network" })).toBeInTheDocument();
   });
 

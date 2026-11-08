@@ -358,6 +358,7 @@ test("network card: port check, ping and traceroute on an SSH row; WireGuard hid
     await setMock(page, { netToolsState: { ping: true, traceroute: "tracepath", wg: false }, netRateWindowMs: 0 });
     await createVault(page);
     await tree(page).getByRole("treeitem", { name: "web01, web01.example.test" }).click();
+    await details(page).getByRole("tab", { name: "Network" }).click();
     const card = details(page).getByRole("region", { name: "Network" });
     await card.waitFor();
     assert.equal(await card.getByLabel(/Other host/).getAttribute("placeholder"), "web01.example.test");
@@ -388,6 +389,7 @@ test("network card: port check, ping and traceroute on an SSH row; WireGuard hid
     await tree(page).getByRole("treeitem", { name: /^stage-cluster/ }).click();
     await details(page).getByText("stage-cluster").first().waitFor();
     assert.equal(await details(page).getByRole("region", { name: "Network" }).count(), 0);
+    assert.equal(await details(page).getByRole("tab", { name: "Network" }).count(), 0, "no Network tab either");
   }));
 
 test("network card: missing tools are greyed with the reason; WireGuard peers show shortened keys only", (t) =>
@@ -395,6 +397,7 @@ test("network card: missing tools are greyed with the reason; WireGuard peers sh
     await setMock(page, { netToolsState: { ping: false, traceroute: null, wg: true } });
     await createVault(page);
     await tree(page).getByRole("treeitem", { name: "dc01, dc01.example.test" }).click();
+    await details(page).getByRole("tab", { name: "Network" }).click();
     const card = details(page).getByRole("region", { name: "Network" });
     await card.waitFor();
     assert.equal(await card.getByRole("button", { name: "Ping" }).isDisabled(), true);

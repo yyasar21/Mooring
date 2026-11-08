@@ -2,9 +2,9 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ConnectionSummary, Folder } from "../lib/ipc";
 import { blankTab, useSessions, type Tab } from "../stores/sessions";
 import { connectedSince, fmtDuration, sessionStatus, syncClock } from "../stores/sessionClock";
-import { useTree } from "../stores/tree";
+import { folderPath, useTree } from "../stores/tree";
 import { freshBackend } from "../test/harness";
-import { SessionHeader, folderPath, hostLabel } from "./SessionHeader";
+import { SessionHeader, hostLabel } from "./SessionHeader";
 import { SessionToolbar } from "./SessionToolbar";
 
 const folder = (id: string, parentId: string | null, name: string): Folder => ({ id, parentId, name, defaultCredentialId: null, sort: 0 });

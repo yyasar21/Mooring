@@ -1,24 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { StateDot } from "@mooring/ui";
-import type { ConnectionSummary, Folder } from "../lib/ipc";
+import type { ConnectionSummary } from "../lib/ipc";
 import type { Tab } from "../stores/sessions";
 import { connectedSince, fmtDuration, sessionStatus } from "../stores/sessionClock";
-import { useTree } from "../stores/tree";
-
-/** Folder names from the top of the tree down to the connection's folder (the root is not shown). */
-export function folderPath(folders: readonly Folder[], folderId: string | null | undefined): string[] {
-  const byId = new Map(folders.map((f) => [f.id, f]));
-  const path: string[] = [];
-  let f = folderId ? byId.get(folderId) : undefined;
-  // `seen` guards against a cycle in hostile synced data.
-  const seen = new Set<string>();
-  while (f && f.parentId !== null && !seen.has(f.id)) {
-    seen.add(f.id);
-    path.unshift(f.name);
-    f = byId.get(f.parentId);
-  }
-  return path;
-}
+import { folderPath, useTree } from "../stores/tree";
 
 /** `host:port`, or the host alone when the connection uses its protocol's default port. */
 export function hostLabel(c: Pick<ConnectionSummary, "host" | "port"> | undefined): string {

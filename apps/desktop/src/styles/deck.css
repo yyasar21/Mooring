@@ -13,7 +13,7 @@
 .deck-head {
   height: 40px; flex: none; display: flex; align-items: center; gap: var(--s1); padding: 0 var(--s2) 0 var(--s4);
 }
-.deck-head .m-micro, .pane-title { font: 600 var(--fs-13)/20px var(--font-sans); color: var(--text); }
+.deck-head .m-micro, .deck-head-title, .pane-title { font: 600 var(--fs-13)/20px var(--font-sans); color: var(--text); }
 
 /* ---------- title bar ---------- */
 .titlebar {
