@@ -43,6 +43,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 x509-parser = { version = "0.18", default-features = false }
 # TCP keepalive on the RDP socket (RDP itself has no keepalive); same version tokio already pulls in.
 socket2 = "0.6"
+# ADR-0027: RFC 6455 Sec-WebSocket-Accept check of the RD Gateway upgrade (RustCrypto, already
+# in the tree via mooring-testsrv / TOTP).
+sha1 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -301,9 +301,9 @@ async fn upgrade(
         let head = conn.read_response().await.map_err(wire)?;
         match head.status {
             101 => {
-                if !head.has_token("upgrade", "websocket")
-                    || head.get("sec-websocket-accept").is_none()
-                {
+                let accept_ok =
+                    head.get("sec-websocket-accept") == Some(http::accept_key(&key).as_str());
+                if !head.has_token("upgrade", "websocket") || !accept_ok {
                     return Err(end(
                         CloseCode::ProtocolError,
                         "the RD Gateway did not upgrade to WebSocket",

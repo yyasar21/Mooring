@@ -78,8 +78,9 @@ tree through `sspi` (dlopen PKCS#11, FFI). `winscard` 0.4.0 (in tree, 0 `unsafe`
 `RdpConnOptions.gateway` through `connection_create/update`; `known_certs_list/remove` accept
 `protocol: "rdg"`; `credential_kinds()` serves `smart_card`. Audit `session.rdp.gateway { host,
 auth: ntlm|basic, tunnel_id }`, `trust.cert.*` with `protocol: rdg`, `session.rdp.gateway_basic`
-(warning), `credential.pin_prompted { id }` (never the PIN). Codes: `rdp.gateway_auth_failed`,
-`rdp.gateway_unsupported`, `rdp.gateway_channel_refused`, `session.trust_*` (reused),
+(warning), `credential.pin_prompted { id }` (never the PIN). Codes: `rdp.gateway_auth`,
+`rdp.gateway_refused`, `rdp.gateway_unsupported` (session close codes `gateway_auth` /
+`gateway_refused` / `gateway_unsupported`), `session.trust_*` (reused),
 `credential.pin_cancelled`.
 
 ## Alternatives considered

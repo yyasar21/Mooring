@@ -192,16 +192,11 @@ I applied the owner defaults from the decision table:
 - `ipc.kinds.ts` must gain the `smart_card` row, or the snapshot vitest fails.
 
 ## Left open
-- **`tokio-tungstenite` was not added.** The workspace does not declare it (it is a direct
-  version in `mooring-http` / `mooring-proto-kube`), so per the brief I stopped and wrote our own
-  RFC 6455 framing instead.
-  - Consequence: `Sec-WebSocket-Accept` is checked for presence, but its SHA-1 value is **not
-    verified**. `mooring-proto-rdp` has no SHA-1 without a manifest change.
-  - The peer is already authenticated by the pinned TLS certificate, so the check guards
-    against misbehaving intermediaries only.
-  - Fix options: declare `tokio-tungstenite = { version = "0.30", default-features = false,
-    features = ["handshake"] }` in `[workspace.dependencies]`, then I replace `ws.rs` and the
-    accept check; or add `sha1` (RustCrypto, in the lockfile).
+- **`tokio-tungstenite` was not added** (not workspace-declared); the RFC 6455 framing is ours.
+  Follow-up: `sha1 = { workspace = true }` was added to `mooring-proto-rdp` and the
+  `Sec-WebSocket-Accept` value is now verified exactly (`base64(SHA-1(key ‖ GUID))`); a wrong
+  or missing value → `protocol_error` before any MS-TSGU byte (mock modes `BadAccept`,
+  `NoAccept`).
 - The RDG TLS uses `mooring-proto-rdp`'s own ADR-0011 verifier, not `mooring-http`'s.
   - Reason: NTLM needs a raw keep-alive connection, and the crate has no `mooring-http`
     dependency.
@@ -227,20 +222,18 @@ I applied the owner defaults from the decision table:
   agent.
 
 ## Decision needed
-- Code names: the brief's `rdp.gateway_auth` / `rdp.gateway_refused` / `rdp.gateway_unsupported`
-  were used instead of the ADR's `rdp.gateway_auth_failed` / `rdp.gateway_channel_refused`. The
-  ADR should be aligned. `credential.pin_cancelled` is a close (`user` plus a reason), not an IPC
+- Code names: ADR-0027 §3 now lists the implemented `rdp.gateway_auth` / `rdp.gateway_refused`
+  / `rdp.gateway_unsupported` (follow-up commit). `credential.pin_cancelled` is a close (`user` plus a reason), not an IPC
   code.
-- WebSocket: our framing vs `tokio-tungstenite` (see Left open). Security review should decide
-  whether the unverified `Sec-WebSocket-Accept` is acceptable for 0.2.0.
+- WebSocket: our framing vs `tokio-tungstenite` (the Accept value is verified now).
 - ADR-0027 → *Accepted* with 39/40/41 as applied. The SSH PIN goes to the agent
   (`ADD_SMARTCARD_KEY`), not to a native dialog → `cryptoki`; this deviates from §2 "asked per
   use with a native Rust dialog" (it uses the session prompt channel instead).
 - Migration number 0011 (the latest was 0010).
 
 ## Manifest
-- None changed. Orchestrator: if you want `tokio-tungstenite` in `mooring-proto-rdp`, add it to
-  `[workspace.dependencies]` first (see above).
+- Follow-up: `mooring-proto-rdp` gained `sha1 = { workspace = true }` (RFC 6455
+  Sec-WebSocket-Accept check; RustCrypto, already in the lockfile). Nothing else.
 
 ## Test evidence
 ```

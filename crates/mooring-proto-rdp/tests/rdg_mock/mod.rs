@@ -11,7 +11,7 @@ use ironrdp_connector::sspi::{
     AuthIdentity, BufferType, CredentialUse, DataRepresentation, Ntlm, SecurityBuffer,
     SecurityStatus, ServerRequestFlags, Sspi, SspiImpl, Username,
 };
-use mooring_proto_rdp::gateway::http::{decode_base64, encode_base64};
+use mooring_proto_rdp::gateway::http::{accept_key, decode_base64, encode_base64};
 use mooring_proto_rdp::gateway::pdu::{self, server, ty};
 use mooring_proto_rdp::gateway::ws::{self, Decoder, Frame};
 use mooring_testsrv::tls::TestCert;
@@ -33,6 +33,10 @@ pub enum Mode {
     Oversized,
     /// `DATA` instead of `HANDSHAKE_RESPONSE`.
     OutOfOrder,
+    /// `101` with a wrong `Sec-WebSocket-Accept`.
+    BadAccept,
+    /// `101` without `Sec-WebSocket-Accept`.
+    NoAccept,
 }
 
 pub const GW_USER: &str = "alice";
@@ -195,10 +199,13 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
             continue;
         }
         log.lock().expect("log").auth_ok = true;
-        let k = key(&head);
+        let accept = match mode {
+            Mode::BadAccept => format!("Sec-WebSocket-Accept: {}\r\n", accept_key("other")),
+            Mode::NoAccept => String::new(),
+            _ => format!("Sec-WebSocket-Accept: {}\r\n", accept_key(&key(&head))),
+        };
         let h = format!(
-            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
-             Sec-WebSocket-Accept: {k}\r\n\r\n"
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n{accept}\r\n"
         );
         s.write_all(h.as_bytes()).await.ok()?;
         return Some(());

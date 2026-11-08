@@ -198,6 +198,8 @@ async fn refusals_map_to_gateway_codes() {
         (Mode::ChannelRefused, CloseCode::GatewayRefused),
         (Mode::Oversized, CloseCode::ProtocolError),
         (Mode::OutOfOrder, CloseCode::ProtocolError),
+        (Mode::BadAccept, CloseCode::ProtocolError),
+        (Mode::NoAccept, CloseCode::ProtocolError),
     ] {
         let gw = rdg_mock::start(mode, srv.addr()).await;
         let mut r = connect(&srv, &gw, false, GW_PASS, Some(gw.cert.cert_der())).await;
@@ -207,6 +209,13 @@ async fn refusals_map_to_gateway_codes() {
         assert_eq!(code, want, "{mode:?}: {reason}");
         if mode == Mode::ChannelRefused {
             assert!(reason.contains("0x800759DD"), "{reason}");
+        }
+        if matches!(mode, Mode::BadAccept | Mode::NoAccept) {
+            assert!(reason.contains("did not upgrade to WebSocket"), "{mode:?}: {reason}");
+            assert!(
+                gw.log.lock().expect("log").channels.is_empty(),
+                "no tunnel after a bad accept"
+            );
         }
     }
 }

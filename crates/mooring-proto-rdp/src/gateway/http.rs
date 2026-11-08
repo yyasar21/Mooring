@@ -4,6 +4,7 @@
 //! [`MAX_HEAD`] bytes and [`MAX_HEADERS`] lines, bodies we drain at [`MAX_BODY`]. Fuzz entry:
 //! [`super::fuzz_rdg_http_response`].
 
+use sha1::{Digest as _, Sha1};
 use zeroize::Zeroizing;
 
 /// Largest response head (status line + headers).
@@ -195,6 +196,20 @@ pub fn request(
     Zeroizing::new(s.as_bytes().to_vec())
 }
 
+/// RFC 6455 §1.3 GUID appended to `Sec-WebSocket-Key`.
+const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+/// The `Sec-WebSocket-Accept` value the gateway must answer for `key`:
+/// `base64(SHA-1(key ‖ GUID))`.
+#[must_use]
+pub fn accept_key(key: &str) -> String {
+    // RFC 6455 §4.2.2 mandates SHA-1 here; it is a handshake echo, not a security hash.
+    let mut h = Sha1::new(); // nosemgrep
+    h.update(key.as_bytes());
+    h.update(WS_GUID.as_bytes());
+    encode_base64(&h.finalize())
+}
+
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// RFC 4648 base64 with padding.
@@ -303,6 +318,13 @@ Content-Length: 3\r\n\r\n";
         assert!(chunked.body_len().is_err());
         let huge = parse_head(b"HTTP/1.1 401 x\r\nContent-Length: 99999999\r\n\r\n").expect("h");
         assert_eq!(huge.body_len(), Err(HeadError::TooLarge));
+    }
+
+    #[test]
+    fn accept_key_matches_rfc6455() {
+        // RFC 6455 §1.3 example.
+        assert_eq!(accept_key("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+        assert_ne!(accept_key("a2V5"), accept_key("a2V6"));
     }
 
     #[test]
