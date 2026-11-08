@@ -114,15 +114,11 @@ describe("TauriTransport · ADR-0011/0012/0013", () => {
     const seen: WebEvent[] = [];
     reply = { windowLabel: "web-c-lb" };
     expect(await t.webOpen({ connectionId: "c-lb", onEvent: (e) => seen.push(e) })).toEqual({ windowLabel: "web-c-lb" });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "blocked", origin: "https://sso.example.test" });
     // An unknown kind (a newer build's `hop_status`, say) is ignored, never read as `closed`.
     (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "hop_status", hop: 0, of: 1 });
     (calls[0]?.args?.onEvent as Chan).onmessage(null);
     expect(seen).toEqual([{ kind: "blocked", origin: "https://sso.example.test" }]);
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(String(warn.mock.calls[0]?.[1])).toBe("hop_status");
-    warn.mockRestore();
     (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "closed" });
     expect(seen.at(-1)).toEqual({ kind: "closed" });
     calls.length = 0;

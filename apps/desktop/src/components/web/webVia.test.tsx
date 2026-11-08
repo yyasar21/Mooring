@@ -104,13 +104,9 @@ describe("web window through jump hosts (R6)", () => {
 });
 
 describe("decodeWebEvent", () => {
-  it("ignores an unknown kind (dev warning) instead of reading it as closed", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("ignores an unknown kind instead of reading it as closed", () => {
     expect(decodeWebEvent({ kind: "prompt", id: 1 })).toBeNull();
     expect(decodeWebEvent("garbage")).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(String(warn.mock.calls[0]?.[1])).toBe("prompt");
-    warn.mockRestore();
     expect(decodeWebEvent({ kind: "closed" })).toEqual({ kind: "closed" });
     expect(decodeWebEvent({ kind: "title", title: "T" })).toEqual({ kind: "title", title: "T" });
   });

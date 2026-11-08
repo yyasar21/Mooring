@@ -88,7 +88,6 @@ export function decodeClusterEvent(raw: unknown): ClusterEvent | null {
     const ev = decodeSessionEvent(raw);
     if (ev.kind === "prompt" || ev.kind === "hop_status" || ev.kind === "closed") return ev;
   }
-  // eslint-disable-next-line no-console -- dev-only shape-drift warning, no data
-  if (import.meta.env.DEV) console.warn("mooring: ignored an unknown cluster event", typeof w.kind === "string" ? w.kind.slice(0, 40) : typeof w.kind);
+  // Unknown kinds are ignored so Rust can add kinds safely.
   return null;
 }

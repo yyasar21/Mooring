@@ -1,7 +1,7 @@
 // The detached window (`#/detached/<sessionId>`) calls only what `capabilities/detached.json`
 // grants: the commands listed for `detached-<sessionId>` in src-tauri/ipc-manifest.json. The
 // router mounts it instead of App, so the main boot (vault_status, app_info, listen) never runs.
-import { act, render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { setIpc, type Ipc } from "../../lib/ipc";
 import { commandName, DETACHED_COMMANDS } from "../../lib/ipc.mock.detach";
 import { MockTransport } from "../../lib/ipc.mock";
@@ -73,10 +73,11 @@ describe("detached window route", () => {
 
     expect(screen.getByRole("toolbar", { name: "Detached session" })).toHaveTextContent("SSH · separate window");
     expect(main.at(-1)).toBe("detached"); // main shows its placeholder now
+    // The terminal mounts after a lazy import; slow runners need to wait for it.
+    await waitFor(() => { expect(fakeTerms.length).toBeGreaterThan(0); }, { timeout: 5000 });
     const term = fakeTerms.at(-1);
     act(() => { term?.type("hi\r"); });
-    await settle();
-    expect(term?.output).toContain("hi");
+    await waitFor(() => { expect(term?.output ?? "").toContain("hi"); }, { timeout: 5000 });
     fireEvent.click(screen.getByRole("button", { name: "Bring back" }));
     await settle();
     expect(main.at(-1)).toBe("attached");

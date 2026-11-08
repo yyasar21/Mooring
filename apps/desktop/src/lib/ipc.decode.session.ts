@@ -217,9 +217,7 @@ export function decodeWebEvent(raw: unknown): WebEvent | null {
     case "closed":
       return { kind: "closed" };
     default:
-      // Dev builds only, and only the kind (capped): nothing from the page reaches the console.
-      // eslint-disable-next-line no-console -- dev-only shape-drift warning, no data
-      if (import.meta.env.DEV) console.warn("mooring: ignored an unknown web window event", typeof w.kind === "string" ? w.kind.slice(0, 40) : typeof w.kind);
+      // Unknown kinds are ignored (never decoded as `closed`) so Rust can add kinds safely.
       return null;
   }
 }

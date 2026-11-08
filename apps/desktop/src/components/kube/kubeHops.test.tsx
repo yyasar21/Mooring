@@ -85,9 +85,6 @@ describe("decodeClusterEvent", () => {
     expect(decodeClusterEvent({ kind: "hop_status", hop: 0, of: 1, state: "up", host: "b.example.test:22" })).toMatchObject({ kind: "hop_status", hop: 0, state: "up" });
     expect(decodeClusterEvent({ kind: "prompt", id: 1000, message: "m", secret: false, purpose: "host_key_trust", account: null, certificate: null, hop: 0 })).toMatchObject({ kind: "prompt", hop: 0 });
     expect(decodeClusterEvent({ kind: "closed", reason: "r", code: "hop_lost" })).toEqual({ kind: "closed", reason: "r", code: "hop_lost" });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(decodeClusterEvent({ kind: "bytes", data: "AA==" })).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
   });
 });
