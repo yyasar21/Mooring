@@ -238,7 +238,7 @@ pub fn decode_base64(s: &str, max: usize) -> Option<Vec<u8>> {
     let val = |c: u8| B64.iter().position(|x| *x == c).and_then(|p| u32::try_from(p).ok());
     let mut out = Vec::with_capacity(b.len() / 4 * 3);
     let quads = b.len() / 4;
-    for (qi, q) in b.chunks_exact(4).enumerate() {
+    for (qi, q) in b.as_chunks::<4>().0.iter().enumerate() {
         let pad = q.iter().rev().take_while(|c| **c == b'=').count();
         if pad > 2 || (pad > 0 && qi + 1 != quads) || q[..4 - pad].contains(&b'=') {
             return None;

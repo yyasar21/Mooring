@@ -396,7 +396,7 @@ pub fn parse_channel_create(body: &[u8]) -> Result<(String, u16), PduError> {
     if !r.0.is_empty() || n % 2 != 0 || n > 2 * (MAX_RESOURCE + 1) {
         return Err(PduError::Truncated);
     }
-    let units: Vec<u16> = raw.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let units: Vec<u16> = raw.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
     let units = units.strip_suffix(&[0]).ok_or(PduError::Truncated)?;
     let host = String::from_utf16(units).map_err(|_| PduError::Truncated)?;
     Ok((host, port))
