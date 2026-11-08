@@ -12,7 +12,7 @@ import { MockTreeBase } from "./ipc.mock.tree";
 import { MockHopChain, type MockHop } from "./ipc.mock.hops";
 import { MockLeaseBook } from "./ipc.mock.leases";
 import { DEFAULT_SK_KNOBS, signWithTouch, skPreflight, type MockSkKnobs } from "./ipc.mock.sk";
-import { DEFAULT_PIV_KNOBS, PIN_PROMPT_ID, askPin, pinOutcome, pivPreflight, type MockPivKnobs } from "./ipc.mock.piv";
+import { DEFAULT_PIV_KNOBS, MockAgentCards, PIN_PROMPT_ID, askPin, pinOutcome, pivPreflight, type MockPivKnobs } from "./ipc.mock.piv";
 
 export type { MockOptions } from "./ipc.mock.exit";
 const enc = new TextEncoder();
@@ -55,6 +55,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
   sk: MockSkKnobs = { ...DEFAULT_SK_KNOBS };
   /** ADR-0027 knobs: does the agent hold the card's key, and does the card take the PIN. */
   piv: MockPivKnobs = { ...DEFAULT_PIV_KNOBS };
+  /** L-49: cards loaded into the mock ssh-agent by a PIN, for its 60-minute lifetime. */
+  agentCards = new MockAgentCards();
 
   constructor(opts: MockOptions = {}) {
     super(opts);
@@ -233,7 +235,7 @@ export class MockTransport extends MockTreeBase implements Ipc {
 
   private afterTrust(s: MockSession): void {
     if (s.piv) {
-      if (this.piv.agentHolds) this.signedInWithCard(s, "ok");
+      if (this.piv.agentHolds || this.agentCards.holds(s.piv.fingerprint ?? "")) this.signedInWithCard(s, "ok");
       else {
         s.pending = "pin";
         askPin(s.emit, s.piv);
@@ -331,6 +333,8 @@ export class MockTransport extends MockTreeBase implements Ipc {
           } else this.later(() => { this.end(s, "host key rejected", "trust_rejected"); });
         } else if (s.pending === "pin" && input.id === PIN_PROMPT_ID) {
           const outcome = pinOutcome(input.text, this.piv);
+          // The PIN loads the card once; a later sign-in that finds it does not extend the lifetime.
+          if (outcome === "ok" && s.piv?.fingerprint) this.agentCards.load(s.piv.fingerprint);
           s.pending = null;
           this.record("credential.pin_prompted", { fingerprint: s.piv?.fingerprint ?? "", outcome: outcome === "cancelled" ? "cancelled" : "entered" });
           this.later(() => { this.signedInWithCard(s, outcome); });

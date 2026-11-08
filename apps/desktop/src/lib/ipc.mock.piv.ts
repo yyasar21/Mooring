@@ -35,6 +35,29 @@ export interface MockPivKnobs {
 
 export const DEFAULT_PIV_KNOBS: MockPivKnobs = { agentHolds: false, pin: "accept" };
 
+/** L-49: Rust adds the card with an ssh-agent lifetime of `CARD_LIFETIME_SECS` (3600 s). */
+export const CARD_LIFETIME_MS = 3_600_000;
+
+/**
+ * The keys the mock ssh-agent holds after a PIN, by fingerprint, until their lifetime ends. A
+ * reconnect inside the hour finds the key and is not asked again, as with the real agent.
+ */
+export class MockAgentCards {
+  private until = new Map<string, number>();
+  constructor(private readonly now: () => number = Date.now) {}
+  holds(fingerprint: string): boolean {
+    const t = this.until.get(fingerprint);
+    return t !== undefined && t > this.now();
+  }
+  load(fingerprint: string): void {
+    this.until.set(fingerprint, this.now() + CARD_LIFETIME_MS);
+  }
+  /** The lifetime ran out (or the agent restarted): the next sign-in asks the PIN again. */
+  forget(): void {
+    this.until.clear();
+  }
+}
+
 /** The app pre-flight: no public key, or a key the agent lacks with no module to load it → refuse before any I/O. */
 export function pivPreflight(cred: CredentialMeta, knobs: MockPivKnobs): void {
   const module = str(cred.fields.pkcs11_module);

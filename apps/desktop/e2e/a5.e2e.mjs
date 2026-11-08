@@ -221,9 +221,11 @@ test("RD Gateway: Trust once for the gateway, Trust and remember for the server,
   }));
 
 // A5 U6 (ADR-0027): web01 is pointed at the seeded "piv badge" smart card in the editor. Opening
-// it asks the host key, then the card PIN in a masked dialog; the answer connects. The second
-// open asks the PIN again (it is never stored) and Escape closes the session as the user's.
-test("smart card: the PIN dialog connects; reopening asks again and Escape cancels", (t) =>
+// it asks the host key, then the card PIN in a masked dialog; the answer connects. L-49: the card
+// stays in ssh-agent for 60 minutes, so a reopen within that time connects without the PIN. Once
+// the agent forgets it, the PIN is asked again (it is never stored) and Escape closes the session
+// as the user's.
+test("smart card: the PIN dialog connects; a reopen within the agent lifetime does not ask; after it, Escape cancels", (t) =>
   flow(t, async (page) => {
     await createVault(page);
     await tree(page).getByRole("treeitem", { name: /^web01,/ }).click();
@@ -255,7 +257,16 @@ test("smart card: the PIN dialog connects; reopening asks again and Escape cance
 
     await page.getByRole("tab", { name: /^web01, connected/ }).getByRole("button", { name: "Close web01" }).click();
     await waitForProbe(page, (s) => s.sessions === 0, "the first session to close");
-    await row.dblclick(); // the host is trusted now: the PIN is the first question
+    await row.dblclick(); // the host is trusted and the agent holds the card: no question at all
+    snap = await waitForProbe(page, (s) => s.events.filter((k) => k === "connected").length === 2, "the reopen to connect without a PIN");
+    assert.equal(snap.audit.filter((e) => e.event === "credential.pin_prompted").length, 1, "the PIN was asked once");
+    assert.equal(await pinDlg.count(), 0, "no PIN dialog within the agent lifetime");
+    await page.getByRole("tab", { name: /^web01, connected/ }).getByRole("button", { name: "Close web01" }).click();
+    await waitForProbe(page, (s) => s.sessions === 0, "the second session to close");
+
+    // The 60 minutes are over: the agent no longer holds the card.
+    await page.evaluate(() => { window.__mooringE2E.transport.agentCards.forget(); });
+    await row.dblclick(); // the PIN is the first question again
     await pinDlg.waitFor();
     await pinDlg.getByLabel("PIN").fill("99");
     await page.keyboard.press("Escape");
@@ -267,7 +278,7 @@ test("smart card: the PIN dialog connects; reopening asks again and Escape cance
         s.events.lastIndexOf("closed") > s.events.lastIndexOf("prompt"),
       "the PIN prompt to be cancelled and the session to close",
     );
-    assert.equal(snap.events.filter((k) => k === "connected").length, 1, "Escape never connects");
+    assert.equal(snap.events.filter((k) => k === "connected").length, 2, "Escape never connects");
     await page.getByText("smart card PIN cancelled").first().waitFor();
     assert.doesNotMatch(JSON.stringify(snap.audit), /"99"/);
   }));
