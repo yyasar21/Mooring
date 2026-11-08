@@ -1,0 +1,5 @@
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Basic realm="gw01.example.test", charset="UTF-8"
+Content-Length: 5
+
+nope.

@@ -1,0 +1,5 @@
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: NTLM TlRMTVNTUAACAAAAc2VlZC1ub3QtYS1yZWFsLWNoYWxsZW5nZQ==
+WWW-Authenticate: Negotiate
+Content-Length: 0
+

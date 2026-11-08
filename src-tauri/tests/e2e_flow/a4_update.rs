@@ -103,6 +103,12 @@ impl InstallProbe for Probe {
 }
 
 fn probe(bundle: Bundle, path: &str, writable: bool) -> Arc<Probe> {
+    probe_winget(bundle, path, writable, false)
+}
+
+/// `winget` is what `OsProbe` reads from the `install-source` marker, and only for NSIS
+/// (ADR-0018 A2): every other bundle row reports `false`, as these probes do.
+fn probe_winget(bundle: Bundle, path: &str, writable: bool, winget: bool) -> Arc<Probe> {
     Arc::new(Probe(InstallFacts {
         bundle,
         install_path: path.into(),
@@ -110,7 +116,7 @@ fn probe(bundle: Bundle, path: &str, writable: bool) -> Arc<Probe> {
         cask_present: false,
         portable: false,
         dev_build: false,
-        winget: false,
+        winget,
     }))
 }
 
@@ -127,20 +133,37 @@ async fn offer_in_manual_mode_is_shown_but_install_is_refused_before_the_source(
     let f = testing::unlocked();
     let st = &f.state;
     let source = Scripted::offering("0.2.0");
-    let rows: [(Bundle, &str, bool, &str, &str); 4] = [
-        (Bundle::Deb, "/usr/bin/mooring", false, "package_manager", "update.manual_only"),
+    let rows: [(Bundle, &str, bool, bool, &str, &str); 5] = [
+        (Bundle::Deb, "/usr/bin/mooring", false, false, "package_manager", "update.manual_only"),
         (
             Bundle::MacApp,
             "/opt/homebrew/Caskroom/mooring/0.1.0/Mooring.app",
             true,
+            false,
             "homebrew",
             "update.manual_only",
         ),
-        (Bundle::MacApp, "/Applications/Mooring.app", false, "not_writable", "update.not_writable"),
-        (Bundle::Unknown, "/tmp/mooring", true, "not_bundled", "update.manual_only"),
+        (
+            Bundle::MacApp,
+            "/Applications/Mooring.app",
+            false,
+            false,
+            "not_writable",
+            "update.not_writable",
+        ),
+        (Bundle::Unknown, "/tmp/mooring", true, false, "not_bundled", "update.manual_only"),
+        // A5 R6 (ADR-0018 A2): a writable NSIS install that winget made stays manual.
+        (
+            Bundle::Nsis,
+            "C:/Users/u/AppData/Local/Mooring",
+            true,
+            true,
+            "winget",
+            "update.manual_only",
+        ),
     ];
-    for (bundle, path, writable, reason, code) in rows {
-        let rt = runtime(Arc::clone(&source), probe(bundle, path, writable));
+    for (bundle, path, writable, winget, reason, code) in rows {
+        let rt = runtime(Arc::clone(&source), probe_winget(bundle, path, writable, winget));
         let info = update::check(st, &rt, Instant::now(), true).await.expect("check");
         assert_eq!(info.install_mode, "manual", "{reason}");
         let r = info.manual_reason.expect("reason");
@@ -170,9 +193,9 @@ async fn offer_in_manual_mode_is_shown_but_install_is_refused_before_the_source(
     }
     assert!(source.installed.lock().expect("lock").is_empty());
     let refused = audit_rows(st, "update.refused");
-    assert_eq!(refused.len(), 4, "{refused:?}");
+    assert_eq!(refused.len(), 5, "{refused:?}");
     assert!(audit_rows(st, "update.install").is_empty());
-    assert_eq!(audit_rows(st, "update.check").len(), 4);
+    assert_eq!(audit_rows(st, "update.check").len(), 5);
     assert_audit_free_of(st, &["updates.example.test", "<b>", "Caskroom"]);
 }
 

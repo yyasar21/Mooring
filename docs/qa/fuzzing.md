@@ -227,6 +227,43 @@ nothing below panics, and a plan built from a decoded entry passes the importer 
 a bind response, an entry, a result with a paged-results control, `30 00`, a 4 GiB length
 claim, 40 nested SEQUENCEs, a referral and a `sizeLimitExceeded` result (`fuzz/corpus/ldap_ber_response/`).
 
+## A5 targets (ADR-0023 / 0024 / 0026 / 0027, W4)
+
+| Target | Entry (`fuzz/entries/`) | Parser | ADR | Stable replay |
+| --- | --- | --- | --- | --- |
+| `export_document_json` | `export_document_json.rs` | `mooring_sync::fuzz::fuzz_export_document_json` (`parse_document_json` + `validate`, round trip) | 0023 §1 | mooring-sync |
+| `vault_db_creds` | `vault_db_creds.rs` | `mooring_secrets::fuzz::fuzz_vault_db_creds` (`database/creds`, `ssh/creds` OTP, `sys/leases/renew`) | 0026 §2 | mooring-secrets |
+| `vault_ssh_sign` | `vault_ssh_sign.rs` | `mooring_secrets::fuzz::fuzz_vault_ssh_sign` (`ssh/sign` → `check_signed_certificate`) | 0026 §2 | mooring-secrets |
+| `vault_pki_issue` | `vault_pki_issue.rs` | `mooring_secrets::fuzz::fuzz_vault_pki_issue` (`pki/issue` → serial, `x509` mapping) | 0026 §2 | mooring-secrets |
+| `connect_item_json` | `connect_item_json.rs` | `mooring_secrets::fuzz::fuzz_connect_item_json` (1Password Connect item / lists → `item_values`) | 0026 §3 | mooring-secrets |
+| `bws_secret_json` | `bws_secret_json.rs` | `mooring_secrets::fuzz::fuzz_bws_secret_json` (`bws` get / list / projects / version) | 0026 §4 | mooring-secrets |
+| `op_reference_parse` | `op_reference_parse.rs` | `mooring_core::credential::fuzz_op_reference` (`op://` round trip, Bitwarden grammar) | 0026 §1 | mooring-core (`fuzz_corpus_a5.rs`) |
+| `sk_key_parse` | `sk_key_parse.rs` | `mooring_core::credential::fuzz_sk_key_parse` (`sk-*` blob / line / certificate, key handle, helper key blob) | 0024 §1 | mooring-core (`fuzz_corpus_a5.rs`) |
+| `agent_identities` | `agent_identities.rs` | `mooring_proto_ssh::fuzz_agent_identities` (identities, sign response, `sk-*` signature) | 0024 §2, 0027 (PIV via agent) | mooring-proto-ssh |
+| `sk_helper_reply` | `sk_helper_reply.rs` | `mooring_proto_ssh::fuzz_sk_helper_reply` | 0024 §3 | mooring-proto-ssh |
+| `rdg_pdu` | `rdg_pdu.rs` | `mooring_proto_rdp::gateway::fuzz_rdg_pdu` (MS-TSGU packets + WebSocket frames, both roles) | 0027 §1 | mooring-proto-rdp |
+| `rdg_http_response` | `rdg_http_response.rs` | `mooring_proto_rdp::gateway::fuzz_rdg_http_response` (head, body length, challenges, base64) | 0027 §1 | mooring-proto-rdp |
+
+`export_document_json` replaces the owed `export_json` row above for v2 backups (the v1
+`mooring_vault` path is still reached only through `import_age`). Its seeds are one valid
+document of a throwaway `KdfParams::TEST` vault and five copies that each break one rule
+(folder cycle, version 3, vault-id mismatch, dangling credential, duplicate JSON key).
+
+No committed seed holds a private-key PEM block (secret scanning): the `pki/issue` seed carries
+a placeholder in `private_key`, and the `id_*_sk` key-handle file is built at test time from
+`testdata::sk_key_handle_pem` (`sk_key_handle_built_at_test_time_parses_through_the_entry`).
+To seed a local nightly run with it, write that output into `fuzz/corpus/sk_key_parse/` by
+hand and do not commit it.
+
+`crates/mooring-core/tests/fuzz_corpus_a5.rs::every_fuzz_target_runs_nightly_with_seeds` is the
+inventory gate: every `[[bin]]` of `fuzz/Cargo.toml` must be in the nightly matrix and have a
+non-empty seed corpus and a regressions directory.
+
+Not a target yet: `parse_hdiutil_info` (`src-tauri/src/install_location.rs`) has no `fuzz_*`
+entry and lives in `mooring-app`, which the fuzz crate does not build (it would pull in Tauri
+and the WebView toolchain). PIV parsing has no parser of its own: the agent replies go through
+`agent_identities`.
+
 ## Layout
 
 ```
