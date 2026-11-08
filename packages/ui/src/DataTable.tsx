@@ -106,6 +106,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
 
   const keyDown = (e: KeyboardEvent<HTMLTableElement>) => {
+    // Keys typed into a control inside a row (a Delete button, a field) belong to that control.
+    if (e.target !== e.currentTarget && !(e.target instanceof HTMLTableRowElement)) return;
     const at = stop === null ? -1 : keys.indexOf(stop);
     const row = at >= 0 ? shown[at] : undefined;
     if (onKeyDown?.(e, row)) {

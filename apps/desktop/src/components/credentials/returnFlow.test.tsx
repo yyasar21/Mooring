@@ -42,7 +42,7 @@ describe("U0: back to the saved item", () => {
     expect(detail).toHaveTextContent(/Used by\s*0 connections/);
     expect(within(detail).getByRole("list", { name: "Protocols" })).toHaveTextContent("SSH");
     for (const b of ["Edit", "Delete"]) expect(within(detail).getByRole("button", { name: b })).toBeInTheDocument();
-    const row = within(view()).getAllByRole("listitem").find((li) => li.textContent.includes("deploy pw"));
+    const row = within(view()).getByRole("row", { name: / deploy pw / });
     expect(row).toHaveAttribute("aria-selected", "true");
     expect(toasts()).toEqual(["Credential saved"]);
     expect(screen.getByTestId("toasts")).toHaveTextContent("Credential saved");
@@ -71,7 +71,9 @@ describe("U0: back to the saved item", () => {
     fireEvent.change(within(dlg).getByLabelText("Host"), { target: { value: "build.example.test" } });
     fireEvent.change(within(dlg).getByLabelText("Tags"), { target: { value: "ci" } });
     fireEvent.click(within(dlg).getByRole("button", { name: "New credential…" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // L2: the connection dialog is gone; the credential editor opens as a side sheet.
+    expect(screen.queryByRole("dialog", { name: "New connection" })).toBeNull();
+    expect(within(view()).getByRole("dialog", { name: "New credential" })).toBeInTheDocument();
     await createUserPassword("build pw");
 
     dlg = screen.getByRole("dialog", { name: "New connection" });

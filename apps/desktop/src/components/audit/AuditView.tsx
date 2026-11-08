@@ -161,7 +161,7 @@ function VerifyBadge({ v }: { v: AuditVerify | null }) {
   );
 }
 
-function formatTime(iso: string): string {
+export function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const p = (n: number) => n.toString().padStart(2, "0");

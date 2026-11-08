@@ -84,7 +84,7 @@ describe("editor dialogs", () => {
     expect(secret).toHaveValue("");
     await settle();
     expect(useCredentials.getState().items.some((c) => c.name === "lab root")).toBe(true);
-    expect(within(view).getByRole("list", { name: "Stored credentials" })).toHaveTextContent("lab root");
+    expect(within(view).getByRole("grid", { name: "Stored credentials" })).toHaveTextContent("lab root");
   });
 
   it("creates a connection in the selected folder and selects it", async () => {

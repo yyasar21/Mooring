@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { SectionPanel, SectionTabs } from "../SectionTabs";
+import { CredentialAuditPanel, UsedByPanel } from "./CredentialUsage";
 import { HudLabel } from "@mooring/ui";
 import { ENGINE_LABEL, SOURCE_KIND_LABEL, ipc, type CredentialMeta, type CredentialRole, type ExternalRefTest, type KindSchema, type SecretSource, type SecretSourceTest } from "../../lib/ipc";
 import { engineOf, roleOf } from "../../lib/validate.refs";
@@ -21,6 +23,9 @@ const ROLE_TAG: Record<CredentialRole, string> = { primary: "", gateway: "gatewa
 /** Kinds that only sign a secret source in: the sources that use them, and a Test. */
 const LOGIN_ONLY = new Set<CredentialMeta["kind"]>(["vault_approle", "bitwarden_access_token"]);
 
+type DetailTab = "overview" | "usedby" | "audit";
+const TABS: readonly DetailTab[] = ["overview", "usedby", "audit"];
+
 /**
  * Read-only card for one credential: what it is, where it can sign in, who uses it. Shown after a
  * save and when a row is picked; Edit opens the schema-driven form. Never a secret value, only the
@@ -38,6 +43,8 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // L2: Overview | Used by | Audit. The view remounts this card per credential, so it opens on Overview.
+  const [tab, setTab] = useState<DetailTab>("overview");
   const usedConns = connections.filter((c) => c.credentialId === meta.id || c.gatewayCredentialId === meta.id || c.becomeCredentialId === meta.id || c.certificateCredentialId === meta.id);
   const usedFolders = folders.filter((f) => f.defaultCredentialId === meta.id);
   const account = accountSummary(meta);
@@ -58,7 +65,7 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
         {schema && <MatrixStrip schema={schema} />}
       </header>
 
-      <div className="cred-editor-body">
+      <div className="cred-detail-actions">
         <div className="flex flex-wrap items-center gap-2">
           {meta.kind === "external_ref" && <RefTest id={meta.id} updatedAt={meta.updatedAt} engine={engineOf(meta.fields.engine)} />}
           {LOGIN_ONLY.has(meta.kind) && <ApproleTest id={meta.id} />}
@@ -94,7 +101,20 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
             back to the folder default.
           </p>
         )}
+      </div>
 
+      <SectionTabs
+        base={`cred-${meta.id}`}
+        label="Credential sections"
+        tabs={TABS}
+        labels={{ overview: "Overview", usedby: `Used by (${String(usedConns.length + usedFolders.length)})`, audit: "Audit" }}
+        value={tab}
+        onChange={setTab}
+      />
+      {tab === "usedby" && <SectionPanel base={`cred-${meta.id}`} tab="usedby" className="cred-tab"><UsedByPanel meta={meta} /></SectionPanel>}
+      {tab === "audit" && <SectionPanel base={`cred-${meta.id}`} tab="audit" className="cred-tab"><CredentialAuditPanel meta={meta} /></SectionPanel>}
+      {tab === "overview" && (
+      <SectionPanel base={`cred-${meta.id}`} tab="overview" className="cred-editor-body">
         <section className="cred-detail-section m-hud">
           <HudLabel>Credential</HudLabel>
           <dl className="prop-grid">
@@ -141,7 +161,8 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
             <button type="button" className="btn" onClick={() => { openSettingsCard("sync-title"); }}>Open Vault sync</button>
           </section>
         )}
-      </div>
+      </SectionPanel>
+      )}
     </article>
   );
 }

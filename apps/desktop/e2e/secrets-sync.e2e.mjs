@@ -191,7 +191,8 @@ test("external_ref credential: edit the reference, Test lists names only, no val
     await createVault(page);
     await views(page).getByRole("button", { name: "Credentials" }).click();
     const view = page.getByRole("region", { name: "Credentials" });
-    await view.getByRole("list", { name: "Stored credentials" }).getByRole("button", { name: /^Secret manager reference db via vault/ }).click();
+    // L2: the list is a grid; the row keeps the old button name (kind, name, account, uses).
+    await view.getByRole("grid", { name: "Stored credentials" }).getByRole("row", { name: /^Secret manager reference db via vault/ }).click();
     await view.getByRole("article", { name: "db via vault details" }).waitFor();
     await view.getByRole("button", { name: "Edit", exact: true }).click();
     const form = view.getByRole("form", { name: "Edit db via vault" });

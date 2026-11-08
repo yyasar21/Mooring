@@ -238,10 +238,10 @@ describe("schema-driven credential form", () => {
     const key = within(view).getByRole("button", { name: "SSH key" });
     expect(key).toBeDisabled();
     expect(key).toHaveAccessibleDescription("SSH key is for SSH, not VNC sign-in.");
-    const list = within(view).getByRole("list", { name: "Stored credentials" });
-    const ops = within(list).getByText("ops on-call").closest("li");
-    expect(ops).toHaveTextContent(/1used/); // default of folder Production
-    const ad = within(list).getByText("domain admin").closest("li");
-    expect(ad).toHaveTextContent(/3used/); // default of Desktops + RD Gateway of dc01 + sign-in of finance-desk
+    // L2: a table; the Used by column counts explicit references.
+    const list = within(view).getByRole("grid", { name: "Stored credentials" });
+    const used = (name: string) => within(list).getByRole("row", { name: new RegExp(` ${name} `) }).querySelectorAll("td")[3];
+    expect(used("ops on-call")).toHaveTextContent(/^1$/); // default of folder Production
+    expect(used("domain admin")).toHaveTextContent(/^3$/); // default of Desktops + RD Gateway of dc01 + sign-in of finance-desk
   });
 });
