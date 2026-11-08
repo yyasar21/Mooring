@@ -126,3 +126,43 @@ fn account_debug_is_redacted() {
     let shown = format!("{a:?}");
     assert!(shown.contains("alice") && !shown.contains("hunter2"));
 }
+
+#[derive(Debug)]
+struct BrokenRng;
+
+impl rustls::crypto::SecureRandom for BrokenRng {
+    fn fill(&self, _: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
+        Err(rustls::crypto::GetRandomFailed)
+    }
+}
+
+#[test]
+fn a_failed_rng_fails_instead_of_returning_zeros() {
+    use super::conn::{random, random_from, Wire};
+    assert_eq!(random_from::<16>(&BrokenRng), Err(Wire::Protocol("system random source failed")));
+    let (a, b) = (random::<16>().expect("rng"), random::<16>().expect("rng"));
+    assert_ne!(a, b);
+}
+
+fn leaf_with(alg: &'static rcgen::SignatureAlgorithm) -> Vec<u8> {
+    let key = rcgen::KeyPair::generate_for(alg).expect("key");
+    let params = rcgen::CertificateParams::new(vec!["rdg.example.test".to_owned()]).expect("p");
+    params.self_signed(&key).expect("cert").der().to_vec()
+}
+
+#[test]
+fn channel_binding_uses_the_rfc5929_end_point_hash() {
+    use super::ntlm::{end_point_hash, tls_server_end_point, EndPointHash};
+    let p256 = leaf_with(&rcgen::PKCS_ECDSA_P256_SHA256);
+    assert_eq!(end_point_hash(&p256), EndPointHash::Sha256);
+    let token = tls_server_end_point(&p256);
+    let (prefix, hash) = token.split_at(b"tls-server-end-point:".len());
+    assert_eq!(prefix, b"tls-server-end-point:");
+    assert_eq!(hash, mooring_core::known_certs::fingerprint(&p256));
+    let p384 = leaf_with(&rcgen::PKCS_ECDSA_P384_SHA384);
+    assert_eq!(end_point_hash(&p384), EndPointHash::Sha384);
+    assert_eq!(tls_server_end_point(&p384).len(), 21 + 48);
+    // Ed25519 has no separate hash: SHA-256, like MD5 / SHA-1 (RFC 5929 §4.1).
+    assert_eq!(end_point_hash(&leaf_with(&rcgen::PKCS_ED25519)), EndPointHash::Sha256);
+    assert_eq!(end_point_hash(b"not a certificate"), EndPointHash::Sha256);
+}

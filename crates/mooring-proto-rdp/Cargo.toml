@@ -46,6 +46,9 @@ socket2 = "0.6"
 # ADR-0027: RFC 6455 Sec-WebSocket-Accept check of the RD Gateway upgrade (RustCrypto, already
 # in the tree via mooring-testsrv / TOTP).
 sha1 = { workspace = true }
+# Review 9 M-19: RFC 5929 tls-server-end-point hash (SHA-256/384/512) for NTLM channel
+# binding (RustCrypto, already in the tree and a workspace dependency).
+sha2 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

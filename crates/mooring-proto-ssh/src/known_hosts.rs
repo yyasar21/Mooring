@@ -201,6 +201,13 @@ impl KnownHosts {
         self.entries.is_empty()
     }
 
+    /// Whether any (non-revoked) key is stored for `host:port` (review 9 L-52: an import
+    /// never adds trust for a host this device already pinned).
+    pub fn has_entry(&self, host: &str, port: u16) -> bool {
+        let name = host_pattern(host, port);
+        self.entries.iter().any(|e| e.marker == Marker::None && hosts_match(&e.hosts, &name))
+    }
+
     /// The key types with more than one distinct (non-revoked) key for `host:port`, sorted
     /// (review 6b L-35). Empty means no conflict.
     pub fn conflicting_key_types(&self, host: &str, port: u16) -> Vec<String> {

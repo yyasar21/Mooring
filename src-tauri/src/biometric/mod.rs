@@ -27,8 +27,10 @@ pub mod windows;
 #[cfg(not(any(target_os = "macos", windows)))]
 pub mod linux;
 
-/// Keychain service / Hello key-name prefix of every Mooring item.
-pub const SERVICE: &str = "io.github.yyasar21.mooring";
+/// Keychain service / Hello key-name prefix of every Mooring item: the build's identifier
+/// (review 9 N-77, ADR-0028 §1), so a dev build never replaces a release build's key. The
+/// release value is unchanged (`io.github.yyasar21.mooring`), so no enrolment moves.
+pub const SERVICE: &str = crate::build_identity::EFFECTIVE_IDENTIFIER;
 /// Wrap key length.
 pub const KEY_LEN: usize = 32;
 /// Consecutive failures that suspend biometric unlock (owner decision 24).
@@ -398,6 +400,15 @@ pub mod memory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review 9 N-77: the OS item name follows the build identity; only a release build uses
+    /// the release name.
+    #[test]
+    fn service_is_the_build_identifier() {
+        use crate::build_identity::{Channel, EFFECTIVE_IDENTIFIER, RELEASE_IDENTIFIER};
+        assert_eq!(SERVICE, EFFECTIVE_IDENTIFIER);
+        assert_eq!(SERVICE == RELEASE_IDENTIFIER, Channel::CURRENT == Channel::Release);
+    }
 
     /// ADR-0022 test plan: fixed signature bytes → fixed key (RFC 5869 over SHA-256; the
     /// expected value was computed independently with Python's `hmac`).

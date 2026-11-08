@@ -52,6 +52,8 @@ const NOT_CODES: &[&str] = &[
     // ADR-0024: the ssh-sk-helper setting key, not an error code.
     "app.ssh_sk_helper",
     "audit.jsonl",
+    // Review 9 L-50: the persisted bws pin file name.
+    "bws_pins.json",
     "mooring.db",
     "sync.config",
     "tauri.localhost",

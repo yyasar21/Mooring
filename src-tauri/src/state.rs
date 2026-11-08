@@ -332,12 +332,13 @@ impl AppState {
         if path.exists() {
             std::fs::copy(&path, self.data_dir.join(Self::HEADER_BACKUP))?;
         }
-        let tmp = self.data_dir.join(format!("{}.tmp", Self::HEADER_FILE));
-        let mut f = create_private(&tmp)?;
-        f.write_all(&bytes)?;
-        f.sync_all()?;
+        let (tmp, mut f) = create_part(&path)?;
+        let written = f.write_all(&bytes).and_then(|()| f.sync_all());
         drop(f);
-        std::fs::rename(&tmp, &path)?;
+        if let Err(e) = written.and_then(|()| std::fs::rename(&tmp, &path)) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
+        }
         sync_dir(&self.data_dir);
         // 6b L-37 (b): a staged joined header of this same vault is older than what was just
         // written (password change, KDF upgrade); it must never be installed over it.
@@ -442,6 +443,34 @@ pub(crate) fn create_private(path: &Path) -> std::io::Result<File> {
         opts.mode(0o600);
     }
     opts.open(path)
+}
+
+/// Review 9 L-51: a new temp file beside `target` for a write-then-rename:
+/// `.<name>.<random 64-bit hex>.part`, 0600 on unix. `create_new` (`O_CREAT | O_EXCL`,
+/// Windows `CREATE_NEW`) never opens an existing file and never follows a link at that name
+/// (POSIX: `O_EXCL` fails on a symlink whatever it points to), so a pre-planted link or a
+/// foreign file is left alone; a name clash retries with a new nonce.
+pub(crate) fn create_part(target: &Path) -> std::io::Result<(PathBuf, File)> {
+    let invalid = || std::io::Error::from(std::io::ErrorKind::InvalidInput);
+    let dir = target.parent().ok_or_else(invalid)?;
+    let name = target.file_name().ok_or_else(invalid)?.to_string_lossy().into_owned();
+    for _ in 0..8 {
+        let nonce = rand_core::RngCore::next_u64(&mut rand_core::OsRng);
+        let part = dir.join(format!(".{name}.{nonce:016x}.part"));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        match opts.open(&part) {
+            Ok(f) => return Ok((part, f)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::ErrorKind::AlreadyExists.into())
 }
 
 /// Make the rename durable (unix). Best effort: some filesystems refuse a directory fsync.

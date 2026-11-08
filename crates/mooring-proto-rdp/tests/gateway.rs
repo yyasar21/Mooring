@@ -172,6 +172,26 @@ async fn wrong_password_is_gateway_auth_and_the_target_is_never_asked() {
     assert_eq!(gateway_rows(&r.audit), [("ntlm", "auth_failed", 0)]);
 }
 
+/// Review 9 M-19: the mock runs NTLM with Extended Protection. `Mode::Ntlm` checks the
+/// binding of its own leaf (the other tests pass through it); here it expects another
+/// certificate's binding — what a relay through a different TLS session looks like — and
+/// the `AUTHENTICATE` carrying ours is refused. Without `MsvAvChannelBindings` sspi would
+/// skip the check, so this refusal also proves the client sends the binding.
+#[tokio::test]
+async fn ntlm_is_bound_to_the_gateway_tls_session() {
+    let srv = rdp_server();
+    let gw = rdg_mock::start(Mode::WrongBinding, srv.addr()).await;
+    let mut r = connect(&srv, &gw, false, GW_PASS, Some(gw.cert.cert_der())).await;
+    let SessionEvent::Closed { code, .. } = until_end(&mut r, "no").await else { panic!() };
+    assert_eq!(code, CloseCode::GatewayAuth);
+    {
+        let log = gw.log.lock().expect("log");
+        assert!(!log.auth_ok && log.requests == 2, "negotiate + refused authenticate");
+        assert!(log.channels.is_empty());
+    }
+    assert_eq!(gateway_rows(&r.audit), [("ntlm", "auth_failed", 0)]);
+}
+
 #[tokio::test]
 async fn basic_needs_the_option_and_is_audited() {
     let srv = rdp_server();

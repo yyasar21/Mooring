@@ -9,7 +9,8 @@
 //!    `replace` (typed confirmation `REPLACE`). A foreign file needs the **source** master
 //!    password: its header unlocks in memory and every secret is re-sealed under our DEK.
 //!    `merge` keeps both copies of a record changed on both sides (the imported one renamed
-//!    "… (imported <date>)"), never overwrites a secret, unions trust stores, ignores
+//!    "… (imported <date>)"), never overwrites a secret, unions trust stores except for
+//!    hosts this device already pinned (review 9 L-52, [`super::vault_import_trust`]), ignores
 //!    tombstones; `replace` swaps every folder, connection, credential and trust line for
 //!    the file's. Store rows change in one transaction; nothing changes on any refusal.
 //!
@@ -110,7 +111,8 @@ pub struct ImportInput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportConflict {
-    /// `folder` | `connection` | `credential`.
+    /// `folder` | `connection` | `credential` | `trust` (`id`: `host:port`, `name`: the trust
+    /// file, `resolution`: `kept_local`).
     pub kind: &'static str,
     /// `kept_both`: id of the imported copy; otherwise the record's id.
     pub id: String,
@@ -135,6 +137,8 @@ pub struct ImportReport {
     pub conflicts: Vec<ImportConflict>,
     /// Records identical on both sides.
     pub skipped: u64,
+    /// Trust lines (host keys, certificate pins) the import adds (review 9 L-52).
+    pub trust_added: u64,
 }
 
 fn n(x: usize) -> u64 {
@@ -400,7 +404,8 @@ fn apply_document(
         let (target, report) = if replace {
             let c = counts(&file);
             let added = c.folders + c.connections + c.credentials;
-            let report = ImportReport { mode: "replace", added, updated: 0, conflicts: vec![], skipped: 0 };
+            let trust_added = c.trust;
+            let report = ImportReport { mode: "replace", added, updated: 0, conflicts: vec![], skipped: 0, trust_added };
             (file, report)
         } else {
             adopt_root(&mut file, &local);
@@ -408,16 +413,19 @@ fn apply_document(
             let (fa, fs) = tally(&local.folders, &file.folders);
             let (ca, cs) = tally(&local.connections, &file.connections);
             let (ka, ks) = tally(&local.credentials, &file.credentials);
+            let trust = super::vault_import_trust::guard(&local, &mut file);
             let ctx = MergeCtx { remote_device: IMPORT_DEVICE, now: &now };
             let mut plan = merge(None, &local, &file, ctx, &OurVault(v)).map_err(|e| import_error(&e.into(), foreign))?;
             let date = now.get(..10).unwrap_or(&now).to_owned();
-            let conflicts = rename_copies(&mut plan.snapshot, &plan.conflicts, &date);
+            let mut conflicts = rename_copies(&mut plan.snapshot, &plan.conflicts, &date);
+            conflicts.extend(trust.conflicts);
             let report = ImportReport {
                 mode: "merge",
                 added: fa + ca + ka,
                 updated: 0,
                 conflicts,
                 skipped: fs + cs + ks,
+                trust_added: trust.added,
             };
             (plan.snapshot, report)
         };

@@ -65,7 +65,11 @@ async fn export_writes_an_armored_private_file_and_audits_counts() {
     let text = String::from_utf8(bytes.clone()).expect("armored");
     assert!(text.starts_with("-----BEGIN AGE ENCRYPTED FILE-----"));
     assert!(!text.contains("test-only secret") && !text.contains("example.test"));
-    assert!(!out.path().join("backup.age.part").exists(), "part file renamed");
+    let names: Vec<String> = std::fs::read_dir(out.path())
+        .expect("dir")
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect();
+    assert_eq!(names, ["backup.age"], "part file renamed");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -130,4 +134,37 @@ fn passphrase_rules_and_error_mapping() {
         assert!(!ipc.message.contains(PASSPHRASE));
     }
     assert_eq!(export_error(&ExportError::TooLarge).code, "vault.export");
+}
+
+/// Review 9 L-51: a link or a foreign file planted at the old `<name>.part` (or any name the
+/// writer might pick) is never opened; the temp is a fresh `O_EXCL` file with mode 0600.
+#[cfg(unix)]
+#[test]
+fn the_part_file_is_fresh_private_and_follows_no_link() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("tmp");
+    let victim = dir.path().join("victim.txt");
+    std::fs::write(&victim, b"keep me").expect("victim");
+    let target = dir.path().join("backup.age");
+    std::os::unix::fs::symlink(&victim, dir.path().join("backup.age.part")).expect("link");
+    let foreign = dir.path().join(".backup.age.part");
+    std::fs::write(&foreign, b"other user's").expect("foreign");
+    std::fs::set_permissions(&foreign, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+
+    let (part, f) = crate::state::create_part(&target).expect("part");
+    drop(f);
+    let name = part.file_name().expect("name").to_string_lossy().into_owned();
+    let is_part = part.extension().is_some_and(|e| e == "part");
+    assert!(name.starts_with(".backup.age.") && is_part && name.len() > 22, "{name}");
+    assert_eq!(std::fs::metadata(&part).expect("meta").permissions().mode() & 0o777, 0o600);
+    std::fs::remove_file(&part).expect("rm");
+
+    write_atomic(&target, b"sealed").expect("write");
+    assert_eq!(std::fs::read(&target).expect("out"), b"sealed");
+    assert_eq!(std::fs::read(&victim).expect("victim"), b"keep me", "link target untouched");
+    assert_eq!(std::fs::read(&foreign).expect("foreign"), b"other user's");
+    let mode = std::fs::metadata(&foreign).expect("meta").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o644, "foreign file untouched");
+    assert!(std::fs::symlink_metadata(dir.path().join("backup.age.part")).expect("link").is_symlink());
+    assert_eq!(std::fs::metadata(&target).expect("meta").permissions().mode() & 0o777, 0o600);
 }

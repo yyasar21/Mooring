@@ -34,7 +34,12 @@ expect ok "certificate + API key" "$in" "${CERT[@]}" "${API[@]}"
 grep -q 'App Store Connect API key' "$WORK/log" && grep -c '^plan: ' "$WORK/log" | grep -qx 4 \
   && { pass=$((pass + 1)); echo "ok     plan covers dmg, pkg, updater archive, portable zip"; } \
   || { fail=$((fail + 1)); echo "FAIL   plan"; sed 's/^/     /' "$WORK/log"; }
+grep -qx 'team: TEAMID1234' "$WORK/log" \
+  && { pass=$((pass + 1)); echo "ok     team id for the designated requirement (N-75)"; } \
+  || { fail=$((fail + 1)); echo "FAIL   team id"; sed 's/^/     /' "$WORK/log"; }
 expect ok "certificate + Apple ID" "$in" "${CERT[@]}" "${AID[@]}"
+expect refused "an identity without a team id (N-75)" "$in" APPLE_CERTIFICATE=x APPLE_CERTIFICATE_PASSWORD=x "APPLE_SIGNING_IDENTITY=Developer ID Application: Example" "${API[@]}"
+expect refused "APPLE_TEAM_ID of another team (N-75)" "$in" "${CERT[@]}" APPLE_ID=dev@example.test APPLE_PASSWORD=x APPLE_TEAM_ID=OTHERTEAM1
 expect refused "no certificate" "$in" "${API[@]}"
 expect refused "certificate without its password" "$in" APPLE_CERTIFICATE=x "APPLE_SIGNING_IDENTITY=x" "${API[@]}"
 expect refused "no notarization set" "$in" "${CERT[@]}"

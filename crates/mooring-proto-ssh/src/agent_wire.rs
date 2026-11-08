@@ -9,8 +9,11 @@ use mooring_core::credential::sk_key::{Reader, SkAlgorithm, SK_FLAG_USER_PRESENC
 pub(crate) const FAILURE: u8 = 5;
 /// `SSH_AGENT_SUCCESS`.
 pub(crate) const SUCCESS: u8 = 6;
-/// `SSH_AGENTC_ADD_SMARTCARD_KEY` (ADR-0027 §2): `string provider, string pin`.
-pub(crate) const ADD_SMARTCARD_KEY: u8 = 20;
+/// `SSH_AGENTC_ADD_SMARTCARD_KEY_CONSTRAINED` (ADR-0027 §2, review 9 L-49): `string provider,
+/// string pin, constraint*`. The unconstrained form (20) is never sent.
+pub(crate) const ADD_SMARTCARD_KEY_CONSTRAINED: u8 = 26;
+/// `SSH_AGENT_CONSTRAIN_LIFETIME`: `uint32 seconds`.
+pub(crate) const CONSTRAIN_LIFETIME: u8 = 1;
 /// `SSH_AGENTC_REQUEST_IDENTITIES`.
 pub(crate) const REQUEST_IDENTITIES: u8 = 11;
 /// `SSH_AGENT_IDENTITIES_ANSWER`.

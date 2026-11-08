@@ -19,6 +19,7 @@
 
 mod audit;
 mod bws;
+mod bws_pins;
 mod bws_wire;
 mod cache;
 mod client;

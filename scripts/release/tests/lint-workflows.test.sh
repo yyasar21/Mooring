@@ -221,8 +221,13 @@ printf 'name: ci\njobs:\n  b:\n    steps:\n      - env:\n          K: ${{ secret
 expect nonzero "an Apple secret in another workflow" "$othersign"
 
 wingetok=$(fixture wingetok)
-printf 'name: release-winget\njobs:\n  manifests:\n    steps: []\n  submit:\n    steps:\n      - env:\n          HAS: ${{ secrets.WINGET_TOKEN != %s }}\n' "''" >"$wingetok/release-winget.yml"
+printf 'name: release-winget\njobs:\n  manifests:\n    steps: []\n  submit:\n    environment: release\n    steps:\n      - env:\n          HAS: ${{ secrets.WINGET_TOKEN != %s }}\n' "''" >"$wingetok/release-winget.yml"
 expect 0 "WINGET_TOKEN in release-winget.yml submit" "$wingetok"
+
+# Review 9 L-54: the token is a tag-only environment secret, so submit must declare it.
+wingetnoenv=$(fixture wingetnoenv)
+printf 'name: release-winget\njobs:\n  manifests:\n    steps: []\n  submit:\n    steps:\n      - env:\n          HAS: ${{ secrets.WINGET_TOKEN != %s }}\n' "''" >"$wingetnoenv/release-winget.yml"
+expect nonzero "WINGET_TOKEN in a submit job without environment: release" "$wingetnoenv"
 
 wingetbad=$(fixture wingetbad)
 printf 'name: release-winget\njobs:\n  manifests:\n    steps:\n      - env:\n          T: ${{ secrets.WINGET_TOKEN }}\n' >"$wingetbad/release-winget.yml"

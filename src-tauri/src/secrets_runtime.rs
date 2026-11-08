@@ -120,6 +120,9 @@ pub fn audit_event(e: SecretEvent, connection: Option<String>) -> AuditEvent {
     }
 }
 
+/// The persisted `bws` SHA-256 pins in the app data directory (review 9 L-50).
+pub const BWS_PINS_FILE: &str = "bws_pins.json";
+
 impl SecretsAudit for AuditBridge {
     fn record(&self, event: SecretEvent) {
         record_audit(&self.0, audit_event(event, current_connection()));
@@ -141,6 +144,7 @@ pub fn ipc_error(e: &SecretsError) -> IpcError {
         SecretsError::Lease(_) => "secret.lease_failed",
         SecretsError::ToolMissing => "secret.tool_missing",
         SecretsError::ToolVersion => "secret.tool_version",
+        SecretsError::ToolChanged => "secret.tool_changed",
         SecretsError::ToolFailed { .. } => "secret.tool_failed",
         SecretsError::KindUnsupported(_) => "source.kind_unsupported",
     };
@@ -223,7 +227,9 @@ impl SecretsRuntime {
     pub fn with_clock(data_dir: &Path, audit: Arc<Mutex<AuditLog>>, clock: Arc<dyn Clock>) -> Self {
         let bridge: Arc<dyn SecretsAudit> = Arc::new(AuditBridge(Arc::clone(&audit)));
         let cache = Arc::new(TokenCache::new(clock, Arc::clone(&bridge)));
-        let cfg = ClientConfig::new(data_dir.join(CertProtocol::Vault.file_name()));
+        let mut cfg = ClientConfig::new(data_dir.join(CertProtocol::Vault.file_name()));
+        // Review 9 L-50: the bws binary pins outlive the process.
+        cfg.bws = cfg.bws.with_pins(data_dir.join(BWS_PINS_FILE));
         Self {
             engine: Arc::new(SecretsEngine::new(cache, bridge, cfg)),
             audit,

@@ -171,13 +171,11 @@ pub async fn pick(
         .map(|pick_id| Picked { pick_id, name }))
 }
 
-/// Write `bytes` to `path` through `<path>.part` (0600, fsync, rename).
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut part = path.as_os_str().to_owned();
-    part.push(".part");
-    let part = PathBuf::from(part);
+/// Write `bytes` to `path` through a fresh `.<name>.<nonce>.part` (0600, `O_EXCL`, fsync,
+/// rename; review 9 L-51).
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let (part, mut f) = crate::state::create_part(path)?;
     let result = (|| {
-        let mut f = crate::state::create_private(&part)?;
         f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);

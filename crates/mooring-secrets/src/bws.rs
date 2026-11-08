@@ -4,7 +4,10 @@
 //! `BWS_SERVER_URL` (plus `SystemRoot` on Windows), a 30 s deadline after which the child is
 //! killed, stdout capped at 1 MiB and stderr at 16 KiB (never echoed: it may quote a value).
 //! `bws --version` must report 1.0 or later, checked once per path and process; the binary's
-//! SHA-256 is pinned on first use and a change is audited as `secret.tool_changed`.
+//! SHA-256 is pinned on first use, persisted ([`BwsConfig::with_pins`], review 9 L-50), and a
+//! changed binary is audited as `secret.tool_changed` and **refused** with that code until
+//! `secret_source_test` trusts it again. The file is hashed and then executed by path, so a
+//! same-user writer racing the two is not covered (T2, R-SEC-CLI).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -19,6 +22,7 @@ use tokio::process::Command;
 use zeroize::Zeroizing;
 
 use crate::audit::{SecretEvent, SecretsAudit};
+use crate::bws_pins::{Known, Pins};
 use crate::error::SecretsError;
 
 /// Deadline of one run.
@@ -51,6 +55,8 @@ pub fn expand(template: &str) -> Option<PathBuf> {
 pub struct BwsConfig {
     candidates: Vec<PathBuf>,
     custom: bool,
+    /// Where the SHA-256 pins persist (`None`: this process only).
+    pins: Option<PathBuf>,
     /// Deadline of one run.
     pub deadline: Duration,
 }
@@ -62,14 +68,22 @@ impl BwsConfig {
         Self {
             candidates: BWS_PATHS.iter().filter_map(|t| expand(t)).collect(),
             custom: false,
+            pins: None,
             deadline: BWS_DEADLINE,
         }
+    }
+
+    /// Persist the binary pins in `file` (the app data directory's `bws_pins.json`).
+    #[must_use]
+    pub fn with_pins(mut self, file: PathBuf) -> Self {
+        self.pins = Some(file);
+        self
     }
 
     /// Tests only: one fake `bws` (the source's `bwsPath` is then ignored).
     #[must_use]
     pub fn custom(path: PathBuf) -> Self {
-        Self { candidates: vec![path], custom: true, deadline: BWS_DEADLINE }
+        Self { candidates: vec![path], custom: true, pins: None, deadline: BWS_DEADLINE }
     }
 
     /// The binary for a source whose `bwsPath` is `wanted`: that one (it is one of the fixed
@@ -89,11 +103,13 @@ pub(crate) struct Output {
     pub stdout: Zeroizing<Vec<u8>>,
 }
 
-/// The runner: version checks and binary pins per path, for this process.
+/// The runner: version checks per path and process, binary pins per path (persisted).
 pub struct BwsRunner {
     cfg: BwsConfig,
     audit: Arc<dyn SecretsAudit>,
+    /// Hash whose `--version` passed in this process, per path.
     checked: Mutex<HashMap<PathBuf, [u8; 32]>>,
+    pins: Pins,
 }
 
 impl std::fmt::Debug for BwsRunner {
@@ -129,7 +145,8 @@ pub(crate) fn version_ok(stdout: &[u8]) -> bool {
 impl BwsRunner {
     /// A runner over `cfg`.
     pub fn new(cfg: BwsConfig, audit: Arc<dyn SecretsAudit>) -> Self {
-        Self { cfg, audit, checked: Mutex::new(HashMap::new()) }
+        let pins = Pins::new(cfg.pins.clone());
+        Self { cfg, audit, checked: Mutex::new(HashMap::new()), pins }
     }
 
     /// The configuration.
@@ -196,28 +213,43 @@ impl BwsRunner {
         Ok(Output { stdout: out })
     }
 
-    /// `bws --version` once per path and process, and the SHA-256 pin (`tool_changed`).
+    /// The SHA-256 pin and `bws --version` (once per path, hash and process). A binary that
+    /// differs from its pin is audited `tool_changed` and refused with
+    /// [`SecretsError::ToolChanged`], unless `trust` (only `secret_source_test` passes it):
+    /// then it is version-checked and pinned anew.
     pub(crate) async fn ensure_checked(
         &self,
         path: &Path,
         server_url: &str,
+        trust: bool,
     ) -> Result<(), SecretsError> {
         let hash = hash_file(path).ok_or(SecretsError::ToolMissing)?;
-        let known = self.checked.lock().unwrap_or_else(PoisonError::into_inner).get(path).copied();
-        match known {
-            Some(h) if h == hash => return Ok(()),
-            Some(_) => self.audit.record(SecretEvent::ToolChanged {
+        let known = self.pins.check(path, &hash);
+        if known == Known::Changed {
+            self.audit.record(SecretEvent::ToolChanged {
                 provider: "bitwarden",
                 sha256: hex::encode(hash),
-            }),
-            None => {}
+            });
+            if !trust {
+                return Err(SecretsError::ToolChanged);
+            }
         }
-        // `--version` needs no token; an empty one keeps argv and env identical in shape.
-        let out = self.run(path, "version", &["--version"], "", server_url).await?;
-        if !version_ok(&out.stdout) {
-            return Err(SecretsError::ToolVersion);
+        let checked =
+            self.checked.lock().unwrap_or_else(PoisonError::into_inner).get(path) == Some(&hash);
+        if !checked {
+            // `--version` needs no token; an empty one keeps argv and env identical in shape.
+            let out = self.run(path, "version", &["--version"], "", server_url).await?;
+            if !version_ok(&out.stdout) {
+                return Err(SecretsError::ToolVersion);
+            }
+            self.checked
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(path.to_owned(), hash);
         }
-        self.checked.lock().unwrap_or_else(PoisonError::into_inner).insert(path.to_owned(), hash);
+        if known != Known::Same {
+            self.pins.pin(path, &hash);
+        }
         Ok(())
     }
 }

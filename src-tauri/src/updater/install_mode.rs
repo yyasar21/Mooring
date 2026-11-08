@@ -165,10 +165,16 @@ pub const INSTALL_SOURCE_FILE: &str = "install-source";
 pub const INSTALL_SOURCE_MAX: u64 = 64;
 
 /// Whether `dir/install-source` exists and its trimmed content is exactly `winget`. Read with
-/// a [`INSTALL_SOURCE_MAX`] cap; a missing, oversized, non-UTF-8 or different file is `false`.
+/// a [`INSTALL_SOURCE_MAX`] cap; a missing, oversized, non-UTF-8 or different file is `false`,
+/// and so is a symlink or reparse point (review 9 N-74: never followed).
 pub fn winget_marker(dir: &Path) -> bool {
     use std::io::Read as _;
-    let Ok(file) = std::fs::File::open(dir.join(INSTALL_SOURCE_FILE)) else { return false };
+    let path = dir.join(INSTALL_SOURCE_FILE);
+    match std::fs::symlink_metadata(&path) {
+        Ok(m) if m.is_file() && !crate::dirs::is_link(&m) => {}
+        _ => return false,
+    }
+    let Ok(file) = std::fs::File::open(&path) else { return false };
     let mut buf = Vec::new();
     if file.take(INSTALL_SOURCE_MAX + 1).read_to_end(&mut buf).is_err()
         || buf.len() as u64 > INSTALL_SOURCE_MAX

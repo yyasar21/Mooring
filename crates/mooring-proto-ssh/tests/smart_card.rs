@@ -35,14 +35,18 @@ fn take<'a>(buf: &mut &'a [u8]) -> &'a [u8] {
     s
 }
 
+/// `(provider, pin, constraints)` of one constrained add.
+type Add = (String, String, Vec<u8>);
+
 struct Agent {
     path: PathBuf,
-    /// `(provider, pin)` of every `ADD_SMARTCARD_KEY` received.
-    adds: Arc<Mutex<Vec<(String, String)>>>,
+    /// `(provider, pin, constraints)` of every `ADD_SMARTCARD_KEY_CONSTRAINED` received.
+    adds: Arc<Mutex<Vec<Add>>>,
     _dir: tempfile::TempDir,
 }
 
-/// A fake agent holding `key` when `loaded`, or after `ADD_SMARTCARD_KEY` with [`PIN`].
+/// A fake agent holding `key` when `loaded`, or after `ADD_SMARTCARD_KEY_CONSTRAINED` with
+/// [`PIN`]. The unconstrained `ADD_SMARTCARD_KEY` (20) is answered with failure.
 fn agent(key: PrivateKey, loaded: bool) -> Agent {
     let dir = tempfile::tempdir().expect("dir");
     let path = dir.path().join("agent.sock");
@@ -88,12 +92,12 @@ fn agent(key: PrivateKey, loaded: bool) -> Agent {
                             put(&mut r, &enc);
                             r
                         }
-                        20 => {
+                        26 => {
                             let mut rest = &body[1..];
                             let provider = String::from_utf8(take(&mut rest).to_vec()).expect("p");
                             let pin = String::from_utf8(take(&mut rest).to_vec()).expect("pin");
                             let ok = pin == PIN;
-                            adds.lock().expect("adds").push((provider, pin));
+                            adds.lock().expect("adds").push((provider, pin, rest.to_vec()));
                             *held.lock().expect("held") |= ok;
                             vec![if ok { 6 } else { 5 }]
                         }
@@ -183,7 +187,10 @@ async fn pin_loads_the_card_into_the_agent_then_signs() {
     let (events, audit) = run(&key, &a, Some(Pkcs11Module::Ykcs11), PIN).await;
     assert!(matches!(events.last(), Some(SessionEvent::Connected { .. })), "{events:?}");
     let adds = a.adds.lock().expect("adds").clone();
-    assert_eq!(adds, [("/usr/lib/test-pkcs11.so".to_owned(), PIN.to_owned())]);
+    // Review 9 L-49: SSH_AGENT_CONSTRAIN_LIFETIME (1) with 3600 s, nothing else.
+    let lifetime = [1, 0, 0, 0x0e, 0x10];
+    assert_eq!(adds, [("/usr/lib/test-pkcs11.so".to_owned(), PIN.to_owned(), lifetime.to_vec())]);
+    assert_eq!(mooring_proto_ssh::CARD_LIFETIME_SECS, 3600);
     assert!(audit.iter().any(|e| matches!(e, TrustEvent::PinPrompted { outcome: "entered", .. })));
     let shown = format!("{audit:?}");
     assert!(!shown.contains(PIN), "the PIN never reaches the audit");

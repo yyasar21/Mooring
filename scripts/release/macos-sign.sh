@@ -62,8 +62,17 @@ for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY; do
 done
 ((${#notary[@]} > 0)) || die "no complete notarization credential set (API key trio or Apple ID trio)"
 
+# Review 9 N-75: the signature is verified against a designated requirement that names our
+# Developer ID team (from "Developer ID Application: <name> (<TEAMID>)"), not just "valid".
+team="${APPLE_SIGNING_IDENTITY##*(}"; team="${team%)}"
+[[ "$APPLE_SIGNING_IDENTITY" == *"($team)" && "$team" =~ ^[A-Z0-9]{10}$ ]] \
+  || die "APPLE_SIGNING_IDENTITY must end in '(<10-character team id>)'"
+[[ -z "${APPLE_TEAM_ID:-}" || "$APPLE_TEAM_ID" == "$team" ]] || die "APPLE_TEAM_ID differs from the signing identity's team"
+REQ="anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"$team\""
+
 if [[ "${MACOS_SIGN_DRY_RUN:-}" == 1 ]]; then
   echo "notarization: $how"
+  echo "team: $team"
   printf 'plan: %s\n' "${plan[@]}"
   exit 0
 fi
@@ -127,7 +136,7 @@ while IFS= read -r -d '' f; do
   if file -b "$f" | grep -q 'Mach-O'; then sign "$f"; fi
 done < <(find "$APP/Contents" -type f \( -perm -u+x -o -name '*.dylib' \) -print0)
 sign --entitlements "$ENTITLEMENTS" "$APP"
-codesign --verify --strict --deep "$APP"
+codesign --verify --strict --deep -R="$REQ" "$APP" || die "the .app does not satisfy the team requirement"
 codesign -dv "$APP" 2>&1 | grep -q '^Authority=Developer ID Application:' || die "the .app is not Developer ID signed"
 (cd "$WORK" && ditto -c -k --keepParent Mooring.app app.zip)
 notarize "$WORK/app.zip"
@@ -143,6 +152,7 @@ ditto "$APP" "$MNT/Mooring.app"
 hdiutil detach "$MNT" >/dev/null
 hdiutil convert "$WORK/rw.sparseimage" -format UDZO -imagekey zlib-level=9 -o "$OUT/$dmg_name" >/dev/null
 sign "$OUT/$dmg_name"
+codesign --verify -R="$REQ" "$OUT/$dmg_name" || die "the .dmg does not satisfy the team requirement"
 notarize "$OUT/$dmg_name"
 xcrun stapler staple "$OUT/$dmg_name" >/dev/null
 

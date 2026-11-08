@@ -37,6 +37,9 @@ pub enum Mode {
     BadAccept,
     /// `101` without `Sec-WebSocket-Accept`.
     NoAccept,
+    /// NTLM with Extended Protection expecting another certificate's channel binding (a
+    /// relay through a different TLS session): the `AUTHENTICATE` must be refused.
+    WrongBinding,
 }
 
 pub const GW_USER: &str = "alice";
@@ -63,12 +66,13 @@ pub async fn start(mode: Mode, rdp: SocketAddr) -> Gateway {
     let addr = listener.local_addr().expect("addr");
     let log = Arc::new(Mutex::new(Log::default()));
     let l2 = Arc::clone(&log);
+    let leaf: Arc<[u8]> = cert.cert_der().to_vec().into();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
-            let (acceptor, log) = (acceptor.clone(), Arc::clone(&l2));
+            let (acceptor, log, leaf) = (acceptor.clone(), Arc::clone(&l2), Arc::clone(&leaf));
             tokio::spawn(async move {
                 if let Ok(tls) = acceptor.accept(tcp).await {
-                    let _ = Box::pin(serve(tls, mode, rdp, log)).await;
+                    let _ = Box::pin(serve(tls, mode, rdp, log, &leaf)).await;
                 }
             });
         }
@@ -114,9 +118,18 @@ struct NtlmServer {
     handle: Option<ironrdp_connector::sspi::AuthIdentityBuffers>,
 }
 
+/// RFC 5929 `tls-server-end-point` for a SHA-256-signed leaf (the rcgen default, P-256).
+fn binding(der: &[u8]) -> Vec<u8> {
+    let mut b = b"tls-server-end-point:".to_vec();
+    b.extend_from_slice(&mooring_core::known_certs::fingerprint(der));
+    b
+}
+
 impl NtlmServer {
-    fn new() -> Self {
+    /// Extended Protection on: the server checks `MsvAvChannelBindings` against `cbt`.
+    fn new(cbt: &[u8]) -> Self {
         let mut ntlm = Ntlm::new();
+        ntlm.set_channel_bindings(cbt);
         let identity = AuthIdentity {
             username: Username::new(GW_USER, None).expect("user"),
             password: GW_PASS.to_owned().into(),
@@ -162,8 +175,14 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
     buf: &mut Vec<u8>,
     mode: Mode,
     log: &Mutex<Log>,
+    leaf: &[u8],
 ) -> Option<()> {
-    let mut ntlm = NtlmServer::new();
+    let cbt = if mode == Mode::WrongBinding {
+        binding(TestCert::generate(&["127.0.0.1"]).expect("cert").cert_der())
+    } else {
+        binding(leaf)
+    };
+    let mut ntlm = NtlmServer::new(&cbt);
     loop {
         let head = read_head(s, buf).await?;
         log.lock().expect("log").requests += 1;
@@ -221,9 +240,10 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     mode: Mode,
     rdp: SocketAddr,
     log: Arc<Mutex<Log>>,
+    leaf: &[u8],
 ) -> Option<()> {
     let mut buf = Vec::new();
-    upgrade(&mut s, &mut buf, mode, &log).await?;
+    upgrade(&mut s, &mut buf, mode, &log, leaf).await?;
     let mut dec = Decoder::new(true);
     let mut rdg = Vec::new();
     loop {

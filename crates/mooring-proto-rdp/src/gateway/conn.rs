@@ -22,13 +22,21 @@ pub(crate) enum Wire {
     Protocol(&'static str),
 }
 
-/// Random bytes from the ring provider of our TLS stack.
-pub(crate) fn random<const N: usize>() -> [u8; N] {
+/// Random bytes from the ring provider of our TLS stack. A failed system RNG ends the open
+/// (review 9 N-72) instead of sending constant keys, masks or connection ids.
+pub(crate) fn random<const N: usize>() -> Result<[u8; N], Wire> {
+    random_from(crate::tls::provider().secure_random)
+}
+
+pub(crate) fn random_from<const N: usize>(
+    rng: &dyn rustls::crypto::SecureRandom,
+) -> Result<[u8; N], Wire> {
     let mut b = [0u8; N];
-    if crate::tls::provider().secure_random.fill(&mut b).is_err() {
+    rng.fill(&mut b).map_err(|_| {
         tracing::warn!("system random source failed");
-    }
-    b
+        Wire::Protocol("system random source failed")
+    })?;
+    Ok(b)
 }
 
 /// The TLS stream with a read-ahead buffer.
@@ -116,13 +124,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WsConn<S> {
 
     /// Send one MS-TSGU packet in one masked binary frame.
     pub(crate) async fn send(&mut self, packet: &[u8]) -> Result<(), Wire> {
-        let frame = ws::encode(ws::op::BINARY, packet, Some(random()));
+        let frame = ws::encode(ws::op::BINARY, packet, Some(random()?));
         self.conn.write(&frame).await
     }
 
     /// Best-effort close frame.
     pub(crate) async fn close(&mut self) {
-        let frame = ws::encode(ws::op::CLOSE, &[0x03, 0xE8], Some(random()));
+        let Ok(mask) = random() else { return };
+        let frame = ws::encode(ws::op::CLOSE, &[0x03, 0xE8], Some(mask));
         let _ = self.conn.write(&frame).await;
     }
 
@@ -159,7 +168,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WsConn<S> {
                     self.rdg.extend_from_slice(&b);
                 }
                 Frame::Ping(p) => {
-                    let pong = ws::encode(ws::op::PONG, &p, Some(random()));
+                    let pong = ws::encode(ws::op::PONG, &p, Some(random()?));
                     self.conn.write(&pong).await?;
                 }
                 Frame::Pong => {}

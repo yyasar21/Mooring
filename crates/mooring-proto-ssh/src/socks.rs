@@ -24,6 +24,8 @@ const ATYP_V6: u8 = 4;
 /// Reply codes (RFC 1928 §6) used here.
 pub(crate) const REP_OK: u8 = 0;
 pub(crate) const REP_FAILURE: u8 = 1;
+/// "Connection not allowed by ruleset" (a gated forward, review 9 L-48).
+pub(crate) const REP_NOT_ALLOWED: u8 = 2;
 pub(crate) const REP_HOST_UNREACHABLE: u8 = 4;
 const REP_COMMAND_NOT_SUPPORTED: u8 = 7;
 const REP_ADDRESS_NOT_SUPPORTED: u8 = 8;

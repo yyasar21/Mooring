@@ -11,6 +11,12 @@
 //!   the same window instead.
 //! * devtools: off; zoom hotkeys off (the macOS/Linux polyfill would need an IPC permission);
 //!   Windows general autofill off (a no-op elsewhere).
+//! * WebRTC (review 9 L-47): `WebView2` gets [`webview2_args`] on every web window, so WebRTC
+//!   never sends UDP outside the proxy (`disable_non_proxied_udp`: no STUN, no host
+//!   candidates; TCP through the SOCKS forward only) and, behind jump hosts, loopback is not
+//!   exempt from the proxy (`<-loopback>`). `WebKitGTK` ships `enable-webrtc` off and wry
+//!   0.57.1 never turns it on, so Linux pages have no `RTCPeerConnection` at all; macOS
+//!   refuses web-via (`web.via_unsupported`).
 
 use std::sync::{Arc, Mutex};
 
@@ -89,6 +95,28 @@ impl Ctx {
     }
 }
 
+/// wry's own `WebView2` defaults; passing any browser arguments replaces them.
+const WEBVIEW2_DEFAULT_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+
+/// The `WebView2` browser arguments of a web window (review 9 L-47). Setting them replaces
+/// wry's argument string, which is also where wry would put `--proxy-server`, so the proxy of
+/// a web-via window is passed here too (fail closed: the builder still sets `proxy_url`).
+/// No effect on macOS / Linux.
+pub fn webview2_args(proxy: Option<&Url>) -> String {
+    let mut args = format!(
+        "{WEBVIEW2_DEFAULT_ARGS} --force-webrtc-ip-handling-policy=disable_non_proxied_udp"
+    );
+    if let Some(p) = proxy {
+        if let (Some(host), Some(port)) = (p.host_str(), p.port()) {
+            let scheme = p.scheme();
+            args = format!(
+                "{args} --proxy-server={scheme}://{host}:{port} --proxy-bypass-list=<-loopback>"
+            );
+        }
+    }
+    args
+}
+
 /// Build the window of `plan`. `sink` receives the `WebEvent`s; the caller registers the
 /// entry right after (the callbacks look it up by connection id).
 pub fn build<R: Runtime>(
@@ -113,6 +141,7 @@ pub fn build<R: Runtime>(
             .devtools(false)
             .zoom_hotkeys_enabled(false)
             .general_autofill_enabled(false)
+            .additional_browser_args(&webview2_args(plan.proxy.as_ref()))
             .initialization_script_for_all_frames(INIT_SCRIPT);
     builder = match &plan.storage {
         Storage::Ephemeral => builder.incognito(true),
@@ -193,4 +222,22 @@ fn navigate_later<R: Runtime>(app: &AppHandle<R>, label: &str, url: Url) {
             tracing::warn!(error = %e, "web navigate failed");
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn webview2_args_keep_webrtc_on_the_proxy_and_wry_defaults() {
+        let plain = webview2_args(None);
+        assert!(plain.starts_with(WEBVIEW2_DEFAULT_ARGS), "{plain}");
+        assert!(plain.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
+        assert!(!plain.contains("--proxy-server"));
+        let proxy = Url::parse("socks5://127.0.0.1:41234").expect("url");
+        let via = webview2_args(Some(&proxy));
+        assert!(via.contains("--force-webrtc-ip-handling-policy=disable_non_proxied_udp"));
+        assert!(via.contains(" --proxy-server=socks5://127.0.0.1:41234"), "{via}");
+        assert!(via.ends_with(" --proxy-bypass-list=<-loopback>"), "{via}");
+    }
 }

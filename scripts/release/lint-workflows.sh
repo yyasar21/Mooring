@@ -15,7 +15,8 @@
 #      (`--config src-tauri/tauri.release.conf.json`) first; release.yml has such a build.
 #   5. ADR-0028: `MOORING_RELEASE_BUILD` is set ("1") only in release.yml's build job.
 #   6. ADR-0018 A1: platform signing secrets only in sign-macos / sign-windows (`release` env).
-#   7. ADR-0018 A2: WINGET_TOKEN only in release-winget.yml's submit job.
+#   7. ADR-0018 A2: WINGET_TOKEN only in release-winget.yml's submit job, which declares
+#      `environment: release` (review 9 L-54: tag-only environment secret).
 # Pure bash + python3 -I (line-based, no YAML library). Exit 1 with one `error:` per finding.
 set -euo pipefail
 
@@ -205,14 +206,15 @@ done
 #      `secrets.WINDOWS_CERTIFICATE*`) appear in release.yml only: APPLE_* in job sign-macos,
 #      the Windows ones in job sign-windows, and both jobs declare `environment: release`.
 #      In particular the build job (npm + cargo build scripts) never names one.
-#   7. `secrets.WINGET_TOKEN` appears in release-winget.yml's `submit` job only.
+#   7. `secrets.WINGET_TOKEN` appears in release-winget.yml's `submit` job only, and that job
+#      declares `environment: release` (review 9 L-54).
 mapfile -t findings < <(python3 -I - "$DIR" <<'PY'
 import os, re, sys
 d = sys.argv[1]
 rules = [
     (re.compile(r"secrets\.APPLE_[A-Z0-9_]+"), "release.yml", "sign-macos", True),
     (re.compile(r"secrets\.(?:AZURE_CLIENT_[A-Z_]+|AZURE_TENANT_ID|WINDOWS_CERTIFICATE[A-Z_]*)\b"), "release.yml", "sign-windows", True),
-    (re.compile(r"secrets\.WINGET_TOKEN\b"), "release-winget.yml", "submit", False),
+    (re.compile(r"secrets\.WINGET_TOKEN\b"), "release-winget.yml", "submit", True),
 ]
 for name in sorted(os.listdir(d)):
     if not (name.endswith(".yml") or name.endswith(".yaml")):
@@ -241,7 +243,7 @@ for name in sorted(os.listdir(d)):
                         used.add(want)
     for _, file, want, needs_env in rules:
         if name == file and want in used and needs_env and not env.get(want):
-            print(f"{name}: job {want} uses platform signing secrets without `environment: release`")
+            print(f"{name}: job {want} uses release secrets without `environment: release`")
 PY
 )
 for f in "${findings[@]}"; do

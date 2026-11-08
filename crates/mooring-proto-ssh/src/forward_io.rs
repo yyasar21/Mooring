@@ -11,6 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, OwnedSemaphorePermit, Semaphore};
 
+use crate::chain_proxy::Gate;
 use crate::forward::COPY_BUFFER;
 use crate::handler::ClientHandler;
 use crate::socks;
@@ -132,10 +133,11 @@ pub(crate) async fn dynamic_loop(
     handle: Arc<Handle<ClientHandler>>,
     cancel: watch::Receiver<bool>,
     limit: Arc<Semaphore>,
+    gate: Option<Arc<Gate>>,
 ) {
     let cancel2 = cancel.clone();
     accept_loop(listener, cancel, limit, move |mut stream, peer, permit| {
-        let (handle, cancel) = (Arc::clone(&handle), cancel2.clone());
+        let (handle, cancel, gate) = (Arc::clone(&handle), cancel2.clone(), gate.clone());
         async move {
             let _permit = permit;
             let target = match socks::handshake(&mut stream).await {
@@ -145,6 +147,12 @@ pub(crate) async fn dynamic_loop(
                     return;
                 }
             };
+            if let Some(gate) = gate.as_deref() {
+                if !gate.admit(&target.host, target.port) {
+                    let _ = socks::reply(&mut stream, socks::REP_NOT_ALLOWED).await;
+                    return;
+                }
+            }
             let Some(ch) = open_direct(&handle, &target.host, target.port, peer).await else {
                 let _ = socks::reply(&mut stream, socks::REP_HOST_UNREACHABLE).await;
                 return;

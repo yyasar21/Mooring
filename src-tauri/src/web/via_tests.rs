@@ -37,7 +37,8 @@ fn web_behind_bastion(f: &Fixture, port: u16, url: &str) -> (String, String) {
     })
     .expect("web")
     .id;
-    crate::commands::conn_options::set(st, &web, json!({ "url": url })).expect("options");
+    let options = if url.starts_with("http://") { json!({ "url": url, "allowHttp": true }) } else { json!({ "url": url }) };
+    crate::commands::conn_options::set(st, &web, options).expect("options");
     (bastion, web)
 }
 
@@ -45,6 +46,21 @@ fn trust(f: &Fixture, srv: &server::TestServer) {
     let mut kh = mooring_proto_ssh::KnownHosts::new();
     kh.add_hashed("127.0.0.1", srv.port, &srv.host_public).expect("add");
     kh.save(&f.state.known_hosts_path()).expect("save");
+}
+
+/// SOCKS5 CONNECT to `localhost:<port>` through the proxy; the stream and the reply code.
+async fn socks_connect(proxy: u16, port: u16) -> (TcpStream, u8) {
+    let mut conn = TcpStream::connect(("127.0.0.1", proxy)).await.expect("proxy");
+    conn.write_all(&[5, 1, 0]).await.expect("greeting");
+    let mut method = [0u8; 2];
+    conn.read_exact(&mut method).await.expect("method");
+    let mut req = vec![5, 1, 0, 3, 9];
+    req.extend_from_slice(b"localhost");
+    req.extend_from_slice(&port.to_be_bytes());
+    conn.write_all(&req).await.expect("request");
+    let mut rep = [0u8; 10];
+    tokio::time::timeout(T, conn.read_exact(&mut rep)).await.expect("in time").expect("reply");
+    (conn, rep[1])
 }
 
 async fn echo() -> u16 {
@@ -80,6 +96,31 @@ fn target_is_the_start_url_host_and_port() {
 }
 
 #[test]
+fn proxy_allow_is_the_start_host_and_the_allowed_origins() {
+    let opts: mooring_core::options::WebConnOptions = serde_json::from_value(json!({
+        "url": "https://intranet.example.test:8443/app",
+        "allowedOrigins": ["https://sso.example.test", "http://[2001:db8::1]:8080"],
+        "allowHttp": true
+    }))
+    .expect("opts");
+    let (policy, url) = NavPolicy::from_options(&opts, None).expect("policy");
+    let a = proxy_allow(&url, &policy);
+    for (h, p) in [
+        ("intranet.example.test", 8443),
+        ("intranet.example.test", 443),
+        ("intranet.example.test", 80),
+        ("sso.example.test", 443),
+        ("sso.example.test", 8443),
+        ("2001:db8::1", 8080),
+    ] {
+        assert!(a.permits(h, p), "{h}:{p}");
+    }
+    assert!(!a.permits("intranet.example.test", 22));
+    assert!(!a.permits("db.example.test", 443));
+    assert!(!a.permits("192.0.2.1", 443));
+}
+
+#[test]
 fn plan_marks_via_and_never_carries_a_proxy_yet() {
     let f = unlocked();
     let (_, web) = web_behind_bastion(&f, 22, "https://intranet.example.test/");
@@ -94,26 +135,25 @@ async fn web_via_browses_through_the_bastion_and_audits_the_forward() {
     let srv = server::start(71).await;
     let f = unlocked();
     trust(&f, &srv);
-    let (bastion, web) = web_behind_bastion(&f, srv.port, "https://intranet.example.test/");
+    // The start URL is the echo service as the bastion sees it (`localhost:<port>`).
+    let port = echo().await;
+    let start = format!("http://localhost:{port}/");
+    let (bastion, web) = web_behind_bastion(&f, srv.port, &start);
     let p = plan(&f.state, &web, StorageOs::Linux, None).expect("plan");
-    let via = open(&f.state, &web, &p.url).await.expect("chain up");
+    let via = open(&f.state, &web, &p.url, &p.policy).await.expect("chain up");
     assert_eq!(via.hops(), 1);
     let url = via.proxy_url().expect("url");
     assert_eq!((url.scheme(), url.host_str()), ("socks5", Some("127.0.0.1")));
+    let proxy_port = url.port().expect("port");
+
+    // Review 9 L-48: a target outside the window's allow-list is refused before the hop.
+    let (_refused, rep) = socks_connect(proxy_port, port.wrapping_add(1).max(1)).await;
+    assert_eq!(rep, 2, "connection not allowed by ruleset");
+    assert_eq!(via.refused(), 1);
 
     // A SOCKS5 CONNECT (domain name, resolved by the bastion) reaches an echo service.
-    let port = echo().await;
-    let mut conn = TcpStream::connect(("127.0.0.1", url.port().expect("port"))).await.expect("proxy");
-    conn.write_all(&[5, 1, 0]).await.expect("greeting");
-    let mut method = [0u8; 2];
-    conn.read_exact(&mut method).await.expect("method");
-    let mut req = vec![5, 1, 0, 3, 9];
-    req.extend_from_slice(b"localhost");
-    req.extend_from_slice(&port.to_be_bytes());
-    conn.write_all(&req).await.expect("request");
-    let mut rep = [0u8; 10];
-    tokio::time::timeout(T, conn.read_exact(&mut rep)).await.expect("in time").expect("reply");
-    assert_eq!(rep[1], 0, "CONNECT through the chain");
+    let (mut conn, rep) = socks_connect(proxy_port, port).await;
+    assert_eq!(rep, 0, "CONNECT through the chain");
     conn.write_all(b"page").await.expect("write");
     let mut buf = [0u8; 4];
     tokio::time::timeout(T, conn.read_exact(&mut buf)).await.expect("in time").expect("read");
@@ -130,6 +170,10 @@ async fn web_via_browses_through_the_bastion_and_audits_the_forward() {
     via.shutdown(&f.state.audit, "closed").await;
     via.shutdown(&f.state.audit, "closed").await;
     assert_eq!(audit_rows(&f.state, "forward_closed").len(), 1, "idempotent");
+    let refused = audit_rows(&f.state, "forward_refused");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(refused[0]["target"], format!("localhost:{}", port.wrapping_add(1).max(1)));
+    assert_eq!(refused[0]["id"], FORWARD_ID);
     assert_eq!(audit_rows(&f.state, "session_hop_close")[0]["code"], "closed");
     let mut one = [0u8; 1];
     let ended = tokio::time::timeout(T, conn.read(&mut one)).await.expect("in time");
@@ -145,7 +189,7 @@ async fn the_chain_lives_with_the_window_entry() {
     trust(&f, &srv);
     let (_, web) = web_behind_bastion(&f, srv.port, "https://intranet.example.test/");
     let mut p = plan(&f.state, &web, StorageOs::Linux, None).expect("plan");
-    let via = Arc::new(open(&f.state, &web, &p.url).await.expect("chain up"));
+    let via = Arc::new(open(&f.state, &web, &p.url, &p.policy).await.expect("chain up"));
     p.proxy = Some(via.proxy_url().expect("url"));
     let sink: crate::web::WebSink = Arc::new(|_| true);
     crate::commands::web::register_with(&f.state, &p, sink, Some(Arc::clone(&via))).expect("reg");
@@ -169,8 +213,8 @@ async fn an_unknown_bastion_key_is_a_refusal_not_an_answer() {
     let srv = server::start(72).await;
     let f = unlocked();
     let (_, web) = web_behind_bastion(&f, srv.port, "https://intranet.example.test/");
-    let url = Url::parse("https://intranet.example.test/").expect("url");
-    let e = open(&f.state, &web, &url).await.expect_err("prompt refused");
+    let p = plan(&f.state, &web, StorageOs::Linux, None).expect("plan");
+    let e = open(&f.state, &web, &p.url, &p.policy).await.expect_err("prompt refused");
     assert_eq!(e.code, "session.hop_failed");
     assert!(e.message.contains("jump host 1 asked a question"), "{}", e.message);
     assert!(audit_rows(&f.state, "forward_opened").is_empty(), "no forward without a chain");
@@ -185,8 +229,8 @@ async fn a_dead_bastion_fails_before_any_window() {
     drop(closed);
     let f = unlocked();
     let (_, web) = web_behind_bastion(&f, port, "https://intranet.example.test/");
-    let url = Url::parse("https://intranet.example.test/").expect("url");
-    let e = open(&f.state, &web, &url).await.expect_err("down");
+    let p = plan(&f.state, &web, StorageOs::Linux, None).expect("plan");
+    let e = open(&f.state, &web, &p.url, &p.policy).await.expect_err("down");
     assert_eq!(e.code, "session.hop_failed");
     assert!(e.message.starts_with("hop 1 failed"), "{}", e.message);
 }

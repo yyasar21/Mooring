@@ -53,7 +53,7 @@ impl SecretsEngine {
         let r =
             parse_bws_reference(&f.reference).map_err(|_| SecretsError::Invalid("reference"))?;
         let path = self.bws.config().locate(source.options.bws_path.as_deref())?;
-        self.bws.ensure_checked(&path, &source.address).await?;
+        self.bws.ensure_checked(&path, &source.address, false).await?;
         let token = token_of(provider, source)?;
         let secret = match &r {
             BwsReference::Id(id) => {
@@ -89,7 +89,9 @@ impl SecretsEngine {
             }
             SourceKind::Bitwarden => {
                 let path = self.bws.config().locate(source.options.bws_path.as_deref())?;
-                self.bws.ensure_checked(&path, &source.address).await?;
+                // Review 9 L-50: the explicit Test is the only place a changed binary is
+                // trusted again.
+                self.bws.ensure_checked(&path, &source.address, true).await?;
                 let token = token_of(provider, source)?;
                 let args = ["project", "list", "--output", "json"];
                 let out =

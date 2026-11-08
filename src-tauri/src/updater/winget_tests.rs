@@ -76,3 +76,14 @@ fn marker_present_absent_and_other_content() {
     std::fs::create_dir(&marker).expect("mkdir");
     assert!(!winget_marker(dir.path()), "a directory is not a marker");
 }
+
+/// Review 9 N-74: the marker is never read through a link (or, on Windows, a reparse point).
+#[cfg(unix)]
+#[test]
+fn a_linked_marker_is_not_a_marker() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::write(&elsewhere, "winget").expect("write");
+    std::os::unix::fs::symlink(&elsewhere, dir.path().join(INSTALL_SOURCE_FILE)).expect("link");
+    assert!(!winget_marker(dir.path()));
+}
