@@ -44,7 +44,8 @@ async function openCluster(page) {
   await createVault(page);
   await page.getByRole("treeitem", { name: CLUSTER_ROW }).dblclick();
   await page.getByRole("tab", { name: /stage-cluster, connected/ }).waitFor();
-  const panel = page.getByRole("tabpanel");
+  // Scoped: the inspector has its own Properties/Network/History tabpanels (M4).
+  const panel = page.getByRole("region", { name: "Sessions" }).getByRole("tabpanel");
   await panel.getByRole("note").waitFor();
   return panel;
 }
@@ -126,7 +127,7 @@ test("exec opens a terminal tab for the chosen container and the shell echoes", 
     await page.getByRole("tab", { name: new RegExp(`stage-cluster · ${POD}/envoy, connected`) }).waitFor();
     await page.locator(".xterm").first().waitFor();
     assert.equal(await page.locator(".xterm").count(), 1, "one terminal for the exec tab");
-    assert.equal(await page.getByRole("tab").count(), 2, "cluster tab + exec tab");
+    assert.equal(await page.getByRole("tablist", { name: "Open sessions" }).getByRole("tab").count(), 2, "cluster tab + exec tab");
 
     const before = await clusterProbe(page);
     assert.equal(before.clusters.length, 1);
