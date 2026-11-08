@@ -1,6 +1,8 @@
 /* ---------- remote desktop (RDP / VNC) ---------- */
-.remote-host { position: absolute; inset: 0; overflow: hidden; background: var(--term-bg); }
+.remote-host { position: absolute; inset: 0; overflow: hidden; background: var(--surface-3); }
 .remote-canvas { position: absolute; display: block; touch-action: none; outline: none; }
+.remote-host[data-framed] .remote-canvas { box-shadow: var(--e2); }
+.remote-wait { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; font-size: var(--fs-13); color: var(--text-2); pointer-events: none; }
 .remote-host:focus-within .remote-canvas { box-shadow: 0 0 0 2px var(--accent); }
 .remote-sink {
   position: absolute; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0;
@@ -17,7 +19,7 @@
 .remote-toolbar { gap: 6px; }
 .remote-toolbar .spacer { flex: 1; }
 .remote-note { font-size: var(--fs-12); color: var(--text-2); white-space: nowrap; }
-.remote-body .term-bezel { overflow: hidden; }
+.remote-body .term-bezel { overflow: hidden; background: var(--surface-3); }
 
 /* connection state over the canvas */
 .link-banner {

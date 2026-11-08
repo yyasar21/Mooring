@@ -21,6 +21,7 @@ import { LogsViewer } from "./kube/LogsViewer";
 import { OnboardingCard } from "./onboarding/OnboardingCard";
 import { ImportWizard } from "./import/ImportWizard";
 import { TabErrorBoundary } from "./TabErrorBoundary";
+import { ReadyPage, hasReadyPage } from "./ReadyPage";
 import { onboardingPending, useOnboarding } from "../stores/onboarding";
 
 // xterm.js is most of the bundle; load it with the first terminal tab, not at startup.
@@ -176,6 +177,9 @@ function EmptyState() {
   // ADR-0019 §6: an empty tree after unlock gets the first-run card until it is dismissed or filled.
   const empty = useTree((s) => s.loaded && s.connections.length === 0);
   const pending = useOnboarding(onboardingPending);
+  // L5: a selected connection with no session yet gets its ready page instead of the empty state.
+  const selected = useTree((s) => (s.selected?.kind === "connection" ? s.connections.find((c) => c.id === s.selected?.id) : undefined));
+  if (hasReadyPage(selected)) return <ReadyPage c={selected} />;
   if (empty && pending) {
     return (
       <div className="panel-note">

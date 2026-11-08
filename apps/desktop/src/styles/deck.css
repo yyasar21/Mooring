@@ -156,6 +156,16 @@
 .empty-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-l); background: var(--surface-2); color: var(--text-2); margin-bottom: var(--s1); }
 .empty-title { font: 600 var(--fs-16)/24px var(--font-sans); color: var(--text); }
 .empty-text { color: var(--text-2); }
+/* L5: the ready-to-connect page of a selected connection with no session */
+.ready-page { display: flex; flex-direction: column; align-items: center; gap: var(--s2); width: min(440px, 100%); text-align: center; }
+.ready-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-l); background: var(--accent-subtle); color: var(--accent); margin-bottom: var(--s1); }
+.ready-title { margin: 0; font: 600 var(--fs-20)/28px var(--font-sans); letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere; }
+.ready-host { margin: 0; font-size: var(--fs-13); color: var(--text-2); overflow-wrap: anywhere; }
+.ready-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; width: 100%; margin: var(--s4) 0 0; padding: var(--s4); border: 1px solid var(--border); border-radius: var(--r-m); background: var(--surface-2); text-align: left; font-size: var(--fs-13); }
+.ready-facts dt { color: var(--text-2); }
+.ready-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.ready-actions { display: flex; gap: var(--s2); margin-top: var(--s4); }
+.ready-hint { margin: var(--s2) 0 0; font-size: var(--fs-12); color: var(--text-3); }
 
 /* ---------- inspector ---------- */
 .readout-title { font: 600 var(--fs-16)/24px var(--font-sans); color: var(--text); }

@@ -221,7 +221,9 @@ export function RemoteCanvas(props: RemoteCanvasProps) {
   };
 
   return (
-    <div ref={hostRef} className="remote-host" data-renderer={kind} data-testid={`remote-${tabId}`}>
+    // L5: the desktop sits centred (letterboxed) on a neutral surface, never on the terminal black.
+    <div ref={hostRef} className="remote-host" data-renderer={kind} data-framed={fb ? true : undefined} data-testid={`remote-${tabId}`}>
+      {!fb && <p className="remote-wait" aria-hidden>Waiting for the first frame…</p>}
       <canvas
         ref={canvasRef}
         role="img"
