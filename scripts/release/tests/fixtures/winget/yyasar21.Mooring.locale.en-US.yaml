@@ -1,0 +1,28 @@
+# Created by scripts/release/winget/render.py (Mooring release pipeline)
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: yyasar21.Mooring
+PackageVersion: "1.2.3"
+PackageLocale: en-US
+Publisher: Yunus Yaşar
+PublisherUrl: https://github.com/yyasar21
+PublisherSupportUrl: https://github.com/yyasar21/Mooring/issues
+PackageName: Mooring
+PackageUrl: https://github.com/yyasar21/Mooring
+License: MIT
+LicenseUrl: https://github.com/yyasar21/Mooring/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Yunus Yaşar
+ShortDescription: Security-first remote access manager for SSH, RDP and VNC.
+Description: >-
+  Mooring keeps SSH, RDP and VNC connections, credentials and sessions in one place.
+  Credentials live in a local encrypted vault that never leaves the Rust core, and every
+  action lands in a tamper-evident audit log. No telemetry.
+Moniker: mooring
+Tags:
+  - ssh
+  - rdp
+  - vnc
+  - remote-access
+  - sftp
+ReleaseNotesUrl: https://github.com/yyasar21/Mooring/releases/tag/v1.2.3
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

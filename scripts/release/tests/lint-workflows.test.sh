@@ -35,7 +35,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
       - env:
-          S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          S_TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}
       - name: Build with tauri-action
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -55,6 +55,17 @@ jobs:
         run: |
           mapfile -t targets < <(find artifacts -maxdepth 1 -type f ! -name '*_portable.zip' \
             \( -name '*.app.tar.gz' -o -name '*-setup.exe' -o -name '*.AppImage' \) | LC_ALL=C sort)
+  sign-macos:
+    environment: release
+    steps:
+      - env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  sign-windows:
+    environment: release
+    steps:
+      - env:
+          HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
   finalize:
     needs: [sign-updater]
 EOF
@@ -75,7 +86,7 @@ good=$(fixture good)
 expect 0 "minimal valid pair" "$good"
 
 wrongjob=$(fixture wrongjob)
-sed -i 's/S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}/S_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}/' "$wrongjob/release.yml"
+sed -i 's/S_TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}/S_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}/' "$wrongjob/release.yml"
 expect nonzero "updater key referenced by the build job" "$wrongjob"
 
 otherfile=$(fixture otherfile)
@@ -190,6 +201,32 @@ expect nonzero "MOORING_RELEASE_BUILD set to something other than 1" "$relzero"
 relcomment=$(fixture relcomment)
 printf 'name: ci\n# MOORING_RELEASE_BUILD is release-only (ADR-0028)\njobs:\n  b:\n    steps: []\n' >"$relcomment/ci.yml"
 expect 0 "a comment naming MOORING_RELEASE_BUILD elsewhere" "$relcomment"
+
+# --- ADR-0018 A1-A2 rules 6/7: signing secrets and the winget token stay in their job ---
+applebuild=$(fixture applebuild)
+sed -i 's/S_TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}/S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}/' "$applebuild/release.yml"
+expect nonzero "an Apple signing secret in the build job" "$applebuild"
+
+azuremac=$(fixture azuremac)
+sed -i 's/          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}/          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}/' "$azuremac/release.yml"
+expect nonzero "an Azure secret in sign-macos" "$azuremac"
+
+noenv=$(fixture noenv)
+sed -i '/^  sign-windows:$/{n;d;}' "$noenv/release.yml"
+grep -A1 '^  sign-windows:' "$noenv/release.yml" | grep -q 'environment' && { fail=$((fail + 1)); echo "FAIL fixture edit (noenv)"; }
+expect nonzero "sign-windows without environment: release" "$noenv"
+
+othersign=$(fixture othersign)
+printf 'name: ci\njobs:\n  b:\n    steps:\n      - env:\n          K: ${{ secrets.APPLE_API_KEY_P8 }}\n' >"$othersign/ci.yml"
+expect nonzero "an Apple secret in another workflow" "$othersign"
+
+wingetok=$(fixture wingetok)
+printf 'name: release-winget\njobs:\n  manifests:\n    steps: []\n  submit:\n    steps:\n      - env:\n          HAS: ${{ secrets.WINGET_TOKEN != %s }}\n' "''" >"$wingetok/release-winget.yml"
+expect 0 "WINGET_TOKEN in release-winget.yml submit" "$wingetok"
+
+wingetbad=$(fixture wingetbad)
+printf 'name: release-winget\njobs:\n  manifests:\n    steps:\n      - env:\n          T: ${{ secrets.WINGET_TOKEN }}\n' >"$wingetbad/release-winget.yml"
+expect nonzero "WINGET_TOKEN in the manifests job" "$wingetbad"
 
 echo "$pass passed, $fail failed"
 ((fail == 0))

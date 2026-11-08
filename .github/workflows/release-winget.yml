@@ -1,0 +1,190 @@
+# winget manifests for a published release (ADR-0018 A2). Templates: packaging/winget;
+# generator + offline check: scripts/release/winget/{render,validate}.py.
+#
+#   manifests  always (stable releases): cosign-verifies SHA256SUMS, downloads the NSIS and MSI
+#              installers and checks them against it, reads the MSI ProductCode, renders the
+#              three-file manifest set (PackageIdentifier yyasar21.Mooring, schema 1.10.0),
+#              validates it and uploads it as the `winget-manifests` workflow artifact.
+#   submit     only when the repository secret WINGET_TOKEN exists AND both installers carry a
+#              valid Authenticode signature (unsigned installers are not submitted: winget
+#              validation and SmartScreen; ADR-0018 §2). Runs wingetcreate (pinned release,
+#              SHA-256 checked here), which opens a PR to microsoft/winget-pkgs from the token
+#              owner's fork. WINGET_TOKEN: classic PAT with `public_repo` or a fine-grained PAT
+#              on the owner's winget-pkgs fork (Contents + Pull requests: read and write).
+#              Without it the job ends with a notice; forks and today's unsigned releases are
+#              unaffected.
+#
+# Not vedantmgoyal9/winget-releaser: its action.yml runs `cargo-bins/cargo-binstall@main` and an
+# unpinned `komac`, so pinning the outer action by SHA would not pin what holds the token.
+name: release-winget
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published stable tag to render (and submit), e.g. v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-winget-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.event.release.tag_name }}
+  # https://github.com/microsoft/winget-create/releases/tag/v1.12.13.0 (wingetcreate.exe),
+  # SHA-256 computed 2026-11-08 from the release asset. Bump both together.
+  WINGETCREATE_VERSION: "1.12.13.0"
+  WINGETCREATE_SHA256: "24042bd37915805615e6cf969ac57c6439124c3fe85823327f5f3fb24bd9ffea"
+
+jobs:
+  manifests:
+    # Pre-releases never go to winget.
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.render.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.4
+
+      - name: Tools (msitools for the ProductCode, PyYAML for validate.py)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends msitools python3-yaml
+
+      - name: Verify SHA256SUMS, fetch and check the installers
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "::error::'$TAG' is not a stable vX.Y.Z tag"; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          mkdir -p "$RUNNER_TEMP/rel" && cd "$RUNNER_TEMP/rel"
+          nsis="Mooring_${version}_x64-setup.exe"; msi="Mooring_${version}_x64_en-US.msi"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS -p SHA256SUMS.sigstore.json -p "$nsis" -p "$msi"
+          # Same identity rule as scripts/release/verify-release.sh (N-58).
+          repo_re="${GITHUB_REPOSITORY//./\\.}"; tag_re="${TAG//./\\.}"
+          cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity-regexp "^https://github\\.com/${repo_re}/\\.github/workflows/release\\.yml@refs/tags/${tag_re}\$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          grep -E "^[0-9a-f]{64} [ *](${nsis//./\\.}|${msi//./\\.})\$" SHA256SUMS | sed 's/ \*/  /' > installers.sha256
+          [[ $(wc -l < installers.sha256) -eq 2 ]] || { echo "::error::SHA256SUMS does not list both $nsis and $msi"; exit 1; }
+          sha256sum --check --strict installers.sha256
+          code=$(msiinfo export "$msi" Property | awk -F'\t' '$1 == "ProductCode" {print $2}' | tr -d '\r')
+          [[ "$code" =~ ^\{[0-9A-Fa-f-]{36}\}$ ]] || { echo "::error::no ProductCode in $msi"; exit 1; }
+          date=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .published_at | cut -c1-10)
+          { echo "version=$version"; echo "code=$code"; echo "date=$date"; } >> "$GITHUB_OUTPUT"
+
+      - name: Render and validate the manifests
+        id: render
+        env:
+          VERSION: ${{ steps.fetch.outputs.version }}
+          CODE: ${{ steps.fetch.outputs.code }}
+          DATE: ${{ steps.fetch.outputs.date }}
+        run: |
+          set -euo pipefail
+          dir=$(python3 -I scripts/release/winget/render.py --templates packaging/winget \
+            --sums "$RUNNER_TEMP/rel/SHA256SUMS" --version "$VERSION" --release-date "$DATE" \
+            --msi-product-code "$CODE" --out "$RUNNER_TEMP/winget")
+          python3 -I scripts/release/winget/validate.py "$dir"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          { echo "### winget manifests for yyasar21.Mooring $VERSION"; echo '```yaml'; cat "$dir"/*.yaml; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: winget-manifests
+          path: ${{ runner.temp }}/winget/
+          if-no-files-found: error
+          retention-days: 30
+
+  submit:
+    needs: manifests
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.manifests.outputs.version }}
+    steps:
+      - name: Require the winget token
+        id: gate
+        shell: bash
+        env:
+          HAS_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+        run: |
+          if [[ "$HAS_TOKEN" != true ]]; then
+            echo "::notice::WINGET_TOKEN is not set; manifests are in the winget-manifests artifact, no PR opened"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.gate.outputs.run == 'true'
+        with:
+          name: winget-manifests
+          path: winget
+
+      # The installers the manifest names, hash-checked against it, must be Authenticode-signed.
+      - name: Installers are signed
+        id: signed
+        if: steps.gate.outputs.run == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = "winget/manifests/y/yyasar21/Mooring/$env:VERSION"
+          $text = Get-Content -Raw "$dir/yyasar21.Mooring.installer.yaml"
+          $pairs = [regex]::Matches($text, 'InstallerUrl: (\S+)\s+InstallerSha256: "([0-9A-F]{64})"')
+          if ($pairs.Count -ne 2) { throw "expected two installers in the manifest" }
+          New-Item -ItemType Directory -Force rel | Out-Null
+          $ok = $true
+          foreach ($p in $pairs) {
+            $name = Split-Path -Leaf $p.Groups[1].Value
+            gh release download $env:TAG --repo $env:GITHUB_REPOSITORY -p $name -D rel
+            if ($LASTEXITCODE -ne 0) { throw "download of $name failed" }
+            if ((Get-FileHash -Algorithm SHA256 "rel/$name").Hash -ne $p.Groups[2].Value) { throw "$name does not match the manifest hash" }
+            $sig = Get-AuthenticodeSignature -LiteralPath "rel/$name"
+            Write-Output "$name Authenticode: $($sig.Status)"
+            if ($sig.Status -ne 'Valid') { $ok = $false }
+          }
+          if (-not $ok) { Write-Output "::notice::installers are not Authenticode-signed; not submitting to winget (ADR-0018 A2)" }
+          "ok=$($ok.ToString().ToLower())" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+
+      - name: Fetch wingetcreate (pinned, SHA-256 checked)
+        if: steps.signed.outputs.ok == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:RUNNER_TEMP 'wingetcreate.exe'
+          Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/microsoft/winget-create/releases/download/v$env:WINGETCREATE_VERSION/wingetcreate.exe" -OutFile $exe
+          if ((Get-FileHash -Algorithm SHA256 $exe).Hash -ne $env:WINGETCREATE_SHA256.ToUpper()) { throw "wingetcreate.exe SHA-256 mismatch" }
+          "WINGETCREATE=$exe" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      # The token is masked by the runner and reaches wingetcreate only (never a URL or a file).
+      - name: Open the winget-pkgs pull request
+        if: steps.signed.outputs.ok == 'true'
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = "winget/manifests/y/yyasar21/Mooring/$env:VERSION"
+          & $env:WINGETCREATE submit --token $env:WINGET_TOKEN --prtitle "New version: yyasar21.Mooring version $env:VERSION" $dir
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit failed" }
+          "### winget PR opened for yyasar21.Mooring $env:VERSION" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY

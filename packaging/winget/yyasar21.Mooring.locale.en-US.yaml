@@ -1,4 +1,4 @@
-# Template, see yyasar21.Mooring.installer.yaml.
+# Template (ADR-0018 A2), see yyasar21.Mooring.installer.yaml.
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
 PackageIdentifier: yyasar21.Mooring
 PackageVersion: "@VERSION@"

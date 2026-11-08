@@ -18,9 +18,10 @@
 # Identity (ADR-0028): src-tauri/tauri.conf.json is "Mooring Dev" (io.github.yyasar21.mooring.dev);
 # only this workflow applies src-tauri/tauri.release.conf.json, so only tag builds are "Mooring".
 #
-# Signing is opt-in per secret: a fork without secrets still produces unsigned installers.
-# Secrets are exported only when non-empty, because the Tauri bundler treats a set-but-empty
-# APPLE_CERTIFICATE as "sign with this" and fails. Nothing here echoes a secret.
+# Platform signing (ADR-0018 A1) is opt-in: the repository variables MACOS_SIGNING / WINDOWS_SIGNING
+# switch on sign-macos / sign-windows, which read their secrets from the `release` environment.
+# Unset (forks, today) both jobs are skipped and the installers ship ad-hoc / unsigned. The
+# build job holds no platform signing secret (the rpm key only). Nothing here echoes a secret.
 # No build cache on purpose: release builds must not consume caches written by PR runs.
 # The Rust toolchain is pinned (RUST_TOOLCHAIN) to the version release-repro.yml checks (N-57).
 #
@@ -37,6 +38,10 @@
 #                                     `tar -czf` of the signed .app (the NSIS -setup.exe and the
 #                                     AppImage are their own updater artifacts in the v2 format)
 #   sbom            contents: read    cargo-cyclonedx + syft, pinned; no id-token
+#   sign-macos      contents: read    environment `release`, only if vars.MACOS_SIGNING; no
+#   sign-windows                      npm/cargo: codesign + notarytool / Artifact Signing or
+#                                     signtool + the pinned Tauri CLI `bundle`; replace the
+#                                     build's bundles-<name> artifact with the signed set
 #   sign-updater    contents: read    environment `release` (owner approves; deployment policy
 #                                     tags `v*`). No checkout, no npm/cargo install: downloads
 #                                     the build artifacts and the Tauri CLI npm tarballs (pinned
@@ -85,6 +90,8 @@ env:
   TAURI_CLI_VERSION: "2.12.4"
   TAURI_CLI_SHA512: "JI9bHfudSRJikGOrjbXEm6RjzzvmKuLc+JixB1NE8hNzQkNlCCIC3pTES3uypkR9lxHrsbxzcnSwhI2IxBQphw=="
   TAURI_CLI_LINUX_X64_SHA512: "tNzZSa79Z1nRpHxEpQ38lsAFpKlFlYvoXzjTV+lRRn/zSf3wrdUC3wnLcq2XEadchPu4ttK0zivhYzr+XGD19Q=="
+  # sign-windows (`tauri bundle` around the signed exe, ADR-0018 A1), same lockfile entry.
+  TAURI_CLI_WIN32_X64_SHA512: "DJhDeCqjLDNMWYFy7ZS8cfeAHX2RK0RbQMLiA3bMVVkXRDJ4NBYiHriGqsUhsr9iG41aTb+dJGkFPmPw1gWwVw=="
 
 jobs:
   create-release:
@@ -207,81 +214,44 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Platform signing material only. The updater key (TAURI_SIGNING_PRIVATE_KEY) is never
-      # exported here: this job runs npm and cargo build scripts (M-17); sign-updater holds it.
+      # ADR-0018 A1: no platform signing secret reaches this job (it runs npm and cargo build
+      # scripts, M-17). macOS builds ad-hoc (`-`), Windows unsigned; the sign-macos and
+      # sign-windows jobs re-sign in the `release` environment when the owner switches them on.
+      # Only the rpm key stays here: rpm signing happens inside the bundler. The updater key
+      # (TAURI_SIGNING_PRIVATE_KEY) is never exported here either; sign-updater holds it.
       - name: Export signing material that exists
         id: secrets
         shell: bash
         env:
-          S_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          S_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          S_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          S_APPLE_ID: ${{ secrets.APPLE_ID }}
-          S_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          S_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          S_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          S_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          S_APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-          S_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          S_AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          S_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          S_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          S_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           S_TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}
           S_TAURI_SIGNING_RPM_KEY_PASSPHRASE: ${{ secrets.TAURI_SIGNING_RPM_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
           put() { local d; d="EOF_$(openssl rand -hex 16)"; printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"; }
           has() { local v="S_$1"; [[ -n "${!v:-}" ]]; }
-          case "$RUNNER_OS" in
-            macOS) names=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY) ;;
-            Windows) names=(AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD) ;;
-            Linux) names=(TAURI_SIGNING_RPM_KEY TAURI_SIGNING_RPM_KEY_PASSPHRASE) ;;
-          esac
-          for n in "${names[@]}"; do if has "$n"; then v="S_$n"; put "$n" "${!v}"; fi; done
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            if ! has APPLE_CERTIFICATE; then put APPLE_SIGNING_IDENTITY "-"; fi  # ad-hoc: consistent bundle signature
-            if has APPLE_API_KEY && has APPLE_API_KEY_P8; then
-              p8="$RUNNER_TEMP/AuthKey_${S_APPLE_API_KEY}.p8"
-              printf '%s\n' "$S_APPLE_API_KEY_P8" > "$p8"; chmod 600 "$p8"; put APPLE_API_KEY_PATH "$p8"
-            fi
-          fi
           signed=false
           case "$RUNNER_OS" in
-            macOS) has APPLE_CERTIFICATE && signed=true ;;
-            Windows) { has AZURE_CLIENT_ID || has WINDOWS_CERTIFICATE; } && signed=true ;;
-            Linux) has TAURI_SIGNING_RPM_KEY && signed=true ;;
+            macOS) put APPLE_SIGNING_IDENTITY "-" ;; # ad-hoc: consistent bundle signature
+            Linux)
+              for n in TAURI_SIGNING_RPM_KEY TAURI_SIGNING_RPM_KEY_PASSPHRASE; do if has "$n"; then v="S_$n"; put "$n" "${!v}"; fi; done
+              if has TAURI_SIGNING_RPM_KEY; then signed=true; fi ;;
           esac
           echo "signed=$signed" >> "$GITHUB_OUTPUT"
 
-      - name: Import Authenticode certificate (PFX)
-        if: runner.os == 'Windows' && env.WINDOWS_CERTIFICATE != '' && env.AZURE_CLIENT_ID == ''
-        shell: pwsh
-        run: |
-          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
-          Remove-Item $pfx -Force
-          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-
-      # RISK (security review 3, L-13): `artifact-signing-cli` is a community crate
-      # (levminer/trusted-signing-cli) without a security review. It runs with
-      # AZURE_CLIENT_SECRET in its environment and signs the Windows binaries. It is pinned to an
-      # exact version with `--locked` (crates.io checksums from its lockfile); bump it only with
-      # security-reviewer approval. Replacement candidates: Azure/trusted-signing-action
-      # (SHA-pinned) or the .NET Foundation `sign` tool. This job has `contents: read` only.
-      - name: Install Azure Artifact Signing CLI
-        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
-        run: cargo install artifact-signing-cli --version =0.12.0 --locked
+      # ADR-0022: Touch ID is offered only by a Developer-ID-signed build, which src-tauri reads
+      # as `cfg(mooring_signed_build)` (src-tauri/src/biometric/mod.rs). The binary is compiled
+      # here, before sign-macos signs it, so the switch is the owner's repository variable
+      # MACOS_SIGNING, not a secret; sign-macos then refuses to ship an ad-hoc build that
+      # carries the cfg. Unset (today): RUSTFLAGS stays unset and the build is unchanged.
+      - name: Mark the macOS build as Developer-ID-signed
+        if: runner.os == 'macOS' && vars.MACOS_SIGNING == 'true'
+        shell: bash
+        run: echo "RUSTFLAGS=--cfg mooring_signed_build" >> "$GITHUB_ENV"
 
       - name: Compose CI-only Tauri config
         id: cfg
         shell: python
         env:
-          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
           VERSION: ${{ needs.create-release.outputs.version }}
           BUNDLES: ${{ matrix.bundles }}
         run: |
@@ -303,15 +273,6 @@ jobs:
           if "-" in env("VERSION"):
               # MSI ProductVersion is numeric; 0.2.0-rc.1 ships as MSI 0.2.0.
               win["wix"] = {"version": env("VERSION").split("-")[0]}
-          azure = [env("AZURE_SIGNING_ENDPOINT"), env("AZURE_SIGNING_ACCOUNT"), env("AZURE_SIGNING_PROFILE")]
-          if env("AZURE_CLIENT_ID"):
-              if not all(azure):
-                  raise SystemExit("AZURE_CLIENT_ID is set but vars AZURE_SIGNING_ENDPOINT/ACCOUNT/PROFILE are not")
-              win["signCommand"] = {"cmd": "artifact-signing-cli",
-                                    "args": ["-e", azure[0], "-a", azure[1], "-c", azure[2], "-d", "Mooring", "%1"]}
-          elif env("WINDOWS_CERT_THUMBPRINT"):
-              win.update(certificateThumbprint=env("WINDOWS_CERT_THUMBPRINT"),
-                         timestampUrl="http://timestamp.digicert.com")
           if win:
               bundle["windows"] = win
           path = pathlib.Path(env("RUNNER_TEMP")) / "tauri.ci.json"
@@ -398,9 +359,6 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.create-release.outputs.version }}
-          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
-          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
-          APPLE_INSTALLER_SIGNING_IDENTITY: ${{ secrets.APPLE_INSTALLER_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           app="target/${{ matrix.target }}/release/bundle/macos/Mooring.app"
@@ -506,7 +464,7 @@ jobs:
         run: |
           {
             echo "### ${{ matrix.name }}"
-            echo "signed: ${{ steps.secrets.outputs.signed }} · updater artifact: ${{ matrix.updater }} (signed later by sign-updater)"
+            echo "rpm signed: ${{ steps.secrets.outputs.signed }} · platform signing: ${{ (startsWith(matrix.name, 'macos') && vars.MACOS_SIGNING == 'true') || (startsWith(matrix.name, 'windows') && vars.WINDOWS_SIGNING == 'true') }} (sign-macos / sign-windows) · updater artifact: ${{ matrix.updater }} (signed later by sign-updater)"
             echo '```'; echo "$PATHS" | tr ',' '\n' | sed 's/[][]//g;s/"//g'; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -555,6 +513,282 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # ADR-0018 A1: platform signing, in the `release` environment (owner approval; the signing
+  # secrets are environment secrets, never repository secrets). Both jobs are INERT until the
+  # owner sets a repository variable: with MACOS_SIGNING / WINDOWS_SIGNING unset the job is
+  # skipped (no approval prompt) and the build's ad-hoc / unsigned artifacts ship as before.
+  # They run no npm and no cargo: only the OS signing tools, the repository's own scripts, the
+  # pinned Tauri CLI (Windows `tauri bundle`, no compile) and the SHA-pinned Azure action. The
+  # signed set replaces the build's `bundles-<name>` artifact under the same file names, so
+  # sign-updater, publish and finalize consume it unchanged.
+  #
+  # macOS: MACOS_SIGNING=true also compiled the build with cfg(mooring_signed_build) (Touch ID,
+  # ADR-0022), so an incomplete secret set FAILS here instead of shipping that binary ad-hoc.
+  sign-macos:
+    name: sign + notarize ${{ matrix.name }}
+    needs: [create-release, build]
+    if: vars.MACOS_SIGNING == 'true'
+    runs-on: macos-15
+    environment: release
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [macos-arm64, macos-x64, macos-universal]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundles-${{ matrix.name }}
+          path: ${{ runner.temp }}/in
+
+      # Nothing here echoes a secret; macos-sign.sh prints file names and notarization ids only.
+      - name: Developer ID sign, notarize, staple
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+          APPLE_INSTALLER_SIGNING_IDENTITY: ${{ secrets.APPLE_INSTALLER_SIGNING_IDENTITY }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${APPLE_API_KEY_P8:-}" && -n "${APPLE_API_KEY:-}" ]]; then
+            [[ "$APPLE_API_KEY" =~ ^[A-Za-z0-9]{6,20}$ ]] || { echo "::error::APPLE_API_KEY is not an App Store Connect key id"; exit 1; }
+            p8="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+            (umask 077; printf '%s\n' "$APPLE_API_KEY_P8" > "$p8")
+            export APPLE_API_KEY_PATH="$p8"
+          fi
+          unset APPLE_API_KEY_P8
+          trap 'rm -f "${APPLE_API_KEY_PATH:-}"' EXIT
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct HEAD)"; export SOURCE_DATE_EPOCH
+          bash scripts/release/macos-sign.sh "$RUNNER_TEMP/in" "$RUNNER_TEMP/out" "$VERSION" packaging/macos/entitlements.plist \
+            || { echo "::error::Developer ID signing failed; MACOS_SIGNING=true needs APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY and a notarization set in environment 'release' (docs/release.md)"; exit 1; }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundles-${{ matrix.name }}
+          path: ${{ runner.temp }}/out/
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
+  # Windows: the bare executable (from the build's portable zip) is signed first, then the
+  # NSIS and MSI installers are bundled around it by `tauri bundle` (pinned CLI, no compile)
+  # and signed in turn. Azure Artifact Signing (formerly Trusted Signing) when its set is
+  # complete, else an OV `.pfx` via signtool; neither → a notice and the unsigned build ships
+  # (nothing is compiled differently for Windows). The NSIS uninstaller embedded in the
+  # installer stays unsigned (no signCommand hook for an action).
+  sign-windows:
+    name: Authenticode windows-x64
+    needs: [create-release, build]
+    if: vars.WINDOWS_SIGNING == 'true'
+    runs-on: windows-2022
+    environment: release
+    permissions:
+      contents: read
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      VERSION: ${{ needs.create-release.outputs.version }}
+    steps:
+      - name: Signing method from the secrets that exist
+        id: gate
+        shell: bash
+        env:
+          HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && secrets.AZURE_TENANT_ID != '' && vars.AZURE_SIGNING_ENDPOINT != '' && vars.AZURE_SIGNING_ACCOUNT != '' && vars.AZURE_SIGNING_PROFILE != '' }}
+          HAS_PFX: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != '' }}
+        run: |
+          if [[ "$HAS_AZURE" == true ]]; then m=azure
+          elif [[ "$HAS_PFX" == true ]]; then m=pfx
+          else
+            m=none
+            echo "::notice::WINDOWS_SIGNING is on, but neither the Azure Artifact Signing set nor WINDOWS_CERTIFICATE + _PASSWORD is complete in environment 'release'; the Windows build ships unsigned"
+          fi
+          echo "method=$m" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.method != 'none'
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.gate.outputs.method != 'none'
+        with:
+          name: bundles-windows-x64
+          path: ${{ runner.temp }}/in
+
+      - name: Fetch the pinned Tauri CLI (npm tarballs, SHA-512 checked)
+        id: cli
+        if: steps.gate.outputs.method != 'none'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://registry.npmjs.org/@tauri-apps"
+          tools="$RUNNER_TEMP/tauri-cli/node_modules/@tauri-apps"
+          fetch() { # fetch <package> <sha512-base64>: verify, then unpack into node_modules
+            local pkg="$1" want="$2" tgz="$RUNNER_TEMP/$1.tgz" got
+            curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 \
+              -o "$tgz" "$base/$pkg/-/$pkg-$TAURI_CLI_VERSION.tgz"
+            got=$(openssl dgst -sha512 -binary "$tgz" | base64 -w0)
+            [[ "$got" == "$want" ]] || { echo "::error::SHA-512 mismatch for $pkg@$TAURI_CLI_VERSION"; exit 1; }
+            mkdir -p "$tools/$pkg"
+            tar -xzf "$tgz" -C "$tools/$pkg" --strip-components=1
+          }
+          fetch cli "$TAURI_CLI_SHA512"
+          fetch cli-win32-x64-msvc "$TAURI_CLI_WIN32_X64_SHA512"
+          cli="$tools/cli/tauri.js"
+          [[ "$(node "$cli" --version)" == "tauri-cli $TAURI_CLI_VERSION" ]] || { echo "::error::unexpected Tauri CLI"; exit 1; }
+          echo "path=$cli" >> "$GITHUB_OUTPUT"
+
+      # The portable zip carries the exact executable the installers were built from.
+      - name: Stage the built executable
+        id: stage
+        if: steps.gate.outputs.method != 'none'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=("$RUNNER_TEMP"/in/*_portable.zip)
+          ((${#zips[@]} == 1)) || { echo "::error::expected one portable zip, found ${#zips[@]}"; exit 1; }
+          rel="target/$TARGET/release"; mkdir -p "$rel" "$RUNNER_TEMP/portable"
+          python3 -I - "${zips[0]}" "$rel/mooring-app.exe" "$RUNNER_TEMP/portable" <<'PY'
+          import pathlib, sys, zipfile
+          z = zipfile.ZipFile(sys.argv[1])
+          pathlib.Path(sys.argv[2]).write_bytes(z.read("Mooring.exe"))
+          for n in ("portable", "README.txt"):
+              (pathlib.Path(sys.argv[3]) / n).write_bytes(z.read(n))
+          PY
+          exe="$(cygpath -w "$PWD/$rel/mooring-app.exe")"
+          echo "exe=$exe" >> "$GITHUB_OUTPUT"
+
+      - name: Import Authenticode certificate (PFX)
+        if: steps.gate.outputs.method == 'pfx'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx -Force
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Sign Mooring.exe (Azure Artifact Signing)
+        if: steps.gate.outputs.method == 'azure'
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ steps.stage.outputs.exe }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: Mooring
+          description-url: https://github.com/yyasar21/Mooring
+
+      - name: Sign Mooring.exe (signtool, PFX)
+        if: steps.gate.outputs.method == 'pfx'
+        shell: pwsh
+        env:
+          EXE: ${{ steps.stage.outputs.exe }}
+        run: pwsh -NoProfile -File scripts/release/windows-signtool.ps1 $env:EXE
+
+      # Same CI keys as the build's "Compose CI-only Tauri config" (no updater artifacts here,
+      # the numeric MSI version on pre-releases); the overlay comes first (lint rule 4).
+      - name: Bundle NSIS + MSI around the signed executable (no compile)
+        id: bundle
+        if: steps.gate.outputs.method != 'none'
+        shell: bash
+        env:
+          CLI: ${{ steps.cli.outputs.path }}
+        run: |
+          set -euo pipefail
+          python3 -I -c '
+          import json, os, sys
+          v = os.environ["VERSION"]; bundle = {"createUpdaterArtifacts": False}
+          if "-" in v: bundle["windows"] = {"wix": {"version": v.split("-")[0]}}
+          json.dump({"bundle": bundle}, open(sys.argv[1], "w"))' "$RUNNER_TEMP/tauri.ci.json"
+          tauri() { node "$CLI" "$@"; }
+          tauri bundle --config src-tauri/tauri.release.conf.json --config "$RUNNER_TEMP/tauri.ci.json" --target "$TARGET" --bundles nsis,msi
+          shopt -s nullglob
+          setup=(target/"$TARGET"/release/bundle/nsis/*-setup.exe); msi=(target/"$TARGET"/release/bundle/msi/*.msi)
+          ((${#setup[@]} == 1 && ${#msi[@]} == 1)) || { echo "::error::expected one -setup.exe and one .msi"; exit 1; }
+          echo "files=$(cygpath -w "$PWD/${setup[0]}"),$(cygpath -w "$PWD/${msi[0]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the installers (Azure Artifact Signing)
+        if: steps.gate.outputs.method == 'azure'
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ steps.bundle.outputs.files }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: Mooring
+          description-url: https://github.com/yyasar21/Mooring
+
+      - name: Sign the installers (signtool, PFX)
+        if: steps.gate.outputs.method == 'pfx'
+        shell: pwsh
+        env:
+          FILES: ${{ steps.bundle.outputs.files }}
+        run: pwsh -NoProfile -File scripts/release/windows-signtool.ps1 @($env:FILES -split ',')
+
+      - name: Authenticode signatures are valid; portable zip from the signed executable
+        if: steps.gate.outputs.method != 'none'
+        shell: bash
+        env:
+          EXE: ${{ steps.stage.outputs.exe }}
+          FILES: ${{ steps.bundle.outputs.files }}
+        run: |
+          set -euo pipefail
+          pwsh -NoProfile -Command '
+            $bad = @(($env:EXE + "," + $env:FILES) -split "," | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_).Status -ne "Valid" })
+            if ($bad.Count) { $bad | ForEach-Object { Write-Output "::error::not validly signed: $(Split-Path -Leaf $_)" }; exit 1 }'
+          out="$RUNNER_TEMP/out"; mkdir -p "$out"
+          IFS=, read -r setup msi <<<"$FILES"
+          cp -- "$(cygpath -u "$setup")" "$(cygpath -u "$msi")" "$out/"
+          zip=$(cd "$RUNNER_TEMP/in" && ls -1 -- *_portable.zip)
+          python3 -I scripts/release/portable-zip.py --out "$out/$zip" --epoch "$(git log -1 --format=%ct HEAD)" \
+            "Mooring.exe=target/$TARGET/release/mooring-app.exe" "portable=$RUNNER_TEMP/portable/portable" "README.txt=$RUNNER_TEMP/portable/README.txt"
+          diff <(cd "$RUNNER_TEMP/in" && ls -1 | LC_ALL=C sort) <(cd "$out" && ls -1 | LC_ALL=C sort) \
+            || { echo "::error::signed set differs from the build set"; exit 1; }
+          ls -la "$out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.gate.outputs.method != 'none'
+        with:
+          name: bundles-windows-x64
+          path: ${{ runner.temp }}/out/
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
   # M-17: the only job that ever sees the updater private key. `environment: release` makes the
   # key an environment secret (required reviewer = owner, deployment policy tags `v*`); a
   # repository secret of the same name must not exist. No checkout: nothing from the repository
@@ -563,7 +797,11 @@ jobs:
   # The key enters the environment of the signing step only.
   sign-updater:
     name: sign updater artifacts
-    needs: [create-release, build]
+    needs: [create-release, build, sign-macos, sign-windows]
+    # sign-macos / sign-windows are skipped unless switched on; a skipped need would skip this
+    # job by default, so the condition is spelled out: the build passed, signing passed or
+    # was not asked for.
+    if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-macos.result) && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
     runs-on: ubuntu-22.04
     environment: release
     permissions:
@@ -654,7 +892,8 @@ jobs:
 
   publish:
     name: upload installers to the draft
-    needs: [create-release, build]
+    needs: [create-release, build, sign-macos, sign-windows]
+    if: ${{ !cancelled() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-macos.result) && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write # the only job besides create-release/finalize that writes the release
@@ -681,6 +920,8 @@ jobs:
   finalize:
     name: checksums, signature, provenance
     needs: [create-release, build, sbom, sign-updater, publish]
+    # Explicit for the same reason (the implicit success() also sees skipped sign-* jobs).
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sbom.result == 'success' && needs.sign-updater.result == 'success' && needs.publish.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write # upload SHA256SUMS, bundle, SBOMs, updater signatures and manifest

@@ -14,6 +14,8 @@
 #   4. ADR-0028: every tauri build in release*.yml passes the release overlay
 #      (`--config src-tauri/tauri.release.conf.json`) first; release.yml has such a build.
 #   5. ADR-0028: `MOORING_RELEASE_BUILD` is set ("1") only in release.yml's build job.
+#   6. ADR-0018 A1: platform signing secrets only in sign-macos / sign-windows (`release` env).
+#   7. ADR-0018 A2: WINGET_TOKEN only in release-winget.yml's submit job.
 # Pure bash + python3 -I (line-based, no YAML library). Exit 1 with one `error:` per finding.
 set -euo pipefail
 
@@ -196,6 +198,55 @@ PY
 for f in "${findings[@]}"; do
   [[ -n "$f" ]] || continue
   echo "error: $f (release identity only via the overlay, ADR-0028)" >&2; rc=1
+done
+
+# 6./7. ADR-0018 A1–A2 secret scope.
+#   6. platform signing secrets (`secrets.APPLE_*`, `secrets.AZURE_CLIENT_*`/`AZURE_TENANT_ID`,
+#      `secrets.WINDOWS_CERTIFICATE*`) appear in release.yml only: APPLE_* in job sign-macos,
+#      the Windows ones in job sign-windows, and both jobs declare `environment: release`.
+#      In particular the build job (npm + cargo build scripts) never names one.
+#   7. `secrets.WINGET_TOKEN` appears in release-winget.yml's `submit` job only.
+mapfile -t findings < <(python3 -I - "$DIR" <<'PY'
+import os, re, sys
+d = sys.argv[1]
+rules = [
+    (re.compile(r"secrets\.APPLE_[A-Z0-9_]+"), "release.yml", "sign-macos", True),
+    (re.compile(r"secrets\.(?:AZURE_CLIENT_[A-Z_]+|AZURE_TENANT_ID|WINDOWS_CERTIFICATE[A-Z_]*)\b"), "release.yml", "sign-windows", True),
+    (re.compile(r"secrets\.WINGET_TOKEN\b"), "release-winget.yml", "submit", False),
+]
+for name in sorted(os.listdir(d)):
+    if not (name.endswith(".yml") or name.endswith(".yaml")):
+        continue
+    job, in_jobs, env = None, False, {}
+    used = set()
+    with open(os.path.join(d, name), encoding="utf-8") as fh:
+        for n, line in enumerate(fh, 1):
+            if re.match(r"^jobs:\s*$", line):
+                in_jobs, job = True, None
+            elif re.match(r"^\S", line):
+                in_jobs = False
+            elif in_jobs:
+                m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+                if m:
+                    job = m.group(1)
+                if job and re.match(r"^    environment:\s*release\s*$", line):
+                    env[job] = True
+            if line.lstrip().startswith("#"):
+                continue
+            for ref, file, want, _ in rules:
+                for m in ref.finditer(line):
+                    if name != file or job != want:
+                        print(f"{name}:{n}: {m.group(0)} referenced in job {job or '<none>'} (only {file} job {want})")
+                    else:
+                        used.add(want)
+    for _, file, want, needs_env in rules:
+        if name == file and want in used and needs_env and not env.get(want):
+            print(f"{name}: job {want} uses platform signing secrets without `environment: release`")
+PY
+)
+for f in "${findings[@]}"; do
+  [[ -n "$f" ]] || continue
+  echo "error: $f (signing secrets stay in their signing job, ADR-0018 A1-A2)" >&2; rc=1
 done
 
 ((rc == 0)) && echo "lint-workflows: ok ($DIR)"

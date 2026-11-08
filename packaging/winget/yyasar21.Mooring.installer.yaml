@@ -1,7 +1,11 @@
-# Template, not yet submitted. Render @VERSION@/@SHA256_MSI@/@SHA256_NSIS@ from the release's
-# SHA256SUMS, then submit with `wingetcreate submit` or a PR to microsoft/winget-pkgs under
-# manifests/y/yyasar21/Mooring/<version>/. winget requires Authenticode-signed installers in
-# practice (SmartScreen + validation pipeline), so submit only after Windows signing is live.
+# Template (ADR-0018 A2). scripts/release/winget/render.py fills @VERSION@, @RELEASE_DATE@,
+# @SHA256_NSIS@, @SHA256_MSI@ (from the release's cosign-verified SHA256SUMS) and
+# @MSI_PRODUCT_CODE@ (msiinfo on the hash-checked .msi; the line is dropped without one), and
+# drops these comment lines. .github/workflows/release-winget.yml submits the result to
+# microsoft/winget-pkgs (manifests/y/yyasar21/Mooring/<version>/) only for Authenticode-signed
+# installers. Install-source marker: the NSIS installer gets `/MOORING_INSTALL_SOURCE=winget`;
+# NSIS ignores switches it does not know, so it is inert until the installer hook that writes
+# the marker lands (docs/handoff/a5-release-a5.md, ManualReason::Winget).
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
 PackageIdentifier: yyasar21.Mooring
 PackageVersion: "@VERSION@"
@@ -13,6 +17,8 @@ Installers:
     Scope: user
     InstallerUrl: https://github.com/yyasar21/Mooring/releases/download/v@VERSION@/Mooring_@VERSION@_x64-setup.exe
     InstallerSha256: "@SHA256_NSIS@"
+    InstallerSwitches:
+      Custom: /MOORING_INSTALL_SOURCE=winget
     UpgradeBehavior: install
   - Architecture: x64
     InstallerType: wix

@@ -206,8 +206,18 @@ the vault or storage format; the CHANGELOG says so and includes the migration.
    - **build** (6 runners in parallel): macOS arm64/x64/universal on `macos-14`, Windows x64 on
      `windows-2022`, Linux x64 on `ubuntu-22.04` and arm64 on `ubuntu-22.04-arm`. `tauri-action`
      builds the bundles; macOS jobs add the `.pkg`, the universal one also the updater archive
-     of the `.app` and the portable zip; the Windows job adds its portable zip. Each platform
-     signing step runs only if its secrets exist. The build never holds the updater key;
+     of the `.app` and the portable zip; the Windows job adds its portable zip. The build holds
+     no platform signing secret and never the updater key: macOS comes out ad-hoc signed,
+     Windows unsigned;
+   - **sign + notarize** / **Authenticode** (only when the repository variables
+     `MACOS_SIGNING` / `WINDOWS_SIGNING` are `true`; otherwise skipped, without an approval
+     prompt): in the `release` environment, `sign-macos` Developer-ID-signs the `.app`
+     (hardened runtime, `packaging/macos/entitlements.plist`), notarizes and staples it,
+     puts it back into the same `.dmg` (signed, notarized, stapled) and rebuilds the `.pkg`,
+     updater archive and portable zip from it (`scripts/release/macos-sign.sh`);
+     `sign-windows` signs `Mooring.exe` with Azure Artifact Signing (or a `.pfx` via signtool),
+     bundles the NSIS and MSI installers around it with the pinned Tauri CLI (no compile) and
+     signs those. The signed files replace the build's under the same names;
    - **sign updater artifacts**: waits for the owner's approval of the `release` environment,
      then signs the updater archive, the Windows per-user installer and the AppImages with the
      Tauri CLI (pinned, checksum-verified) and the environment's `TAURI_SIGNING_PRIVATE_KEY`.
@@ -220,7 +230,10 @@ the vault or storage format; the CHANGELOG says so and includes the migration.
 4. Review the draft: notes (edit freely), asset list, the job summaries ("signed: true/false").
    Run `scripts/release/verify-release.sh vx.y.z`, then install it on at least one machine.
 5. Click **Publish release**. That triggers `release-homebrew.yml`, which re-verifies
-   `SHA256SUMS` and pushes the new Cask to `yyasar21/homebrew-mooring`.
+   `SHA256SUMS` and pushes the new Cask to `yyasar21/homebrew-mooring`, and
+   `release-winget.yml`, which renders and validates the winget manifests for
+   `yyasar21.Mooring` (workflow artifact `winget-manifests`) and, only with `WINGET_TOKEN` and
+   Authenticode-signed installers, opens the pull request to `microsoft/winget-pkgs`.
 
 To fix a failed build, re-run the failed jobs from the Actions page, or run the workflow
 manually **from the tag** (Use workflow from → Tags → `vx.y.z`, with the same tag as input); a
@@ -230,25 +243,39 @@ GitHub pre-releases and skip Homebrew.
 
 ## Secrets and variables
 
-Configure under Settings → Secrets and variables → Actions, except the two updater secrets,
-which belong to the **environment `release`** (Settings → Environments). Each one is optional:
-without it the matching step is skipped and the build stays unsigned, so forks work as-is.
+Configure under Settings → Secrets and variables → Actions, except the updater and platform
+signing secrets, which belong to the **environment `release`** (Settings → Environments; a
+repository secret of the same name must not exist). Each one is optional: without it the
+matching job or step is skipped and the build stays unsigned, so forks work as-is.
+
+### Switching on platform signing (ADR-0018 A1)
+1. Create the environment secrets below (macOS: certificate trio + one notarization set;
+   Windows: the Azure trio + the three `AZURE_SIGNING_*` variables, or the `.pfx` pair).
+2. Set the repository variable `MACOS_SIGNING` and/or `WINDOWS_SIGNING` to `true`.
+3. Dry run on an `-rc` tag, then `verify-release.sh` and `codesign -dv` / `spctl -a -vv` on the
+   `.app`, `Get-AuthenticodeSignature` on the installers.
+
+`MACOS_SIGNING=true` also compiles the macOS builds with `--cfg mooring_signed_build` (Touch ID,
+ADR-0022), so with it set an incomplete Apple secret set fails the release instead of shipping
+that binary ad-hoc signed. `WINDOWS_SIGNING=true` with an incomplete set only adds a notice.
 
 | Name | Kind | Used for |
 | --- | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY` | **environment secret** (`release`) | Updater signatures + `latest.json`. Generate with `pnpm tauri signer generate -w mooring-updater.key`; the content of the file, not the path. Never a repository secret: only the `sign-updater` job, gated by the environment's required reviewer and its `v*` tag policy, may read it. |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | **environment secret** (`release`) | Password of that key; create the secret with an empty value for a key without one |
-| `APPLE_CERTIFICATE` | secret | Base64 of the "Developer ID Application" `.p12` (`openssl base64 -A -in cert.p12`) |
-| `APPLE_CERTIFICATE_PASSWORD` | secret | `.p12` export password |
-| `APPLE_SIGNING_IDENTITY` | secret | e.g. `Developer ID Application: Yunus Yaşar (TEAMID)` |
-| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | secret | Notarization with an app-specific password. All three or none: ID + password without team ID fails the build. |
-| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` | secret | Alternative notarization with an App Store Connect API key (key id, issuer id, content of `AuthKey_<id>.p8`) |
-| `APPLE_INSTALLER_CERTIFICATE`, `APPLE_INSTALLER_CERTIFICATE_PASSWORD`, `APPLE_INSTALLER_SIGNING_IDENTITY` | secret | "Developer ID Installer" certificate for signing the `.pkg` |
-| `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | secret | Windows signing with Azure Artifact Signing (formerly Trusted Signing), preferred |
+| `MACOS_SIGNING`, `WINDOWS_SIGNING` | **variable** | `true` switches on `sign-macos` / `sign-windows`; unset = inert (no approval prompt, unsigned as before) |
+| `APPLE_CERTIFICATE` | **environment secret** (`release`) | Base64 of the "Developer ID Application" `.p12` (`openssl base64 -A -in cert.p12`) |
+| `APPLE_CERTIFICATE_PASSWORD` | **environment secret** (`release`) | `.p12` export password |
+| `APPLE_SIGNING_IDENTITY` | **environment secret** (`release`) | e.g. `Developer ID Application: Yunus Yaşar (TEAMID)` |
+| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` | **environment secret** (`release`) | Notarization with an App Store Connect API key (key id, issuer id, content of `AuthKey_<id>.p8`), preferred |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | **environment secret** (`release`) | Alternative notarization with an app-specific password; all three or none |
+| `APPLE_INSTALLER_CERTIFICATE`, `APPLE_INSTALLER_CERTIFICATE_PASSWORD`, `APPLE_INSTALLER_SIGNING_IDENTITY` | **environment secret** (`release`) | "Developer ID Installer" certificate for signing (and notarizing) the `.pkg`; without it the `.pkg` stays unsigned |
+| `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` | **environment secret** (`release`) | Windows signing with Azure Artifact Signing (formerly Trusted Signing), preferred |
 | `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE` | **variable** | Artifact Signing endpoint URL, account name, certificate profile |
-| `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | secret | Alternative: base64 `.pfx` OV code-signing certificate (ignored when Azure is set) |
+| `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | **environment secret** (`release`) | Alternative: base64 `.pfx` OV code-signing certificate (ignored when the Azure set is complete) |
 | `TAURI_SIGNING_RPM_KEY`, `TAURI_SIGNING_RPM_KEY_PASSPHRASE` | secret | ASCII-armored GPG key to sign the `.rpm` |
 | `HOMEBREW_TAP_TOKEN` | secret | Fine-grained PAT, repository `yyasar21/homebrew-mooring` only, Contents read/write |
+| `WINGET_TOKEN` | secret | PAT that opens the winget-pkgs PR from the owner's fork: classic `public_repo`, or fine-grained on the fork (Contents + Pull requests read/write). Read only by `release-winget.yml`'s `submit` job |
 
 The Sigstore signature and the provenance attestations need no secret: they use the workflow's
 short-lived OIDC token (`id-token: write`, finalize job only).
