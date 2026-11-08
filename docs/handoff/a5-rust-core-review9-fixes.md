@@ -19,26 +19,12 @@ Spec: [review 9](../security/a5-review-9.md) (M-19, L-47..L-52, L-54, N-72..N-77
 | L-52 import trust | `e02983f` | `commands/vault_import_trust.rs::guard` before the merge: imported lines (known_hosts and every `known_*_certs`) naming a `host:port` this device already pins are dropped and reported as `{ kind: "trust", id: "<host:port>", name: "<trust file>", resolution: "kept_local" }`; `ImportReport.trustAdded` counts the lines that are added. Lines are hashed, so hosts are matched over the `host:port` of every connection on either side (port or protocol default). New `KnownHosts::has_entry` | `vault_import_tests` `merge_import_never_adds_trust_for_a_pinned_host` (ECDSA for an Ed25519-pinned host and a second RDP cert pin are dropped and reported; the unpinned host's key is added; afterwards the ECDSA key is a `Mismatch`, one distinct cert pin) |
 | N-74 winget marker | `ae5b19f` | `symlink_metadata` first; a non-file, symlink or reparse point (`dirs::is_link`, now `pub(crate)`) is not a marker | `winget_tests` `a_linked_marker_is_not_a_marker` (`#[cfg(unix)]`) |
 | N-77 biometric service | `ae5b19f` | `biometric::SERVICE = build_identity::EFFECTIVE_IDENTIFIER` (release value unchanged, so no enrolment moves; dev builds get the dev identifier) | `service_is_the_build_identifier` |
+| L-40 manifest cap | follow-up commit `fix(updater): bounded latest.json fetch` | `updater/manifest.rs`: own reqwest client (`=0.13.5`, `rustls-no-provider` + `system-proxy`, the features the plugin already enables; ring installed as rustls default), `https_only`, OS / env proxy honoured, at most 5 redirects, 30 s for the whole exchange; the body is read chunk by chunk and refused with `update.manifest` past `MANIFEST_CAP` (64 KiB) or on a declared `Content-Length` over it; `204` = no update. `PluginSource::check_inner` passes the JSON to `Updater::restore_update` (same target / comparator, `require_signed_version` forced; the package signature check is unchanged). Endpoint = `plugins.updater.endpoints[0]`, plain `https` only (templates refused). New edges `reqwest`, `rustls` in `src-tauri/Cargo.toml` (orchestrator decision); `Cargo.lock` gains only the two edge lines | `updater::manifest` tests against a local server named `updates.example.test`: normal manifest through a redirect; oversize declared / streamed (1x and 8x the cap) → `update.manifest`; 204 → none; redirect loop → `update.network`; endpoint validation |
 | L-54 winget token | `368321c` | `release-winget.yml` `submit` job: `environment: release` (header comment: tag-only environment secret, dispatch from the tag); `lint-workflows.sh` rule 7 requires the environment on the job; `docs/release.md` secrets table | `lint-workflows.test.sh` new negative case (submit without the environment); real workflows lint ok |
 | N-75 codesign requirement | `368321c` | `macos-sign.sh` takes the team id from `APPLE_SIGNING_IDENTITY` (`… (<TEAMID>)`, 10 chars, must match `APPLE_TEAM_ID` when set) and verifies the `.app` and the `.dmg` with `codesign --verify -R=` a Developer ID requirement naming that team. (The review row also names `install_location.rs`'s copy check; that one waits for Developer ID as the row says) | `macos-sign.test.sh`: team printed in the dry run; identity without a team and a different `APPLE_TEAM_ID` refused |
 
 ## Left open
 
-- **L-40 (manifest cap) — not fixed; decision needed.** The manifest is fetched by
-  `tauri-plugin-updater`'s own `reqwest` client (`res.json()`, no cap); `configure_client` is
-  the only hook and gives no body limit or client handle. A bounded fetch needs our own client
-  plus `Updater::restore_update(raw_json)` (which keeps `require_signed_version`). Two ways,
-  both outside this round's rules:
-  1. a direct `reqwest` edge in `src-tauri/Cargo.toml` (0.13.5, already in `Cargo.lock` via the
-     plugin, same features → no new crate): chunked read capped at `MANIFEST_CAP`, same
-     `https_only` / user agent / 30 s timeout, **keeps the OS / env proxy** the plugin honours.
-     Needs orchestrator + security-reviewer approval of the new edge ("no new dependency").
-  2. `mooring-http` (no new edge) with a new `RedirectPolicy` that returns the 3xx so the
-     `github.com` → `release-assets.githubusercontent.com` hop can be followed against a host
-     allow-list. It has **no proxy support**, so update checks would break behind a mandatory
-     proxy (the download still goes through the plugin) — a behaviour change I did not want to
-     take alone.
-  Recommendation: (1). Otherwise R-UPD needs the written extension with a new expiry.
 - **L-53** (export/import dialogs in React state): UI, not in this round.
 - **N-76** (winget `Get-AuthenticodeSignature` accepts any trusted signer): note only. Fix when
   the Trusted Signing publisher is known: compare `$sig.SignerCertificate.Subject` with a
@@ -57,7 +43,7 @@ Spec: [review 9](../security/a5-review-9.md) (M-19, L-47..L-52, L-54, N-72..N-77
 
 ## Decision needed
 
-- L-40: approve the `reqwest` direct edge (option 1) or extend R-UPD in writing.
+None (L-40: the orchestrator chose the `reqwest` route, implemented below).
 
 ## Test evidence
 

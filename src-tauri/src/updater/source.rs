@@ -5,8 +5,9 @@
 //!
 //! 1. `plugins.updater.pubkey` is compiled into the binary (release-engineer, `tauri.conf.json`).
 //! 2. `latest.json` is fetched over HTTPS from the configured endpoint; it is **not** signed,
-//!    so it can only name a version, a URL and a signature. Its parsed body is bounded by
-//!    [`download::MANIFEST_CAP`] and the URL must sit under
+//!    so it can only name a version, a URL and a signature. It is read by our own client
+//!    ([`super::manifest`], review 9 L-40) and refused in flight past
+//!    [`download::MANIFEST_CAP`]; the URL must sit under
 //!    [`download::RELEASE_DOWNLOAD_PREFIX`] for the offered version (review 7 L-40).
 //! 3. The asset is downloaded through [`download::capped`] (256 MiB, 10 min) and
 //!    `Update::verify` checks the minisign signature of the bytes against the pubkey; a
@@ -149,13 +150,13 @@ impl PluginSource {
     /// (L-39), the manifest cap applied (L-40).
     async fn check_inner(&self) -> Result<Option<tauri_plugin_updater::Update>, SourceError> {
         let updater = self.updater()?;
-        let Some(update) = updater.check().await.map_err(|e| map_err(&e))? else {
+        // L-40: our own capped fetch instead of `Updater::check` (which reads the body
+        // unbounded); `restore_update` applies the same target and comparator and sets
+        // `require_signed_version` on the result unconditionally.
+        let Some(raw) = super::manifest::fetch_configured(&self.app.config().plugins).await? else {
             return Ok(None);
         };
-        download::manifest_within_cap(&update.raw_json)?;
-        // `restore_update` applies the same target and comparator and sets
-        // `require_signed_version` on the result unconditionally.
-        updater.restore_update(update.raw_json).map_err(|e| map_err(&e))
+        updater.restore_update(raw).map_err(|e| map_err(&e))
     }
 }
 

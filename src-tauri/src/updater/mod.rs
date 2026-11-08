@@ -14,6 +14,7 @@
 pub mod background;
 pub mod download;
 pub mod install_mode;
+pub mod manifest;
 pub mod notes;
 pub mod source;
 

@@ -4,7 +4,8 @@
 //! an asset name of `[A-Za-z0-9._-]+`), and the download itself is read through
 //! [`capped`]: at most [`PACKAGE_CAP`] bytes (declared or counted), per-chunk accounting,
 //! one [`DOWNLOAD_DEADLINE`] for the whole transfer. The manifest body is bounded by
-//! [`MANIFEST_CAP`] after parsing ([`manifest_within_cap`]).
+//! [`MANIFEST_CAP`] while it is read (`super::manifest`, L-40) and again after parsing
+//! ([`manifest_within_cap`]).
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
