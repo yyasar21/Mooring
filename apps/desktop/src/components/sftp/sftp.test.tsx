@@ -14,8 +14,10 @@ async function browser(opts: MockOptions = {}) {
   return { mock, sessionId };
 }
 
-const list = () => screen.getByRole("listbox", { name: /^Remote files in / });
-const option = (name: string) => within(list()).getByRole("option", { name: new RegExp(`^${name.replace(".", "\\.")},`) });
+// M5: the listing is a grid; its rows keep the names the listbox options had.
+const list = () => screen.getByRole("grid", { name: /^Remote files in / });
+const option = (name: string) => within(list()).getByRole("row", { name: new RegExp(`^${name.replace(".", "\\.")},`) });
+const entries = () => within(list()).getAllByRole("row").slice(1);
 
 async function openOps() {
   fireEvent.doubleClick(option("ops"));
@@ -26,12 +28,13 @@ describe("SftpPanel · remote pane", () => {
   it("lists folders first and navigates with the keyboard", async () => {
     await browser();
     expect(list()).toHaveAccessibleName("Remote files in /home");
-    act(() => { list().focus(); });
+    act(() => { entries()[0]?.focus(); });
     expect(option("ops")).toHaveAttribute("aria-selected", "true");
+    expect(list().querySelectorAll("tbody tr[tabindex='0']")).toHaveLength(1);
     fireEvent.keyDown(list(), { key: "Enter" });
     await settle();
     expect(list()).toHaveAccessibleName("Remote files in /home/ops");
-    const names = within(list()).getAllByRole("option").map((o) => o.getAttribute("aria-label"));
+    const names = entries().map((o) => o.getAttribute("aria-label"));
     expect(names.slice(0, 4)).toEqual(["empty, folder", "logs, folder", "releases, folder", "current, link"]);
     expect(names).toContain("README.md, 1.3 KiB");
     expect(within(list()).getByText("-rwxr-xr-x")).toBeInTheDocument();
@@ -57,8 +60,7 @@ describe("SftpPanel · remote pane", () => {
     await settle();
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    fireEvent.mouseDown(option("backups"));
-    act(() => { list().focus(); });
+    fireEvent.click(option("backups"));
     fireEvent.keyDown(list(), { key: "F2" });
     dialog = screen.getByRole("dialog", { name: "Rename" });
     fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "archive" } });
@@ -78,8 +80,7 @@ describe("SftpPanel · remote pane", () => {
   it("explains why a non-empty folder cannot be deleted", async () => {
     await browser();
     await openOps();
-    fireEvent.mouseDown(option("logs"));
-    act(() => { list().focus(); });
+    fireEvent.click(option("logs"));
     fireEvent.keyDown(list(), { key: "Delete" });
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
     await settle();
@@ -91,7 +92,7 @@ describe("SftpPanel · transfers", () => {
   it("downloads through the picked folder and shows progress to done", async () => {
     await browser();
     await openOps();
-    fireEvent.mouseDown(option("README.md"));
+    fireEvent.click(option("README.md"));
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     await until(() => useTransfers.getState().items[0]?.state === "done");
     await settle();
@@ -115,7 +116,7 @@ describe("SftpPanel · transfers", () => {
   it("cancels a running transfer", async () => {
     await browser({ transferStepMs: 40 });
     await openOps();
-    fireEvent.mouseDown(option("README.md"));
+    fireEvent.click(option("README.md"));
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     await until(() => useTransfers.getState().items[0]?.state === "running");
     fireEvent.click(screen.getByRole("button", { name: "Cancel README.md" }));
@@ -128,7 +129,7 @@ describe("SftpPanel · transfers", () => {
     const { mock } = await browser();
     mock.failTransfers = true;
     await openOps();
-    fireEvent.mouseDown(option("README.md"));
+    fireEvent.click(option("README.md"));
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     await until(() => useTransfers.getState().items[0]?.state === "failed");
     await settle();
@@ -144,7 +145,7 @@ describe("SftpPanel · transfers", () => {
     mock.sftpPickLocal = (a) => { asked.push(a); return real(a); };
     expect(screen.queryByRole("button", { name: /Choose download folder/ })).toBeNull();
     await openOps();
-    fireEvent.mouseDown(option("README.md"));
+    fireEvent.click(option("README.md"));
     mock.picks.queue.push(null); // the user cancels the first dialog
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     await settle();
@@ -165,7 +166,7 @@ describe("SftpPanel · transfers", () => {
     const real = mock.sftpDownload;
     mock.sftpDownload = (a) => { sent.push({ pick: a.pick, overwrite: a.overwrite }); return real(a); };
     await openOps();
-    fireEvent.mouseDown(option("README.md"));
+    fireEvent.click(option("README.md"));
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     await settle();
     let dialog = screen.getByRole("dialog", { name: "Replace README.md?" });
@@ -189,7 +190,7 @@ describe("SftpPanel · transfers", () => {
 
   it("disables Download for folders", async () => {
     await browser();
-    fireEvent.mouseDown(option("ops"));
+    fireEvent.click(option("ops"));
     expect(screen.getByRole("button", { name: "Download" })).toBeDisabled();
   });
 });

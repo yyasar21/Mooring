@@ -180,10 +180,8 @@
 .palette-group { padding: var(--s3) var(--s4) var(--s1); }
 
 /* ---------- audit log ---------- */
-.audit-row { display: grid; grid-template-columns: 64px 168px 180px 1fr; gap: var(--s3); align-items: baseline; padding: 8px var(--s6); }
-.audit-row + .audit-row { border-top: 1px solid var(--border); }
-.audit-head { background: var(--surface-2); }
-.audit-head > span { font: 500 var(--fs-12)/16px var(--font-sans); color: var(--text-2); }
+.audit-table { min-height: 0; }
+.audit-table .dt th:first-child, .audit-table .dt td:first-child { padding-left: var(--s6); }
 .audit-event { display: inline-flex; align-items: center; gap: var(--s2); }
 .audit-event::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--border-input); }
 .audit-event[data-tone="hot"], .audit-event[data-tone="danger"] { color: var(--danger); }

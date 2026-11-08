@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ConnectionSummary, KubeExecCommand, PodTarget } from "../../lib/ipc";
+import { DataTable, type DataColumn } from "@mooring/ui";
+import type { ConnectionSummary, KubeExecCommand, PodSummary, PodTarget } from "../../lib/ipc";
 import { useCredentials } from "../../stores/credentials";
 import { openExec, openLogs, useKube } from "../../stores/kube";
 import { useSessions, type Tab } from "../../stores/sessions";
@@ -11,6 +12,22 @@ import { useCluster, useKubeOptions } from "./useCluster";
 import { CLOSE_TEXT } from "../remote/ConnectionBanner";
 
 type View = "pods" | "forwards";
+
+/** M5: the pod list as a sortable grid; a row's name stays its cells' text (e2e `row /pod/`). */
+const POD_COLUMNS: DataColumn<PodSummary>[] = [
+  { id: "name", header: "Name", width: "34%", className: "mono", cell: (p) => p.name, sortValue: (p) => p.name },
+  {
+    id: "status", header: "Status", width: "112px", sortValue: (p) => podStatus(p).label,
+    cell: (p) => { const st = podStatus(p); return <span className="chip" data-tone={st.tone}>{st.label}</span>; },
+  },
+  { id: "ready", header: "Ready", width: "72px", numeric: true, className: "mono", cell: readyCount, sortValue: (p) => p.containers.filter((c) => c.ready).length },
+  {
+    id: "restarts", header: "Restarts", width: "92px", numeric: true, className: "mono", sortValue: restartCount,
+    cell: (p) => <span data-hot={restartCount(p) >= 3 || undefined}>{restartCount(p)}</span>,
+  },
+  { id: "node", header: "Node", className: "mono text-text-muted", cell: (p) => p.node ?? "—", sortValue: (p) => p.node ?? "" },
+  { id: "age", header: "Age", width: "64px", numeric: true, className: "mono text-text-muted", cell: (p) => age(p.createdAt), sortValue: (p) => -(Date.parse(p.createdAt) || 0) },
+];
 
 /**
  * The cluster tab of a Kubernetes connection (ADR-0014): contexts → namespaces → pods →
@@ -116,33 +133,21 @@ export function ClusterBrowser({ tab, connection }: { tab: Tab; connection: Conn
           <div className="kube-main">
             <div className="kube-search">
               <input type="search" className="field" aria-label="Search pods" placeholder="Search pods, nodes, images" value={query} onChange={(e) => { setQuery(e.target.value); }} />
-              <span className="chip tnum" title="Pods shown / in this namespace">{shown.length} / {cluster.pods.length}</span>
+              <span className="chip tnum" title="Pods shown of the pods in this namespace">{shown.length} of {cluster.pods.length} pods</span>
             </div>
             {cluster.error && <p role="alert" className="tool-error">{cluster.error}</p>}
             {cluster.access && !cluster.access.listPods && <p className="tool-empty">The token may not list pods in {ns}.</p>}
-            <div role="table" aria-label="Pods" className="kube-table">
-              <div role="row" className="kube-row kube-row-head">
-                <span role="columnheader">Name</span><span role="columnheader">Status</span><span role="columnheader">Ready</span>
-                <span role="columnheader">Restarts</span><span role="columnheader">Node</span><span role="columnheader">Age</span>
-              </div>
-              {shown.map((p) => {
-                const st = podStatus(p);
-                return (
-                  <div key={p.name} role="row" className="kube-row" aria-selected={p.name === selected} tabIndex={0}
-                    onClick={() => { setSelected(p.name); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(p.name); } }}>
-                    <span role="cell" className="mono truncate">{p.name}</span>
-                    <span role="cell"><span className="chip" data-tone={st.tone}>{st.label}</span></span>
-                    <span role="cell" className="mono tnum">{readyCount(p)}</span>
-                    <span role="cell" className="mono tnum" data-hot={restartCount(p) >= 3 || undefined}>{restartCount(p)}</span>
-                    <span role="cell" className="mono truncate text-text-muted">{p.node ?? "—"}</span>
-                    <span role="cell" className="mono tnum text-text-muted">{age(p.createdAt)}</span>
-                  </div>
-                );
-              })}
-              {shown.length === 0 && !cluster.loading && cluster.access?.listPods && (
-                <div role="row" className="fw-row-empty"><span role="cell">{query ? "No pod matches the search." : "No pods in this namespace."}</span></div>
-              )}
-            </div>
+            <DataTable
+              label="Pods"
+              className="kube-table"
+              columns={POD_COLUMNS}
+              rows={shown}
+              rowKey={(p) => p.name}
+              selected={selected}
+              onSelect={(name) => { setSelected(name); }}
+              defaultSort={{ column: "name", dir: "ascending" }}
+              {...(!cluster.loading && cluster.access?.listPods ? { empty: query ? "No pod matches the search." : "No pods in this namespace." } : {})}
+            />
             {cluster.podsTruncated && <p className="field-hint px-3">The pod list is cut at 5 000. Narrow it with the search.</p>}
           </div>
         )}

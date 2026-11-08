@@ -11,6 +11,7 @@ import { hasNetworkCard, NetworkCard } from "./NetworkCard";
 import { ImportWizard } from "../vsphere/ImportWizard";
 import { SyncPanel } from "../vsphere/SyncPanel";
 import { VmPanel } from "../vsphere/VmPanel";
+import { VmTable } from "../vsphere/VmTable";
 import { SyncBadge } from "../vsphere/SyncBadge";
 import { isSyncedVm, isVcenter, READONLY_REASON, sourceName, syncedRootOf } from "../vsphere/vsphere";
 
@@ -193,6 +194,7 @@ function FolderDetails({ f }: { f: Folder }) {
         </section>
       )}
       {vcenter && !f.externalId && <SyncPanel vcenter={vcenter} />}
+      {vcenter && !f.externalId && <VmTable vcenterId={vcenter.id} rootId={f.id} />}
       <section className="readout-section">
         <HudLabel>Folder</HudLabel>
         <dl className="prop-grid">

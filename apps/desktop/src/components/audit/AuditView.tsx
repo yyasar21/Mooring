@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DataTable, type DataColumn } from "@mooring/ui";
 import { ipc, type AuditEntry, type AuditVerify } from "../../lib/ipc";
 import { errorText } from "../../stores/errors";
 import { useTree } from "../../stores/tree";
@@ -100,6 +101,16 @@ export function AuditView() {
     );
   }, [entries, filter, describe]);
 
+  const columns = useMemo<DataColumn<AuditEntry>[]>(() => [
+    { id: "seq", header: "#", width: "72px", numeric: true, className: "mono text-text-faint", cell: (e) => e.seq, sortValue: (e) => e.seq },
+    { id: "at", header: "Time (local)", width: "176px", className: "mono tnum text-text-muted", cell: (e) => <time dateTime={e.at}>{formatTime(e.at)}</time>, sortValue: (e) => e.seq },
+    {
+      id: "event", header: "Event", width: "30%", sortValue: (e) => EVENT_LABEL[e.event] ?? e.event,
+      cell: (e) => <span className="audit-event" data-tone={e.details.decision === "rejected" ? "hot" : undefined}>{EVENT_LABEL[e.event] ?? e.event}</span>,
+    },
+    { id: "details", header: "Details", className: "mono text-text-muted select-text", cell: (e) => <span title={describe(e)}>{describe(e)}</span> },
+  ], [describe]);
+
   return (
     <section aria-label="Audit log" className="flex h-full min-w-0 flex-col bg-bg">
       <header className="flex h-[52px] flex-none items-center gap-3 border-b border-line bg-bg-sunken px-4">
@@ -117,30 +128,22 @@ export function AuditView() {
         </button>
       </header>
       {error && <p role="alert" className="bg-danger-soft px-4 py-1.5 text-danger">{error}</p>}
-      <div className="audit-row audit-head border-b border-line-strong py-2" aria-hidden>
-        <span className="text-right">#</span>
-        <span>Time (local)</span>
-        <span>Event</span>
-        <span>Details</span>
-      </div>
-      <ol aria-label="Entries, newest first" className="min-h-0 flex-1 overflow-y-auto pb-6">
-        {shown.map((e) => (
-          <li key={e.seq} className="audit-row">
-            <span className="mono tnum text-right text-text-faint">{e.seq}</span>
-            <time className="mono tnum text-text-muted" dateTime={e.at}>{formatTime(e.at)}</time>
-            <span className="audit-event" data-tone={e.details.decision === "rejected" ? "hot" : undefined}>{EVENT_LABEL[e.event] ?? e.event}</span>
-            <span className="mono truncate text-text-muted select-text" title={describe(e)}>{describe(e)}</span>
-          </li>
-        ))}
-        {shown.length === 0 && <li className="px-4 py-8 text-center text-text-faint">{filter ? "No entry matches the filter." : "No entries yet."}</li>}
-        {more && (
-          <li className="px-4 pt-3">
+      <DataTable
+        label="Entries, newest first"
+        className="audit-table flex-1"
+        columns={columns}
+        rows={shown}
+        rowKey={(e) => String(e.seq)}
+        defaultSort={{ column: "seq", dir: "descending" }}
+        empty={filter ? "No entry matches the filter." : "No entries yet."}
+        footer={more && (
+          <div className="px-4 py-3">
             <button type="button" className="btn" onClick={() => void load(entries.at(-1)?.seq ?? null)}>
               Load older entries
             </button>
-          </li>
+          </div>
         )}
-      </ol>
+      />
     </section>
   );
 }

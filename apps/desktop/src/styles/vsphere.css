@@ -58,3 +58,4 @@
 
 .vs-choices { margin: 0; padding: 0 0 0 16px; font-size: var(--fs-13); color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
 .vs-choices strong { color: var(--text); font-weight: 600; }
+.vs-table { max-height: 320px; margin-top: 8px; border: 1px solid var(--border); border-radius: var(--r-m); }

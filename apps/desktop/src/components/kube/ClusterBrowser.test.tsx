@@ -175,7 +175,7 @@ describe("ClusterBrowser", () => {
     mock.vault = "unlocked";
     act(() => { fireEvent.click(screen.getByRole("button", { name: "Reconnect" })); });
     await settle(5);
-    expect(screen.getByRole("table", { name: "Pods" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "Pods" })).toBeInTheDocument();
   });
 });
 

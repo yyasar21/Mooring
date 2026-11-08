@@ -17,7 +17,7 @@ describe("AuditView labels (ADR-0021 rows)", () => {
     );
     render(<AuditView />);
     await settle();
-    const rows = within(screen.getByRole("list", { name: "Entries, newest first" })).getAllByRole("listitem");
+    const rows = within(screen.getByRole("table", { name: "Entries, newest first" })).getAllByRole("row").slice(1);
     expect(rows[0]).toHaveTextContent("Portable data folder: owner-only ACL could not be applied (FAT/exFAT or policy)");
     expect(rows[1]).toHaveTextContent("Application started");
     expect(rows[1]).toHaveTextContent("portable: true");
@@ -36,7 +36,7 @@ describe("AuditView labels (ADR-0021 rows)", () => {
     expect(mock.audit.filter((e) => e.event === "forward_refused")).toHaveLength(1);
     render(<AuditView />);
     await settle();
-    const rows = within(screen.getByRole("list", { name: "Entries, newest first" })).getAllByRole("listitem");
+    const rows = within(screen.getByRole("table", { name: "Entries, newest first" })).getAllByRole("row").slice(1);
     expect(rows[0]).toHaveTextContent("Web proxy refused a destination outside the allowed origins");
     expect(rows[0]).toHaveTextContent("tracker.example.test:443");
     for (const t of useSessions.getState().tabs) await act(async () => { await useSessions.getState().close(t.id); });

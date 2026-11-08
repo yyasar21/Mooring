@@ -5,3 +5,4 @@ export { Icon, type IconName } from "./Icon";
 export { MooringLine, StateDot, dotTone, type DotTone, type LineState } from "./MooringLine";
 export { HudLabel } from "./Hud";
 export { BrandMark } from "./BrandMark";
+export { DataTable, sortRows, type DataColumn, type DataTableProps, type SortDir, type SortState } from "./DataTable";

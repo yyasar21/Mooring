@@ -164,14 +164,14 @@ describe("audit viewer", () => {
     await act(async () => { await useCredentials.getState().copySecret("cr-ad", "password"); });
     act(() => { useUi.getState().setView("audit"); });
     await settle();
-    const list = screen.getByRole("list", { name: "Entries, newest first" });
-    const items = within(list).getAllByRole("listitem");
+    const list = screen.getByRole("table", { name: "Entries, newest first" });
+    const items = within(list).getAllByRole("row").slice(1);
     expect(items[0]).toHaveTextContent("Secret copied");
     expect(items[0]).toHaveTextContent("domain admin");
     expect(screen.getByRole("status")).toHaveTextContent(/Chain intact/);
 
     fireEvent.change(screen.getByLabelText("Filter audit entries"), { target: { value: "closed" } });
-    const filtered = within(list).getAllByRole("listitem");
+    const filtered = within(list).getAllByRole("row").slice(1);
     expect(filtered).toHaveLength(1);
     expect(filtered[0]).toHaveTextContent("Session closed");
   });

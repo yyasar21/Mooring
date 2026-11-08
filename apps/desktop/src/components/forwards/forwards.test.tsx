@@ -131,7 +131,7 @@ describe("SSH tab tools", () => {
     fireEvent.click(within(bar).getByRole("button", { name: "Files" }));
     expect(await screen.findByRole("region", { name: "Files" })).toBeInTheDocument();
     await settle();
-    expect(screen.getByRole("listbox", { name: "Remote files in /home" })).toBeInTheDocument();
+    expect(screen.getByRole("grid", { name: "Remote files in /home" })).toBeInTheDocument();
     fireEvent.click(within(bar).getByRole("button", { name: "Terminal" }));
     expect(screen.queryByRole("region", { name: "Port forwards" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Files" })).toBeNull();

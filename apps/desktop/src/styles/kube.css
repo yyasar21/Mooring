@@ -42,17 +42,7 @@
 
 .kube-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .kube-table { flex: 1; min-height: 0; overflow-y: auto; }
-.kube-row {
-  display: grid; grid-template-columns: minmax(140px, 2.4fr) 104px 48px 64px minmax(0, 1fr) 40px; gap: 10px; align-items: center;
-  min-height: 32px; padding: 0 12px; font-size: var(--fs-13); cursor: default; position: relative;
-}
-.kube-row + .kube-row { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-.kube-row-head { min-height: 30px; border-bottom: 1px solid var(--border-strong); position: sticky; top: 0; background: var(--surface); z-index: 1; }
-.kube-row-head > span { font: 500 var(--fs-11)/1 var(--font-sans); color: var(--text-3); }
-.kube-row:not(.kube-row-head):hover { background: var(--accent-subtle); }
-.kube-row[aria-selected="true"] { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
-.kube-row:focus-visible { outline: none; box-shadow: var(--focus); }
-.kube-row [data-hot] { color: var(--danger); }
+.kube-table [data-hot] { color: var(--danger); }
 
 .kube-exec-cmd { display: grid; gap: 2px; }
 .kube-containers { display: flex; flex-direction: column; gap: 8px; }
@@ -87,6 +77,5 @@
   .kube-detail .kube-containers { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 }
 @container kube (max-width: 720px) {
-  .kube-row { grid-template-columns: minmax(120px, 1fr) 96px 44px 56px; }
-  .kube-row > :nth-child(n + 5) { display: none; }
+  .kube-table .dt :is(col, th, td):nth-child(n + 5) { display: none; }
 }
