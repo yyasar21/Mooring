@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { PendingPrompt } from "../../stores/sessions";
 import { useSessions } from "../../stores/sessions";
 import { isAccountError, parseAccount } from "../../lib/credentials";
+import { DecisionActions, TrustDialog } from "../dialogs/TrustDialog";
+import { useSecretInput } from "../settings/useSecretInput";
 
 /**
- * Connect-time sign-in for a `prompt` credential (`purpose: "credential"`). Username and domain
- * are pre-filled from the credential and the connection's overrides. Typing `CORP\alice` or
- * `alice@corp.example` in the username splits it. The password input is uncontrolled: it is read
- * once on submit, cleared, and handed to Rust as `SessionInput::CredentialAnswer`.
+ * Connect-time sign-in for a `prompt` credential (`purpose: "credential"`), on the M8 decision
+ * shell. Username and domain are pre-filled from the credential and the connection's overrides.
+ * Typing `CORP\alice` or `alice@corp.example` in the username splits it. The password field is
+ * uncontrolled (`useSecretInput`): React holds only whether it is empty; it is read once on
+ * submit, emptied, emptied again when the dialog goes away, and handed to Rust as
+ * `SessionInput::CredentialAnswer`. Focus starts on the password when the username is known;
+ * Escape and Cancel send the empty answer.
  */
 export function CredentialPrompt({ tabId, prompt, host, hop = null }: { tabId: string; prompt: PendingPrompt; host: string; hop?: string | null }) {
   const answer = useSessions((s) => s.answerCredential);
@@ -15,68 +20,67 @@ export function CredentialPrompt({ tabId, prompt, host, hop = null }: { tabId: s
   const [user, setUser] = useState(a?.username ?? "");
   const [domain, setDomain] = useState(a?.domain ?? "");
   const [tried, setTried] = useState(false);
-  const pw = useRef<HTMLInputElement>(null);
-  const userRef = useRef<HTMLInputElement>(null);
+  const pw = useSecretInput();
+  const start = useRef<HTMLInputElement | null>(null);
   const headingId = `cred-prompt-h-${tabId}`;
+  const bodyId = `cred-prompt-b-${tabId}`;
   const askDomain = a?.needsDomain === true || domain !== "";
+  const startOnPassword = Boolean(a?.username);
+  const pwRef = pw.ref;
+  // Stable callback refs (a new one per render would detach the field and empty it).
+  const setPw = useCallback((el: HTMLInputElement | null) => {
+    pwRef(el);
+    if (startOnPassword && el) start.current = el;
+  }, [pwRef, startOnPassword]);
+  const setUserEl = useCallback((el: HTMLInputElement | null) => {
+    if (!startOnPassword && el) start.current = el;
+  }, [startOnPassword]);
 
   // A typed DOMAIN\user or user@domain fills the domain (UPN keeps the whole account as user).
   const parsed = user.includes("\\") ? parseAccount(user) : null;
   const split = parsed && !isAccountError(parsed) ? parsed : null;
 
-  useEffect(() => {
-    (user ? pw.current : userRef.current)?.focus();
-    // focus once per prompt
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt.id]);
-
   function submit() {
-    setTried(true);
-    const password = pw.current?.value ?? "";
     const username = split ? split.user : user.trim();
-    if (!username || !password) return;
-    if (pw.current) pw.current.value = "";
+    setTried(!username || pw.empty);
+    if (!username || pw.empty) return;
+    const password = pw.take();
     void answer(tabId, { username, domain: split ? split.domain : domain.trim() || null, password });
   }
 
   function cancel() {
-    if (pw.current) pw.current.value = "";
+    pw.clear();
     void answer(tabId, { username: "", domain: null, password: "" });
   }
 
   return (
-    <div className="absolute inset-0 z-20 grid place-items-center" style={{ background: "var(--scrim)" }}>
+    <TrustDialog
+      headingId={headingId}
+      bodyId={bodyId}
+      tone="info"
+      icon="key"
+      title={hop ? `Jump host ${hop}: sign in` : `Sign in to ${host}`}
+      safeRef={start}
+      focusKey={prompt.id}
+      onReject={cancel}
+      width={460}
+    >
+      <p id={bodyId} className="decision-text">
+        This connection stores no password. What you type is used for this session only and is not saved.
+      </p>
       <form
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={headingId}
-        className="pop m-hud w-[440px] max-w-[calc(100%-32px)] p-5"
-        data-tone="hot"
+        className="flex flex-col gap-3"
         autoComplete="off"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            cancel();
-          }
-        }}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <p aria-hidden className="m-micro mb-2" style={{ color: "var(--danger)" }}>Ask at connect</p>
-        <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-16)]">
-          <span aria-hidden className="tab-attn" />
-          {hop ? `Jump host ${hop}: sign in` : `Sign in to ${host}`}
-        </h2>
-        <p className="mt-2 text-[length:var(--fs-13)] text-text-muted">
-          This connection stores no password. What you type is used for this session only and is not saved.
-        </p>
-        <div className="mt-4 grid gap-3" style={{ gridTemplateColumns: askDomain && !split ? "1fr 1fr" : "1fr" }}>
+        <div className="grid gap-3" style={{ gridTemplateColumns: askDomain && !split ? "1fr 1fr" : "1fr" }}>
           <div>
             <label className="field-label" htmlFor={`${headingId}-u`}>Username</label>
             <input
-              ref={userRef}
+              ref={setUserEl}
               id={`${headingId}-u`}
               className="field mono"
               spellCheck={false}
@@ -94,16 +98,26 @@ export function CredentialPrompt({ tabId, prompt, host, hop = null }: { tabId: s
             </div>
           )}
         </div>
-        <div className="mt-3">
+        <div>
           <label className="field-label" htmlFor={`${headingId}-p`}>Password</label>
-          <input ref={pw} id={`${headingId}-p`} type="password" className="field mono" autoComplete="off" spellCheck={false} />
+          <input
+            ref={setPw}
+            id={`${headingId}-p`}
+            type="password"
+            className="field mono"
+            autoComplete="off"
+            spellCheck={false}
+            data-secret
+            aria-invalid={tried && pw.empty ? true : undefined}
+            onChange={pw.onChange}
+          />
         </div>
-        {tried && <p role="alert" className="mt-2 text-[length:var(--fs-13)] text-hot">Enter a username and a password.</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={cancel}>Cancel and disconnect</button>
+        {tried && (!user.trim() || pw.empty) && <p role="alert" className="field-error">Enter a username and a password.</p>}
+        <DecisionActions>
+          <button type="button" className="btn" onClick={cancel}>Cancel and disconnect</button>
           <button type="submit" className="btn btn-primary">Sign in</button>
-        </div>
+        </DecisionActions>
       </form>
-    </div>
+    </TrustDialog>
   );
 }
