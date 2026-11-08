@@ -123,7 +123,7 @@ impl std::error::Error for DirsError {}
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 /// Whether `m` describes a symlink or (Windows) any reparse point.
-fn is_link(m: &std::fs::Metadata) -> bool {
+pub(crate) fn is_link(m: &std::fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
