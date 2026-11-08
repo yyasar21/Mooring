@@ -275,7 +275,7 @@ that binary ad-hoc signed. `WINDOWS_SIGNING=true` with an incomplete set only ad
 | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | **environment secret** (`release`) | Alternative: base64 `.pfx` OV code-signing certificate (ignored when the Azure set is complete) |
 | `TAURI_SIGNING_RPM_KEY`, `TAURI_SIGNING_RPM_KEY_PASSPHRASE` | secret | ASCII-armored GPG key to sign the `.rpm` |
 | `HOMEBREW_TAP_TOKEN` | secret | Fine-grained PAT, repository `yyasar21/homebrew-mooring` only, Contents read/write |
-| `WINGET_TOKEN` | secret | PAT that opens the winget-pkgs PR from the owner's fork: classic `public_repo`, or fine-grained on the fork (Contents + Pull requests read/write). Read only by `release-winget.yml`'s `submit` job |
+| `WINGET_TOKEN` | **environment secret** (`release`) | PAT that opens the winget-pkgs PR from the owner's fork: classic `public_repo`, or fine-grained on the fork (Contents + Pull requests read/write). Read only by `release-winget.yml`'s `submit` job, which runs in `environment: release`, so the `v*` tag deployment rule keeps it from branch runs (review 9 L-54). A manual run must be dispatched **from the tag** |
 
 The Sigstore signature and the provenance attestations need no secret: they use the workflow's
 short-lived OIDC token (`id-token: write`, finalize job only).
