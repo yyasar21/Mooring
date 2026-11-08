@@ -66,11 +66,19 @@
   width: min(360px, calc(100vw - 32px)); pointer-events: none;
 }
 .toast {
-  display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s2) var(--s2) var(--s3); pointer-events: auto;
+  display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s3) var(--s2) var(--s3) var(--s3); pointer-events: auto;
   background: var(--surface); color: var(--text); border: 0; border-radius: var(--r-m); box-shadow: var(--e2);
   font-size: var(--fs-13); animation: toast-in var(--t-mid) var(--ease);
 }
+.toast-icon { display: grid; place-items: center; flex: none; width: 20px; height: 20px; color: var(--success); }
+.toast[data-tone="info"] .toast-icon { color: var(--info); }
+.toast[data-tone="warning"] .toast-icon { color: var(--warning); }
+.toast-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.toast-title { font: 600 var(--fs-13)/20px var(--font-sans); overflow-wrap: anywhere; }
+.toast-detail { font: 400 var(--fs-12)/16px var(--font-sans); color: var(--text-2); overflow-wrap: anywhere; }
+.toast .icon-btn { flex: none; width: 24px; height: 24px; color: var(--text-2); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 
 /* ---------- pane splitter ---------- */
 .pane-handle { width: 5px; margin: 0 -2px; z-index: 5; cursor: col-resize; position: relative; background: transparent; }
@@ -148,12 +156,6 @@
 .empty-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-l); background: var(--surface-2); color: var(--text-2); margin-bottom: var(--s1); }
 .empty-title { font: 600 var(--fs-16)/24px var(--font-sans); color: var(--text); }
 .empty-text { color: var(--text-2); }
-.dropped {
-  position: absolute; bottom: var(--s5); left: 50%; transform: translateX(-50%); z-index: 10;
-  display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s2) var(--s2) var(--s4); font-size: var(--fs-13);
-  background: var(--surface); border-radius: var(--r-m); box-shadow: var(--e2);
-}
-.dropped.m-hud { border-color: var(--danger-border); }
 
 /* ---------- inspector ---------- */
 .readout-title { font: 600 var(--fs-16)/24px var(--font-sans); color: var(--text); }

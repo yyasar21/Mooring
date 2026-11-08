@@ -5,6 +5,8 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { RemoteCanvas } from "./RemoteCanvas";
 import { cancelReconnect } from "../../stores/sessions.reconnect";
 import { useConnOptions } from "../../stores/connOptions";
+import { SessionHeader } from "../SessionHeader";
+import { DetachButton } from "../SessionToolbar";
 
 /** `Connected.security` → badge text and whether it is a plaintext warning (ADR-0012 owner decision 4). */
 export function securityBadge(security: string | null): { text: string; hot: boolean } | null {
@@ -94,11 +96,11 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
   }, [connected, requestDesktop]);
 
   return (
-    <>
-      <div role="toolbar" aria-label="Remote desktop tools" className="session-toolbar remote-toolbar">
-        <span className="m-micro">{vnc ? "VNC" : "RDP"}</span>
+    <div className="session-frame">
+      <SessionHeader tab={tab} connection={connection}>
+      <div role="toolbar" aria-label="Remote desktop tools" className="remote-toolbar">
         {badge && (
-          <span className="chip" data-tone={badge.hot ? "hot" : "ok"} title="Negotiated security">
+          <span className="chip" data-tone={badge.hot ? "danger" : "success"} title="Negotiated security">
             {badge.text}
           </span>
         )}
@@ -108,7 +110,7 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
           </span>
         )}
         {vnc && (
-          <span className="chip" data-tone={viewOnly ? "hot" : undefined} aria-live="polite">
+          <span className="chip" data-tone={viewOnly ? "warning" : undefined} aria-live="polite">
             {viewOnly ? "View only" : "Input on"}
           </span>
         )}
@@ -151,10 +153,9 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
         <button type="button" className="btn btn-ghost" aria-pressed={stats} onClick={() => { setStats((v) => !v); }}>
           Stats
         </button>
-        <button type="button" className="btn btn-ghost" disabled={!connected || !tab.sessionId} onClick={() => void detach(tab.id)}>
-          Detach to window
-        </button>
+        <DetachButton onDetach={connected && tab.sessionId ? () => void detach(tab.id) : null} />
       </div>
+      </SessionHeader>
       <div className="session-body remote-body">
         <div className="term-bezel m-hud" data-active={active && connected ? true : undefined}>
           <RemoteCanvas
@@ -177,6 +178,6 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
           onCancelReconnect={() => void cancelReconnect(tab.id)}
         />
       </div>
-    </>
+    </div>
   );
 }

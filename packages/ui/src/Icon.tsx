@@ -29,6 +29,13 @@ const PATHS = {
   sync: <><path d="M2.75 8a5.25 5.25 0 0 1 9.4-3.2M13.25 8a5.25 5.25 0 0 1-9.4 3.2" /><path d="M12.5 2.25v2.75H9.75M3.5 13.75V11h2.75" /></>,
   help: <><circle cx="8" cy="8" r="6.25" /><path d="M6.25 6.25a1.75 1.75 0 1 1 2.5 1.6c-.5.25-.75.6-.75 1.15v.25M8 11.25v.5" /></>,
   upload: <path d="M8 10.5V2.75M4.75 6L8 2.75 11.25 6M2.75 10.75v1.5a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1v-1.5" />,
+  "check-circle": <><circle cx="8" cy="8" r="6.25" /><path d="M5.25 8.25l1.9 1.9 3.6-3.9" /></>,
+  "x-circle": <><circle cx="8" cy="8" r="6.25" /><path d="M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5" /></>,
+  external: <><path d="M9.25 2.75h4v4M13.25 2.75L7.5 8.5" /><path d="M11.75 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" /></>,
+  forward: <><path d="M2.75 5h8.5M8.75 2.5L11.25 5l-2.5 2.5" /><path d="M13.25 11H4.75M7.25 8.5L4.75 11l2.5 2.5" /></>,
+  file: <><path d="M4 1.75h5l3 3v9.5H4z" /><path d="M9 1.75v3h3" /></>,
+  certificate: <><rect x="1.75" y="2.25" width="12.5" height="8.5" rx="1" /><path d="M4.25 5h7.5M4.25 7.25h4" /><circle cx="11" cy="11.5" r="1.75" /><path d="M10 13v1.75l1-.6 1 .6V13" /></>,
+  download: <path d="M8 2.75v7.75M4.75 7.25L8 10.5l3.25-3.25M2.75 10.75v1.5a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1v-1.5" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

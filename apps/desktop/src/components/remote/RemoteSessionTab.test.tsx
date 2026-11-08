@@ -39,7 +39,8 @@ describe("RemoteSessionTab", () => {
     await settle();
     expect(screen.queryByRole("alertdialog")).toBeNull();
     const tools = screen.getByRole("toolbar", { name: "Remote desktop tools" });
-    expect(tools).toHaveTextContent("RDP");
+    // M2: the protocol is the tab icon now; the header carries the status pill instead.
+    expect(document.querySelector(".session-pill")).toHaveTextContent(/^Connected · \d\d:\d\d:\d\d$/);
     expect(tools).toHaveTextContent("NLA");
     expect(screen.getByRole("img", { name: "dc01 desktop" })).toBeInTheDocument();
   });

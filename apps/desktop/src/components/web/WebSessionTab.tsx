@@ -5,6 +5,7 @@ import { useSessions, type Tab } from "../../stores/sessions";
 import { useUi } from "../../stores/ui";
 import { dismissNotice, useWebTabs, webAction, webZoomStep, type WebAction, type WebNotice } from "../../stores/web";
 import { Modal } from "../dialogs/Modal";
+import { SessionHeader } from "../SessionHeader";
 import { WebOpenError, WebOpening, WebViaChip } from "./WebVia";
 
 const NOTICE_TEXT: Record<WebNotice["kind"], { title: string; hint: string }> = {
@@ -50,11 +51,11 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
   };
 
   return (
-    <>
-      <div role="toolbar" aria-label="Web window controls" className="session-toolbar remote-toolbar">
-        <span className="m-micro">Web</span>
+    <div className="session-frame">
+      <SessionHeader tab={tab} connection={connection}>
+      <div role="toolbar" aria-label="Web window controls" className="remote-toolbar">
         {web?.persistent ? (
-          <span className="chip" data-tone="hot" title="Cookies and site storage of this connection are kept on disk, in plaintext, until you clear them">
+          <span className="chip" data-tone="warning" title="Cookies and site storage of this connection are kept on disk, in plaintext, until you clear them">
             Persistent storage
           </span>
         ) : (
@@ -96,6 +97,7 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
           Close window
         </button>
       </div>
+      </SessionHeader>
       <div className="session-body">
         <div className="web-card m-hud" data-active={open ? true : undefined}>
           <p className="m-micro">{open ? "Open in its own window" : tab.state === "connecting" ? "Opening window" : "Window closed"}</p>
@@ -178,6 +180,6 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
           </div>
         </Modal>
       )}
-    </>
+    </div>
   );
 }

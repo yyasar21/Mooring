@@ -50,8 +50,6 @@
   .touch-indicator::after { animation: none; display: none; }
 }
 
-/* ---------- close reasons ---------- */
-.dropped-title { flex: none; font: 600 var(--fs-s)/1.3 var(--font-sans); color: var(--hot); }
 
 /* ---------- Settings → SSH ---------- */
 .ssh-row { display: flex; align-items: flex-start; gap: 12px; }

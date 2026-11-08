@@ -12,6 +12,8 @@ import { HopStrip } from "./terminal/HopStrip";
 import { SK_CLOSE, TouchBanner } from "./terminal/TouchBanner";
 import { CLOSE_TEXT } from "./remote/ConnectionBanner";
 import { SessionToolbar, type SessionTool } from "./SessionToolbar";
+import { SessionHeader } from "./SessionHeader";
+import { StatusStrip } from "./StatusStrip";
 import { ForwardsPanel } from "./forwards/ForwardsPanel";
 import { SftpPanel } from "./sftp/SftpPanel";
 import { ClusterBrowser } from "./kube/ClusterBrowser";
@@ -78,6 +80,24 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
     </div>
   );
 
+  // M7: a closed terminal gets an inline strip under its header instead of a floating box.
+  const closedTerminal = tab.state === "closed" && !graphical && !web && kube?.view !== "cluster" && kube?.view !== "logs" && !tab.touch?.timedOut;
+  const hopHint = tab.closeCode === "hop_failed" || tab.closeCode === "hop_lost" ? CLOSE_TEXT[tab.closeCode].hint : null;
+  const strip = closedTerminal ? (
+    <StatusStrip
+      tone={sk || terminalCloseHot(tab.closeCode) ? "danger" : "neutral"}
+      role="status"
+      className="dropped"
+      title={sk ? sk.title : terminalCloseTitle(tab.closeCode)}
+      detail={sk ? tab.reason : `Disconnected: ${tab.reason ?? "session ended"}`}
+      hint={hopHint ?? sk?.hint ?? null}
+    >
+      <button type="button" className="btn btn-sm" onClick={() => void reconnect(tab.id)}>
+        Reconnect
+      </button>
+    </StatusStrip>
+  ) : null;
+
   return (
     <div
       role="tabpanel"
@@ -87,8 +107,11 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       className="absolute inset-0"
     >
       {ssh ? (
-        <>
-          <SessionToolbar tool={tool} onTool={setTool} onDetach={canDetach(tab.protocol) && liveSession ? () => void useSessions.getState().detach(tab.id) : null} />
+        <div className="session-frame">
+          <SessionHeader tab={tab} connection={c}>
+            <SessionToolbar tool={tool} onTool={setTool} onDetach={canDetach(tab.protocol) && liveSession ? () => void useSessions.getState().detach(tab.id) : null} />
+          </SessionHeader>
+          {strip}
           <div className="session-body">
             {/* The terminal stays mounted under the tool panels so its scrollback survives. */}
             {bezel}
@@ -103,41 +126,29 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
               </div>
             )}
           </div>
-        </>
+        </div>
       ) : kube?.view === "cluster" ? (
         <TabErrorBoundary what="the cluster browser" onClose={() => void useSessions.getState().close(tab.id)}><ClusterBrowser tab={tab} connection={c} /></TabErrorBoundary>
       ) : kube?.view === "logs" ? (
         <TabErrorBoundary what="the log viewer" onClose={() => void useSessions.getState().close(tab.id)}><LogsViewer tab={tab} target={kube.logs} connection={c} active={active} /></TabErrorBoundary>
       ) : terminal ? (
-        bezel
+        <div className="session-frame">
+          {strip}
+          <div className="session-body">{bezel}</div>
+        </div>
       ) : graphical ? (
         <TabErrorBoundary what="the remote desktop" onClose={() => void useSessions.getState().close(tab.id)}><RemoteSessionTab tab={tab} active={active && !detached} connection={c} /></TabErrorBoundary>
       ) : web ? (
         <TabErrorBoundary what="the web session" onClose={() => void useSessions.getState().close(tab.id)}><WebSessionTab tab={tab} connection={c} /></TabErrorBoundary>
       ) : (
-        <div className="panel-note m-hud">
+        <div className="panel-note">
           <div className="max-w-sm">
-            <p className="m-micro">{c?.protocol.toUpperCase()} session</p>
-            <p className="m-display mt-2 text-[length:var(--fs-xl)]">{c?.name}</p>
+            <p className="empty-title">{c?.name}</p>
             <p className="readout-host mt-1 select-text">{c?.host}</p>
-            <p className="mt-4 text-[length:var(--fs-s)] text-text-faint">
-              {c?.protocol.toUpperCase()} display arrives with the graphical protocols. The session itself is open and
-              audited.
+            <p className="empty-text mt-4">
+              The {c?.protocol.toUpperCase()} display arrives with the graphical protocols. The session itself is open and audited.
             </p>
           </div>
-        </div>
-      )}
-      {tab.state === "closed" && !graphical && !web && kube?.view !== "cluster" && kube?.view !== "logs" && !tab.touch?.timedOut && (
-        <div className="dropped m-hud" data-tone="hot">
-          {sk ? <span className="dropped-title">{sk.title}</span> : <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost</span>}
-          <span className="dropped-text">
-            <span className="text-text-muted">{sk ? tab.reason : `Disconnected: ${tab.reason ?? "session ended"}`}</span>
-            {(tab.closeCode === "hop_failed" || tab.closeCode === "hop_lost") && <span className="dropped-hint">{CLOSE_TEXT[tab.closeCode].hint}</span>}
-            {sk && <span className="dropped-hint">{sk.hint}</span>}
-          </span>
-          <button type="button" className="btn" onClick={() => void reconnect(tab.id)}>
-            Reconnect
-          </button>
         </div>
       )}
       {/* ADR-0025: cluster tabs get the hop strip too (R1 sends `hop_status` on the kube_open channel). */}
@@ -147,6 +158,16 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       {tab.prompt && active && <PromptModal tabId={tab.id} prompt={tab.prompt} host={c?.host ?? ""} />}
     </div>
   );
+}
+
+/** A terminal's close code as a heading; the reason follows as the detail line. */
+function terminalCloseTitle(code: Tab["closeCode"]): string {
+  if (!code || code === "unknown") return "Connection lost";
+  return CLOSE_TEXT[code].title;
+}
+
+function terminalCloseHot(code: Tab["closeCode"]): boolean {
+  return !code || code === "unknown" || CLOSE_TEXT[code].hot;
 }
 
 function EmptyState() {

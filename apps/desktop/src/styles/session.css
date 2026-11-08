@@ -1,0 +1,63 @@
+/* Harbor W2: the session header (M2), inline status strips (M7) and the inspector tabs (M4).
+   Tokens only; no alias names. */
+
+/* ---------- session frame: header, optional strip, body ---------- */
+.session-frame { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; }
+.session-frame > .session-body { position: relative; inset: auto; top: auto; flex: 1; min-height: 0; }
+
+/* ---------- M2 session header ---------- */
+.session-header {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2) var(--s4); min-height: 56px;
+  padding: 6px var(--s4); background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.session-id { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; flex: 1 1 260px; }
+.session-crumbs ol { display: flex; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; font: 400 var(--fs-12)/16px var(--font-sans); color: var(--text-2); }
+.session-crumbs li { white-space: nowrap; }
+.session-crumbs li + li::before { content: "›"; padding: 0 6px; color: var(--text-3); }
+.session-title { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.session-name { font: 600 var(--fs-14)/20px var(--font-sans); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-host { font: 400 12.5px/20px var(--font-mono); color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.session-pill { flex: none; }
+.session-timer { font-variant-numeric: tabular-nums; }
+.session-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); min-width: 0; }
+.session-views > button { height: 26px; }
+.session-actions .remote-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.session-actions .remote-toolbar .spacer { display: none; }
+
+/* ---------- M7 inline status strip ---------- */
+.status-strip {
+  flex: none; display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s2) var(--s4);
+  background: var(--neutral-bg); color: var(--text); border-bottom: 1px solid var(--border); font-size: var(--fs-13);
+}
+.status-strip[data-tone="danger"] { background: var(--danger-bg); border-bottom-color: var(--danger-border); }
+.status-strip[data-tone="warning"] { background: var(--warning-bg); border-bottom-color: var(--warning-border); }
+.status-strip[data-tone="info"] { background: var(--info-bg); border-bottom-color: var(--info-border); }
+.status-strip-icon { display: grid; place-items: center; flex: none; width: 20px; height: 20px; color: var(--text-2); }
+.status-strip[data-tone="danger"] .status-strip-icon { color: var(--danger); }
+.status-strip[data-tone="warning"] .status-strip-icon { color: var(--warning); }
+.status-strip[data-tone="info"] .status-strip-icon { color: var(--info); }
+.status-strip-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; line-height: 20px; }
+.status-strip-title { font-weight: 600; }
+.status-strip-detail { color: var(--text); overflow-wrap: anywhere; }
+.status-strip-hint { color: var(--text-2); font-size: var(--fs-12); line-height: 16px; }
+.status-strip-actions { display: flex; align-items: center; gap: var(--s2); flex: none; }
+/* Without a header (a Kubernetes exec terminal) the frame starts with the strip. */
+.session-frame > .status-strip:first-child { border-top: 0; }
+
+/* ---------- M4 inspector tabs ---------- */
+.inspector-tabs { display: flex; gap: var(--s4); padding: 0 var(--s4); border-bottom: 1px solid var(--border); flex: none; }
+.inspector-tabs > [role="tab"] {
+  position: relative; height: 36px; padding: 0; border: 0; background: transparent; color: var(--text-2);
+  font: 500 var(--fs-13)/1 var(--font-sans);
+}
+.inspector-tabs > [role="tab"]:hover { color: var(--text); }
+.inspector-tabs > [role="tab"][aria-selected="true"] { color: var(--text); }
+.inspector-tabs > [role="tab"][aria-selected="true"]::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); border-radius: 1px;
+}
+.inspector-tabs > [role="tab"]:focus-visible { outline: none; box-shadow: var(--focus-inset); border-radius: var(--r-s); }
+.inspector-placeholder { padding: var(--s6) var(--s4); color: var(--text-2); font-size: var(--fs-13); }
+
+/* close reasons outside a strip (web via, cluster browser) */
+.dropped-title { flex: none; font: 600 var(--fs-13)/20px var(--font-sans); color: var(--danger); }
+.dropped-hint { color: var(--text-2); font-size: var(--fs-12); line-height: 16px; }

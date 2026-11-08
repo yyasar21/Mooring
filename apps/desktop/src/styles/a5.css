@@ -33,9 +33,6 @@
 .hop-chip[data-state="failed"] { border-color: var(--hot-line); color: var(--hot); background: var(--hot-soft); }
 .hop-chip-host { font-family: var(--font-mono); color: var(--text-muted); }
 .hop-sep { color: var(--text-faint); }
-.dropped:has(.dropped-hint) { width: min(560px, calc(100% - 32px)); }
-.dropped-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-.dropped-hint { color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.45; }
 
 /* ---------- tree / details ---------- */
 .tree-via { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-muted); }
