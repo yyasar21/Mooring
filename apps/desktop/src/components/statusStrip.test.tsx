@@ -61,7 +61,7 @@ describe("closed terminal strip (M7)", () => {
     expect(strip.previousElementSibling).toHaveClass("session-header");
     expect(strip.nextElementSibling).toHaveClass("session-body");
     expect(strip.querySelector(".status-strip-icon svg")).not.toBeNull();
-    expect(strip.querySelector(".status-strip-title")?.textContent).not.toBe("");
+    expect(strip.querySelector(".status-strip-title")).toHaveTextContent("Host key rejected");
     expect(strip).toHaveTextContent(/Disconnected: /);
     expect(within(panel).queryByText("Link lost")).toBeNull();
     expect(within(strip).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();

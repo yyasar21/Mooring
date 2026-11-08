@@ -163,6 +163,8 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
 /** A terminal's close code as a heading; the reason follows as the detail line. */
 function terminalCloseTitle(code: Tab["closeCode"]): string {
   if (!code || code === "unknown") return "Connection lost";
+  // CLOSE_TEXT speaks of certificates (remote desktops); a terminal rejects a host key.
+  if (code === "trust_rejected") return "Host key rejected";
   return CLOSE_TEXT[code].title;
 }
 
