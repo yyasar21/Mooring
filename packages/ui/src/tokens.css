@@ -1,150 +1,209 @@
-/* Mooring design tokens: the "bridge console" system. One source of truth for both themes.
-   Dark is the default (a remote-access console lives next to terminals); light is opt-in and quiet.
+/* Mooring design tokens: "Harbor" (design review 2026-11, proposal A). One source of truth for
+   both themes. A calm, neutral enterprise system: one blue accent for primary action, selection
+   and focus; a separate semantic status set (success, warning, danger, info) that always pairs
+   colour with a label or icon; elevation instead of glow; sentence case on a 4 px grid.
 
-   Colour semantics (do not overload):
-   - signal (electric cyan)  selection, focus, live links / connected. The only cool hue.
-   - hot (magenta)           danger and "needs you now" (prompts, rejected keys, broken chain).
-   Everything else is ink on near-black. Glow exists only on things that are active. */
+   Theme: <html data-theme="light|dark"> (set by stores/ui.ts from Settings → Appearance).
+   Contrast: every text/background and non-text pair is checked in CI by
+   apps/desktop/src/styles/contrast.test.ts (WCAG AA). Change a colour here, run that test. */
 @import "@fontsource/ibm-plex-sans/400.css";
 @import "@fontsource/ibm-plex-sans/500.css";
 @import "@fontsource/ibm-plex-sans/600.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
-/* Display face: squared, chamfered letterforms that echo the bevelled HUD frames. Latin only. */
-@import "@fontsource/chakra-petch/latin-500.css";
-@import "@fontsource/chakra-petch/latin-600.css";
-@import "@fontsource/chakra-petch/latin-ext-500.css";
-@import "@fontsource/chakra-petch/latin-ext-600.css";
 
 :root {
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "IBM Plex Sans", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --font-display: "Chakra Petch", "IBM Plex Sans", system-ui, sans-serif;
 
-  /* ---- ground: near-black with a blue-teal cast, stepping up in tiny increments ---- */
-  --void: #03070a;
-  --bg: #060c11;
-  --bg-sunken: #04090d;
-  --surface: #0a141b;
-  --surface-raised: #0e1a23;
-  --glass: rgba(8, 18, 25, 0.72);
-  --line: #11262f;
-  --line-strong: #1b3a46;
-  --text: #d5eef2;
-  --text-muted: #7c9ca5;
-  --text-faint: #4b6670;
+  /* ---- surfaces: neutral greys, no tint ---- */
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f3f5;
+  --surface-3: #e9ecef;
+  --border: #e1e4e8;
+  --border-strong: #c9ced4;
+  --border-input: #7d858f;
 
-  /* ---- signal: electric cyan ---- */
-  --accent: #29e6f2;
-  --accent-ink: #011417;
-  --accent-soft: rgba(41, 230, 242, 0.1);
-  --accent-line: rgba(41, 230, 242, 0.45);
-  --accent-dim: rgba(41, 230, 242, 0.22);
+  /* ---- text tiers: the lowest tier still passes AA on every surface ---- */
+  --text: #1b1f24;
+  --text-2: #59616b;
+  --text-3: #5f6670;
 
-  /* ---- hot: magenta ---- */
-  --hot: #ff3b8d;
-  --hot-soft: rgba(255, 59, 141, 0.12);
-  --hot-line: rgba(255, 59, 141, 0.5);
+  /* ---- accent: primary action, selection, focus, links ---- */
+  --accent: #1a5fb4;
+  --accent-hover: #154e95;
+  --accent-text: #ffffff;
+  --accent-subtle: #e8f0fb;
+  --accent-border: #9dbbe6;
+  --selection: #dbe7f8;
 
-  /* legacy semantic names map onto the two hues so every screen stays consistent */
-  --ok: var(--accent);
-  --warn: var(--hot);
-  --warn-soft: var(--hot-soft);
-  --danger: var(--hot);
-  --danger-soft: var(--hot-soft);
+  /* ---- status: never the accent, never colour alone ---- */
+  --success: #176f32;
+  --success-bg: #e6f4ea;
+  --success-border: #a8d5b5;
+  --warning: #8a5c00;
+  --warning-bg: #fff4d6;
+  --warning-border: #e9cc7a;
+  --danger: #c62828;
+  --danger-bg: #fdecec;
+  --danger-border: #f0b0b0;
+  --info: var(--accent);
+  --info-bg: var(--accent-subtle);
+  --info-border: var(--accent-border);
+  --neutral-bg: #eef0f2;
 
-  /* ---- light and glow: only on active elements ---- */
-  --glow-accent: 0 0 0 1px var(--accent-line), 0 0 14px -2px rgba(41, 230, 242, 0.45);
-  --glow-accent-s: 0 0 8px rgba(41, 230, 242, 0.55);
-  --glow-hot: 0 0 0 1px var(--hot-line), 0 0 14px -2px rgba(255, 59, 141, 0.5);
-  --text-glow: 0 0 10px rgba(41, 230, 242, 0.45);
-  --focus-ring: 0 0 0 1px var(--accent), 0 0 0 3px rgba(41, 230, 242, 0.18), 0 0 12px rgba(41, 230, 242, 0.35);
+  /* ---- terminal: its own surface, no tint on the glyphs ---- */
+  --term-bg: #ffffff;
+  --term-fg: #1b1f24;
+  --term-cursor: #1b1f24;
+  --term-selection: rgba(26, 95, 180, 0.2);
 
-  /* ---- texture: static, painted once ---- */
-  --grid-line: rgba(41, 230, 242, 0.035);
-  --grid-size: 24px;
-  --scanline: rgba(255, 255, 255, 0.018);
-  --bracket: var(--line-strong);
-  --bracket-len: 9px;
+  /* ---- elevation replaces glow ---- */
+  --e1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --e2: 0 4px 12px rgba(16, 24, 40, 0.1), 0 0 0 1px rgba(16, 24, 40, 0.06);
+  --e3: 0 16px 40px rgba(16, 24, 40, 0.18), 0 0 0 1px rgba(16, 24, 40, 0.08);
+  --scrim: rgba(16, 24, 40, 0.32);
+  /* focus: a 2 px accent ring with a 2 px surface gap; tree and table rows use the inset form */
+  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  --focus-inset: inset 0 0 0 2px var(--accent);
 
-  /* the state rail under each tab: taut = connected, pulse = connecting, frayed = closed */
-  --line-taut: var(--accent);
-  --line-slack: var(--accent-dim);
-  --line-frayed: var(--line-strong);
+  /* ---- type: 11 / 12 / 13 / 14 / 16 / 20 / 24 ---- */
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
 
-  /* terminal surface: darker than the chrome, no tint on the glyphs */
-  --term-bg: #020609;
-  --term-fg: #cfe3e7;
-  --term-cursor: var(--accent);
-  --term-selection: rgba(41, 230, 242, 0.24);
-  --term-bezel: #0b1820;
+  /* ---- 4 px grid ---- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+  --r-s: 4px;
+  --r-m: 6px;
+  --r-l: 8px;
 
-  --radius-s: 2px;
-  --radius-m: 3px;
-  --bevel: 8px;
-  --shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--line-strong);
-  --scrim: rgba(1, 4, 6, 0.66);
-  --blur: blur(14px) saturate(140%);
+  /* ---- motion: user-triggered only, nothing ambient ---- */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 120ms;
+  --t-mid: 200ms;
 
-  --row-h: 26px;
-  --bar-h: 36px;
+  --title-h: 40px;
+  --rail-w: 64px;
+  --tab-h: 36px;
+  --row-h: 28px;
   --status-h: 24px;
-  --indent: 14px;
 
-  --fs-2xs: 10px;
-  --fs-xs: 11.5px;
+  /* ======== Deprecated aliases (bridge-console names). Kept for one release (0.2.x) so
+     screens not yet migrated keep rendering; remove in 0.3. New code uses the names above. ==== */
+  --font-display: var(--font-sans);
+  --void: var(--canvas);
+  --bg: var(--surface);
+  --bg-sunken: var(--canvas);
+  --surface-raised: var(--surface-2);
+  --glass: var(--surface);
+  --line: var(--border);
+  --line-strong: var(--border-strong);
+  --text-muted: var(--text-2);
+  --text-faint: var(--text-3);
+  --accent-ink: var(--accent-text);
+  --accent-soft: var(--accent-subtle);
+  --accent-line: var(--accent-border);
+  --accent-dim: var(--accent-border);
+  --hot: var(--danger);
+  --hot-soft: var(--danger-bg);
+  --hot-line: var(--danger-border);
+  --ok: var(--success);
+  --warn: var(--warning);
+  --warn-soft: var(--warning-bg);
+  --danger-soft: var(--danger-bg);
+  --glow-accent: 0 0 0 1px var(--accent);
+  --glow-accent-s: none;
+  --glow-hot: 0 0 0 1px var(--danger-border);
+  --text-glow: none;
+  --focus-ring: var(--focus);
+  --grid-line: transparent;
+  --grid-size: 24px;
+  --scanline: transparent;
+  --bracket: var(--border);
+  --bracket-len: 0px;
+  --line-taut: var(--success);
+  --line-slack: var(--warning);
+  --line-frayed: var(--border-strong);
+  --term-bezel: var(--border);
+  --radius-s: var(--r-s);
+  --radius-m: var(--r-m);
+  --bevel: 0px;
+  --shadow-pop: var(--e3);
+  --blur: none;
+  --bar-h: var(--tab-h);
+  --indent: 16px;
+  --fs-2xs: var(--fs-11);
+  --fs-xs: var(--fs-12);
   --fs-s: 12.5px;
-  --fs-m: 13px;
-  --fs-l: 15px;
-  --fs-xl: 22px;
-  --fs-2xl: 34px;
-  --track-micro: 0.14em;
-  --track-display: 0.08em;
+  --fs-m: var(--fs-13);
+  --fs-l: var(--fs-16);
+  --fs-xl: var(--fs-20);
+  --fs-2xl: var(--fs-24);
+  --track-micro: normal;
+  --track-display: normal;
+  --ease-out: var(--ease);
+  --ease-snap: var(--ease);
+  --dur-fast: var(--t-fast);
+  --dur-mid: var(--t-mid);
+  --dur-slow: var(--t-mid);
 
-  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ease-snap: cubic-bezier(0.3, 1.4, 0.5, 1);
-  --dur-fast: 120ms;
-  --dur-mid: 220ms;
-  --dur-slow: 700ms;
-
-  color-scheme: dark;
+  color-scheme: light;
 }
 
-/* Light: daylight console. Same structure, glows switched off, ink does the work. */
-:root[data-theme="light"] {
-  --void: #dfe7ea;
-  --bg: #f2f6f7;
-  --bg-sunken: #e8eef0;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --glass: rgba(246, 250, 251, 0.82);
-  --line: #d3dee2;
-  --line-strong: #b6c8ce;
-  --text: #0a1a21;
-  --text-muted: #44606a;
-  --text-faint: #7a939b;
-  --accent: #007f8c;
-  --accent-ink: #ffffff;
-  --accent-soft: rgba(0, 127, 140, 0.09);
-  --accent-line: rgba(0, 127, 140, 0.55);
-  --accent-dim: rgba(0, 127, 140, 0.3);
-  --hot: #c4105c;
-  --hot-soft: rgba(196, 16, 92, 0.08);
-  --hot-line: rgba(196, 16, 92, 0.5);
-  --glow-accent: 0 0 0 1px var(--accent-line);
-  --glow-accent-s: none;
-  --glow-hot: 0 0 0 1px var(--hot-line);
-  --text-glow: none;
-  --focus-ring: 0 0 0 1px var(--accent), 0 0 0 3px rgba(0, 127, 140, 0.2);
-  --grid-line: rgba(0, 60, 70, 0.035);
-  --scanline: transparent;
-  --term-bg: #fbfdfd;
-  --term-fg: #12232b;
-  --term-selection: rgba(0, 127, 140, 0.2);
-  --term-bezel: #e3eaec;
-  --shadow-pop: 0 20px 48px rgba(10, 30, 40, 0.16), 0 0 0 1px var(--line-strong);
-  --scrim: rgba(20, 40, 50, 0.24);
-  color-scheme: light;
+:root[data-theme="dark"] {
+  --canvas: #1b1c1f;
+  --surface: #1f2023;
+  --surface-2: #26272b;
+  --surface-3: #2e3035;
+  --border: #33353a;
+  --border-strong: #43464c;
+  --border-input: #747a83;
+
+  --text: #e3e5e8;
+  --text-2: #a9aeb6;
+  --text-3: #959ba4;
+
+  --accent: #5b9cf5;
+  --accent-hover: #7cb0f7;
+  --accent-text: #0d1a2e;
+  --accent-subtle: rgba(91, 156, 245, 0.14);
+  --accent-border: rgba(91, 156, 245, 0.45);
+  --selection: rgba(91, 156, 245, 0.22);
+
+  --success: #4fbf72;
+  --success-bg: rgba(79, 191, 114, 0.13);
+  --success-border: rgba(79, 191, 114, 0.4);
+  --warning: #d9a53a;
+  --warning-bg: rgba(217, 165, 58, 0.13);
+  --warning-border: rgba(217, 165, 58, 0.4);
+  --danger: #f0706a;
+  --danger-bg: rgba(240, 112, 106, 0.13);
+  --danger-border: rgba(240, 112, 106, 0.4);
+  --neutral-bg: #2b2d31;
+
+  --term-bg: #16171a;
+  --term-fg: #d7dae0;
+  --term-cursor: #d7dae0;
+  --term-selection: rgba(91, 156, 245, 0.3);
+
+  --e1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --e2: 0 6px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --e3: 0 20px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --scrim: rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -152,5 +211,14 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* More contrast on request: stronger hairlines, and the lowest text tier steps up a tier. */
+@media (prefers-contrast: more) {
+  :root {
+    --border: var(--border-strong);
+    --border-strong: var(--border-input);
+    --text-3: var(--text-2);
   }
 }
