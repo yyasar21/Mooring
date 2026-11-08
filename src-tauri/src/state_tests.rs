@@ -33,7 +33,12 @@ fn header_write_is_private_keeps_backup_and_backup_can_be_dropped() {
         f.state.save_header(vault.as_ref().expect("v")).expect("second write");
     }
     assert_eq!(std::fs::read(&bak).expect("backup"), before);
-    assert!(!f.dir.path().join("vault.header.json.tmp").exists(), "temp renamed away");
+    let parts = std::fs::read_dir(f.dir.path())
+        .expect("dir")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "part"))
+        .count();
+    assert_eq!(parts, 0, "temp renamed away");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
