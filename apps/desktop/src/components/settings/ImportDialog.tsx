@@ -5,6 +5,7 @@ import { describeError } from "../../stores/errors";
 import { useCredentials } from "../../stores/credentials";
 import { useTree } from "../../stores/tree";
 import { Modal } from "../dialogs/Modal";
+import { useSecretInput } from "./useSecretInput";
 
 const RESOLUTION: Record<ImportConflict["resolution"], string> = {
   kept_both: "changed on both sides: both copies kept",
@@ -19,46 +20,52 @@ const pickGone = (e: unknown) => isIpcError(e) && e.code === "input.invalid" && 
  * ADR-0023 import, after the native open dialog (`vault_import_pick`) chose `pick`:
  * passphrase → `vault_import_inspect` (counts, same or foreign vault) → mode and passwords →
  * `vault_import_age` → summary. Merge is the default; Replace needs the word REPLACE typed.
+ *
+ * L-53: the passphrase and both master passwords never enter React state. The fields are
+ * uncontrolled, read once for the IPC call and emptied after it and when they leave the page.
  */
 export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPickResult; onClose: () => void; onExportFirst: () => void }) {
-  const [passphrase, setPassphrase] = useState("");
+  const passphrase = useSecretInput();
   const [inspect, setInspect] = useState<ImportInspect | null>(null);
   const [mode, setMode] = useState<ImportMode>("merge");
   const [confirm, setConfirm] = useState("");
-  const [master, setMaster] = useState("");
-  const [source, setSource] = useState("");
+  const master = useSecretInput();
+  const source = useSecretInput();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
 
   async function open() {
-    if (!passphrase || busy) return;
+    if (passphrase.empty || busy) return;
     setBusy(true);
     setError(null);
     try {
-      setInspect(await ipc.vaultImportInspect({ pickId: pick.pickId, exportPassphrase: passphrase }));
+      const exportPassphrase = passphrase.take();
+      setInspect(await ipc.vaultImportInspect({ pickId: pick.pickId, exportPassphrase }));
     } catch (e: unknown) {
       if (pickGone(e)) setGone(true);
       setError(pickGone(e) ? "Mooring stopped trying this file after three wrong passphrases. Choose it again to retry." : describeError(e));
     } finally {
-      setPassphrase("");
+      passphrase.clear();
       setBusy(false);
     }
   }
 
   const replaceOk = mode !== "replace" || confirm === REPLACE_CONFIRM;
-  const canImport = inspect !== null && master !== "" && (!inspect.needsSourcePassword || source !== "") && replaceOk && !busy;
+  const canImport = inspect !== null && !master.empty && (!inspect.needsSourcePassword || !source.empty) && replaceOk && !busy;
 
   async function apply() {
     if (!inspect || !canImport) return;
     setBusy(true);
     setError(null);
     try {
+      const password = master.take();
+      const sourcePassword = inspect.needsSourcePassword ? source.take() : null;
       const r = await ipc.vaultImportAge({
         pickId: pick.pickId,
-        password: master,
-        sourcePassword: inspect.needsSourcePassword ? source : null,
+        password,
+        sourcePassword,
         mode,
         confirm: mode === "replace" ? confirm : null,
       });
@@ -68,8 +75,8 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
       if (pickGone(e)) setGone(true);
       setError(pickGone(e) ? "This file was already imported or the review expired. Choose it again." : describeError(e));
     } finally {
-      setMaster("");
-      setSource("");
+      master.clear();
+      source.clear();
       setBusy(false);
     }
   }
@@ -122,22 +129,22 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
           {!inspect ? (
             <div>
               <label className="field-label" htmlFor="imp-pass">Backup passphrase</label>
-              <input id="imp-pass" type="password" className="field" autoComplete="off" disabled={gone} value={passphrase} onChange={(e) => { setPassphrase(e.target.value); }} />
+              <input id="imp-pass" type="password" className="field" autoComplete="off" disabled={gone} ref={passphrase.ref} onChange={passphrase.onChange} />
               <p className="field-hint">The passphrase chosen when the backup was exported. Nothing is imported yet.</p>
             </div>
           ) : (
-            <Review inspect={inspect} mode={mode} setMode={setMode} confirm={confirm} setConfirm={setConfirm} source={source} setSource={setSource} onExportFirst={onExportFirst} />
+            <Review inspect={inspect} mode={mode} setMode={setMode} confirm={confirm} setConfirm={setConfirm} source={source} onExportFirst={onExportFirst} />
           )}
           {inspect && (
             <div>
               <label className="field-label" htmlFor="imp-master">Master password of this vault</label>
-              <input id="imp-master" type="password" className="field" autoComplete="current-password" value={master} onChange={(e) => { setMaster(e.target.value); }} />
+              <input id="imp-master" type="password" className="field" autoComplete="current-password" ref={master.ref} onChange={master.onChange} />
             </div>
           )}
           {error && <p role="alert" className="settings-err">{error}</p>}
         </div>
         {footer(
-          <button type="submit" className={`btn ${mode === "replace" && inspect ? "btn-danger" : "btn-primary"}`} disabled={inspect ? !canImport : !passphrase || busy}>
+          <button type="submit" className={`btn ${mode === "replace" && inspect ? "btn-danger" : "btn-primary"}`} disabled={inspect ? !canImport : passphrase.empty || busy}>
             {busy ? "Working…" : !inspect ? "Open backup" : mode === "replace" ? "Replace this vault" : "Merge into this vault"}
           </button>,
         )}
@@ -146,14 +153,13 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
   );
 }
 
-function Review({ inspect, mode, setMode, confirm, setConfirm, source, setSource, onExportFirst }: {
+function Review({ inspect, mode, setMode, confirm, setConfirm, source, onExportFirst }: {
   inspect: ImportInspect;
   mode: ImportMode;
   setMode: (m: ImportMode) => void;
   confirm: string;
   setConfirm: (v: string) => void;
-  source: string;
-  setSource: (v: string) => void;
+  source: Pick<ReturnType<typeof useSecretInput>, "ref" | "onChange">;
   onExportFirst: () => void;
 }) {
   const c = inspect.counts;
@@ -171,7 +177,7 @@ function Review({ inspect, mode, setMode, confirm, setConfirm, source, setSource
           </p>
           <div>
             <label className="field-label" htmlFor="imp-source">Master password of the other vault</label>
-            <input id="imp-source" type="password" className="field" autoComplete="off" value={source} onChange={(e) => { setSource(e.target.value); }} />
+            <input id="imp-source" type="password" className="field" autoComplete="off" ref={source.ref} onChange={source.onChange} />
           </div>
         </div>
       )}
