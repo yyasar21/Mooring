@@ -167,6 +167,16 @@ macro_rules! a5_variants {
             /// Outcome.
             outcome: String,
         },
+        /// Review 9 L-48: the web SOCKS forward refused a CONNECT outside the window's allow-list
+        /// (the start URL and its allowed origins). The first 16 per window are recorded.
+        ForwardRefused {
+            /// Connection id.
+            connection: String,
+            /// Forward id (`web-via`).
+            id: String,
+            /// Refused `host:port`.
+            target: String,
+        },
         }
     };
 }

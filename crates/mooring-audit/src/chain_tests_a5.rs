@@ -105,6 +105,15 @@ fn security_key_events_have_stable_wire_names() {
             serde_json::json!({"event": "credential.pin_prompted", "connection": "c",
                                "fingerprint": "SHA256:x", "outcome": "cancelled"}),
         ),
+        (
+            AuditEvent::ForwardRefused {
+                connection: s("c"),
+                id: s("web-via"),
+                target: s("internal.example.test:22"),
+            },
+            serde_json::json!({"event": "forward_refused", "connection": "c", "id": "web-via",
+                               "target": "internal.example.test:22"}),
+        ),
     ];
     for (e, want) in cases {
         let v = serde_json::to_value(&e).expect("json");

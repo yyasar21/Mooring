@@ -366,7 +366,7 @@ impl SshControl {
         let handle = self.live_handle()?;
         let (listener, bound) = bind(bind_addr).await?;
         self.start(ForwardKind::Dynamic, bound, None, exposure, move |cancel, limit| {
-            tokio::spawn(dynamic_loop(listener, handle, cancel, limit))
+            tokio::spawn(dynamic_loop(listener, handle, cancel, limit, None))
         })
     }
 

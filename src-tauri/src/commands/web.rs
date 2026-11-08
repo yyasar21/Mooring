@@ -269,7 +269,7 @@ pub async fn web_open<R: Runtime>(
     }
     // ADR-0025 §3: the chain and its SOCKS forward exist before the window does.
     let via = if plan.via {
-        Some(Arc::new(web::via::open(&state, &plan.connection_id, &plan.url).await?))
+        Some(Arc::new(web::via::open(&state, &plan.connection_id, &plan.url, &plan.policy).await?))
     } else {
         None
     };

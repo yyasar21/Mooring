@@ -3,7 +3,10 @@
 //! built with `proxy_url`, so not one request leaves directly), lives in the window's
 //! registry entry, and is closed with the window. The listener is the only loopback port a
 //! chain has (R-WEB-VIA): `127.0.0.1`, random port, no auth, audited
-//! `forward_opened { reason: web_via }`.
+//! `forward_opened { reason: web_via }`. Review 9 L-48: it CONNECTs only to the start URL's
+//! host and the hosts of the navigation allow-list (ports 80, 443, their own and the start
+//! port); other targets are refused with SOCKS `0x02` and the first 16 audited
+//! `forward_refused`.
 //!
 //! The chain opens unattended: the web channel has no prompt answer path, so a hop that asks
 //! (an unknown host key, keyboard-interactive, a `prompt` credential) ends the open with
@@ -15,9 +18,10 @@ use std::sync::{Arc, Mutex};
 use mooring_audit::{AuditEvent, AuditLog};
 use mooring_core::session::SessionEvent;
 use mooring_core::{CloseCode, Protocol};
-use mooring_proto_ssh::{ChainProxy, Hop, HopChain, HopEvents};
+use mooring_proto_ssh::{ChainProxy, Hop, HopChain, HopEvents, ProxyAllow};
 use tauri::Url;
 
+use super::policy::NavPolicy;
 use super::StorageOs;
 use crate::error::{IpcError, IpcResult};
 use crate::state::{record_audit, AppState};
@@ -51,6 +55,22 @@ pub fn target_of(url: &Url) -> IpcResult<(String, u16)> {
     let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
     let port = url.port_or_known_default().ok_or_else(|| IpcError::invalid("url", "no port"))?;
     Ok((host, port))
+}
+
+/// Review 9 L-48: the CONNECT targets of a web window's SOCKS forward — the start URL's host
+/// and every allowed origin's host, each on ports 80, 443, its own port and the start port.
+pub fn proxy_allow(url: &Url, policy: &NavPolicy) -> ProxyAllow {
+    let mut allow = ProxyAllow::new();
+    let start_port = target_of(url).ok().map(|(_, p)| p);
+    let origins = policy.allowed().iter().filter_map(|o| Url::parse(o).ok());
+    for u in std::iter::once(url.clone()).chain(origins) {
+        if let Ok((host, port)) = target_of(&u) {
+            for p in [80, 443, port].into_iter().chain(start_port) {
+                allow.allow(&host, p);
+            }
+        }
+    }
+    allow
 }
 
 fn hop_failed(reason: String) -> IpcError {
@@ -117,8 +137,9 @@ impl WebVia {
         connection: &str,
         chain: HopChain,
         hop_audit: mooring_proto_ssh::AuditLog,
+        allow: ProxyAllow,
     ) -> IpcResult<Self> {
-        let proxy = match ChainProxy::open(&chain).await {
+        let proxy = match ChainProxy::open(&chain, allow).await {
             Ok(p) => p,
             Err(e) => {
                 tracing::warn!(kind = ?e.kind(), "web SOCKS forward not opened");
@@ -162,6 +183,7 @@ impl WebVia {
             return;
         }
         self.proxy.close();
+        self.audit_refused(audit);
         record_audit(audit, AuditEvent::ForwardClosed {
             connection: self.connection.clone(),
             id: FORWARD_ID.to_owned(),
@@ -172,6 +194,22 @@ impl WebVia {
         });
         self.chain.close_with(code).await;
         flush(audit, &self.connection, &self.hop_audit);
+    }
+
+    /// Audit the CONNECTs the allow-list refused since the last call (at most 16 per window).
+    pub fn audit_refused(&self, audit: &Mutex<AuditLog>) {
+        for target in self.proxy.take_refused() {
+            record_audit(audit, AuditEvent::ForwardRefused {
+                connection: self.connection.clone(),
+                id: FORWARD_ID.to_owned(),
+                target,
+            });
+        }
+    }
+
+    /// CONNECTs refused so far (counted past the audit cap).
+    pub fn refused(&self) -> u64 {
+        self.proxy.refused()
     }
 
     /// [`shutdown`](Self::shutdown) off the caller (window events are synchronous).
@@ -189,8 +227,9 @@ fn flush(audit: &Mutex<AuditLog>, connection: &str, hop_audit: &mooring_proto_ss
 }
 
 /// Resolve the hops of web connection `connection_id` (their own credentials, audited
-/// `credential_used`), open the chain unattended and put the SOCKS forward on it.
-pub async fn open(state: &AppState, connection_id: &str, url: &Url) -> IpcResult<WebVia> {
+/// `credential_used`), open the chain unattended and put the SOCKS forward on it, limited to
+/// [`proxy_allow`] of `url` and `policy`.
+pub async fn open(state: &AppState, connection_id: &str, url: &Url, policy: &NavPolicy) -> IpcResult<WebVia> {
     let id = crate::dto::connection_id("connectionId", connection_id)?;
     let mut used = Vec::new();
     let plans = state.with_ready(|vault, store| {
@@ -214,7 +253,7 @@ pub async fn open(state: &AppState, connection_id: &str, url: &Url) -> IpcResult
             return Err(e);
         }
     };
-    WebVia::start(&state.audit, connection_id, chain, hop_audit).await
+    WebVia::start(&state.audit, connection_id, chain, hop_audit, proxy_allow(url, policy)).await
 }
 
 /// Watch `via` once a second; a lost hop closes the window through `destroy` (its
@@ -229,6 +268,7 @@ pub fn watch(via: &Arc<WebVia>, audit: Arc<Mutex<AuditLog>>, destroy: impl Fn() 
             if via.closed.load(Ordering::Acquire) {
                 return;
             }
+            via.audit_refused(&audit);
             if let Some(hop) = via.lost_hop() {
                 tracing::warn!(hop, code = ?CloseCode::HopLost, "web jump host lost; closing the window");
                 via.shutdown(&audit, "hop_lost").await;

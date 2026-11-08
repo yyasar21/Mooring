@@ -48,7 +48,7 @@ pub mod socks;
 mod via_session;
 
 pub use audit::{AuditLog, AuthMethod, TrustEvent};
-pub use chain_proxy::ChainProxy;
+pub use chain_proxy::{ChainProxy, ProxyAllow, MAX_AUDITED_REFUSALS};
 pub use channel::{MAX_CHUNK, TERM};
 pub use control::SshControl;
 pub use forward::{Exposure, ForwardId, ForwardInfo, ForwardKind};
@@ -63,7 +63,8 @@ pub use via_session::{TargetFuture, ViaSession};
 
 pub use agent_wire::fuzz_agent_identities;
 pub use piv_auth::{
-    module_candidates as piv_module_candidates, module_path as piv_module_path, MAX_PIN,
+    module_candidates as piv_module_candidates, module_path as piv_module_path,
+    MAX_PIN,
 };
 pub use sk_agent::{agent_holds, agent_holds_key};
 pub use sk_auth::SK_TOUCH_TIMEOUT;
