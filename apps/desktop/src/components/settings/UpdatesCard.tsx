@@ -14,7 +14,11 @@ export const DEV_UPDATE_TEXT = "Updates are disabled in development builds. Inst
 /** Where a manual install starts. Always the latest release, never a URL from the manifest. */
 export const RELEASE_PAGE = "https://github.com/yyasar21/Mooring/releases/latest";
 
+/** ADR-0018 A2 (R6): the command a winget install updates with. */
+export const WINGET_COMMAND = "winget upgrade yyasar21.Mooring";
+
 export const MANUAL_REASON_TEXT: Record<UpdateManualReason, string> = {
+  winget: `Installed with winget — update with ${WINGET_COMMAND}.`,
   package_manager: "This copy was installed by a package manager (deb, rpm or MSI). Update it with the package manager, or download the new package from the release page.",
   homebrew: "This copy was installed with Homebrew. Update it with brew upgrade, or download the new version from the release page.",
   not_writable: "The installed application is not writable by your user (for example a root-owned /Applications bundle or a per-machine install), and Mooring never asks for elevated rights. Download the new version from the release page and install it the way this one was installed.",
@@ -47,9 +51,10 @@ function Available({ info, onInstall, busy }: { info: UpdateInfo; onInstall: () 
   const date = fmtDate(a.date);
   const size = fmtBytes(a.size);
   const manual = info.installMode === "manual";
+  const winget = manual && info.manualReason === "winget";
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(RELEASE_PAGE);
+      await navigator.clipboard.writeText(winget ? WINGET_COMMAND : RELEASE_PAGE);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -66,12 +71,20 @@ function Available({ info, onInstall, busy }: { info: UpdateInfo; onInstall: () 
       {manual ? (
         <>
           <p className="field-hint">{MANUAL_REASON_TEXT[info.manualReason ?? "not_bundled"]}</p>
-          <div className="about-link">
-            <span className="about-link-label">Release page</span>
-            <code className="about-link-url">{RELEASE_PAGE.replace(/^https:\/\//, "")}</code>
-            <button type="button" className="btn btn-ghost" onClick={() => void copy()} aria-label="Copy release page link">{copied ? "Copied" : "Copy"}</button>
-          </div>
-          <p role="status" className="sr-only">{copied ? "Link copied." : ""}</p>
+          {winget ? (
+            <div className="about-link">
+              <span className="about-link-label">Command</span>
+              <code className="about-link-url select-text">{WINGET_COMMAND}</code>
+              <button type="button" className="btn btn-ghost" onClick={() => void copy()} aria-label="Copy winget command">{copied ? "Copied" : "Copy"}</button>
+            </div>
+          ) : (
+            <div className="about-link">
+              <span className="about-link-label">Release page</span>
+              <code className="about-link-url">{RELEASE_PAGE.replace(/^https:\/\//, "")}</code>
+              <button type="button" className="btn btn-ghost" onClick={() => void copy()} aria-label="Copy release page link">{copied ? "Copied" : "Copy"}</button>
+            </div>
+          )}
+          <p role="status" className="sr-only">{copied ? (winget ? "Command copied." : "Link copied.") : ""}</p>
         </>
       ) : (
         <div className="flex flex-wrap items-center gap-2">

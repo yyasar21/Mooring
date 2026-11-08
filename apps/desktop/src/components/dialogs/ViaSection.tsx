@@ -4,6 +4,7 @@ import type { Protocol, VncConnOptions } from "../../lib/ipc";
 import { MAX_VIA } from "../../lib/ipc.types.a5";
 import { chainText, moveItem, supportsVia, viaCandidates } from "../../lib/via";
 import { useTree } from "../../stores/tree";
+import { isMac } from "../../lib/shortcuts";
 
 /**
  * ADR-0025 "Connect via": an ordered list of up to three SSH jump hosts, first hop first. Only
@@ -25,15 +26,7 @@ export function ViaSection({ selfId, protocol, target, via, onChange, vnc }: {
   const [pick, setPick] = useState("");
   const chosen = candidates.some((c) => c.id === pick) ? pick : "";
 
-  if (protocol === "vsphere-console") return null;
-  if (!supportsVia(protocol)) {
-    return (
-      <div className="space-y-2 border-t border-line px-4 py-4">
-        <HudLabel>Connect via</HudLabel>
-        <p className="field-hint">Web connections cannot open through a jump host yet. They connect directly.</p>
-      </div>
-    );
-  }
+  if (!supportsVia(protocol)) return null;
 
   const nameOf = (id: string) => connections.find((c) => c.id === id);
   const full = via.length >= MAX_VIA;
@@ -89,11 +82,33 @@ export function ViaSection({ selfId, protocol, target, via, onChange, vnc }: {
       {via.length > 0 && (
         <p className="field-hint">Each jump host signs in with its own credential and checks its own host key. Only SSH connections can be jump hosts.</p>
       )}
+      {protocol === "web" && <WebViaNote chained={via.length > 0} />}
       {via.length > 0 && protocol === "vnc" && vnc?.security === "allow_plaintext" && (
         <p className="field-hint field-problem" role="note">
           This VNC connection allows plaintext. The jump hosts carry it inside SSH, but the last leg from the final jump host to the target can be unencrypted.
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * R6: a web window goes through a SOCKS proxy on the last jump host. The chain opens without a
+ * human, and macOS refuses it in this build (`web.via_unsupported`).
+ */
+function WebViaNote({ chained }: { chained: boolean }) {
+  return (
+    <>
+      {chained && (
+        <p className="field-hint">
+          The page goes through a SOCKS proxy on the last jump host. A web window cannot answer a jump host&apos;s questions: trust each jump host&apos;s key in an SSH session first, and give it a stored credential.
+        </p>
+      )}
+      {isMac() && (
+        <p className="field-hint field-problem" role="note">
+          On macOS, this build cannot open web windows through jump hosts. Opening is refused; use an SSH session&apos;s dynamic forward instead.
+        </p>
+      )}
+    </>
   );
 }

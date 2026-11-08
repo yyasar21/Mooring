@@ -1,8 +1,8 @@
 // Defensive decoders for ADR-0014 payloads. Pod lists, watch events and log chunks carry
 // cluster-controlled strings: they are decoded field by field, capped, and anything unknown
 // becomes a safe default (a phase we do not know is "Unknown", never "Running").
-import { POD_PHASES, type ContainerSummary, type KubeAccess, type KubeList, type LogChunk, type PodEvent, type PodPhase, type PodSummary } from "./ipc.types.kube";
-import { base64ToBytes } from "./ipc.decode.session";
+import { POD_PHASES, type ClusterEvent, type ContainerSummary, type KubeAccess, type KubeList, type LogChunk, type PodEvent, type PodPhase, type PodSummary } from "./ipc.types.kube";
+import { base64ToBytes, decodeSessionEvent } from "./ipc.decode.session";
 
 type Wire = Record<string, unknown>;
 
@@ -79,4 +79,27 @@ export function decodeLogChunk(raw: unknown): LogChunk {
   }
   if (w.kind === "end") return { kind: "end", truncated: w.truncated === true, reason: typeof w.reason === "string" ? w.reason.slice(0, 256) : null };
   return { kind: "end", truncated: false, reason: "unrecognised log message" };
+}
+
+/**
+ * A `kube_open` channel message. `connected` is read field by field (cluster-controlled names are
+ * capped); prompts, `hop_status` and `closed` reuse the session decoder (a malformed hop status
+ * closes, as on SSH). Any other kind is ignored: the handle has no terminal to close over it.
+ */
+export function decodeClusterEvent(raw: unknown): ClusterEvent | null {
+  const w = rec(raw);
+  if (w.kind === "connected") {
+    const id = rec(w.identity);
+    const groups = Array.isArray(id.groups) ? id.groups.filter((g): g is string => typeof g === "string").map((g) => g.slice(0, 256)).slice(0, 64) : [];
+    const identity = typeof id.user === "string" ? { user: id.user.slice(0, 256), groups } : null;
+    const ns = pick(w, "contextNamespace", "context_namespace");
+    return { kind: "connected", server: str(w.server, 512), identity, contextNamespace: typeof ns === "string" && ns !== "" ? ns.slice(0, 63) : null };
+  }
+  if (w.kind === "prompt" || w.kind === "hop_status" || w.kind === "closed") {
+    const ev = decodeSessionEvent(raw);
+    if (ev.kind === "prompt" || ev.kind === "hop_status" || ev.kind === "closed") return ev;
+  }
+  // eslint-disable-next-line no-console -- dev-only shape-drift warning, no data
+  if (import.meta.env.DEV) console.warn("mooring: ignored an unknown cluster event", typeof w.kind === "string" ? w.kind.slice(0, 40) : typeof w.kind);
+  return null;
 }

@@ -31,7 +31,7 @@ describe("TauriTransport · ADR-0014..0017", () => {
     const t = new TauriTransport();
     const sessionId = "k-1";
     reply = { items: [], truncated: false };
-    await t.kubeOpen({ connectionId: "c-1" });
+    await t.kubeOpen({ connectionId: "c-1", onEvent: () => undefined });
     await t.kubeAccess({ sessionId, namespace: "ns" });
     await t.kubeNamespaces({ sessionId });
     await t.kubePods({ sessionId, namespace: "ns", labelSelector: null });
@@ -73,6 +73,21 @@ describe("TauriTransport · ADR-0014..0017", () => {
     expect(calls[22]?.args).toEqual({ sessionId: "o-1" });
     expect(calls[26]?.args).toEqual({ keep: "remote" });
     expect(calls[28]?.args).toMatchObject({ vaultId: "v", password: "p", intervalMinutes: 15, backend: { kind: "s3" } });
+  });
+
+  it("opens a cluster with an event channel and decodes connected and hop events from it (K4, ADR-0025)", async () => {
+    const t = new TauriTransport();
+    const seen: unknown[] = [];
+    reply = { sessionId: "k-1" };
+    expect(await t.kubeOpen({ connectionId: "c-1", onEvent: (e) => seen.push(e) })).toEqual({ sessionId: "k-1" });
+    expect(Object.keys(calls[0]?.args ?? {}).sort()).toEqual(["connectionId", "onEvent"]);
+    const chan = calls[0]?.args?.onEvent as { onmessage: (m: unknown) => void };
+    chan.onmessage({ kind: "hop_status", hop: 0, of: 1, state: "connecting", host: "b.example.test:22" });
+    chan.onmessage({ kind: "connected", server: "https://k.example.test", identity: { user: "u", groups: [] }, contextNamespace: null, namespace: "default" });
+    expect(seen).toEqual([
+      { kind: "hop_status", hop: 0, of: 1, state: "connecting", host: "b.example.test:22", peerIdentity: null },
+      { kind: "connected", server: "https://k.example.test", identity: { user: "u", groups: [] }, contextNamespace: null },
+    ]);
   });
 
   it("passes the exec target on session_open only when given", async () => {

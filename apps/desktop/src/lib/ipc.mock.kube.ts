@@ -5,6 +5,7 @@
 // Methods stay `async` to mirror the IPC signature even when they do not await.
 /* eslint-disable @typescript-eslint/require-await */
 import type {
+  ClusterEventHandler,
   ForwardInfo,
   KubeAccess,
   KubeConnOptions,
@@ -25,6 +26,7 @@ import { ACCESS, DENY_ALL, FLOOD_LINE, logLine, seedPods } from "./ipc.mock.kube
 import { echo } from "./ipc.mock.shell";
 import { normalizeOptions } from "./validate.options";
 import { checkLogsArgs, isDnsLabel } from "./validate.kube";
+import type { MockHopChain } from "./ipc.mock.hops";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -35,6 +37,10 @@ interface MockLogStream { timer: ReturnType<typeof setTimeout> | null; emit: Log
 export interface MockCluster {
   info: SessionInfo;
   options: KubeConnOptions;
+  /** The `kube_open` channel: `connected`, hop prompts / `hop_status`, `closed`. */
+  emit: ClusterEventHandler;
+  /** ADR-0025: the jump hosts in front of the API server (null = direct). */
+  chain: MockHopChain | null;
   watches: Map<string, MockWatch>;
   logs: Map<string, MockLogStream>;
 }
@@ -89,17 +95,31 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
     if (!this.access(namespace)[what]) throw new IpcError("kube.rbac_denied", `the token may not ${verb} in this namespace`);
   }
 
-  kubeOpen: KubeIpc["kubeOpen"] = async ({ connectionId }) => {
+  kubeOpen: KubeIpc["kubeOpen"] = async ({ connectionId, onEvent }) => {
     await this.unlocked();
     const t = this.target(connectionId);
     if (t.protocol !== "kubernetes") throw new IpcError("input.invalid", "invalid connectionId: not a Kubernetes connection");
     const options = normalizeOptions("kubernetes", t.options ?? {}) as KubeConnOptions;
     const sessionId = this.kubeId("k");
-    const info: SessionInfo = { sessionId, connectionId, protocol: "kubernetes", state: "connected", openedAt: new Date().toISOString(), kube: { parentSessionId: null } };
-    this.clusters.set(sessionId, { info, options, watches: new Map(), logs: new Map() });
+    const info: SessionInfo = { sessionId, connectionId, protocol: "kubernetes", state: "connecting", openedAt: new Date().toISOString(), kube: { parentSessionId: null } };
+    const c: MockCluster = { info, options, emit: onEvent, chain: null, watches: new Map(), logs: new Map() };
+    this.clusters.set(sessionId, c);
     const server = options.server ?? t.host;
-    this.record("kube.connected", { connection: connectionId, server, identity: "ops@example.test" });
-    return { sessionId, identity: { user: "ops@example.test", groups: ["system:authenticated", "platform-ops"] }, server, contextNamespace: options.namespace ?? "payments" };
+    // K4: the handle comes back at once; `connected` follows once the API server answered.
+    const reach = () => {
+      if (!this.clusters.has(sessionId)) return;
+      info.state = "connected";
+      this.record("kube.connected", { connection: connectionId, server, identity: "ops@example.test" });
+      onEvent({ kind: "connected", server, identity: { user: "ops@example.test", groups: ["system:authenticated", "platform-ops"] }, contextNamespace: options.namespace ?? "payments" });
+    };
+    // ADR-0025 / R1: with `via`, the API server is dialled through the chain; hop prompts go on this channel.
+    const hopSink: SessionEventHandler = (ev) => { if (ev.kind === "prompt" || ev.kind === "hop_status" || ev.kind === "closed") onEvent(ev); };
+    c.chain = this.hopChainOf(connectionId, hopSink, reach, (reason) => {
+      if (this.clusters.has(sessionId)) this.kubeClose(sessionId, reason, "hop_failed");
+    });
+    const chain = c.chain;
+    this.later(() => { if (chain) chain.start(); else reach(); });
+    return { sessionId };
   };
 
   kubeAccess: KubeIpc["kubeAccess"] = async ({ sessionId, namespace }) => {
@@ -236,7 +256,10 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
   }
 
   protected kubeSend(sessionId: string, input: SessionInput): void {
+    const c = this.clusters.get(sessionId);
+    if (c?.chain?.active && c.chain.answer(input)) return; // a jump host's question
     const x = this.execs.get(sessionId);
+    if (!x && (input.kind === "answer" || input.kind === "credential_answer")) throw new IpcError("input.invalid", "no such prompt");
     if (!x) throw new IpcError("input.invalid", "invalid sessionId: a cluster session has no terminal");
     if (input.kind !== "bytes") return;
     const { out, exit } = echo(x, dec.decode(input.data));
@@ -251,16 +274,17 @@ export abstract class MockKubeBase extends MockOptionsBase implements KubeIpc {
   }
 
   /** `session_close`: a cluster session takes its exec tabs, watches, log streams and forwards with it. */
-  protected kubeClose(sessionId: string): void {
+  protected kubeClose(sessionId: string, reason = "closed by user", code: "user" | "hop_failed" = "user"): void {
     const x = this.execs.get(sessionId);
-    if (x) { this.endExec(x, "closed by user", "user"); return; }
+    if (x) { this.endExec(x, reason, "user"); return; }
     const c = this.cluster(sessionId);
     for (const e of [...this.execs.values()]) if (e.target.parentSessionId === sessionId) this.endExec(e, "the cluster session closed", "user");
     for (const s of c.logs.values()) { if (s.timer) clearTimeout(s.timer); s.emit({ kind: "end", truncated: false, reason: "the cluster session closed" }); }
     c.watches.clear();
     this.dropSession(sessionId);
     this.clusters.delete(sessionId);
-    this.record("session_closed", { connection: c.info.connectionId, reason: "closed by user" });
+    this.record("session_closed", { connection: c.info.connectionId, reason });
+    c.emit({ kind: "closed", reason, code });
   }
 
   protected kubeInfos(): SessionInfo[] {

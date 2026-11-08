@@ -3,6 +3,7 @@
 // Same conventions as ADR-0008: command args camelCase, `IpcError` on failure, no secret outward.
 // Shapes marked ASSUMED are not spelled out in the ADR; see docs/handoff/a3-ui-u1.md.
 import type { Exposure, ForwardInfo, HostPort } from "./ipc.types.exit";
+import type { SessionEvent } from "./ipc.types";
 
 // ---------- connection options (KubeConnOptions, deny_unknown_fields) ----------
 
@@ -70,13 +71,21 @@ export interface KubeIdentity {
   groups: string[];
 }
 
+/** `kube_open` result (A3 K4): the cluster handle only; what it reached comes as `connected`. */
 export interface KubeOpenResult {
   /** The cluster handle: a session (`protocol: kubernetes`, no terminal). */
   sessionId: string;
-  identity: KubeIdentity;
-  server: string;
-  contextNamespace: string | null;
 }
+
+/**
+ * `kube_open` channel (A3 K4, ADR-0025): `connected` carries what the cluster tab shows; jump-host
+ * and certificate prompts, `hop_status` and `closed` have the session-event shapes and are
+ * answered with `session_send` on the cluster session id.
+ */
+export type ClusterEvent =
+  | { kind: "connected"; server: string; identity: KubeIdentity | null; contextNamespace: string | null }
+  | Extract<SessionEvent, { kind: "prompt" | "hop_status" | "closed" }>;
+export type ClusterEventHandler = (event: ClusterEvent) => void;
 
 /** RBAC pre-flight (five SelfSubjectAccessReviews) for one namespace. */
 export interface KubeAccess {
@@ -167,7 +176,7 @@ export const isPodTarget = (t: ForwardInfo["target"]): t is PodTarget => t !== n
 // ---------- commands ----------
 
 export interface KubeIpc {
-  kubeOpen(args: { connectionId: string }): Promise<KubeOpenResult>;
+  kubeOpen(args: { connectionId: string; onEvent: ClusterEventHandler }): Promise<KubeOpenResult>;
   /** Passive (POLLED_COMMANDS). */
   kubeAccess(args: { sessionId: string; namespace: string }): Promise<KubeAccess>;
   /** Passive (POLLED_COMMANDS). */

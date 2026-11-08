@@ -114,24 +114,42 @@ describe("TauriTransport · ADR-0011/0012/0013", () => {
     const seen: WebEvent[] = [];
     reply = { windowLabel: "web-c-lb" };
     expect(await t.webOpen({ connectionId: "c-lb", onEvent: (e) => seen.push(e) })).toEqual({ windowLabel: "web-c-lb" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "blocked", origin: "https://sso.example.test" });
-    (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "weird" });
-    expect(seen).toEqual([{ kind: "blocked", origin: "https://sso.example.test" }, { kind: "closed" }]);
+    // An unknown kind (a newer build's `hop_status`, say) is ignored, never read as `closed`.
+    (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "hop_status", hop: 0, of: 1 });
+    (calls[0]?.args?.onEvent as Chan).onmessage(null);
+    expect(seen).toEqual([{ kind: "blocked", origin: "https://sso.example.test" }]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(String(warn.mock.calls[0]?.[1])).toBe("hop_status");
+    warn.mockRestore();
+    (calls[0]?.args?.onEvent as Chan).onmessage({ kind: "closed" });
+    expect(seen.at(-1)).toEqual({ kind: "closed" });
+    calls.length = 0;
+    // R6: through jump hosts the result carries `viaHops`; a bad value is dropped.
+    reply = { windowLabel: "web-c-lb", viaHops: 2 };
+    expect(await t.webOpen({ connectionId: "c-lb", onEvent: () => undefined })).toEqual({ windowLabel: "web-c-lb", viaHops: 2 });
+    reply = { windowLabel: "web-c-lb", viaHops: 9 };
+    expect(await t.webOpen({ connectionId: "c-lb", onEvent: () => undefined })).toEqual({ windowLabel: "web-c-lb" });
+    calls.length = 0;
     reply = undefined;
     for (const m of ["webClose", "webFocus", "webReload", "webPrint", "webClearData"] as const) await t[m]({ connectionId: "c-lb" });
     await t.webZoom({ connectionId: "c-lb", factor: 1.25 });
     reply = [{ connection_id: "c-lb", window_label: "web-c-lb", origin: "https://lb.example.test", title: "LB", persistent: false, opened_at: "t" }];
     expect((await t.webList())[0]).toMatchObject({ connectionId: "c-lb", windowLabel: "web-c-lb" });
+    expect((await t.webList())[0]?.viaHops).toBeUndefined();
+    reply = [{ connectionId: "c-lb", windowLabel: "web-c-lb", origin: "o", title: "", persistent: false, openedAt: "t", viaHops: 1 }];
+    expect((await t.webList())[0]?.viaHops).toBe(1);
     reply = { windowLabel: "detached-s" };
     await t.windowDetach({ sessionId: "s" });
     await t.windowAttach({ sessionId: "s" });
     reply = { protocol: "rdp", state: "connected", size: { width: 800, height: 600 } };
     await t.sessionAttach({ sessionId: "s", onEvent: () => undefined, onFrame: () => undefined });
     expect(calls.map((c) => c.cmd)).toEqual([
-      "web_open", "web_close", "web_focus", "web_reload", "web_print", "web_clear_data", "web_zoom", "web_list",
+      "web_close", "web_focus", "web_reload", "web_print", "web_clear_data", "web_zoom", "web_list", "web_list", "web_list",
       "window_detach", "window_attach", "session_attach",
     ]);
-    expect(calls[6]?.args).toEqual({ connectionId: "c-lb", factor: 1.25 });
-    expect(Object.keys(calls[10]?.args ?? {}).sort()).toEqual(["onEvent", "onFrame", "sessionId"]);
+    expect(calls[5]?.args).toEqual({ connectionId: "c-lb", factor: 1.25 });
+    expect(Object.keys(calls[11]?.args ?? {}).sort()).toEqual(["onEvent", "onFrame", "sessionId"]);
   });
 });

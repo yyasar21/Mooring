@@ -8,8 +8,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, PodEventHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
-import { decodeAccess, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
-import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
+import { decodeAccess, decodeClusterEvent, decodeLogChunk, decodeNamespaces, decodePodEvent, decodePodList } from "./ipc.decode.kube";
+import { decodeKnownCert, decodeSessionEvent, decodeWebEvent, decodeWebOpened, decodeWebWindow, encodeSessionInput, frameBuffer } from "./ipc.decode.session";
 import { decodeSyncStatus } from "./ipc.decode.sync";
 import { decodeUpdateInfo, decodeUpdateSettings } from "./ipc.decode.update";
 
@@ -143,10 +143,13 @@ export class TauriTransport implements Ipc {
 
   // ---------- ADR-0013 ----------
 
-  webOpen: Ipc["webOpen"] = ({ connectionId, onEvent }) => {
+  webOpen: Ipc["webOpen"] = async ({ connectionId, onEvent }) => {
     const channel = new Channel<unknown>();
-    channel.onmessage = (msg) => { onEvent(decodeWebEvent(msg)); };
-    return call("web_open", { connectionId, onEvent: channel });
+    channel.onmessage = (msg) => {
+      const ev = decodeWebEvent(msg);
+      if (ev) onEvent(ev); // an unknown kind is ignored, never read as `closed`
+    };
+    return decodeWebOpened(await call<unknown>("web_open", { connectionId, onEvent: channel }));
   };
   webClose: Ipc["webClose"] = (a) => call("web_close", { ...a });
   webFocus: Ipc["webFocus"] = (a) => call("web_focus", { ...a });
@@ -184,7 +187,14 @@ export class TauriTransport implements Ipc {
 
   // ---------- ADR-0014 (Kubernetes) ----------
 
-  kubeOpen: Ipc["kubeOpen"] = (a) => call("kube_open", { ...a });
+  kubeOpen: Ipc["kubeOpen"] = ({ connectionId, onEvent }) => {
+    const channel = new Channel<unknown>();
+    channel.onmessage = (msg) => {
+      const ev = decodeClusterEvent(msg);
+      if (ev) onEvent(ev);
+    };
+    return call("kube_open", { connectionId, onEvent: channel });
+  };
   kubeAccess: Ipc["kubeAccess"] = async (a) => decodeAccess(await call<unknown>("kube_access", { ...a }));
   kubeNamespaces: Ipc["kubeNamespaces"] = async (a) => decodeNamespaces(await call<unknown>("kube_namespaces", { ...a }));
   kubePods: Ipc["kubePods"] = async (a) => decodePodList(await call<unknown>("kube_pods", { ...a }));

@@ -137,7 +137,8 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
     "That jump host chain is not allowed. Use at most 3 SSH connections, each once, not this connection itself, and no chain that leads back here. vCenter connections cannot use jump hosts.",
   "connection.in_use_as_hop": "Another connection uses this one as a jump host, so it was not deleted. Remove it from that connection's “Connect via” list first.",
   "session.hop_failed": "A jump host of this connection cannot be used: it is missing, it is not an SSH connection, or its credential is an external reference.",
-  "web.via_unsupported": "Web connections cannot open through a jump host yet. Remove the jump hosts from this connection to open it.",
+  "web.via_unsupported":
+    "Web windows cannot open through jump hosts on macOS in this build. Open the jump host as an SSH session with a dynamic forward (SOCKS) instead, or remove the jump hosts from this connection.",
   "vault.unlock": "The master password is wrong.",
   // ADR-0022 (R2): biometric unlock.
   "biometric.unavailable": "Biometric unlock is not available on this device.",
@@ -164,7 +165,7 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "secret.tool_failed": "bws did not finish: it failed, timed out or printed something Mooring could not read. Test the source in Settings → Secret sources.",
   "source.kind_unsupported": "This reference's provider does not match its secret source. Choose a source of the same provider.",
   // ADR-0024 (R4): FIDO2 security keys.
-  "credential.use_sk_kind": "This is a security-key key — create a Security key (FIDO2) credential instead.",
+  "credential.use_sk_kind": "This is a security-key key — create an SSH security key (FIDO2) credential instead.",
   "ssh.sk_key_not_in_agent":
     "The security key is not in your ssh-agent, or no ssh-agent is running, so Mooring did not connect. Add the key to your ssh-agent: ssh-add -K or ssh-add <handle file>.",
   "ssh.sk_helper_disabled":

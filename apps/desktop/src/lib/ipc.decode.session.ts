@@ -1,5 +1,6 @@
 // Wire decoding for session channels (snake_case `mooring_core` serde shapes) and the A2 commands.
-// Decoders never throw: an unknown event kind closes the tab, unknown enum values fall back to
+// Decoders never throw: an unknown session event kind closes the tab (an unknown web-window kind
+// is ignored), unknown enum values fall back to
 // the safest choice (never the trust dialog, never a known close code).
 import type {
   CertificateInfo,
@@ -199,7 +200,12 @@ export function decodeKnownCert(raw: unknown): KnownCert {
   return out;
 }
 
-export function decodeWebEvent(raw: unknown): WebEvent {
+/**
+ * A web-window channel message. An unknown kind is ignored (null), not read as `closed`: R6 and
+ * later builds may add kinds (`hop_status`, `prompt`), and a window must not look closed while
+ * it is still open. Only `closed` itself ends the tab.
+ */
+export function decodeWebEvent(raw: unknown): WebEvent | null {
   const w = rec(raw);
   switch (w.kind) {
     case "title":
@@ -208,13 +214,31 @@ export function decodeWebEvent(raw: unknown): WebEvent {
     case "blocked":
     case "download_blocked":
       return { kind: w.kind, origin: str(w.origin) };
-    default:
+    case "closed":
       return { kind: "closed" };
+    default:
+      // Dev builds only, and only the kind (capped): nothing from the page reaches the console.
+      // eslint-disable-next-line no-console -- dev-only shape-drift warning, no data
+      if (import.meta.env.DEV) console.warn("mooring: ignored an unknown web window event", typeof w.kind === "string" ? w.kind.slice(0, 40) : typeof w.kind);
+      return null;
   }
+}
+
+/** ADR-0025 §3 `viaHops`: the number of jump hosts (1..=3); anything else = a direct window. */
+export function decodeViaHops(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= MAX_VIA ? v : undefined;
+}
+
+/** `web_open` result: the window label, and `viaHops` when the window goes through jump hosts. */
+export function decodeWebOpened(raw: unknown): { windowLabel: string; viaHops?: number } {
+  const w = rec(raw);
+  const viaHops = decodeViaHops(field(w, "via_hops", "viaHops"));
+  return { windowLabel: str(field(w, "window_label", "windowLabel")), ...(viaHops ? { viaHops } : {}) };
 }
 
 export function decodeWebWindow(raw: unknown): WebWindowInfo {
   const w = rec(raw);
+  const viaHops = decodeViaHops(field(w, "via_hops", "viaHops"));
   return {
     connectionId: str(field(w, "connection_id", "connectionId")),
     windowLabel: str(field(w, "window_label", "windowLabel")),
@@ -222,5 +246,6 @@ export function decodeWebWindow(raw: unknown): WebWindowInfo {
     title: str(w.title),
     persistent: w.persistent === true,
     openedAt: str(field(w, "opened_at", "openedAt")),
+    ...(viaHops ? { viaHops } : {}),
   };
 }

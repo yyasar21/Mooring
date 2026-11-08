@@ -3,6 +3,7 @@ import { App } from "../../App";
 import { POLLED_COMMANDS } from "../../lib/ipc";
 import type { MockTransport } from "../../lib/ipc.mock";
 import { decodeLease, leaseChip, leaseDuration, nextView, useLeases, type LeaseView } from "../../stores/leases";
+import { remaining } from "./LeaseChip";
 import { useSessions } from "../../stores/sessions";
 import { freshBackend, settle } from "../../test/harness";
 
@@ -104,11 +105,28 @@ describe("lease math", () => {
   const view = (p: Partial<LeaseView>): LeaseView => ({ engine: "database", state: "active", renewable: true, expiresAt: 0, ttlSeconds: 3600, ...p });
 
   it("decodes only well-formed rows", () => {
-    expect(decodeLease({ engine: "database", expiresInSeconds: 60, renewable: true, state: "active" })).toEqual({ engine: "database", expiresInSeconds: 60, renewable: true, state: "active" });
+    expect(decodeLease({ engine: "database", expiresInSeconds: 60, renewable: true, state: "active" })).toEqual({ engine: "database", expiresInSeconds: 60, renewable: true, state: "active", ttlSeconds: null });
+    // R6 `ttlSeconds`: kept when positive; a bad value is unknown, never a dropped row.
+    expect(decodeLease({ engine: "database", expiresInSeconds: 60, renewable: true, state: "active", ttlSeconds: 3600 })?.ttlSeconds).toBe(3600);
+    for (const ttl of [null, -5, 0, "3600", Number.NaN]) {
+      expect(decodeLease({ engine: "database", expiresInSeconds: 60, renewable: true, state: "active", ttlSeconds: ttl })?.ttlSeconds).toBeNull();
+    }
     expect(decodeLease({ engine: "database", expiresInSeconds: null, renewable: false, state: "expired" })?.expiresInSeconds).toBeNull();
     for (const bad of [null, "x", { engine: 1, renewable: true, state: "active" }, { engine: "database", renewable: "yes", state: "active" }, { engine: "database", renewable: true, state: "active", expiresInSeconds: -1 }]) {
       expect(decodeLease(bad)).toBeNull();
     }
+  });
+
+  it("uses Rust's ttlSeconds for the renewal figure instead of the estimate (R6)", () => {
+    // Opened late: 1000 s left of a 3600 s lease. The estimate would say TTL 1000; Rust says 3600.
+    const v = nextView(undefined, { engine: "database", expiresInSeconds: 1000, renewable: true, state: "active", ttlSeconds: 3600 }, 0);
+    expect(v.ttlSeconds).toBe(3600);
+    expect(leaseChip([v], "connected", 0)?.text).toBe("Lease · renewing"); // past two thirds of 3600
+    const fresh = nextView(undefined, { engine: "database", expiresInSeconds: 3000, renewable: true, state: "active", ttlSeconds: 3600 }, 0);
+    expect(leaseChip([fresh], "connected", 0)?.text).toBe("Lease · renews in 30 min");
+    expect(remaining(fresh, "active", 0)).toBe(" Expires in 50 min (TTL 1 h).");
+    expect(remaining(fresh, "revoked", 0)).toBe("");
+    expect(remaining({ ...fresh, ttlSeconds: null }, "active", 600_000)).toBe(" Expires in 40 min.");
   });
 
   it("learns the TTL and notices a renewal", () => {

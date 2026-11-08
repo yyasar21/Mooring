@@ -3,7 +3,7 @@
 // shells are ordinary terminal tabs opened with `session_open({ kube })`; log viewers are tabs
 // without a backend session whose stream lives as long as the view.
 import { create } from "zustand";
-import { ipc, type KubeExecTarget, type KubeIdentity, type SessionInfo } from "../lib/ipc";
+import { ipc, type ClusterEvent, type KubeExecTarget, type KubeIdentity, type SessionEventHandler, type SessionInfo } from "../lib/ipc";
 import { useSessions, type Tab } from "./sessions";
 import { describeError } from "./errors";
 
@@ -42,16 +42,29 @@ function patchTab(tabId: string, p: Partial<Tab>): void {
 }
 const tabOf = (tabId: string) => useSessions.getState().tabs.find((t) => t.id === tabId);
 
-/** `kube_open` for a cluster tab (first open and Reconnect). */
-export async function openCluster(tabId: string, connectionId: string): Promise<void> {
+/**
+ * `kube_open` for a cluster tab (first open and Reconnect). The handle id comes back at once;
+ * `connected` (identity, server, namespace) follows on the channel. Jump-host and certificate
+ * prompts, `hop_status` and `closed` go to `sink`, the same handler SSH tabs use, so the tab gets
+ * the hop strip and the prompt dialogs and answers them with `session_send` on the handle.
+ */
+export async function openCluster(tabId: string, connectionId: string, sink: SessionEventHandler): Promise<void> {
+  const onEvent = (ev: ClusterEvent) => {
+    if (ev.kind !== "connected") {
+      sink(ev);
+      return;
+    }
+    if (!tabOf(tabId)) return;
+    useKube.setState({ clusters: { ...useKube.getState().clusters, [tabId]: { identity: ev.identity, server: ev.server, contextNamespace: ev.contextNamespace } } });
+    patchTab(tabId, { state: "connected", reason: null, prompt: null });
+  };
   try {
-    const r = await ipc.kubeOpen({ connectionId });
+    const r = await ipc.kubeOpen({ connectionId, onEvent });
     if (!tabOf(tabId)) {
       await ipc.sessionClose({ sessionId: r.sessionId }).catch(() => undefined); // tab closed while opening
       return;
     }
-    useKube.setState({ clusters: { ...useKube.getState().clusters, [tabId]: { identity: r.identity, server: r.server, contextNamespace: r.contextNamespace } } });
-    patchTab(tabId, { sessionId: r.sessionId, state: "connected", reason: null });
+    if (tabOf(tabId)?.state !== "closed") patchTab(tabId, { sessionId: r.sessionId }); // `closed` may beat the reply
   } catch (e: unknown) {
     patchTab(tabId, { state: "closed", reason: describeError(e) });
   }

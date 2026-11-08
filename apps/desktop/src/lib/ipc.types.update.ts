@@ -5,7 +5,7 @@
 export type UpdateInstallMode = "in_app" | "manual";
 /** Why an install is manual (`update_check.manualReason`, only with `installMode: "manual"`). */
 /** `dev_build` (ADR-0028): Mooring Dev; updates come from your own builds. */
-export type UpdateManualReason = "package_manager" | "homebrew" | "not_writable" | "not_bundled" | "portable" | "dev_build";
+export type UpdateManualReason = "package_manager" | "homebrew" | "not_writable" | "not_bundled" | "portable" | "dev_build" | "winget";
 
 export interface UpdateAvailable {
   version: string;

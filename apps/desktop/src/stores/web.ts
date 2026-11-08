@@ -7,6 +7,7 @@ import { ipc, isIpcError, type WebEvent, type WebWindowInfo } from "../lib/ipc";
 import { WEB_ZOOM } from "../lib/ipc.types.remote";
 import { blankTab, nextTabId, useSessions, type Tab } from "./sessions";
 import { describeError } from "./errors";
+import { useTree } from "./tree";
 
 export type WebNoticeKind = "blocked" | "download_blocked";
 
@@ -26,6 +27,8 @@ export interface WebTab {
   /** The last factor this UI set; Rust does not report it (a reopened window starts at 1). */
   zoom: number;
   notices: WebNotice[];
+  /** ADR-0025 §3: jump hosts the page goes through (SOCKS on the last hop); null = direct. */
+  viaHops: number | null;
 }
 
 /** At most this many notices are kept per tab, newest first. */
@@ -68,7 +71,7 @@ export const useWebTabs = create<WebState>((set) => ({
   reset: () => { set({ byTab: {} }); },
 }));
 
-const blank = (): WebTab => ({ title: "", origin: "", persistent: false, zoom: 1, notices: [] });
+const blank = (): WebTab => ({ title: "", origin: "", persistent: false, zoom: 1, notices: [], viaHops: null });
 /** Channel generation per tab: events of a channel replaced by a newer `web_open` are ignored. */
 const gens = new Map<string, number>();
 let noticeSeq = 0;
@@ -114,26 +117,50 @@ function applyInfo(tabId: string, info: WebWindowInfo | undefined): void {
   if (!info) return;
   patchWeb(tabId, (w) => ({
     persistent: info.persistent,
+    viaHops: info.viaHops ?? w.viaHops,
     origin: w.origin || sanitizeOrigin(info.origin),
     title: w.title || sanitizeTitle(info.title),
   }));
 }
 
-/** `web_open` for a tab (also after a lock, when it moves the events to a new channel). */
+/** The jump hosts a connection's window will go through, from the tree (0 = direct). */
+export function plannedHops(connectionId: string): number {
+  return useTree.getState().connections.find((c) => c.id === connectionId)?.via?.length ?? 0;
+}
+
+/**
+ * R6: a hop failure's Rust message is a fixed, safe sentence that names the hop and what it asked
+ * (more useful than the generic plan-time text), so it is shown as is.
+ */
+function openFailure(e: unknown): string {
+  return isIpcError(e) && e.code === "session.hop_failed" && e.message.trim() !== "" ? e.message : describeError(e);
+}
+
+/**
+ * `web_open` for a tab (also after a lock, when it moves the events to a new channel). Through
+ * jump hosts it takes up to 90 s (R6 chain deadline); the tab shows the planned hop count until
+ * then. There is no cancel command: a tab closed meanwhile closes the window once it exists.
+ */
 export async function openWeb(tabId: string, connectionId: string): Promise<void> {
   const gen = (gens.get(tabId) ?? 0) + 1;
   gens.set(tabId, gen);
   if (!useWebTabs.getState().byTab[tabId]) patchWeb(tabId, blank());
+  const planned = plannedHops(connectionId);
+  patchWeb(tabId, { viaHops: planned > 0 ? planned : null });
   try {
-    await ipc.webOpen({ connectionId, onEvent: onWebEvent(tabId, gen) });
-    if (!tabOf(tabId)) return;
-    patchTab(tabId, { state: "connected", reason: null, closeCode: null });
+    const opened = await ipc.webOpen({ connectionId, onEvent: onWebEvent(tabId, gen) });
+    if (!tabOf(tabId)) {
+      if (gens.get(tabId) === undefined) await ipc.webClose({ connectionId }).catch(() => undefined);
+      return;
+    }
+    patchWeb(tabId, { viaHops: opened.viaHops ?? null });
+    patchTab(tabId, { state: "connected", reason: null, closeCode: null, openError: null });
     // `web_list` is passive and carries the effective storage mode.
     const list = await ipc.webList().catch(() => [] as WebWindowInfo[]);
     applyInfo(tabId, list.find((w) => w.connectionId === connectionId));
   } catch (e: unknown) {
     gens.delete(tabId);
-    patchTab(tabId, { state: "closed", reason: describeError(e), closeCode: null });
+    patchTab(tabId, { state: "closed", reason: openFailure(e), closeCode: null, openError: isIpcError(e) ? e.code : null });
   }
 }
 
@@ -203,7 +230,7 @@ export async function adoptWeb(): Promise<void> {
     const id = nextTabId();
     const s = useSessions.getState();
     useSessions.setState({ tabs: [...s.tabs, blankTab(id, w.connectionId, "web")], activeTab: s.activeTab ?? id });
-    patchWeb(id, { ...blank(), origin: sanitizeOrigin(w.origin), title: sanitizeTitle(w.title), persistent: w.persistent });
+    patchWeb(id, { ...blank(), origin: sanitizeOrigin(w.origin), title: sanitizeTitle(w.title), persistent: w.persistent, viaHops: w.viaHops ?? null });
     await openWeb(id, w.connectionId);
   }
 }

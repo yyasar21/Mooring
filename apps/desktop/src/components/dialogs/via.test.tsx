@@ -85,17 +85,37 @@ describe("Connect via (ADR-0025)", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "Delete" }));
     await settle();
     expect(within(dlg).getByRole("alert")).toHaveTextContent(/Another connection uses this one as a jump host/);
-    expect(within(dlg).getByRole("alert")).toHaveTextContent("Used by: stage-app.");
+    expect(within(dlg).getByRole("alert")).toHaveTextContent("Used by: stage-app, stage-wiki.");
     expect(mock.connections.some((c) => c.id === "c-bastion")).toBe(true);
   });
 
-  it("explains that web connections connect directly and hides the picker for vCenter", async () => {
+  it("offers jump hosts for web connections with the SOCKS note, and hides the picker for vCenter", async () => {
     await boot();
     let dlg = editDialog("c-lb", "f-web");
-    expect(within(dlg).getByText(/Web connections cannot open through a jump host yet/)).toBeInTheDocument();
-    expect(within(dlg).queryByLabelText("Add jump host")).toBeNull();
-    fireEvent.click(within(dlg).getByRole("button", { name: "Cancel" }));
+    const group = within(dlg).getByRole("group", { name: "Connect via" });
+    expect(within(group).queryByText(/SOCKS proxy on the last jump host/)).toBeNull();
+    fireEvent.change(within(group).getByLabelText("Add jump host"), { target: { value: "c-bastion" } });
+    fireEvent.click(within(group).getByRole("button", { name: "Add" }));
+    expect(within(group).getByText(/SOCKS proxy on the last jump host/)).toBeInTheDocument();
+    expect(within(group).queryByText(/On macOS, this build cannot open web windows/)).toBeNull();
+    await settle();
+    fireEvent.click(within(dlg).getByRole("button", { name: "Save connection" }));
+    await settle(10);
+    expect(mock.connections.find((c) => c.id === "c-lb")?.via).toEqual(["c-bastion"]);
     dlg = editDialog("c-vc", "f-staging");
     expect(within(dlg).queryByRole("group", { name: "Connect via" })).toBeNull();
+  });
+
+  it("keeps the macOS note on web connections (R6 refuses web via there)", async () => {
+    const ua = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)");
+    try {
+      await boot();
+      const dlg = editDialog("c-wiki", "f-staging");
+      const group = within(dlg).getByRole("group", { name: "Connect via" });
+      expect(within(group).getByRole("note")).toHaveTextContent("On macOS, this build cannot open web windows through jump hosts");
+      expect(within(group).getByLabelText("Route")).toHaveTextContent("you → bastion01 → stage-wiki");
+    } finally {
+      ua.mockRestore();
+    }
   });
 });
