@@ -40,11 +40,11 @@ export function IntervalField({ value, onChange, problem }: { value: number | nu
     <div>
       <span className="field-label">Background sync</span>
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-[length:var(--fs-s)]">
+        <label className="flex items-center gap-2 text-[length:var(--fs-13)]">
           <input type="radio" name="sy-mode" checked={value === null} onChange={() => { onChange(null); }} />
           Manual only
         </label>
-        <label className="flex items-center gap-2 text-[length:var(--fs-s)]">
+        <label className="flex items-center gap-2 text-[length:var(--fs-13)]">
           <input type="radio" name="sy-mode" checked={value !== null} onChange={() => { onChange(Number(text) || SYNC_INTERVAL.default); }} />
           Every
           <input aria-label="Minutes between syncs" className="field mono tnum settings-minutes" inputMode="numeric" disabled={value === null} value={text}

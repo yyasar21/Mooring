@@ -75,7 +75,7 @@ export function SkKeySection({ schema, kinds, s, meta, tried, problems, setValue
               aria-label="Choose a .pub file"
               onChange={(e) => { void openPub(e.target.files?.[0]); e.target.value = ""; }}
             />
-            {fileError && <span role="alert" className="field-problem text-[length:var(--fs-xs)]">{fileError}</span>}
+            {fileError && <span role="alert" className="field-problem text-[length:var(--fs-12)]">{fileError}</span>}
           </div>
           {parsed && (
             <dl className="sk-preview" aria-label="Key preview">

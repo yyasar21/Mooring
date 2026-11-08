@@ -4,12 +4,12 @@
 
 .rdg-section {
   grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; margin: 4px 0 0; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--radius-m); min-width: 0;
+  border: 1px solid var(--border); border-radius: var(--r-m); min-width: 0;
 }
 .rdg-section > legend { padding: 0 4px; }
 
-.gw-step { font-size: var(--fs-xs); color: var(--text-muted); }
+.gw-step { font-size: var(--fs-12); color: var(--text-2); }
 .gw-step .mono { color: var(--text); }
-.gw-step[data-state="failed"] { color: var(--hot); }
+.gw-step[data-state="failed"] { color: var(--danger); }
 
 .pin-dialog .field-hint { margin-top: 6px; }

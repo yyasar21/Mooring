@@ -85,7 +85,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         }}
       >
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="m-0 text-[length:var(--fs-s)] text-text-muted">
+          <p className="m-0 text-[length:var(--fs-13)] text-text-muted">
             The backup holds every folder, connection, credential and trusted host key, encrypted with a passphrase you choose (age, scrypt). It is a separate key from the master password.
           </p>
           <div>

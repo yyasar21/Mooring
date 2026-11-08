@@ -40,7 +40,7 @@ export function DetachedApp({ sessionId }: { sessionId: string }) {
         </span>
         <span className="spacer" />
         {error && (
-          <span role="alert" className="remote-note" style={{ color: "var(--hot)" }}>
+          <span role="alert" className="remote-note" style={{ color: "var(--danger)" }}>
             {error}
           </span>
         )}

@@ -63,7 +63,7 @@ export function RemoveDialog({ entry, path, onConfirm, onClose }: {
   return (
     <Modal title={`Delete ${what}?`} onClose={onClose}>
       <div className="px-4 py-3.5">
-        <p className="mono select-text break-all" style={{ color: "var(--hot)" }}>{path}</p>
+        <p className="mono select-text break-all" style={{ color: "var(--danger)" }}>{path}</p>
         <p className="mt-3 text-text-muted">
           {entry.kind === "dir"
             ? "Only an empty folder can be deleted. Nothing inside is touched."

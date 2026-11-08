@@ -98,7 +98,7 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
           </p>
           {result.conflicts.length > 0 ? (
             <>
-              <p className="m-0 text-[length:var(--fs-s)] text-text-muted">{result.conflicts.length} conflict{result.conflicts.length === 1 ? "" : "s"}:</p>
+              <p className="m-0 text-[length:var(--fs-13)] text-text-muted">{result.conflicts.length} conflict{result.conflicts.length === 1 ? "" : "s"}:</p>
               <ul className="backup-conflicts" aria-label="Conflicts">
                 {result.conflicts.map((c) => (
                   <li key={`${c.kind}-${c.id}`}><span className="text-text">{c.name}</span> ({c.kind}) — {RESOLUTION[c.resolution]}</li>
@@ -106,7 +106,7 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
               </ul>
             </>
           ) : (
-            <p className="m-0 text-[length:var(--fs-s)] text-text-muted">No conflicts.</p>
+            <p className="m-0 text-[length:var(--fs-13)] text-text-muted">No conflicts.</p>
           )}
         </div>
         {footer(null)}
@@ -123,7 +123,7 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
         }}
       >
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="m-0 text-[length:var(--fs-s)]">
+          <p className="m-0 text-[length:var(--fs-13)]">
             <span className="mono">{pick.name}</span> <span className="text-text-muted">({fmtBytes(pick.bytes)})</span>
           </p>
           {!inspect ? (

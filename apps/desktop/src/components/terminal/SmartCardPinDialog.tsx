@@ -58,10 +58,10 @@ export function SmartCardPinDialog({ tabId, prompt, hop }: { tabId: string; prom
           }
         }}
       >
-        <h2 id={headingId} className="m-display text-[length:var(--fs-l)]">
+        <h2 id={headingId} className="m-display text-[length:var(--fs-16)]">
           {hop ? `Jump host ${hop}: smart card PIN` : "Smart card PIN"}
         </h2>
-        <p id={bodyId} className="mt-2 text-[length:var(--fs-s)] text-text-muted select-text">
+        <p id={bodyId} className="mt-2 text-[length:var(--fs-13)] text-text-muted select-text">
           {prompt.message || "Enter the PIN of the smart card."}
         </p>
         <form

@@ -29,7 +29,7 @@ export function PodDetail({ pod, access, forwardOff, command, onCommand, actions
   return (
     <section aria-label={`Pod ${pod.name}`} className="kube-card m-hud" data-active>
       <header className="flex items-center gap-2">
-        <h3 className="m-display min-w-0 flex-1 truncate text-[length:var(--fs-l)] select-text" title={pod.name}>{pod.name}</h3>
+        <h3 className="m-display min-w-0 flex-1 truncate text-[length:var(--fs-16)] select-text" title={pod.name}>{pod.name}</h3>
         <span className="chip" data-tone={st.tone}>{st.label}</span>
       </header>
       <dl className="kube-ident">

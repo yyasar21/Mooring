@@ -71,7 +71,7 @@ export function CredentialsView() {
     <section aria-label="Credentials" className="cred-view">
       <div className="cred-list-pane">
         <header className="cred-list-head">
-          <h1 className="m-display text-[length:var(--fs-l)]">Credentials</h1>
+          <h1 className="m-display text-[length:var(--fs-16)]">Credentials</h1>
           <span className="m-micro tnum">{items.length}</span>
           <button type="button" className="btn btn-primary ml-auto" onClick={() => { setDraft(null); show({ mode: "new" }); }}>
             New credential
@@ -100,11 +100,11 @@ export function CredentialsView() {
                   <KindBadge kind={c.kind} kinds={kinds} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-text">{c.name}</span>
-                    <span className="mono block truncate text-[length:var(--fs-xs)] text-text-muted">
+                    <span className="mono block truncate text-[length:var(--fs-12)] text-text-muted">
                       {accountSummary(c) || "no account"}
                     </span>
                     {c.fingerprint && (
-                      <span className="block truncate text-[length:var(--fs-xs)]"><Fingerprint value={c.fingerprint} /></span>
+                      <span className="block truncate text-[length:var(--fs-12)]"><Fingerprint value={c.fingerprint} /></span>
                     )}
                   </span>
                   <span className="used-by tnum" title={`Used by ${used} connection${used === 1 ? "" : "s"} or folder${used === 1 ? "" : "s"}`}>
@@ -131,7 +131,7 @@ export function CredentialsView() {
             );
           })}
         </ul>
-        {error && <p role="alert" className="px-4 py-2 text-[length:var(--fs-s)] text-danger">{error}</p>}
+        {error && <p role="alert" className="px-4 py-2 text-[length:var(--fs-13)] text-danger">{error}</p>}
       </div>
 
       <div className="cred-detail-pane">
@@ -189,7 +189,7 @@ function EmptyDetail() {
           <circle cx="24" cy="32" r="12" />
           <path d="M36 32h22M50 32v8M56 32v5" />
         </svg>
-        <p className="m-display text-[length:var(--fs-l)] text-text-muted">Select a credential</p>
+        <p className="m-display text-[length:var(--fs-16)] text-text-muted">Select a credential</p>
         <p className="mt-2 text-text-faint">
           Pick one on the left to see its details, or create a new one. Secrets are write-only: you can replace or clear them, never read them back.
         </p>

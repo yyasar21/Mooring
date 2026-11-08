@@ -136,9 +136,9 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
             <ul className="web-notices" aria-label="Refused by the window">
               {web.notices.map((n) => (
                 <li key={n.id} data-kind={n.kind}>
-                  <span className="m-micro" style={{ color: "var(--hot)" }}>{NOTICE_TEXT[n.kind].title}</span>
+                  <span className="m-micro" style={{ color: "var(--danger)" }}>{NOTICE_TEXT[n.kind].title}</span>
                   <span className="web-notice-origin select-text">{n.origin}</span>
-                  <span className="text-[length:var(--fs-xs)] text-text-muted">{NOTICE_TEXT[n.kind].hint}</span>
+                  <span className="text-[length:var(--fs-12)] text-text-muted">{NOTICE_TEXT[n.kind].hint}</span>
                   <span className="actions">
                     {n.kind === "blocked" && connection && (
                       <button type="button" className="btn btn-ghost" onClick={() => { openDialog({ kind: "connection", id: connection.id, folderId: connection.folderId }); }}>
@@ -157,7 +157,7 @@ export function WebSessionTab({ tab, connection }: { tab: Tab; connection: Conne
       </div>
       {confirm && (
         <Modal title="Clear site data" onClose={() => { setConfirm(false); }}>
-          <div className="flex flex-col gap-3 px-4 py-4 text-[length:var(--fs-s)]">
+          <div className="flex flex-col gap-3 px-4 py-4 text-[length:var(--fs-13)]">
             <p>
               Remove every cookie and all site storage of <strong>{name}</strong>? You will be signed out of the page.
             </p>

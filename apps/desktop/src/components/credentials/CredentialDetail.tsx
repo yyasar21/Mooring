@@ -51,8 +51,8 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
       <header className="cred-editor-head">
         <KindBadge kind={meta.kind} kinds={kinds} decorative />
         <div className="min-w-0 flex-1">
-          <h2 className="m-display truncate text-[length:var(--fs-l)]">{meta.name}</h2>
-          <p className="truncate text-[length:var(--fs-xs)] text-text-muted">{kindLabel(kinds, meta.kind)} · {KIND_BLURB[meta.kind]}</p>
+          <h2 className="m-display truncate text-[length:var(--fs-16)]">{meta.name}</h2>
+          <p className="truncate text-[length:var(--fs-12)] text-text-muted">{kindLabel(kinds, meta.kind)} · {KIND_BLURB[meta.kind]}</p>
         </div>
         {schema && <MatrixStrip schema={schema} />}
       </header>
@@ -84,7 +84,7 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
           ) : (
             <button type="button" className="btn btn-ghost btn-danger" onClick={() => { setConfirm(true); setError(null); }}>Delete</button>
           )}
-          {error && <span role="alert" className="text-[length:var(--fs-s)] text-danger">{error}</span>}
+          {error && <span role="alert" className="text-[length:var(--fs-13)] text-danger">{error}</span>}
         </div>
         {confirm && usedConns.length + usedFolders.length > 0 && (
           <p className="kind-note" role="note">
@@ -123,7 +123,7 @@ export function CredentialDetail({ meta, kinds, onEdit, onDelete }: {
               ))}
             </ul>
           ) : (
-            <p className="text-[length:var(--fs-s)] text-text-muted">
+            <p className="text-[length:var(--fs-13)] text-text-muted">
               {consumerOnly ? "No connection. This kind is consumed by another part of Mooring (below)." : "No protocol supports this kind yet."}
             </p>
           )}
@@ -235,14 +235,14 @@ function ApproleSection({ meta }: { meta: CredentialMeta }) {
       {using.length > 0 ? (
         <ul className="space-y-1" aria-label={`Secret sources signing in with this ${what}`}>
           {using.map((s) => (
-            <li key={s.id} className="flex items-baseline gap-2 text-[length:var(--fs-s)]">
+            <li key={s.id} className="flex items-baseline gap-2 text-[length:var(--fs-13)]">
               <span className="text-text">{s.name}</span>
               <span className="mono truncate text-text-faint">{s.address}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-[length:var(--fs-s)] text-text-muted">{sources === null ? "Loading…" : `No secret source signs in with this ${what} yet.`}</p>
+        <p className="text-[length:var(--fs-13)] text-text-muted">{sources === null ? "Loading…" : `No secret source signs in with this ${what} yet.`}</p>
       )}
       <div className="kind-note mt-3 flex items-center gap-3" role="note">
         <span className="flex-1">{bws ? `A Bitwarden access token never signs in to a connection. ${BWS_TOKEN_HINT}` : `A Vault AppRole never signs in to a connection. ${APPROLE_HINT}`}</span>

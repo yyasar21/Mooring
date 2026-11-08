@@ -77,7 +77,7 @@ function Browser({ sessionId }: { sessionId: string }) {
   return (
     <section aria-label="Files" className="tool-panel">
       <header className="tool-head">
-        <h2 className="m-display text-[length:var(--fs-l)]">Files</h2>
+        <h2 className="m-display text-[length:var(--fs-16)]">Files</h2>
         <nav aria-label="Remote path" className="sftp-crumbs">
           {crumbs(dir.path).map(([label, path], i, all) => (
             <button key={path} type="button" className="sftp-crumb" aria-current={i === all.length - 1 ? "location" : undefined} onClick={() => { go(path); }}>

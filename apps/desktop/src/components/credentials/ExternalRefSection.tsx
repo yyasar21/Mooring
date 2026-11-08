@@ -231,7 +231,7 @@ function FieldMapEditor({ names, map, setFieldMap, problem, provider }: {
 function FieldMapRow({ name, value, keyWord, onChange, onRemove }: { name: string; value: string; keyWord: string; onChange: (v: string) => void; onRemove: () => void }) {
   return (
     <>
-      <span className="mono text-[length:var(--fs-s)]">{name}</span>
+      <span className="mono text-[length:var(--fs-13)]">{name}</span>
       <input aria-label={`${keyWord === "KV key" ? "KV key" : keyWord.charAt(0).toUpperCase() + keyWord.slice(1)} for ${name}`} className="field mono" spellCheck={false} placeholder={keyWord} value={value} onChange={(e) => { onChange(e.target.value); }} />
       <button type="button" className="btn btn-ghost" aria-label={`Remove mapping for ${name}`} onClick={onRemove}>Remove</button>
     </>

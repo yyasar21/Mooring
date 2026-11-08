@@ -28,8 +28,8 @@ export function KindPicker({
     <div className="kind-picker" aria-label="Choose a credential kind" role="group">
       <header className="cred-editor-head">
         <div className="min-w-0 flex-1">
-          <h2 className="m-display text-[length:var(--fs-l)]">New credential</h2>
-          <p className="text-[length:var(--fs-xs)] text-text-muted">
+          <h2 className="m-display text-[length:var(--fs-16)]">New credential</h2>
+          <p className="text-[length:var(--fs-12)] text-text-muted">
             {protocol ? `Showing what can sign in to ${PROTOCOL_LABEL[protocol]}.` : "Pick what you are storing."}
           </p>
         </div>
@@ -60,7 +60,7 @@ export function KindPicker({
               setNote("Paste with the keyboard or the context menu; typing here is ignored.");
             }}
           />
-          <span className="text-[length:var(--fs-xs)] text-text-faint">
+          <span className="text-[length:var(--fs-12)] text-text-faint">
             {note ?? "OpenSSH or PEM private keys, X.509 certificates and kubeconfig files pick their own kind."}
           </span>
         </label>

@@ -54,7 +54,7 @@ export function KubeOptions({ value, errors, onChange, credentialKind, contexts 
           </div>
           <div>
             <label className="field-label" htmlFor="kube-ca">Cluster CA (PEM)</label>
-            <textarea id="kube-ca" className="field mono h-24 resize-y text-[length:var(--fs-xs)]" spellCheck={false} placeholder="-----BEGIN CERTIFICATE-----"
+            <textarea id="kube-ca" className="field mono h-24 resize-y text-[length:var(--fs-12)]" spellCheck={false} placeholder="-----BEGIN CERTIFICATE-----"
               aria-invalid={errors.caPem ? true : undefined} value={value.caPem ?? ""} onChange={(e) => { set({ caPem: e.target.value === "" ? null : e.target.value }); }} />
             <Problem text={errors.caPem} hint="The server certificate must chain to this CA; there is no prompt and no fallback." />
           </div>

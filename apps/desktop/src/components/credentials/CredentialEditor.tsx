@@ -219,8 +219,8 @@ export function CredentialEditor({
       <header className="cred-editor-head">
         <KindBadge kind={schema.kind} kinds={kinds} decorative />
         <div className="min-w-0 flex-1">
-          <h2 className="m-display truncate text-[length:var(--fs-l)]">{editing ? meta.name : `New ${schema.label}`}</h2>
-          <p className="truncate text-[length:var(--fs-xs)] text-text-muted">{KIND_BLURB[schema.kind]}</p>
+          <h2 className="m-display truncate text-[length:var(--fs-16)]">{editing ? meta.name : `New ${schema.label}`}</h2>
+          <p className="truncate text-[length:var(--fs-12)] text-text-muted">{KIND_BLURB[schema.kind]}</p>
         </div>
         <MatrixStrip schema={schema} />
       </header>
@@ -311,7 +311,7 @@ export function CredentialEditor({
         {secretFields(schema).length > 0 && (
           <section className="space-y-3">
             <HudLabel>Secrets</HudLabel>
-            <p className="text-[length:var(--fs-xs)] text-text-faint">
+            <p className="text-[length:var(--fs-12)] text-text-faint">
               Sealed one by one in the vault. Mooring never shows them again; you can replace or clear them.
             </p>
             {secretFields(schema).map((f) => (
@@ -361,7 +361,7 @@ export function CredentialEditor({
       </div>
 
       <footer className="cred-editor-foot">
-        <p role="alert" className="min-w-0 flex-1 truncate text-[length:var(--fs-s)] text-danger">
+        <p role="alert" className="min-w-0 flex-1 truncate text-[length:var(--fs-13)] text-danger">
           {errorCode === "credential.use_sk_kind" && schema.kind === "ssh_key" ? "" : (error ?? (tried && Object.keys(problems).length > 0 ? "Fix the highlighted fields." : ""))}
         </p>
         <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>

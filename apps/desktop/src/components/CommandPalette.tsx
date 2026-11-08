@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Kbd, ProtocolPip } from "@mooring/ui";
+import { Icon, Kbd, ProtocolIcon } from "@mooring/ui";
 import type { ConnectionHit } from "../lib/ipc";
 import { bestScore } from "../lib/fuzzy";
 import { folderPath, useTree } from "../stores/tree";
@@ -119,9 +119,9 @@ export function CommandPalette() {
               setPalette(false);
             } else if (e.key === "Tab") e.preventDefault();
           }}
-          className="h-12 min-w-0 flex-1 bg-transparent font-mono text-[length:var(--fs-l)] text-text placeholder:font-sans placeholder:text-text-faint focus:shadow-none focus:outline-none"
+          className="h-12 min-w-0 flex-1 bg-transparent font-mono text-[length:var(--fs-16)] text-text placeholder:font-sans placeholder:text-text-3 focus:shadow-none focus:outline-none"
         />
-        <span className="m-micro tnum">{items.length} results</span>
+        <span className="palette-meta tnum">{items.length} results</span>
         </div>
         <ul id="palette-list" role="listbox" aria-label="Results" className="max-h-[52vh] overflow-y-auto py-1">
           {items.length === 0 && (
@@ -140,23 +140,23 @@ export function CommandPalette() {
             >
               {it.kind === "conn" ? (
                 <>
-                  <ProtocolPip protocol={it.hit.protocol} />
+                  <ProtocolIcon protocol={it.hit.protocol} />
                   <span className="font-medium">{it.hit.name}</span>
                   <span className="mono truncate text-text-muted">{it.hit.host}</span>
-                  <span className="m-micro ml-auto truncate">
+                  <span className="palette-meta ml-auto truncate">
                     {folderPath(folders, it.hit.folderId).join(" / ")}
                   </span>
                 </>
               ) : (
                 <>
-                  <span aria-hidden className="w-[31px] text-center font-mono text-accent">::</span>
+                  <span aria-hidden className="palette-action-icon"><Icon name="right" /></span>
                   <span>{it.action.label}</span>
                 </>
               )}
             </li>
           ))}
         </ul>
-        <div className="flex gap-5 border-t border-line px-4 py-2.5 text-[length:var(--fs-xs)] text-text-faint">
+        <div className="flex gap-5 border-t border-line px-4 py-2.5 text-[length:var(--fs-12)] text-text-faint">
           <span><Kbd>↑↓</Kbd> move</span>
           <span><Kbd>↵</Kbd> open</span>
           <span><Kbd>mod ↵</Kbd> open in new tab</span>

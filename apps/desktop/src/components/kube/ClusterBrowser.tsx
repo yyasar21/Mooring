@@ -43,7 +43,7 @@ export function ClusterBrowser({ tab, connection }: { tab: Tab; connection: Conn
       <div className="panel-note m-hud">
         <div className="max-w-sm">
           <p className="m-micro">Kubernetes</p>
-          <p className="m-display mt-2 text-[length:var(--fs-xl)]">{connection?.name}</p>
+          <p className="m-display mt-2 text-[length:var(--fs-20)]">{connection?.name}</p>
           <p className="mt-3 text-text-muted" role="status">{tab.state === "closed" ? (tab.reason ?? "The cluster session ended.") : "Connecting to the API server…"}</p>
           {tab.state === "closed" && (tab.closeCode === "hop_failed" || tab.closeCode === "hop_lost") && (
             <p className="dropped-hint mt-2">{CLOSE_TEXT[tab.closeCode].hint}</p>

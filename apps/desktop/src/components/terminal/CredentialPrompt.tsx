@@ -64,12 +64,12 @@ export function CredentialPrompt({ tabId, prompt, host, hop = null }: { tabId: s
           submit();
         }}
       >
-        <p aria-hidden className="m-micro mb-2" style={{ color: "var(--hot)" }}>Ask at connect</p>
-        <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
+        <p aria-hidden className="m-micro mb-2" style={{ color: "var(--danger)" }}>Ask at connect</p>
+        <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-16)]">
           <span aria-hidden className="tab-attn" />
           {hop ? `Jump host ${hop}: sign in` : `Sign in to ${host}`}
         </h2>
-        <p className="mt-2 text-[length:var(--fs-s)] text-text-muted">
+        <p className="mt-2 text-[length:var(--fs-13)] text-text-muted">
           This connection stores no password. What you type is used for this session only and is not saved.
         </p>
         <div className="mt-4 grid gap-3" style={{ gridTemplateColumns: askDomain && !split ? "1fr 1fr" : "1fr" }}>
@@ -98,7 +98,7 @@ export function CredentialPrompt({ tabId, prompt, host, hop = null }: { tabId: s
           <label className="field-label" htmlFor={`${headingId}-p`}>Password</label>
           <input ref={pw} id={`${headingId}-p`} type="password" className="field mono" autoComplete="off" spellCheck={false} />
         </div>
-        {tried && <p role="alert" className="mt-2 text-[length:var(--fs-s)] text-hot">Enter a username and a password.</p>}
+        {tried && <p role="alert" className="mt-2 text-[length:var(--fs-13)] text-hot">Enter a username and a password.</p>}
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" className="btn btn-ghost" onClick={cancel}>Cancel and disconnect</button>
           <button type="submit" className="btn btn-primary">Sign in</button>

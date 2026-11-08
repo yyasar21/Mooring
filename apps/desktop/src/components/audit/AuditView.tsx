@@ -99,7 +99,7 @@ export function AuditView() {
   return (
     <section aria-label="Audit log" className="flex h-full min-w-0 flex-col bg-bg">
       <header className="flex h-[52px] flex-none items-center gap-3 border-b border-line bg-bg-sunken px-4">
-        <h1 className="m-display whitespace-nowrap text-[length:var(--fs-l)]">Audit log</h1>
+        <h1 className="m-display whitespace-nowrap text-[length:var(--fs-16)]">Audit log</h1>
         <VerifyBadge v={verify} />
         <input
           aria-label="Filter audit entries"

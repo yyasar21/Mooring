@@ -30,7 +30,7 @@ export class TabErrorBoundary extends Component<Props, State> {
     return (
       <div role="alert" className="panel-note m-hud" data-testid="tab-error">
         <div className="max-w-md">
-          <p className="m-micro" style={{ color: "var(--hot)" }}>View failed</p>
+          <p className="m-micro" style={{ color: "var(--danger)" }}>View failed</p>
           <p className="mt-2 text-text-muted">Mooring could not display {this.props.what}. The rest of the app keeps working.</p>
           <p className="readout-host mt-2 select-text break-all">{error.message}</p>
           <div className="mt-4 flex gap-2">

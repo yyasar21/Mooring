@@ -4,35 +4,35 @@
 
 /* ---------- credential form / card ---------- */
 .sk-section { display: flex; flex-direction: column; gap: 10px; }
-.sk-heading { margin: 0; font: 600 var(--fs-m)/1.3 var(--font-sans); color: var(--text); }
+.sk-heading { margin: 0; font: 600 var(--fs-13)/1.3 var(--font-sans); color: var(--text); }
 .sk-pub-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
 .sk-preview {
   display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 8px 0 0; padding: 8px 10px;
-  font-size: var(--fs-s); border: 1px solid var(--line-strong); border-radius: var(--radius-m); background: var(--bg);
+  font-size: var(--fs-13); border: 1px solid var(--border-strong); border-radius: var(--r-m); background: var(--surface);
 }
-.sk-preview dt { color: var(--text-muted); }
+.sk-preview dt { color: var(--text-2); }
 .sk-preview dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 .sk-backends { display: flex; flex-direction: column; gap: 6px; }
-.sk-backend, .sk-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; font-size: var(--fs-s); }
+.sk-backend, .sk-check { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; font-size: var(--fs-13); }
 .sk-backend input, .sk-check input { margin-top: 3px; }
 .sk-backend[data-disabled] { opacity: 0.7; }
-.sk-backend[data-disabled] .text-text { color: var(--text-muted); }
+.sk-backend[data-disabled] .text-text { color: var(--text-2); }
 .sk-detail { display: flex; flex-direction: column; gap: 8px; }
-.sk-signs { margin: 0; padding: 8px 10px; font-size: var(--fs-s); line-height: 1.5; border-left: 2px solid var(--accent-line); background: var(--accent-soft); color: var(--text); }
-.sk-signs[data-tone="hot"] { border-left-color: var(--hot-line); background: var(--hot-soft); }
+.sk-signs { margin: 0; padding: 8px 10px; font-size: var(--fs-13); line-height: 1.5; border-left: 2px solid var(--accent-border); background: var(--accent-subtle); color: var(--text); }
+.sk-signs[data-tone="hot"] { border-left-color: var(--danger-border); background: var(--danger-bg); }
 
 /* ---------- touch banner (non-modal, over the terminal) ---------- */
 .touch-banner {
   position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 16; width: max-content; max-width: calc(100% - 32px);
-  display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--accent-line); border-radius: var(--radius-m);
-  background: var(--surface-raised); box-shadow: var(--shadow-pop); pointer-events: auto;
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: var(--r-m);
+  background: var(--surface-2); box-shadow: var(--e3); pointer-events: auto;
 }
 .touch-banner[data-below-hops] { top: 92px; }
-.touch-banner[data-tone="hot"] { border-color: var(--hot-line); }
+.touch-banner[data-tone="hot"] { border-color: var(--danger-border); }
 .touch-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.touch-title { margin: 0; font: 600 var(--fs-m)/1.3 var(--font-sans); color: var(--text); }
-.touch-banner[data-tone="hot"] .touch-title { color: var(--hot); }
-.touch-sub { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+.touch-title { margin: 0; font: 600 var(--fs-13)/1.3 var(--font-sans); color: var(--text); }
+.touch-banner[data-tone="hot"] .touch-title { color: var(--danger); }
+.touch-sub { margin: 0; font-size: var(--fs-12); color: var(--text-2); }
 .touch-sub .mono { color: var(--text); }
 
 /* A key with a ring that breathes; still (a solid ring) when motion is reduced. */
@@ -40,7 +40,7 @@
 .touch-indicator > span { position: absolute; inset: 5px; border-radius: 50%; background: var(--accent); }
 .touch-indicator::after {
   content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--accent);
-  animation: touch-ping 1.4s var(--ease-out) infinite;
+  animation: touch-ping 1.4s var(--ease) infinite;
 }
 @keyframes touch-ping {
   from { transform: scale(1); opacity: 0.7; }
@@ -53,10 +53,10 @@
 
 /* ---------- Settings → SSH ---------- */
 .ssh-row { display: flex; align-items: flex-start; gap: 12px; }
-.ssh-row + .ssh-row { padding-top: 10px; border-top: 1px solid var(--line); }
-.ssh-row-title { margin: 0 0 2px; font-size: var(--fs-s); color: var(--text); }
-.ssh-row[data-disabled] .ssh-row-title { color: var(--text-muted); }
+.ssh-row + .ssh-row { padding-top: 10px; border-top: 1px solid var(--border); }
+.ssh-row-title { margin: 0 0 2px; font-size: var(--fs-13); color: var(--text); }
+.ssh-row[data-disabled] .ssh-row-title { color: var(--text-2); }
 .ssh-state {
-  flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--radius-m);
-  font: 500 var(--fs-xs)/1 var(--font-sans); color: var(--text-muted); border: 1px solid var(--line-strong);
+  flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-m);
+  font: 500 var(--fs-12)/1 var(--font-sans); color: var(--text-2); border: 1px solid var(--border-strong);
 }

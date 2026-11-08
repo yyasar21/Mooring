@@ -98,7 +98,7 @@ function RoleCard({
               {cred.secretNames.length ? <span className="mono text-text-muted">{cred.secretNames.join(", ")}</span> : <span className="text-text-faint">none stored</span>}
             </Prop>
           </dl>
-          {problem && <p className="mt-1.5 text-[length:var(--fs-xs)] text-hot" role="note">{problem}</p>}
+          {problem && <p className="mt-1.5 text-[length:var(--fs-12)] text-hot" role="note">{problem}</p>}
           <div className="pt-2.5">
             <CopySecret meta={cred} kinds={kinds} />
           </div>

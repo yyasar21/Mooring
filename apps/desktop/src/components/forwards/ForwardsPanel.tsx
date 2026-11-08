@@ -41,7 +41,7 @@ export function ForwardsPanel({ sessionId, pods, preset, disabledReason }: {
   return (
     <section aria-label="Port forwards" className="tool-panel">
       <header className="tool-head">
-        <h2 className="m-display text-[length:var(--fs-l)]">Port forwards</h2>
+        <h2 className="m-display text-[length:var(--fs-16)]">Port forwards</h2>
         <span className="chip tnum" title="Forwards on this session / limit">
           {fw.items.length} / {FORWARD_LIMITS.perSession}
         </span>

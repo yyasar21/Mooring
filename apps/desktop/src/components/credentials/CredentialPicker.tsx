@@ -173,7 +173,7 @@ export function CredentialPicker({
                   {o.meta ? <KindBadge kind={o.meta.kind} kinds={kinds} /> : <span className="kind-badge" data-empty>—</span>}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{o.label}</span>
-                    <span className={`block truncate text-[length:var(--fs-xs)] ${o.disabledReason ? "" : "mono text-text-faint"}`}>
+                    <span className={`block truncate text-[length:var(--fs-12)] ${o.disabledReason ? "" : "mono text-text-faint"}`}>
                       {o.disabledReason ?? (o.detail || " ")}
                     </span>
                     {o.disabledReason && o.meta?.kind === "vault_approle" && (

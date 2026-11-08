@@ -32,7 +32,7 @@ export function BackupCard() {
     <SettingsCard title="Backup" labelledBy="backup-title">
       <div className="settings-body">
         <div className="backup-row">
-          <p className="text-[length:var(--fs-s)] text-text-muted">
+          <p className="text-[length:var(--fs-13)] text-text-muted">
             An encrypted copy of the vault in one file: folders, connections, credentials and trusted host keys. It opens with its own passphrase, on any computer with Mooring.
           </p>
         </div>

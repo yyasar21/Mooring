@@ -358,7 +358,7 @@ export function OtpSection({
     <section className="otp-section m-hud" data-tone={on ? "hot" : undefined} aria-labelledby={`${id}-h`}>
       <label className="flex items-center gap-2.5" id={`${id}-h`}>
         <input type="checkbox" className="check" checked={on} onChange={(e) => { onToggle(e.target.checked); }} />
-        <span className="m-display text-[length:var(--fs-s)]">Second factor (TOTP)</span>
+        <span className="m-display text-[length:var(--fs-13)]">Second factor (TOTP)</span>
         {stored && on && <span className="secret-chip ml-auto" data-on>Seed stored</span>}
       </label>
       {on && (

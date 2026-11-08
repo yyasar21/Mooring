@@ -61,7 +61,7 @@ export function CaPemField({ id, value, error, onChange }: { id: string; value: 
   const on = value !== null;
   return (
     <div>
-      <label className="flex items-center gap-2 text-[length:var(--fs-s)]">
+      <label className="flex items-center gap-2 text-[length:var(--fs-13)]">
         <input type="checkbox" checked={on} onChange={(e) => { onChange(e.target.checked ? "" : null); }} />
         Trust an extra certificate authority
       </label>
@@ -70,7 +70,7 @@ export function CaPemField({ id, value, error, onChange }: { id: string; value: 
           <label className="field-label mt-2" htmlFor={id}>CA certificates (PEM)</label>
           <textarea
             id={id}
-            className="field mono h-24 resize-y text-[length:var(--fs-xs)]"
+            className="field mono h-24 resize-y text-[length:var(--fs-12)]"
             spellCheck={false}
             placeholder="-----BEGIN CERTIFICATE-----"
             aria-invalid={error ? true : undefined}
@@ -92,7 +92,7 @@ export function ReadOnly({ label, children }: { label: string; children: ReactNo
   return (
     <div className="opt-readonly">
       <span className="field-label">{label}</span>
-      <span className="text-[length:var(--fs-s)] text-text-muted">{children}</span>
+      <span className="text-[length:var(--fs-13)] text-text-muted">{children}</span>
     </div>
   );
 }

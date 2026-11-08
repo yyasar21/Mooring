@@ -144,7 +144,7 @@ function RemoveDialog({ protocol, row, onClose, onRemoved }: { protocol: CertPro
   return (
     <Modal title="Remove stored certificate" onClose={onClose} width={480}>
       <form onSubmit={(e) => { e.preventDefault(); if (hostOk && portOk) void remove(); }}>
-        <div className="space-y-3 px-4 py-4 text-[length:var(--fs-s)]">
+        <div className="space-y-3 px-4 py-4 text-[length:var(--fs-13)]">
           {row.target ? (
             <p>
               Remove the stored {store} certificate for <span className="mono">{target}</span>

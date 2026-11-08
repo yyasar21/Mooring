@@ -60,7 +60,7 @@ function TransferRow({ t }: { t: Transfer }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium">{t.name}</span>
-          <span className="mono truncate text-[length:var(--fs-xs)] text-text-faint">
+          <span className="mono truncate text-[length:var(--fs-12)] text-text-faint">
             {t.direction === null ? "resumed after unlock" : t.direction === "download" ? `from ${t.remote}` : `to ${uploadTarget(t)}`}
           </span>
         </div>
