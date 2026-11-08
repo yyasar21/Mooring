@@ -11,6 +11,7 @@ import { useTree } from "../../stores/tree";
 import { openSettingsCard } from "../SyncBanner";
 import { testText } from "../settings/SecretSourcesCard";
 import { refTestSummary } from "./ExternalRefSection";
+import { TOOL_CHANGED } from "../../stores/errors";
 import { Fingerprint, KindBadge, MatrixStrip } from "./fields";
 import { SkKeyDetail } from "./SkKeyDetail";
 import { SmartCardDetail } from "./SmartCard";
@@ -258,6 +259,16 @@ function ApproleSection({ meta }: { meta: CredentialMeta }) {
   );
 }
 
+/** L-50: the bws binary changed; the next step is to test (and so re-trust) the source. */
+function ToolChangedNote() {
+  return (
+    <div className="bws-missing" role="note" aria-label="bws changed">
+      <strong>{TOOL_CHANGED.title}</strong>. {TOOL_CHANGED.next}{" "}
+      <button type="button" className="btn btn-sm" onClick={() => { openSettingsCard("sources-title"); }}>Open Secret sources</button>
+    </div>
+  );
+}
+
 /** `credential_external_test` from the card: names only, never values. */
 function RefTest({ id, updatedAt, engine }: { id: string; updatedAt: string; engine: ReturnType<typeof engineOf> }) {
   const [test, setTest] = useState<ExternalRefTest | null>(null);
@@ -281,6 +292,7 @@ function RefTest({ id, updatedAt, engine }: { id: string; updatedAt: string; eng
       <button type="button" className="btn" disabled={busy} onClick={() => void run()}>{busy ? "Testing…" : "Test"}</button>
       {err && <span role="alert" className="settings-err">{err}</span>}
       {test && <span role="status" aria-label="Reference test" className={test.ok ? "settings-ok" : "settings-err"}>{refTestSummary(test, engine)}</span>}
+      {test?.error === "secret.tool_changed" && <ToolChangedNote />}
     </>
   );
 }

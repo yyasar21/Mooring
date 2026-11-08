@@ -161,6 +161,8 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "secret.lease_failed":
     "Vault did not hand out a lease for the dynamic credential, so Mooring did not use it and did not connect. Check the role in Vault, then connect again.",
   "secret.tool_missing": "bws was not found at the locations Mooring checks. Install the Bitwarden Secrets Manager CLI there, or choose its location in Settings → Secret sources.",
+  // L-50: the bws binary's hash differs from the pin; nothing ran. Testing the source re-trusts it.
+  "secret.tool_changed": "The bws binary changed since Mooring last trusted it. Test the source in Settings → Secret sources to trust it again.",
   "secret.tool_version": "The bws found is older than 1.0. Install a current Bitwarden Secrets Manager CLI.",
   "secret.tool_failed": "bws did not finish: it failed, timed out or printed something Mooring could not read. Test the source in Settings → Secret sources.",
   "source.kind_unsupported": "This reference's provider does not match its secret source. Choose a source of the same provider.",
@@ -182,6 +184,9 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "credential.incompatible":"That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
 };
+
+/** L-50: the heading and next step where a reference refused because bws changed. */
+export const TOOL_CHANGED = { title: "The bws binary changed", next: "Test the source to trust it again." } as const;
 
 /** The friendly text for a bare error code (status fields carry codes, not messages). */
 export function describeCode(code: string): string {

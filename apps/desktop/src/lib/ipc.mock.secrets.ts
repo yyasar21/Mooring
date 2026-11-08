@@ -47,6 +47,8 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
   oidcOutcome: "done" | OidcFailure = "done";
   /** ADR-0026 knob: is `bws` present at one of the fixed paths (`secret.tool_missing` when not). */
   bwsFound = true;
+  /** L-50 knob: the bws binary no longer matches its pin; references refuse until the source is tested. */
+  bwsChanged = false;
   private srcIds = 0;
   private oidcIds = 0;
   protected abstract override credentialRows(): CredentialMeta[];
@@ -144,6 +146,7 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
         return { ...base, ok: false, policiesCount: 0, error: "secret.tool_missing", category: "tool" };
       }
       if (!this.secretToolPin.has(s.id)) this.secretToolPin.add(s.id);
+      this.bwsChanged = false; // only secret_source_test re-pins the binary (L-50)
       this.record("secret_tool_spawned", { provider: "bitwarden", exit: "0" });
       return { ...base, ok: true, policiesCount: 3, error: null, category: null };
     }
@@ -187,6 +190,10 @@ export abstract class MockSecretsBase extends MockSyncBase implements SecretsIpc
     };
     if (this.down(src)) return fail("credential.external_unavailable", "network");
     if (src.kind === "bitwarden" && !this.bwsFound) return fail("secret.tool_missing", "tool");
+    if (src.kind === "bitwarden" && this.bwsChanged) {
+      this.record("secret.tool_changed", { source: src.id });
+      return fail("secret.tool_changed", "tool");
+    }
     const dyn = dynamicRefTest(c);
     if (dyn) {
       if (dyn.ok) this.record("secret_lease_revoked", { source: src.id, engine: typeof c.fields.engine === "string" ? c.fields.engine : "kv2", reason: "test" });
