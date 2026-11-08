@@ -46,6 +46,9 @@ pub struct RdpConnOptions {
     /// Frame rate cap (default 30).
     #[serde(default)]
     pub max_fps: MaxFps,
+    /// ADR-0027: RD Gateway in front of the target (`null` = direct).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<super::RdGatewayOptions>,
 }
 
 impl Default for RdpConnOptions {
@@ -56,6 +59,7 @@ impl Default for RdpConnOptions {
             allow_tls_without_nla: false,
             ca_pem: None,
             max_fps: MaxFps::Thirty,
+            gateway: None,
         }
     }
 }
@@ -65,6 +69,9 @@ impl RdpConnOptions {
     pub fn validate(&self) -> Result<()> {
         if !KEYBOARD_LAYOUTS.contains(&self.keyboard_layout) {
             return Err(invalid("keyboardLayout is not a supported layout"));
+        }
+        if let Some(g) = &self.gateway {
+            g.validate()?;
         }
         check_ca_pem(self.ca_pem.as_ref())
     }

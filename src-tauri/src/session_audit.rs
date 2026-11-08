@@ -106,6 +106,22 @@ pub fn audit_session(
                 backend: backend.to_owned(),
                 outcome: outcome.to_owned(),
             },
+            // ADR-0027: gateway host, auth scheme and outcome; never a credential or the PIN.
+            SessionAudit::Gateway { host: gw, auth, outcome, tunnel_id } => AuditEvent::SessionRdpGateway {
+                connection: conn(),
+                host: gw,
+                auth: auth.to_owned(),
+                outcome: outcome.to_owned(),
+                tunnel_id,
+            },
+            SessionAudit::GatewayBasic { host: gw } => {
+                AuditEvent::SessionRdpGatewayBasic { connection: conn(), host: gw }
+            }
+            SessionAudit::PinPrompted { fingerprint, outcome } => AuditEvent::CredentialPinPrompted {
+                connection: conn(),
+                fingerprint,
+                outcome: outcome.to_owned(),
+            },
             SessionAudit::Clipboard { direction, bytes } => AuditEvent::SessionClipboard {
                 connection: conn(),
                 direction: direction.as_str().to_owned(),

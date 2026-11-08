@@ -10,6 +10,7 @@
 //! ([`fingerprint`]) and kubeconfig YAML ([`kubeconfig`]).
 
 mod account;
+mod card_fields;
 mod error;
 pub mod external;
 pub mod external_engine;
@@ -33,6 +34,7 @@ mod validate;
 use serde::{Deserialize, Serialize};
 
 pub use account::{parse_account, Account, AccountForm};
+pub use card_fields::{Pkcs11Module, SmartCardFields, MAX_READER_HINT};
 pub use error::CredentialError;
 pub use external::{fuzz_external_ref, parse_vault_reference, VaultPath, MAX_FIELD_MAP};
 pub use external_engine::engine_target;
@@ -99,11 +101,15 @@ pub enum CredentialKind {
     /// Bitwarden Secrets Manager machine access token of a secret source (ADR-0026 §4,
     /// the 19th kind).
     BitwardenAccessToken,
+    /// Smart card / PIV key (ADR-0027 §2, the 20th kind). Nothing is sealed: the PIN is asked
+    /// at every use and never stored. SSH signs through the ssh-agent that holds the card's key;
+    /// RDP smart-card logon needs Kerberos PKINIT and is refused.
+    SmartCard,
 }
 
 impl CredentialKind {
     /// Every kind, in table order.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::UserPassword,
         Self::DomainUser,
         Self::SshKey,
@@ -123,6 +129,7 @@ impl CredentialKind {
         Self::S3AccessKey,
         Self::SshSkKey,
         Self::BitwardenAccessToken,
+        Self::SmartCard,
     ];
 
     /// Stable wire / database name.
@@ -148,6 +155,7 @@ impl CredentialKind {
             Self::S3AccessKey => "s3_access_key",
             Self::SshSkKey => "ssh_sk_key",
             Self::BitwardenAccessToken => "bitwarden_access_token",
+            Self::SmartCard => "smart_card",
         }
     }
 
@@ -181,6 +189,7 @@ impl CredentialKind {
                 | Self::S3AccessKey
                 | Self::SshSkKey
                 | Self::BitwardenAccessToken
+                | Self::SmartCard
         )
     }
 }

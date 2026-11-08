@@ -15,7 +15,7 @@ use crate::error::{MooringError, Result};
 use crate::known_certs::CertificateInfo;
 use crate::model::Protocol;
 
-pub use crate::connect::{Become, ConnectParams, ConnectSecret, PromptAccount, SkLogin};
+pub use crate::connect::{Become, ConnectParams, ConnectSecret, PivLogin, PromptAccount, SkLogin};
 
 /// Longest `Key.code` (`KeyboardEvent.code`, ASCII), in bytes.
 pub const MAX_KEY_CODE: usize = 32;
@@ -222,6 +222,15 @@ pub enum CloseCode {
     HopFailed,
     /// A jump host of an open chain went away; everything above it closed with it.
     HopLost,
+    /// ADR-0027: the RD Gateway refused our credentials (HTTP 401 after the last round, or
+    /// Basic needed but not allowed). IPC code `rdp.gateway_auth`.
+    GatewayAuth,
+    /// ADR-0027: the RD Gateway refused the tunnel, its authorization or the channel to the
+    /// target (`rdp.gateway_refused`).
+    GatewayRefused,
+    /// ADR-0027: the gateway has no MS-TSGU WebSocket endpoint (legacy RPC-over-HTTP only)
+    /// or speaks another protocol version (`rdp.gateway_unsupported`).
+    GatewayUnsupported,
 }
 
 impl CloseCode {
@@ -300,6 +309,17 @@ pub enum SessionEvent {
         /// `host:port` of the hop as configured (safe to show).
         host: String,
         /// Host key fingerprint once known (`up`), `None` before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        peer_identity: Option<String>,
+    },
+    /// ADR-0027: progress of the RD Gateway in front of an RDP target ("via RD Gateway
+    /// gw01"). Emitted before the target's events; `failed` is followed by `Closed`.
+    GatewayStatus {
+        /// `host:port` of the gateway as configured (safe to show).
+        host: String,
+        /// Where the gateway stands (`connecting`, `authenticating`, `up`, `failed`).
+        state: HopState,
+        /// Gateway certificate fingerprint once the TLS handshake passed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         peer_identity: Option<String>,
     },
@@ -383,6 +403,13 @@ pub enum PromptPurpose {
     KeyboardInteractive,
     /// Sign-in form for a `prompt` credential: answered with `SessionInput::CredentialAnswer`.
     Credential,
+    /// ADR-0027: unknown RD Gateway certificate (`known_rdg_certs`): `yes` pins it for the
+    /// gateway's `host:port`, `once` trusts it for this connect. `Prompt.certificate` is set;
+    /// the dialog is titled "RD Gateway certificate".
+    GatewayCertificateTrust,
+    /// ADR-0027: the PIN of a smart card (secret answer, used once, never stored). An empty
+    /// answer or a closed dialog cancels the sign-in.
+    SmartCardPin,
     /// Anything else.
     Other,
 }

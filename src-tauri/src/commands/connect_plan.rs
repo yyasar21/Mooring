@@ -26,6 +26,8 @@ pub(crate) struct Plan {
     pub(crate) options: ProtocolOptions,
     /// ADR-0025: the jump hosts, first hop first (empty = direct).
     pub(crate) hops: Vec<HopPlan>,
+    /// ADR-0027: the RD Gateway credential when `RdpConnOptions.gateway` is set.
+    pub(crate) gateway: Option<mooring_proto_rdp::GatewayCredential>,
 }
 
 /// One resolved jump host: its connection id (audit) and SSH parameters with its own
@@ -164,6 +166,22 @@ fn ssh_secret(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<(Option<S
             };
             (f.username.clone(), ConnectSecret::Prompt(account))
         }
+        // ADR-0027 §2: the agent holds (or loads, with the PIN) the card's key.
+        CredentialFields::SmartCard(f) => {
+            let (Some(public_key), Some(fingerprint)) = (f.public_key.clone(), f.fingerprint.clone()) else {
+                return Err(IpcError::new(
+                    "ssh.piv_key_not_in_agent",
+                    "this smart card credential has no public key; add the card's OpenSSH public key (ssh-keygen -D <module>)",
+                ));
+            };
+            let login = mooring_core::session::PivLogin {
+                public_key,
+                fingerprint,
+                module: f.pkcs11_module,
+                reader_hint: f.reader_hint.clone(),
+            };
+            (f.username.clone(), ConnectSecret::SmartCard(login))
+        }
         CredentialFields::ExternalRef(_) => return Err(unsupported("A secret manager reference", Protocol::Ssh)),
         // Every other kind is refused by the matrix before this point.
         _ => return Err(unsupported("This credential", Protocol::Ssh)),
@@ -195,8 +213,45 @@ fn graphical_secret(
             };
             (f.username.clone(), ConnectSecret::Prompt(account))
         }
+        // ADR-0027 §2 / owner decision 40: not half-implemented.
+        CredentialFields::SmartCard(_) => {
+            return Err(IpcError::new(
+                "rdp.smart_card_unsupported",
+                "smart-card logon over RDP needs Kerberos PKINIT, which is not supported yet",
+            ))
+        }
         _ => return Err(unsupported("This credential", protocol)),
     })
+}
+
+/// ADR-0027: the gateway role credential (`user_password` / `domain_user`), or the sign-in
+/// credential when the role is empty ("same as sign-in", ADR-0009 §3).
+fn gateway_of(
+    store: &Store,
+    vault: &Vault,
+    id: mooring_core::ConnectionId,
+    used: &mut Vec<String>,
+) -> IpcResult<mooring_proto_rdp::GatewayCredential> {
+    use mooring_proto_rdp::{GatewayAccount, GatewayCredential};
+    let Some(r) = store.resolve_credential(id, Role::Gateway)? else {
+        return Ok(GatewayCredential::SameAsSignIn);
+    };
+    used.push(r.id.to_string());
+    let (username, domain) = match &r.fields {
+        CredentialFields::UserPassword(f) => (f.username.clone(), f.domain.clone()),
+        CredentialFields::DomainUser(f) => match f.form {
+            mooring_core::credential::AccountForm::Netbios => (f.user.clone(), Some(f.domain.clone())),
+            mooring_core::credential::AccountForm::Upn => (format!("{}@{}", f.user, f.domain), None),
+        },
+        _ => {
+            return Err(IpcError::new(
+                "rdp.gateway_auth",
+                "this credential cannot sign in to an RD Gateway; use a username and password, a domain account or the sign-in credential",
+            ))
+        }
+    };
+    let password = open(store, vault, r.id, SecretName::Password)?;
+    Ok(GatewayCredential::Account(GatewayAccount { username, domain, password }))
 }
 
 fn become_of(store: &Store, vault: &Vault, r: &Resolved) -> IpcResult<Become> {
@@ -274,8 +329,12 @@ fn plan_with(ready: &Ready, connection_id: &str, size: Size, ext: &external::Ext
             _ => None,
         };
         let hops = hops_of(store, vault, &c, &mut used)?;
+        let gateway = match &options {
+            ProtocolOptions::Rdp(o) if o.gateway.is_some() => Some(gateway_of(store, vault, id, &mut used)?),
+            _ => None,
+        };
         let params = ConnectParams { host: c.host, port, username, secret, r#become, size };
-        Ok(Plan { params, used, protocol, options, hops })
+        Ok(Plan { params, used, protocol, options, hops, gateway })
     })
 }
 

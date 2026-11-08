@@ -42,7 +42,7 @@ pub use model::{
     ConnectionId, CredentialId, Folder, FolderId, Protocol, SecretSourceId, MAX_HOST, MAX_NAME,
     MAX_TAG, MAX_TAGS, MAX_VIA,
 };
-pub use options::ProtocolOptions;
+pub use options::{ProtocolOptions, RdGatewayOptions};
 pub use session::{CloseCode, HopState, PromptPurpose, Session, SessionEvent, SessionInput};
 pub use transport::{BoxedStream, Dialer, Erased, SharedDialer, TcpDialer};
 pub use tree::ConnectionTree;

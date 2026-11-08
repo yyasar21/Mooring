@@ -62,6 +62,7 @@ fn every_kind_can_be_created_from_its_schema() {
         ("s3_access_key", json!({"access_key_id": "AKIAEXAMPLETEST"}), vec![("secret_access_key", "k")]),
         ("ssh_sk_key", json!({"username": "u", "public_key": sk}), vec![]),
         ("bitwarden_access_token", json!({}), vec![("access_token", "0.test-only.machine")]),
+        ("smart_card", json!({"username": "u", "pkcs11_module": "opensc"}), vec![]),
     ];
     assert_eq!(cases.len(), kinds().len());
     for (kind, fields, secrets) in cases {

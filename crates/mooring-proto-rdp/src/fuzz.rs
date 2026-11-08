@@ -129,6 +129,7 @@ pub fn reactivation_outcome(data: &[u8]) -> Option<(u16, u16)> {
         client_name: "fuzz".into(),
         desktop: DesktopSize { width: 1024, height: 768 },
         session_pin: None,
+        gateway: None,
     };
     let creds = crate::creds::Creds {
         username: "fuzz".into(),

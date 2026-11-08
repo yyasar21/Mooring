@@ -41,6 +41,10 @@ pub enum ConnectSecret {
     /// FIDO2 `sk-*` key (ADR-0024): signed by the ssh-agent identity whose blob is this key's,
     /// or by `ssh-sk-helper` with the key handle. Never followed by a password attempt.
     SecurityKey(SkLogin),
+    /// ADR-0027 §2: a smart-card / PIV key held by the ssh-agent (pinned by fingerprint).
+    /// When the agent lacks it and a PKCS#11 module is named, the PIN is asked and the agent
+    /// loads the card (`SSH_AGENTC_ADD_SMARTCARD_KEY`). No secret is stored.
+    SmartCard(PivLogin),
     /// HTTP header token (`Authorization: Bearer …` by default).
     Token {
         /// Header name.
@@ -83,6 +87,7 @@ impl ConnectSecret {
             Self::PrivateKey { .. } => "private-key",
             Self::Agent { .. } => "agent",
             Self::SecurityKey(_) => "security-key",
+            Self::SmartCard(_) => "smart-card",
             Self::Token { .. } => "token",
             Self::ClientCert { .. } => "client-cert",
             Self::Kubeconfig { .. } => "kubeconfig",
@@ -124,6 +129,19 @@ impl std::fmt::Debug for SkLogin {
             .field("key_handle", &self.key_handle.as_ref().map(|_| "<redacted>"))
             .finish_non_exhaustive()
     }
+}
+
+/// A smart-card key login (`smart_card`, ADR-0027 §2). Public material only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PivLogin {
+    /// OpenSSH public key line of the card's key.
+    pub public_key: String,
+    /// Its `SHA256:` fingerprint (the agent identity is pinned to it).
+    pub fingerprint: String,
+    /// Provider the agent may load with the PIN when it does not hold the key.
+    pub module: Option<crate::credential::Pkcs11Module>,
+    /// Reader name for the PIN dialog (display only).
+    pub reader_hint: Option<String>,
 }
 
 /// What the connect-time credential form asks (`SessionEvent::Prompt.account`, wire

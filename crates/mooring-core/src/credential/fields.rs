@@ -71,6 +71,7 @@ fields_enum!(
     S3AccessKey(S3AccessKeyFields),
     SshSkKey(SshSkKeyFields),
     BitwardenAccessToken(BitwardenAccessTokenFields),
+    SmartCard(super::SmartCardFields),
 );
 
 fn is_sk_line(line: &str) -> bool {
@@ -188,6 +189,7 @@ impl CredentialFields {
                 }
             }
             Self::SshSkKey(f) => super::sk_fields::derive_public(f)?,
+            Self::SmartCard(f) => super::card_fields::derive_public(f)?,
             Self::X509(f) => f.fingerprint = Some(fingerprint::x509_pem(&f.cert_pem)?),
             Self::Kubeconfig(f) => validate_context(f)?,
             Self::ExternalRef(f) => super::external::check_input(f)?,
@@ -242,6 +244,7 @@ impl CredentialFields {
             Self::SshKey(f) => f.fingerprint.as_deref(),
             Self::X509(f) => f.fingerprint.as_deref(),
             Self::SshSkKey(f) => f.fingerprint.as_deref(),
+            Self::SmartCard(f) => f.fingerprint.as_deref(),
             _ => None,
         }
     }
@@ -277,7 +280,7 @@ impl CredentialFields {
     pub const fn supports_override(kind: CredentialKind, domain: bool) -> bool {
         use CredentialKind as K;
         if domain {
-            matches!(kind, K::UserPassword | K::DomainUser | K::Prompt)
+            matches!(kind, K::UserPassword | K::DomainUser | K::Prompt | K::SmartCard)
         } else {
             matches!(
                 kind,
@@ -286,6 +289,7 @@ impl CredentialFields {
                     | K::SshKey
                     | K::SshAgent
                     | K::SshSkKey
+                    | K::SmartCard
                     | K::X509
                     | K::VncUserPassword
                     | K::Prompt
@@ -308,6 +312,7 @@ impl CredentialFields {
                 Self::VncUserPassword(f) => u.clone_into(&mut f.username),
                 Self::X509(f) => f.username = Some(u.to_owned()),
                 Self::Prompt(f) => f.username = Some(u.to_owned()),
+                Self::SmartCard(f) => f.username = Some(u.to_owned()),
                 Self::DomainUser(f) => u.clone_into(&mut f.user),
                 _ => {
                     return Err(CredentialError::invalid(
@@ -321,6 +326,7 @@ impl CredentialFields {
             match self {
                 Self::UserPassword(f) => f.domain = Some(d.to_owned()),
                 Self::Prompt(f) => f.domain = Some(d.to_owned()),
+                Self::SmartCard(f) => f.domain = Some(d.to_owned()),
                 Self::DomainUser(f) => d.clone_into(&mut f.domain),
                 _ => {
                     return Err(CredentialError::invalid(
@@ -346,6 +352,7 @@ impl CredentialFields {
             Self::VsphereUser(f) => (Some(f.upn.clone()), None),
             Self::VncUserPassword(f) => (Some(f.username.clone()), None),
             Self::Prompt(f) => (f.username.clone(), f.domain.clone()),
+            Self::SmartCard(f) => (f.username.clone(), f.domain.clone()),
             _ => (None, None),
         }
     }

@@ -41,6 +41,7 @@ impl Credentials {
             agent_path: options.agent_path.clone(),
             touch_timeout: options.sk_touch_timeout,
             helper: options.sk_helper.clone(),
+            pkcs11_module: options.pkcs11_module_path.clone(),
         };
         Self { user, secret, allow_agent: options.allow_agent, sk }
     }
@@ -72,13 +73,17 @@ pub(crate) enum AuthError {
     Unsupported,
     /// An `ssh_sk_key` sign-in failed (ADR-0024); never followed by a password.
     SecurityKey(crate::sk_auth::SkFailure),
+    /// A `smart_card` sign-in failed (ADR-0027 §2); never followed by a password.
+    SmartCard(crate::piv_auth::PivFailure),
 }
 
 impl AuthError {
     pub(crate) fn code(&self) -> CloseCode {
         match self {
-            Self::Failed | Self::SecurityKey(_) => CloseCode::AuthFailed,
-            Self::Cancelled | Self::PromptCancelled => CloseCode::User,
+            Self::Cancelled
+            | Self::PromptCancelled
+            | Self::SmartCard(crate::piv_auth::PivFailure::PinCancelled) => CloseCode::User,
+            Self::Failed | Self::SecurityKey(_) | Self::SmartCard(_) => CloseCode::AuthFailed,
             Self::Transport => CloseCode::Network,
             Self::Unsupported => CloseCode::ProtocolError,
         }
@@ -94,6 +99,7 @@ impl AuthError {
                 "this is a FIDO2 security key: use an \"SSH security key (FIDO2)\" credential"
             }
             Self::SecurityKey(f) => f.reason(),
+            Self::SmartCard(f) => f.reason(),
         }
     }
 }
@@ -132,6 +138,11 @@ pub(crate) async fn authenticate(
     // ADR-0024 decision 30: a security key is the only method tried, never a password.
     if let ConnectSecret::SecurityKey(login) = &secret {
         return crate::sk_auth::authenticate(handle, &user, login, shared, &sk).await;
+    }
+    // ADR-0027 §2: a smart card is the only method tried, never a password.
+    if let ConnectSecret::SmartCard(login) = &secret {
+        let (agent, module) = (sk.agent_path.as_deref(), sk.pkcs11_module.as_deref());
+        return crate::piv_auth::authenticate(handle, &user, login, shared, agent, module).await;
     }
     let mut allowed = Allowed(None);
     let mut key_failed = false;

@@ -233,12 +233,13 @@ async fn graphical(
         connection_id,
         size: Arc::new(Mutex::new(size)),
         known_certs: known_certs_path(state, cert),
+        known_rdg_certs: known_certs_path(state, CertProtocol::Rdg),
         clipboard: Arc::new(clipboard),
         frames: mooring_core::frame::FrameSink::new(),
         audit: Arc::clone(&state.audit),
         hops: hop_settings(state),
     };
-    let first = launcher.connect(None).await.inspect_err(|e| {
+    let first = launcher.connect(crate::graphical_task::TrustOnce::default()).await.inspect_err(|e| {
         tracing::info!(code = e.code, protocol = protocol.name(), "graphical connect failed");
     })?;
     let view_only = matches!(&first.options, ProtocolOptions::Vnc(o) if o.view_only);

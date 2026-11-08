@@ -81,6 +81,30 @@ fn security_key_events_have_stable_wire_names() {
             AuditEvent::CredentialSkConverted { id: s("k") },
             serde_json::json!({"event": "credential.sk_converted", "id": "k"}),
         ),
+        (
+            AuditEvent::SessionRdpGateway {
+                connection: s("c"),
+                host: s("gw:443"),
+                auth: s("ntlm"),
+                outcome: s("ok"),
+                tunnel_id: 7,
+            },
+            serde_json::json!({"event": "session.rdp.gateway", "connection": "c", "host": "gw:443",
+                               "auth": "ntlm", "outcome": "ok", "tunnel_id": 7}),
+        ),
+        (
+            AuditEvent::SessionRdpGatewayBasic { connection: s("c"), host: s("gw:443") },
+            serde_json::json!({"event": "session.rdp.gateway_basic", "connection": "c", "host": "gw:443"}),
+        ),
+        (
+            AuditEvent::CredentialPinPrompted {
+                connection: s("c"),
+                fingerprint: s("SHA256:x"),
+                outcome: s("cancelled"),
+            },
+            serde_json::json!({"event": "credential.pin_prompted", "connection": "c",
+                               "fingerprint": "SHA256:x", "outcome": "cancelled"}),
+        ),
     ];
     for (e, want) in cases {
         let v = serde_json::to_value(&e).expect("json");

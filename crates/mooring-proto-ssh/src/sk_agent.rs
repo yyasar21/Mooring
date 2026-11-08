@@ -10,8 +10,8 @@ use std::path::Path;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::agent_wire::{
-    parse_identities, parse_sign_response, put_string, Identity, WireError, MAX_AGENT_MESSAGE,
-    REQUEST_IDENTITIES, SIGN_REQUEST,
+    parse_identities, parse_sign_response, put_string, Identity, WireError, ADD_SMARTCARD_KEY,
+    MAX_AGENT_MESSAGE, REQUEST_IDENTITIES, SIGN_REQUEST, SUCCESS,
 };
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
@@ -64,7 +64,8 @@ impl SkAgent {
     }
 
     async fn request(&mut self, msg: &[u8]) -> Result<Vec<u8>, AgentError> {
-        let mut frame = Vec::with_capacity(msg.len() + 4);
+        // Zeroized: an ADD_SMARTCARD_KEY request carries the PIN.
+        let mut frame = zeroize::Zeroizing::new(Vec::with_capacity(msg.len() + 4));
         put_string(&mut frame, msg);
         self.io.write_all(&frame).await?;
         self.io.flush().await?;
@@ -88,12 +89,36 @@ impl SkAgent {
     /// `SSH_AGENTC_SIGN_REQUEST` for the key (or certificate) `blob`; returns the raw
     /// signature blob (checked by the caller).
     pub(crate) async fn sign(&mut self, blob: &[u8], data: &[u8]) -> Result<Vec<u8>, AgentError> {
+        self.sign_flags(blob, data, 0).await
+    }
+
+    /// `SSH_AGENTC_SIGN_REQUEST` with `flags` (`2` = `rsa-sha2-256`, `4` = `rsa-sha2-512`).
+    pub(crate) async fn sign_flags(
+        &mut self,
+        blob: &[u8],
+        data: &[u8],
+        flags: u32,
+    ) -> Result<Vec<u8>, AgentError> {
         let mut msg = vec![SIGN_REQUEST];
         put_string(&mut msg, blob);
         put_string(&mut msg, data);
-        msg.extend_from_slice(&0u32.to_be_bytes());
+        msg.extend_from_slice(&flags.to_be_bytes());
         let reply = self.request(&msg).await?;
         Ok(parse_sign_response(&reply)?)
+    }
+
+    /// `SSH_AGENTC_ADD_SMARTCARD_KEY` (ADR-0027 §2): the agent loads `provider` with `pin`.
+    /// `true` on `SSH_AGENT_SUCCESS`. The request buffer is zeroized.
+    pub(crate) async fn add_smartcard(
+        &mut self,
+        provider: &str,
+        pin: &[u8],
+    ) -> Result<bool, AgentError> {
+        let mut msg = zeroize::Zeroizing::new(vec![ADD_SMARTCARD_KEY]);
+        put_string(&mut msg, provider.as_bytes());
+        put_string(&mut msg, pin);
+        let reply = self.request(&msg).await?;
+        Ok(reply.as_slice() == [SUCCESS])
     }
 }
 
@@ -158,7 +183,18 @@ pub(crate) fn find(identities: &[Identity], key_blob: &[u8]) -> Held {
 /// (`ssh.sk_key_not_in_agent`) before a session is opened.
 pub async fn agent_holds(public_key_line: &str, path: Option<&Path>) -> Option<bool> {
     let key = mooring_core::credential::sk_key::parse_sk_public_line(public_key_line).ok()?;
+    holds_blob(&key.blob, path).await
+}
+
+/// ADR-0027: like [`agent_holds`] for any OpenSSH public key line (a smart-card / PIV key),
+/// for the app's `ssh.piv_key_not_in_agent` pre-flight.
+pub async fn agent_holds_key(public_key_line: &str, path: Option<&Path>) -> Option<bool> {
+    let key = russh::keys::PublicKey::from_openssh(public_key_line.trim()).ok()?;
+    holds_blob(&key.to_bytes().ok()?, path).await
+}
+
+async fn holds_blob(blob: &[u8], path: Option<&Path>) -> Option<bool> {
     let mut agent = SkAgent::connect(path).await?;
     let ids = agent.identities().await.ok()?;
-    Some(find(&ids, &key.blob) != Held::Missing)
+    Some(find(&ids, blob) != Held::Missing)
 }

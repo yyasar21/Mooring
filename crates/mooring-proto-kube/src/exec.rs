@@ -150,6 +150,9 @@ fn code_name(c: CloseCode) -> &'static str {
         CloseCode::VaultLocked => "vault_locked",
         CloseCode::HopFailed => "hop_failed",
         CloseCode::HopLost => "hop_lost",
+        CloseCode::GatewayAuth => "gateway_auth",
+        CloseCode::GatewayRefused => "gateway_refused",
+        CloseCode::GatewayUnsupported => "gateway_unsupported",
     }
 }
 

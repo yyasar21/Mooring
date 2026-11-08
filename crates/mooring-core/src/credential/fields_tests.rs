@@ -46,6 +46,10 @@ fn samples() -> Vec<(K, Value)> {
                 &crate::credential::testdata::sk_ed25519_public([7; 32], "ssh:"))}),
         ),
         (K::BitwardenAccessToken, json!({})),
+        (
+            K::SmartCard,
+            json!({"username": "alice", "public_key": ED25519_PUB, "pkcs11_module": "opensc"}),
+        ),
     ]
 }
 

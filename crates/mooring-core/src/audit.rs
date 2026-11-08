@@ -219,6 +219,30 @@ pub enum SessionAudit {
         /// `bad_signature`, `helper_missing`, `helper_version`, `helper_failed`.
         outcome: &'static str,
     },
+    /// ADR-0027: one RD Gateway tunnel attempt (`session.rdp.gateway`). No credential.
+    Gateway {
+        /// Gateway `host:port`.
+        host: String,
+        /// `ntlm` or `basic`.
+        auth: &'static str,
+        /// `ok`, `auth_failed`, `refused`, `unsupported`, `trust`, `network`.
+        outcome: &'static str,
+        /// Tunnel id the gateway assigned (`0` before `TUNNEL_RESPONSE`).
+        tunnel_id: u32,
+    },
+    /// ADR-0027: the gateway was authenticated with HTTP Basic (`allowBasicGateway`), a
+    /// warning row (`session.rdp.gateway_basic`).
+    GatewayBasic {
+        /// Gateway `host:port`.
+        host: String,
+    },
+    /// ADR-0027: a smart-card PIN was asked (`credential.pin_prompted`); never the PIN.
+    PinPrompted {
+        /// `SHA256:` of the card key.
+        fingerprint: String,
+        /// `entered` or `cancelled`.
+        outcome: &'static str,
+    },
     /// Clipboard text crossed the session (coalesced: at most one per second per direction).
     Clipboard {
         /// Direction.
@@ -251,6 +275,9 @@ impl SessionAudit {
             Self::HopClosed { .. } => "session.hop.close",
             Self::Clipboard { .. } => "session.clipboard",
             Self::SecurityKeyAuth { .. } => "session.auth.sk",
+            Self::Gateway { .. } => "session.rdp.gateway",
+            Self::GatewayBasic { .. } => "session.rdp.gateway_basic",
+            Self::PinPrompted { .. } => "credential.pin_prompted",
         }
     }
 }

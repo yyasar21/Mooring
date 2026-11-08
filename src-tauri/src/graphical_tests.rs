@@ -398,3 +398,102 @@ async fn remote_clipboard_is_gated_by_the_lock_and_offers_are_audited() {
     assert_eq!(log.matches(r#""event":"session_clipboard_blocked""#).count(), 1, "{log}");
     assert_eq!(log.matches(r#""event":"session_clipboard_offer""#).count(), 1, "{log}");
 }
+
+// --- ADR-0027: RD Gateway trust and credential ------------------------------------------
+
+fn with_gateway(b: &Bench, credential: Option<&str>) {
+    let id = crate::dto::connection_id("id", &b.conn).expect("id");
+    b.f.state
+        .with_ready(|_, s| {
+            let gateway = mooring_core::RdGatewayOptions {
+                host: "gw01.example.test".into(),
+                port: 443,
+                usage: mooring_core::options::GatewayUsage::Always,
+                allow_basic_gateway: false,
+                ca_pem: None,
+            };
+            let o = mooring_core::options::RdpConnOptions { gateway: Some(gateway), ..Default::default() };
+            s.set_connection_options(id, &mooring_core::ProtocolOptions::Rdp(o))?;
+            if let Some(c) = credential {
+                let c = crate::dto::credential_id("c", c)?;
+                s.set_connection_role_credential(id, mooring_core::Role::Gateway, Some(c))?;
+            }
+            Ok(())
+        })
+        .expect("gateway options");
+}
+
+fn gateway_prompt(conn: &FakeConn, id: u32) {
+    conn.send(SessionEvent::Prompt {
+        id,
+        message: "Unknown RD Gateway certificate".into(),
+        secret: false,
+        purpose: PromptPurpose::GatewayCertificateTrust,
+        account: None,
+        certificate: Some(info()),
+        hop: None,
+    });
+}
+
+#[tokio::test]
+async fn gateway_certificate_yes_pins_known_rdg_certs_and_reconnects() {
+    let mut b = bench("rdp");
+    with_gateway(&b, None);
+    let (mut ui, conn) = open(&mut b).await;
+    let g = conn.gateway.as_ref().expect("gateway config");
+    assert!(matches!(*g.credential, mooring_proto_rdp::GatewayCredential::SameAsSignIn));
+    assert!(g.known_certs.ends_with("known_rdg_certs") && g.trusted_once.is_none());
+    gateway_prompt(&conn, 4);
+    assert_eq!(expect_kind(&mut ui, "prompt").await["purpose"], "gateway_certificate_trust");
+    answer(&b, &ui, 4, "yes").await;
+    let second = next_conn(&mut b).await;
+    assert_eq!((second.trusted_once, second.gateway.as_ref().and_then(|g| g.trusted_once)), (None, None));
+    let rdg = KnownCerts::load(&b.f.dir.path().join("known_rdg_certs")).expect("load");
+    let sha = mooring_core::known_certs::fingerprint(DER);
+    assert_eq!(rdg.check("gw01.example.test", 443, &sha), CertTrust::Trusted);
+    assert!(!pin_path(&b).exists(), "the RDP store is untouched");
+    let log = audit(&b);
+    assert!(log.contains(r#""protocol":"rdg""#) && log.contains(r#""host":"gw01.example.test:443""#), "{log}");
+}
+
+#[tokio::test]
+async fn gateway_once_then_target_once_are_both_kept() {
+    let mut b = bench("rdp");
+    with_gateway(&b, None);
+    let (mut ui, conn) = open(&mut b).await;
+    gateway_prompt(&conn, 1);
+    expect_kind(&mut ui, "prompt").await;
+    answer(&b, &ui, 1, "once").await;
+    let second = next_conn(&mut b).await;
+    let sha = mooring_core::known_certs::fingerprint(DER);
+    assert_eq!(second.gateway.as_ref().and_then(|g| g.trusted_once), Some(sha));
+    prompt(&second, 2);
+    expect_kind(&mut ui, "prompt").await;
+    answer(&b, &ui, 2, "once").await;
+    let third = next_conn(&mut b).await;
+    assert_eq!(third.trusted_once, Some(sha));
+    assert_eq!(third.gateway.as_ref().and_then(|g| g.trusted_once), Some(sha), "gateway once kept");
+}
+
+#[tokio::test]
+async fn gateway_role_credential_reaches_the_protocol() {
+    let mut b = bench("rdp");
+    let id = b.f.state
+        .with_ready(|v, s| {
+            let secrets = std::collections::BTreeMap::from([(mooring_core::SecretName::Password, &b"gw pass"[..])]);
+            let fields = serde_json::json!({"username": "gwuser", "domain": "CORP"});
+            let kind = mooring_core::CredentialKind::UserPassword;
+            let c = s.create_credential(v, "gw", kind, &fields, &secrets)?;
+            Ok(c.id.to_string())
+        })
+        .expect("credential");
+    with_gateway(&b, Some(&id));
+    let (_ui, conn) = open(&mut b).await;
+    let g = conn.gateway.as_ref().expect("gateway");
+    let mooring_proto_rdp::GatewayCredential::Account(a) = &*g.credential else { panic!("account") };
+    assert_eq!((a.username.as_str(), a.domain.as_deref()), ("gwuser", Some("CORP")));
+    assert!(audit(&b).contains(&id), "credential_used names the gateway credential");
+    assert_eq!(close_code_of(&IpcError::new("rdp.gateway_auth", "x")), CloseCode::GatewayAuth);
+    assert_eq!(close_code_of(&IpcError::new("rdp.gateway_refused", "x")), CloseCode::GatewayRefused);
+    assert_eq!(close_code_of(&IpcError::new("rdp.gateway_unsupported", "x")), CloseCode::GatewayUnsupported);
+}

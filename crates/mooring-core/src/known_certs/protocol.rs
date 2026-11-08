@@ -29,11 +29,13 @@ pub enum CertProtocol {
     Ldap,
     /// `known_onepassword_certs`: 1Password Connect servers (ADR-0026 §3).
     Onepassword,
+    /// `known_rdg_certs`: RD Gateways in front of RDP targets (ADR-0027 §1).
+    Rdg,
 }
 
 impl CertProtocol {
     /// Every store, in a stable order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Rdp,
         Self::Vnc,
         Self::Kube,
@@ -42,6 +44,7 @@ impl CertProtocol {
         Self::Sync,
         Self::Ldap,
         Self::Onepassword,
+        Self::Rdg,
     ];
 
     /// File name under the app data directory.
@@ -55,6 +58,7 @@ impl CertProtocol {
             Self::Sync => "known_sync_certs",
             Self::Ldap => "known_ldap_certs",
             Self::Onepassword => "known_onepassword_certs",
+            Self::Rdg => "known_rdg_certs",
         }
     }
 
@@ -69,6 +73,7 @@ impl CertProtocol {
             Self::Sync => "sync",
             Self::Ldap => "ldap",
             Self::Onepassword => "onepassword",
+            Self::Rdg => "rdg",
         }
     }
 
@@ -81,7 +86,7 @@ impl CertProtocol {
             Self::Vnc => Some(Protocol::Vnc),
             Self::Kube => Some(Protocol::Kubernetes),
             Self::Vsphere => Some(Protocol::VsphereConsole),
-            Self::Vault | Self::Sync | Self::Ldap | Self::Onepassword => None,
+            Self::Vault | Self::Sync | Self::Ldap | Self::Onepassword | Self::Rdg => None,
         }
     }
 
@@ -120,5 +125,9 @@ mod tests {
         );
         assert_eq!(CertProtocol::Kube.connection_protocol(), Some(Protocol::Kubernetes));
         assert_eq!(CertProtocol::Vault.connection_protocol(), None);
+        assert_eq!(CertProtocol::Rdg.file_name(), "known_rdg_certs");
+        assert!(
+            CertProtocol::Rdg.tls_always() && CertProtocol::Rdg.connection_protocol().is_none()
+        );
     }
 }

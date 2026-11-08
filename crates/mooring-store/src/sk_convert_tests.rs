@@ -45,9 +45,9 @@ fn legacy_sk_row(s: &Store, v: &Vault, handle: &str, otp: bool) -> CredentialId 
 }
 
 #[test]
-fn migration_ten_is_latest_and_accepts_the_kind() {
+fn migration_ten_accepts_the_kind() {
     let s = Store::open_in_memory().expect("store");
-    assert_eq!(s.schema_version().expect("v"), 10);
+    assert!(s.schema_version().expect("v") >= 10);
     assert_eq!(schema::get_setting(&s.conn, KEY_SK_SCAN_PENDING).expect("get"), None, "empty db");
     let v = vault();
     let pk = public_line(&sk_ed25519_public([7; 32], "ssh:"));
@@ -61,6 +61,23 @@ fn migration_ten_is_latest_and_accepts_the_kind() {
         )
         .expect("ssh_sk_key without a handle");
     assert_eq!(s.get_credential(m.id).expect("get").kind, CredentialKind::SshSkKey);
+}
+
+/// ADR-0027: migration 11 is the latest and its CHECK takes `smart_card` (no secret).
+#[test]
+fn migration_eleven_is_latest_and_accepts_smart_card() {
+    let s = Store::open_in_memory().expect("store");
+    assert_eq!(s.schema_version().expect("v"), 11);
+    let m = s
+        .create_credential(
+            &vault(),
+            "piv",
+            CredentialKind::SmartCard,
+            &json!({"username": "a", "pkcs11_module": "ykcs11"}),
+            &crate::Secrets::new(),
+        )
+        .expect("smart_card");
+    assert_eq!(s.get_credential(m.id).expect("get").kind, CredentialKind::SmartCard);
 }
 
 #[test]

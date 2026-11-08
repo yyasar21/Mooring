@@ -40,6 +40,8 @@ pub struct Launcher {
     pub size: Arc<Mutex<Size>>,
     /// `$APP_DATA/known_<proto>_certs`.
     pub known_certs: PathBuf,
+    /// ADR-0027: `$APP_DATA/known_rdg_certs` (RD Gateway pins).
+    pub known_rdg_certs: PathBuf,
     /// Tracked clipboard.
     pub clipboard: Arc<dyn Clipboard>,
     /// Shared framebuffer.
@@ -71,6 +73,18 @@ pub struct Launched {
     pub port: u16,
     /// Options in effect.
     pub options: mooring_core::ProtocolOptions,
+    /// ADR-0027: the RD Gateway's `host` and `port` (its pin key), when one is used.
+    pub gateway: Option<(String, u16)>,
+}
+
+/// Leaves accepted for one connect only (`once`, or a pin that could not be written): the
+/// target's and, ADR-0027, the RD Gateway's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TrustOnce {
+    /// The RDP / VNC server.
+    pub target: Option<[u8; 32]>,
+    /// The RD Gateway.
+    pub gateway: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for Launched {
@@ -81,7 +95,7 @@ impl std::fmt::Debug for Launched {
 
 impl Launcher {
     /// Plan (credential from the vault), audit `credential_used` and connect.
-    pub async fn connect(&self, trusted_once: Option<[u8; 32]>) -> IpcResult<Launched> {
+    pub async fn connect(&self, once: TrustOnce) -> IpcResult<Launched> {
         let size = *self.size.lock().map_err(|_| IpcError::poisoned())?;
         let plan = connect_plan::plan(&self.ready, &self.connection_id, size, &self.session_id).await?;
         for cred in plan.used {
@@ -92,6 +106,16 @@ impl Launcher {
             });
         }
         let (host, port) = (plan.params.host.clone(), plan.params.port);
+        let gateway_at = match &plan.options {
+            mooring_core::ProtocolOptions::Rdp(o) => o.gateway.as_ref().map(|g| (g.host.clone(), g.port)),
+            _ => None,
+        };
+        let gateway = plan.gateway.map(|credential| mooring_proto_rdp::GatewayConfig {
+            known_certs: self.known_rdg_certs.clone(),
+            credential: Arc::new(credential),
+            trusted_once: once.gateway,
+        });
+        let trusted_once = once.target;
         let req = GraphicalConnect {
             protocol: plan.protocol,
             params: plan.params,
@@ -101,10 +125,11 @@ impl Launcher {
             clipboard: Arc::clone(&self.clipboard),
             trusted_once,
             dialer: None,
+            gateway,
         };
         let hops = self.hops.hops(plan.hops);
         let session = crate::hop_chain::graphical(Arc::clone(&self.factory), req, hops).await?;
-        Ok(Launched { session, protocol: plan.protocol, host, port, options: plan.options })
+        Ok(Launched { session, protocol: plan.protocol, host, port, options: plan.options, gateway: gateway_at })
     }
 }
 
@@ -137,6 +162,9 @@ pub fn close_code_of(e: &IpcError) -> CloseCode {
         "session.trust_mismatch" => CloseCode::TrustMismatch,
         "http.trust_conflict" => CloseCode::TrustConflict,
         "session.trust_rejected" => CloseCode::TrustRejected,
+        "rdp.gateway_auth" => CloseCode::GatewayAuth,
+        "rdp.gateway_refused" => CloseCode::GatewayRefused,
+        "rdp.gateway_unsupported" | "rdp.smart_card_unsupported" => CloseCode::GatewayUnsupported,
         "session.unsupported_security" | "protocol.unavailable" | "input.invalid" => {
             CloseCode::ProtocolError
         }
@@ -165,11 +193,14 @@ impl TrustAnswer {
 
 /// Certificate prompt, view-only filter and size tracking for [`drive`].
 struct Gate {
-    pending: Option<(u32, CertificateInfo)>,
+    /// Prompt id, certificate, and whether it is the RD Gateway's (ADR-0027).
+    pending: Option<(u32, CertificateInfo, bool)>,
     protocol: Protocol,
     host: String,
     port: u16,
     path: PathBuf,
+    /// ADR-0027: the gateway's `host`, `port` and `known_rdg_certs`.
+    gateway: Option<(String, u16, PathBuf)>,
     audit: Arc<Mutex<AuditLog>>,
     size: Arc<Mutex<Size>>,
     view_only: Arc<AtomicBool>,
@@ -189,11 +220,15 @@ impl Gate {
 
     /// `yes` pins, `once` trusts for this connect only (no pin, `trusted_once`), anything
     /// else rejects.
-    fn answer(&self, answer: TrustAnswer, info: &CertificateInfo) -> End {
-        let host = mooring_core::known_certs::host_key(&self.host, self.port);
+    fn answer(&self, answer: TrustAnswer, info: &CertificateInfo, gateway: bool) -> End {
+        let (h, port, path, proto) = match self.gateway.as_ref().filter(|_| gateway) {
+            Some((h, p, path)) => (h.as_str(), *p, path, "rdg"),
+            None => (self.host.as_str(), self.port, &self.path, self.protocol.name()),
+        };
+        let host = mooring_core::known_certs::host_key(h, port);
         let fp = info.display_fingerprint();
         let audit = |decision| {
-            record_audit(&self.audit, cert(self.protocol.name().to_owned(), host.clone(), fp.clone(), decision, None));
+            record_audit(&self.audit, cert(proto.to_owned(), host.clone(), fp.clone(), decision, None));
         };
         if answer == TrustAnswer::Reject {
             audit("rejected");
@@ -207,17 +242,17 @@ impl Gate {
         };
         if answer == TrustAnswer::Once {
             audit("trusted_once");
-            return End::TrustAccepted { trusted_once: Some(sha) };
+            return End::TrustAccepted { trusted_once: Some(sha), gateway };
         }
-        match KnownCerts::add_and_save(&self.path, &self.host, self.port, &sha, OffsetDateTime::now_utc()) {
+        match KnownCerts::add_and_save(path, h, port, &sha, OffsetDateTime::now_utc()) {
             Ok(()) => {
                 audit("accepted");
-                End::TrustAccepted { trusted_once: None }
+                End::TrustAccepted { trusted_once: None, gateway }
             }
             Err(e) => {
                 tracing::warn!(error = %e, "certificate pin not stored; trusted for this connect only");
                 audit("accepted_session_only");
-                End::TrustAccepted { trusted_once: Some(sha) }
+                End::TrustAccepted { trusted_once: Some(sha), gateway }
             }
         }
     }
@@ -230,22 +265,22 @@ impl Interceptor for Gate {
                 self.mark_tls_seen();
             }
         }
-        if let SessionEvent::Prompt {
-            id,
-            purpose: PromptPurpose::CertificateTrust,
-            certificate: Some(info),
-            ..
-        } = event
-        {
-            self.pending = Some((*id, info.clone()));
+        if let SessionEvent::Prompt { id, purpose, certificate: Some(info), .. } = event {
+            match purpose {
+                PromptPurpose::CertificateTrust => self.pending = Some((*id, info.clone(), false)),
+                PromptPurpose::GatewayCertificateTrust if self.gateway.is_some() => {
+                    self.pending = Some((*id, info.clone(), true));
+                }
+                _ => {}
+            }
         }
     }
 
     fn on_input(&mut self, input: &SessionInput) -> Intercept {
         match input {
             SessionInput::Answer { id, text } if self.pending.as_ref().is_some_and(|p| p.0 == *id) => {
-                let Some((_, info)) = self.pending.take() else { return Intercept::Pass };
-                Intercept::End(self.answer(TrustAnswer::parse(text.expose_secret()), &info))
+                let Some((_, info, gw)) = self.pending.take() else { return Intercept::Pass };
+                Intercept::End(self.answer(TrustAnswer::parse(text.expose_secret()), &info, gw))
             }
             SessionInput::Resize { size } => {
                 if let Ok(mut s) = self.size.lock() {
@@ -317,18 +352,21 @@ impl GraphicalTask {
         };
         let pump = FramePump::new(self.launcher.frames.clone(), self.flow.clone(), Arc::clone(&self.out), interval);
         let pump = tokio::spawn(pump.run());
-        let Launched { mut session, protocol, host, port, .. } = self.first;
+        let Launched { mut session, protocol, host, port, gateway, .. } = self.first;
+        let rdg = self.launcher.known_rdg_certs.clone();
         let mut gate = Gate {
             pending: None,
             protocol,
             host,
             port,
             path: self.launcher.known_certs.clone(),
+            gateway: gateway.map(|(h, p)| (h, p, rdg)),
             audit: Arc::clone(&ctx.audit),
             size: Arc::clone(&self.launcher.size),
             view_only: Arc::clone(&self.view_only),
         };
         let (mut attempt, mut ever) = (0u32, false);
+        let mut once = TrustOnce::default();
         let (reason, code) = 'outer: loop {
             let d = drive(&mut *session, &mut commands, &ctx, &phase, Some(&mut gate)).await;
             gate.pending = None;
@@ -337,7 +375,16 @@ impl GraphicalTask {
                 attempt = 0;
             }
             let (mut reason, mut code) = match d.end {
-                End::TrustAccepted { trusted_once } => match self.launcher.connect(trusted_once).await {
+                End::TrustAccepted { trusted_once, gateway } => match self.launcher.connect({
+                    if gateway {
+                        once.gateway = trusted_once;
+                    } else {
+                        once.target = trusted_once;
+                    }
+                    once
+                })
+                .await
+                {
                     Ok(l) => {
                         session = l.session;
                         phase.set(Phase::Connecting);
@@ -362,7 +409,7 @@ impl GraphicalTask {
                     continue;
                 }
                 phase.set(Phase::Connecting);
-                match self.launcher.connect(None).await {
+                match self.launcher.connect(TrustOnce::default()).await {
                     Ok(l) => {
                         session = l.session;
                         continue 'outer;

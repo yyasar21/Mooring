@@ -44,6 +44,8 @@ pub struct GraphicalConnect {
     /// ADR-0025: dial through this jump-host chain instead of direct TCP (set by
     /// [`crate::hop_chain::graphical`]).
     pub dialer: Option<mooring_core::SharedDialer>,
+    /// ADR-0027: RD Gateway trust store, credential and `trusted_once` (RDP with a gateway).
+    pub gateway: Option<mooring_proto_rdp::GatewayConfig>,
 }
 
 impl std::fmt::Debug for GraphicalConnect {
@@ -53,6 +55,7 @@ impl std::fmt::Debug for GraphicalConnect {
             .field("params", &self.params)
             .field("trusted_once", &self.trusted_once.is_some())
             .field("via", &self.dialer.is_some())
+            .field("gateway", &self.gateway.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -103,6 +106,7 @@ async fn connect_rdp(req: GraphicalConnect) -> IpcResult<Box<dyn Session>> {
         .with_clipboard(Arc::new(SessionClipboard(req.clipboard)));
     options.trusted_once = req.trusted_once;
     options.dialer = req.dialer;
+    options.gateway = req.gateway;
     let session =
         mooring_proto_rdp::RdpSession::connect(req.params, options, req.frames, AuditBuffer::new())
             .await
@@ -175,6 +179,7 @@ mod tests {
             clipboard: Arc::new(crate::clipboard::MemoryClipboard::default()),
             trusted_once: None,
             dialer: None,
+            gateway: None,
         }
     }
 

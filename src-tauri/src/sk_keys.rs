@@ -31,6 +31,27 @@ pub fn apply(options: &mut SshOptions, agent_path: Option<PathBuf>, helper: Opti
     options.sk_helper = helper;
 }
 
+/// ADR-0027 §2: a smart card whose key the agent does not hold, and no installed PKCS#11
+/// module to load it with the PIN, fails before any network I/O (`ssh.piv_key_not_in_agent`).
+async fn smart_card(card: &mooring_core::session::PivLogin, agent_path: Option<&std::path::Path>) -> IpcResult<()> {
+    let loadable = card.module.and_then(|m| mooring_proto_ssh::piv_module_path(m, None)).is_some();
+    match mooring_proto_ssh::agent_holds_key(&card.public_key, agent_path).await {
+        Some(true) => Ok(()),
+        Some(false) if loadable => Ok(()),
+        Some(false) => Err(IpcError::new(
+            "ssh.piv_key_not_in_agent",
+            format!(
+                "smart card key {} is not in ssh-agent; load the card with `ssh-add -s <PKCS#11 module>`",
+                card.fingerprint
+            ),
+        )),
+        None => Err(IpcError::new(
+            "ssh.piv_key_not_in_agent",
+            "no ssh-agent is reachable; start ssh-agent and load the smart card with `ssh-add -s <PKCS#11 module>`",
+        )),
+    }
+}
+
 /// Refuse before connecting when a security key of the target or a hop cannot sign: the
 /// agent does not hold it (`ssh.sk_key_not_in_agent`), the helper backend is off
 /// (`ssh.sk_helper_disabled`) or has no binary (`ssh.sk_helper_missing`).
@@ -41,6 +62,10 @@ pub async fn preflight(
     helper: Option<&std::path::Path>,
 ) -> IpcResult<()> {
     for p in params.iter().copied() {
+        if let ConnectSecret::SmartCard(card) = &p.secret {
+            smart_card(card, agent_path).await?;
+            continue;
+        }
         let ConnectSecret::SecurityKey(login) = &p.secret else { continue };
         match login.backend {
             SkBackend::Agent => match mooring_proto_ssh::agent_holds(&login.public_key, agent_path).await {

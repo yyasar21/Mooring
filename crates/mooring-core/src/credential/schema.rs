@@ -219,7 +219,7 @@ const WEB_ONLY: &[KindProtocol] = &[proto(Protocol::Web, &[P])];
 const KUBE_ONLY: &[KindProtocol] = &[proto(Protocol::Kubernetes, &[P])];
 const VNC_ONLY: &[KindProtocol] = &[proto(Protocol::Vnc, &[P])];
 
-static KINDS: [KindSchema; 19] = [
+static KINDS: [KindSchema; 20] = [
     KindSchema {
         kind: K::UserPassword,
         label: "Username and password",
@@ -473,6 +473,7 @@ static KINDS: [KindSchema; 19] = [
     source::VAULT_APPROLE,
     source::S3_ACCESS_KEY,
     source::BITWARDEN_ACCESS_TOKEN,
+    sk::SMART_CARD,
 ];
 
 #[path = "schema_sk.rs"]

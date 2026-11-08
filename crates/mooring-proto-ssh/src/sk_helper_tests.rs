@@ -72,7 +72,8 @@ fn signer_preconditions_fail_closed() {
         key_handle: h.map(|s| SecretString::from(s.to_owned())),
         passphrase: None,
     };
-    let mut o = SkOptions { agent_path: None, touch_timeout: DEADLINE, helper: None };
+    let mut o =
+        SkOptions { agent_path: None, touch_timeout: DEADLINE, helper: None, pkcs11_module: None };
     let err = |l: &SkLogin, o: &SkOptions| HelperSigner::new(l, &public, o).err();
     assert_eq!(err(&login(Some(&handle)), &o), Some(SkFailure::HelperDisabled));
     o.helper = Some(PathBuf::from("relative/ssh-sk-helper"));

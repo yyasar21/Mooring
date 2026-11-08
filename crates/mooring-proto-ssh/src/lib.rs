@@ -34,6 +34,7 @@ mod handler;
 pub mod hops;
 pub mod known_hosts;
 mod local_path;
+mod piv_auth;
 pub mod session;
 pub mod sftp;
 mod sftp_transfer;
@@ -59,6 +60,9 @@ pub use shared::{PromptBroker, HOP_PROMPT_ID_BASE};
 pub use via_session::{TargetFuture, ViaSession};
 
 pub use agent_wire::fuzz_agent_identities;
-pub use sk_agent::agent_holds;
+pub use piv_auth::{
+    module_candidates as piv_module_candidates, module_path as piv_module_path, MAX_PIN,
+};
+pub use sk_agent::{agent_holds, agent_holds_key};
 pub use sk_auth::SK_TOUCH_TIMEOUT;
 pub use sk_helper::fuzz_sk_helper_reply;

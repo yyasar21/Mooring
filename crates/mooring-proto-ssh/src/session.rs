@@ -51,6 +51,10 @@ pub struct SshOptions {
     /// ADR-0024 §3: the `ssh-sk-helper` binary when the `sshSkHelper` setting is on (a fixed
     /// path from [`crate::sk_helper::system_helper`]); `None` = the helper backend is off.
     pub sk_helper: Option<PathBuf>,
+    /// ADR-0027: the PKCS#11 provider the agent loads for a `smart_card` credential; `None` =
+    /// the fixed per-OS location of the credential's module ([`crate::piv_module_path`]).
+    /// Tests point it at a dummy path.
+    pub pkcs11_module_path: Option<PathBuf>,
 }
 
 impl SshOptions {
@@ -65,6 +69,7 @@ impl SshOptions {
             agent_path: None,
             sk_touch_timeout: crate::sk_auth::SK_TOUCH_TIMEOUT,
             sk_helper: None,
+            pkcs11_module_path: None,
         }
     }
 }

@@ -94,8 +94,22 @@ impl RdpSession {
             client_name,
             trusted_once,
             dialer,
+            gateway,
         } = options;
         let policy = conn.clipboard;
+        let gateway = conn.gateway.clone().map(|opts| {
+            let cfg = gateway.unwrap_or_else(|| crate::gateway::GatewayConfig {
+                known_certs: known_certs.with_file_name("known_rdg_certs"),
+                credential: Arc::new(crate::gateway::GatewayCredential::SameAsSignIn),
+                trusted_once: None,
+            });
+            crate::gateway::open::GatewayTarget {
+                opts,
+                known_certs: cfg.known_certs,
+                credential: cfg.credential,
+                session_pin: cfg.trusted_once,
+            }
+        });
         let target = Target {
             host,
             port,
@@ -107,6 +121,7 @@ impl RdpSession {
             client_name,
             desktop: clamp_desktop(size.width, size.height),
             session_pin: trusted_once,
+            gateway,
         };
         let (event_tx, events) = mpsc::channel(CHANNEL_CAPACITY);
         let (commands, command_rx) = mpsc::channel(CHANNEL_CAPACITY);

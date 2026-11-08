@@ -1224,5 +1224,91 @@
     }
    }
   ]
+ },
+ {
+  "kind": "smart_card",
+  "label": "Smart card / PIV",
+  "group": "Smart card",
+  "protocols": [
+   {
+    "protocol": "ssh",
+    "roles": [
+     "primary"
+    ]
+   }
+  ],
+  "supportsOtp": false,
+  "fields": [
+   {
+    "name": "username",
+    "label": "Username",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "alice (hint)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 256,
+     "format": "text"
+    }
+   },
+   {
+    "name": "domain",
+    "label": "Domain",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "optional",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 253,
+     "format": "text"
+    }
+   },
+   {
+    "name": "reader_hint",
+    "label": "Reader",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "Yubico YubiKey (optional)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 128,
+     "format": "text"
+    }
+   },
+   {
+    "name": "public_key",
+    "label": "Public key",
+    "secret": false,
+    "required": false,
+    "multiline": true,
+    "placeholder": "ecdsa-sha2-nistp256 AAAA… (from ssh-keygen -D <module>)",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16384,
+     "format": "text"
+    }
+   },
+   {
+    "name": "pkcs11_module",
+    "label": "PKCS#11 module",
+    "secret": false,
+    "required": false,
+    "multiline": false,
+    "placeholder": "",
+    "copyable": false,
+    "validation": {
+     "maxBytes": 16,
+     "format": "enum",
+     "options": [
+      "opensc",
+      "ykcs11",
+      "cryptoapi"
+     ]
+    }
+   }
+  ]
  }
 ]

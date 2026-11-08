@@ -133,3 +133,33 @@ fn unlock_converts_and_audits() {
     convert_on_unlock(&f.state);
     assert!(audit_rows(&f.state, "credential.sk_converted").is_empty(), "nothing to convert");
 }
+
+/// ADR-0027 §2: `smart_card` maps to the agent-held PIV key; without a key or an agent it is
+/// refused before any network I/O (`ssh.piv_key_not_in_agent`), and RDP is refused by the
+/// matrix ("needs Kerberos PKINIT").
+#[tokio::test]
+async fn smart_card_plan_and_preflight() {
+    let f = unlocked();
+    let st = &f.state;
+    let id = credential(st, "smart_card", json!({"username": "alice", "public_key": td::ED25519_PUB,
+                                                "reader_hint": "YubiKey"}), &[]);
+    let conn = ssh_connection(st, Some(id));
+    let plan = crate::commands::connect_plan::plan(&st.ready(), &conn, SIZE, "s").await.expect("plan");
+    let ConnectSecret::SmartCard(card) = &plan.params.secret else { panic!("smart card") };
+    assert_eq!((card.fingerprint.as_str(), card.module, card.reader_hint.as_deref()), (td::ED25519_FP, None, Some("YubiKey")));
+    assert_eq!(plan.params.username.as_deref(), Some("alice"));
+    let dir = tempfile::tempdir().expect("dir");
+    let nowhere = dir.path().join("no-agent.sock");
+    let e = preflight(&[&plan.params], Some(&nowhere), false, None).await.expect_err("no agent");
+    assert_eq!(e.code, "ssh.piv_key_not_in_agent");
+    let bare = credential(st, "smart_card", json!({"username": "alice"}), &[]);
+    let conn = ssh_connection(st, Some(bare));
+    let e = crate::commands::connect_plan::plan(&st.ready(), &conn, SIZE, "s").await.expect_err("no key");
+    assert_eq!(e.code, "ssh.piv_key_not_in_agent");
+    let reason = mooring_core::credential::incompatibility_reason(
+        mooring_core::CredentialKind::SmartCard,
+        mooring_core::Protocol::Rdp,
+        mooring_core::Role::Primary,
+    );
+    assert!(reason.is_some_and(|r| r.contains("PKINIT")));
+}

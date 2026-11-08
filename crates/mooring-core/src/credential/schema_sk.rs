@@ -40,3 +40,31 @@ pub(super) const SSH_SK_KEY: KindSchema = KindSchema {
         )),
     ],
 };
+
+/// `smart_card` (ADR-0027 §2): SSH through the ssh-agent holding the card's key. No secret
+/// field: the PIN is asked at every use (`purpose: smart_card_pin`) and never stored. RDP
+/// smart-card logon needs Kerberos PKINIT (matrix footnote).
+pub(super) const SMART_CARD: KindSchema = KindSchema {
+    kind: K::SmartCard,
+    label: "Smart card / PIV",
+    group: "Smart card",
+    protocols: SSH_ONLY,
+    consumers: &[],
+    supports_otp: false,
+    fields: &[
+        ph(plain("username", "Username", false, v(256, FieldFormat::Text)), "alice (hint)"),
+        ph(plain("domain", "Domain", false, v(253, FieldFormat::Text)), "optional"),
+        ph(
+            plain("reader_hint", "Reader", false, v(128, FieldFormat::Text)),
+            "Yubico YubiKey (optional)",
+        ),
+        ml(ph(
+            plain("public_key", "Public key", false, v(16 * KIB, FieldFormat::Text)),
+            "ecdsa-sha2-nistp256 AAAA… (from ssh-keygen -D <module>)",
+        )),
+        opts(
+            plain("pkcs11_module", "PKCS#11 module", false, v(16, FieldFormat::Enum)),
+            &["opensc", "ykcs11", "cryptoapi"],
+        ),
+    ],
+};

@@ -54,6 +54,8 @@ pub(crate) struct Target {
     /// added to the loaded store in memory so the connect hits the pin row. The pin file is
     /// written by the Tauri layer, never here.
     pub(crate) session_pin: Option<[u8; 32]>,
+    /// ADR-0027: the RD Gateway in front of the server (`None` = direct / jump chain only).
+    pub(crate) gateway: Option<crate::gateway::open::GatewayTarget>,
 }
 
 /// A connected, authenticated session ready for the active stage.
@@ -67,6 +69,8 @@ pub(crate) struct Established {
 pub(crate) enum Attempt {
     Connected(Box<Established>),
     NeedsTrust(Decision),
+    /// ADR-0027: the RD Gateway's certificate needs the user.
+    NeedsGatewayTrust(Decision),
     Failed(End),
 }
 
@@ -260,8 +264,9 @@ pub(crate) async fn attempt(
     creds: &Creds,
     channels: crate::active::Channels,
     audit: &AuditSink,
+    events: &tokio::sync::mpsc::Sender<mooring_core::session::SessionEvent>,
 ) -> Attempt {
-    match attempt_inner(target, creds, channels, audit).await {
+    match attempt_inner(target, creds, channels, audit, events).await {
         Ok(a) => a,
         Err(e) => Attempt::Failed(e),
     }
@@ -340,9 +345,16 @@ async fn attempt_inner(
     creds: &Creds,
     channels: crate::active::Channels,
     audit: &AuditSink,
+    events: &tokio::sync::mpsc::Sender<mooring_core::session::SessionEvent>,
 ) -> Result<Attempt, End> {
     let (known, roots) = load_trust(target).await?;
-    let Dialed { stream: tcp, local_addr } = tcp_connect(target).await?;
+    let (Dialed { stream: tcp, local_addr }, via_gateway) = match &target.gateway {
+        None => (tcp_connect(target).await?, false),
+        Some(gw) => match crate::gateway::open(target, gw, creds, audit, events).await? {
+            crate::gateway::Opened::Stream(d, via) => (d, via),
+            crate::gateway::Opened::NeedsTrust(d) => return Ok(Attempt::NeedsGatewayTrust(d)),
+        },
+    };
     let tcp = Erased::new(tcp);
     // Through a jump host our socket address is the hop's business, not the server's.
     let client_addr = local_addr.unwrap_or_else(|| std::net::SocketAddr::from(([0, 0, 0, 0], 0)));
@@ -414,7 +426,12 @@ async fn attempt_inner(
     Ok(Attempt::Connected(Box::new(Established {
         framed,
         result,
-        security: if nla { "nla" } else { "tls" },
+        security: match (nla, via_gateway) {
+            (true, false) => "nla",
+            (true, true) => "nla+rdg",
+            (false, false) => "tls",
+            (false, true) => "tls+rdg",
+        },
         fingerprint: decision.fingerprint,
     })))
 }
@@ -442,6 +459,7 @@ mod tests {
             client_name: "A-VERY-LONG-CLIENT-NAME".into(),
             desktop: clamp_desktop(1024, 768),
             session_pin: None,
+            gateway: None,
         };
         let c = Creds {
             username: "u".into(),

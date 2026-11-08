@@ -32,6 +32,8 @@ pub(crate) struct SkOptions {
     pub(crate) agent_path: Option<PathBuf>,
     pub(crate) touch_timeout: Duration,
     pub(crate) helper: Option<PathBuf>,
+    /// ADR-0027: PKCS#11 provider override (tests); `None` = the fixed per-OS list.
+    pub(crate) pkcs11_module: Option<PathBuf>,
 }
 
 /// Why a security-key sign-in failed; each reason is safe to show.

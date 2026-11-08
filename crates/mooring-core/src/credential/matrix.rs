@@ -34,7 +34,9 @@ fn footnote(kind: CredentialKind, p: Protocol) -> Option<&'static str> {
         (K::UserPassword | K::DomainUser, Protocol::Kubernetes) => {
             Some("Kubernetes removed static basic auth.")
         }
-        (K::X509, Protocol::Rdp) => Some("Smart-card RDP is planned for later."),
+        (K::X509 | K::SmartCard, Protocol::Rdp) => {
+            Some("Smart-card logon over RDP needs Kerberos PKINIT (planned).")
+        }
         (K::X509, Protocol::Vnc) => Some("VeNCrypt X.509 is planned for later."),
         _ => None,
     }
@@ -158,7 +160,7 @@ mod tests {
     const B: (bool, bool, bool) = (false, false, true);
     const N: (bool, bool, bool) = (false, false, false);
     type Row = [(bool, bool, bool); 6];
-    const ADR: [(K, Row); 18] = [
+    const ADR: [(K, Row); 19] = [
         (K::UserPassword, [T, G, N, T, N, T]),
         (K::DomainUser, [T, G, N, T, N, T]),
         (K::SshKey, [T, N, N, N, N, N]),
@@ -177,6 +179,7 @@ mod tests {
         (K::S3AccessKey, [N, N, N, N, N, N]),
         (K::SshSkKey, [T, N, N, N, N, N]),
         (K::BitwardenAccessToken, [N, N, N, N, N, N]),
+        (K::SmartCard, [T, N, N, N, N, N]),
     ];
     const PROTOCOLS: [Protocol; 6] = [Ssh, Rdp, Vnc, Web, Kube, Vsc];
 
@@ -208,7 +211,10 @@ mod tests {
             r(K::UserPassword, Kube, Role::Primary),
             "Kubernetes removed static basic auth."
         );
-        assert_eq!(r(K::X509, Rdp, Role::Primary), "Smart-card RDP is planned for later.");
+        let pkinit = "Smart-card logon over RDP needs Kerberos PKINIT (planned).";
+        assert_eq!(r(K::X509, Rdp, Role::Primary), pkinit);
+        assert_eq!(r(K::SmartCard, Rdp, Role::Primary), pkinit);
+        assert_eq!(r(K::SmartCard, Rdp, Role::Gateway), pkinit);
         assert_eq!(
             r(K::SudoBecome, Ssh, Role::Primary),
             "Become (sudo, su, doas) is for SSH become / sudo, not SSH sign-in."

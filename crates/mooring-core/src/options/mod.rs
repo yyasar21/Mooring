@@ -11,6 +11,7 @@
 //! more than the UI). The text is capped at [`MAX_OPTIONS_JSON`].
 
 mod conn;
+mod gateway;
 mod vsphere;
 
 use std::time::Duration;
@@ -22,6 +23,7 @@ pub use conn::{
     VncSecurity, WebConnOptions, DEFAULT_KEYBOARD_LAYOUT, KEYBOARD_LAYOUTS, LOG_TAIL_LINES,
     MAX_ALLOWED_NAMESPACES, MAX_ALLOWED_ORIGINS, MAX_LOG_BYTES, MAX_URL,
 };
+pub use gateway::{GatewayUsage, RdGatewayOptions, MAX_GATEWAY_HOST};
 pub use vsphere::{
     VsphereConnOptions, DEFAULT_REFRESH_MINUTES, MAX_REFRESH_MINUTES, MIN_REFRESH_MINUTES,
 };

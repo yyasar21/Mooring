@@ -7,6 +7,10 @@ use mooring_core::credential::sk_key::{Reader, SkAlgorithm, SK_FLAG_USER_PRESENC
 
 /// `SSH_AGENT_FAILURE`.
 pub(crate) const FAILURE: u8 = 5;
+/// `SSH_AGENT_SUCCESS`.
+pub(crate) const SUCCESS: u8 = 6;
+/// `SSH_AGENTC_ADD_SMARTCARD_KEY` (ADR-0027 §2): `string provider, string pin`.
+pub(crate) const ADD_SMARTCARD_KEY: u8 = 20;
 /// `SSH_AGENTC_REQUEST_IDENTITIES`.
 pub(crate) const REQUEST_IDENTITIES: u8 = 11;
 /// `SSH_AGENT_IDENTITIES_ANSWER`.

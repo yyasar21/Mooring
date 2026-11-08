@@ -26,6 +26,8 @@ pub(crate) enum End {
     TrustAccepted {
         /// Leaf to accept once when the pin could not be stored.
         trusted_once: Option<[u8; 32]>,
+        /// ADR-0027: the answer was about the RD Gateway's certificate (`known_rdg_certs`).
+        gateway: bool,
     },
 }
 

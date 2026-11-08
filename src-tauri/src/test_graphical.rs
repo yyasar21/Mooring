@@ -31,6 +31,8 @@ pub struct FakeConn {
     pub frames: FrameSink,
     pub audits: Arc<Mutex<Vec<SessionAudit>>>,
     pub trusted_once: Option<[u8; 32]>,
+    /// ADR-0027: the gateway config handed to the protocol crate (`None` = no gateway).
+    pub gateway: Option<mooring_proto_rdp::GatewayConfig>,
     pub options: ProtocolOptions,
     pub size: Size,
     /// The clipboard the protocol crate would get (read for offers, written by the remote).
@@ -141,6 +143,7 @@ impl SessionFactory for FakeFactory {
                 frames: req.frames,
                 audits: Arc::clone(&audits),
                 trusted_once: req.trusted_once,
+                gateway: req.gateway,
                 options: req.options,
                 size: req.params.size,
                 clipboard: crate::session_factory::SessionClipboard(req.clipboard),

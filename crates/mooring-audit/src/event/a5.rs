@@ -132,6 +132,41 @@ macro_rules! a5_variants {
             /// Credential id.
             id: String,
         },
+        /// ADR-0027: one RD Gateway tunnel attempt. `auth`: `ntlm` | `basic` | `none`
+        /// (`if_unreachable` went direct); `outcome`: `ok` | `direct` | `auth_failed` |
+        /// `refused` | `unsupported` | `trust` | `protocol` | `network`.
+        #[serde(rename = "session.rdp.gateway")]
+        SessionRdpGateway {
+            /// Connection id.
+            connection: String,
+            /// Gateway `host:port`.
+            host: String,
+            /// Gateway authentication.
+            auth: String,
+            /// Outcome.
+            outcome: String,
+            /// Tunnel id the gateway assigned (`0` before it did).
+            tunnel_id: u32,
+        },
+        /// ADR-0027: HTTP Basic was sent to the gateway (`allowBasicGateway`): a warning row.
+        #[serde(rename = "session.rdp.gateway_basic")]
+        SessionRdpGatewayBasic {
+            /// Connection id.
+            connection: String,
+            /// Gateway `host:port`.
+            host: String,
+        },
+        /// ADR-0027 §2: a smart-card PIN was asked (`outcome`: `entered` | `cancelled`); never
+        /// the PIN.
+        #[serde(rename = "credential.pin_prompted")]
+        CredentialPinPrompted {
+            /// Connection id.
+            connection: String,
+            /// `SHA256:` of the card key.
+            fingerprint: String,
+            /// Outcome.
+            outcome: String,
+        },
         }
     };
 }

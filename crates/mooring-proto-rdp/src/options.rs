@@ -37,6 +37,10 @@ pub struct RdpOptions {
     /// ADR-0025: reach the server through this dialer (a jump-host chain) instead of direct
     /// TCP. `None` = direct TCP with `keepalive`. Every reconnect dials again.
     pub dialer: Option<SharedDialer>,
+    /// ADR-0027: trust store, credential and `trusted_once` of the RD Gateway named in
+    /// `conn.gateway`. `None` with a gateway configured = `known_rdg_certs` next to
+    /// `known_certs`, the sign-in credential, no `trusted_once`.
+    pub gateway: Option<crate::gateway::GatewayConfig>,
 }
 
 impl RdpOptions {
@@ -52,6 +56,7 @@ impl RdpOptions {
             client_name: "MOORING".to_owned(),
             trusted_once: None,
             dialer: None,
+            gateway: None,
         }
     }
 

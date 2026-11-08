@@ -27,6 +27,7 @@ fn wire_is_camel_case_and_round_trips() {
         allow_tls_without_nla: true,
         ca_pem: None,
         max_fps: MaxFps::Sixty,
+        gateway: None,
     });
     let text = o.to_json().expect("json");
     assert_eq!(
@@ -34,6 +35,14 @@ fn wire_is_camel_case_and_round_trips() {
         r#"{"keyboardLayout":66591,"clipboard":"to_remote","allowTlsWithoutNla":true,"caPem":null,"maxFps":60}"#
     );
     assert_eq!(ProtocolOptions::from_json(Protocol::Rdp, &text).expect("back"), o);
+    // ADR-0027: the gateway object round-trips and is validated on read.
+    let gw = r#"{"gateway":{"host":"gw01.example.test","allowBasicGateway":true}}"#;
+    let ProtocolOptions::Rdp(r) = ProtocolOptions::from_json(Protocol::Rdp, gw).expect("gw") else {
+        panic!("rdp")
+    };
+    let g = r.gateway.expect("gateway");
+    assert!(g.allow_basic_gateway && g.port == 443);
+    assert!(ProtocolOptions::from_json(Protocol::Rdp, r#"{"gateway":{"host":""}}"#).is_err());
     let vnc = ProtocolOptions::Vnc(VncConnOptions::default()).to_json().expect("json");
     assert!(vnc.contains(r#""security":"prefer_tls""#) && vnc.contains(r#""viewOnly":false"#));
     assert_eq!(ProtocolOptions::default_for(Protocol::Ssh).to_json().expect("json"), "{}");

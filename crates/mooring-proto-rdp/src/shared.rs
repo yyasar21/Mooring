@@ -118,12 +118,17 @@ impl Shared {
     }
 
     /// `certificate_trust` prompt; `Some(true)` only for an explicit `yes`.
-    pub(crate) async fn ask_trust(&self, message: String, cert: CertificateInfo) -> Option<bool> {
+    pub(crate) async fn ask_trust(
+        &self,
+        message: String,
+        cert: CertificateInfo,
+        purpose: PromptPurpose,
+    ) -> Option<bool> {
         let event = |id| SessionEvent::Prompt {
             id,
             message,
             secret: false,
-            purpose: PromptPurpose::CertificateTrust,
+            purpose,
             account: None,
             certificate: Some(cert),
             hop: None,
@@ -187,7 +192,9 @@ mod tests {
             &[],
             vec![],
         );
-        let ask = tokio::spawn(async move { s.ask_trust("trust?".into(), info).await });
+        let ask = tokio::spawn(async move {
+            s.ask_trust("trust?".into(), info, PromptPurpose::CertificateTrust).await
+        });
         let Some(SessionEvent::Prompt { id, purpose, certificate, .. }) = rx.recv().await else {
             panic!("expected prompt");
         };
@@ -213,7 +220,10 @@ mod tests {
         let _ = rx.recv().await;
         shared.begin_close();
         assert!(ask.await.expect("join").is_none());
-        assert!(shared.ask_trust("x".into(), dummy()).await.is_none());
+        assert!(shared
+            .ask_trust("x".into(), dummy(), PromptPurpose::CertificateTrust)
+            .await
+            .is_none());
     }
 
     fn dummy() -> CertificateInfo {

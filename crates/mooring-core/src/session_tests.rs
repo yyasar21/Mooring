@@ -8,9 +8,33 @@ fn prompt_purpose_is_snake_case_on_the_wire() {
         (PromptPurpose::KeyboardInteractive, "\"keyboard_interactive\""),
         (PromptPurpose::Credential, "\"credential\""),
         (PromptPurpose::Other, "\"other\""),
+        (PromptPurpose::GatewayCertificateTrust, "\"gateway_certificate_trust\""),
+        (PromptPurpose::SmartCardPin, "\"smart_card_pin\""),
     ] {
         assert_eq!(serde_json::to_string(&p).expect("ser"), wire);
         assert_eq!(serde_json::from_str::<PromptPurpose>(wire).expect("de"), p);
+    }
+}
+
+#[test]
+fn gateway_status_and_gateway_close_codes_wire_shape() {
+    let e = SessionEvent::GatewayStatus {
+        host: "gw01.example.test:443".into(),
+        state: HopState::Up,
+        peer_identity: None,
+    };
+    let v = serde_json::to_value(&e).expect("json");
+    assert_eq!(
+        v,
+        serde_json::json!({"kind": "gateway_status", "host": "gw01.example.test:443", "state": "up"})
+    );
+    for (c, wire) in [
+        (CloseCode::GatewayAuth, "gateway_auth"),
+        (CloseCode::GatewayRefused, "gateway_refused"),
+        (CloseCode::GatewayUnsupported, "gateway_unsupported"),
+    ] {
+        assert_eq!(serde_json::to_value(c).expect("json"), wire);
+        assert!(!c.is_retryable());
     }
 }
 

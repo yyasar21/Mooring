@@ -22,8 +22,9 @@ use crate::options::LocalClipboard;
 use crate::shared::Shared;
 use crate::tls::Decision;
 
-/// Certificate rounds per connect: the first may prompt, the second must hit the new pin.
-const MAX_TRUST_ROUNDS: usize = 2;
+/// Certificate rounds per connect: the gateway (ADR-0027) and the server may each prompt once;
+/// the last round must hit the new pins.
+const MAX_TRUST_ROUNDS: usize = 3;
 
 pub(crate) struct Driver {
     pub(crate) target: Target,
@@ -94,7 +95,7 @@ impl Driver {
             let audit = self.shared.audit.clone();
             let run = tokio::time::timeout(
                 self.handshake_timeout,
-                attempt(&self.target, &creds, channels.clone(), &audit),
+                attempt(&self.target, &creds, channels.clone(), &audit, &self.shared.events),
             );
             let outcome = tokio::select! {
                 r = run => r,
@@ -103,8 +104,16 @@ impl Driver {
             match outcome {
                 Err(_) => return end(CloseCode::Network, "the RDP handshake timed out"),
                 Ok(Attempt::Failed(e)) => return e,
-                Ok(Attempt::NeedsTrust(d)) => match self.trust(&d).await {
+                Ok(Attempt::NeedsTrust(d)) => match self.trust(&d, false).await {
                     Ok(()) => session_pin = Some(d.fingerprint),
+                    Err(e) => return e,
+                },
+                Ok(Attempt::NeedsGatewayTrust(d)) => match self.trust(&d, true).await {
+                    Ok(()) => {
+                        if let Some(gw) = self.target.gateway.as_mut() {
+                            gw.session_pin = Some(d.fingerprint);
+                        }
+                    }
                     Err(e) => return e,
                 },
                 Ok(Attempt::Connected(est)) => {
@@ -145,19 +154,28 @@ impl Driver {
     /// reconnects. Writing the pin and auditing the answer belong to the Tauri layer
     /// (ADR-0011 R2 contract): in the app the answer never reaches this session, which is
     /// closed and reconnected with `trusted_once` / the new pin instead.
-    async fn trust(&self, d: &Decision) -> Result<(), End> {
-        let (host, port) = (self.target.host.clone(), self.target.port);
+    async fn trust(&self, d: &Decision, gateway: bool) -> Result<(), End> {
+        let (host, port) = match self.target.gateway.as_ref().filter(|_| gateway) {
+            Some(gw) => (gw.opts.host.clone(), gw.opts.port),
+            None => (self.target.host.clone(), self.target.port),
+        };
         let now = OffsetDateTime::now_utc();
         let info =
             crate::cert::certificate_info(&d.der, &host, now, &d.problems).map_err(|_| {
                 end(CloseCode::ProtocolError, "the server certificate could not be parsed")
             })?;
         let fp = display_fingerprint(&d.fingerprint);
+        let what = if gateway { "RD Gateway " } else { "" };
         let message = format!(
-            "The certificate of {host}:{port} is not trusted ({}). Fingerprint {fp}. Trust it and reconnect?",
+            "The certificate of {what}{host}:{port} is not trusted ({}). Fingerprint {fp}. Trust it and reconnect?",
             problem_text(&info.problems)
         );
-        match self.shared.ask_trust(message, info).await {
+        let purpose = if gateway {
+            mooring_core::session::PromptPurpose::GatewayCertificateTrust
+        } else {
+            mooring_core::session::PromptPurpose::CertificateTrust
+        };
+        match self.shared.ask_trust(message, info, purpose).await {
             Some(true) => Ok(()),
             Some(false) => {
                 Err(end(CloseCode::TrustRejected, "the server certificate was not trusted"))
