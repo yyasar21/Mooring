@@ -61,6 +61,16 @@ export abstract class MockWebBase extends MockRemoteBase {
     if (w.info.viaHops) this.record("forward_closed", { id: "web-via", kind: "dynamic", reason: "web_via" });
   }
 
+  /**
+   * Tests: the web-via SOCKS proxy refused a CONNECT outside the start host and the allowed
+   * origins (L-48). Rust audits it as `forward_refused` before any traffic reaches the hop.
+   */
+  webViaRefuse(connectionId: string, target: string): void {
+    const w = this.web.get(connectionId);
+    if (!w?.info.viaHops) return;
+    this.record("forward_refused", { connection: connectionId, id: "web-via", target });
+  }
+
   /** Tests: what the native callbacks of an open window would report (`blocked`, `title`, ...). */
   webSimulate(connectionId: string, event: WebEvent): void {
     const w = this.web.get(connectionId);

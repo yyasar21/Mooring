@@ -33,6 +33,10 @@ export const EVENT_LABEL: Record<string, string> = {
   "session.rdp.gateway": "RD Gateway sign-in",
   "session.rdp.gateway_basic": "RD Gateway used Basic authentication",
   "credential.pin_prompted": "Smart card PIN asked",
+  // L-50: the bws binary no longer matched its pin and was not run.
+  "secret.tool_changed": "bws binary changed: refused until the source is tested",
+  // L-48: the web-via proxy refused a destination outside the start host and allowed origins.
+  forward_refused: "Web proxy refused a destination outside the allowed origins",
   "portable.acl_unavailable": "Portable data folder: owner-only ACL could not be applied (FAT/exFAT or policy)",
 };
 
