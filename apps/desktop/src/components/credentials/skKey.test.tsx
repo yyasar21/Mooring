@@ -106,7 +106,8 @@ describe("Security key (FIDO2) credentials (ADR-0024)", () => {
     expect(detail).toHaveTextContent("1 connection");
     act(() => { useUi.getState().setView("audit"); });
     const log = await screen.findByRole("region", { name: "Audit log" });
-    expect(await within(log).findByText("SSH key converted to a security-key credential")).toBeInTheDocument();
+    // L4: scoped to the table (the event type filter lists the same label).
+    expect(await within(within(log).getByRole("grid")).findByText("SSH key converted to a security-key credential")).toBeInTheDocument();
     expect(log).toHaveTextContent("credential: yubikey ops");
   });
 });
