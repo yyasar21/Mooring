@@ -1,0 +1,43 @@
+/* ---------- connection dialog (L1): section nav | one scrolling form | footer summary ---------- */
+.conn-form { display: flex; flex-direction: column; min-height: 0; }
+.conn-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); height: min(60vh, 620px); border-top: 1px solid var(--border); }
+.conn-nav { padding: 12px 8px; border-right: 1px solid var(--border); background: var(--canvas); overflow-y: auto; }
+.conn-nav ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.conn-nav button {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: var(--r-m);
+  background: transparent; color: var(--text-2); font: 500 var(--fs-13)/1 var(--font-sans); text-align: left;
+}
+.conn-nav button:hover { background: var(--surface-3); color: var(--text); }
+.conn-nav button[aria-current="true"] { background: var(--accent-subtle); color: var(--text); }
+.conn-nav-err { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; }
+.conn-body { overflow-y: auto; padding: 4px 24px 24px; scroll-padding-top: 8px; }
+.conn-section { display: flex; flex-direction: column; gap: 14px; padding: 16px 0 20px; }
+.conn-section + .conn-section { border-top: 1px solid var(--border); }
+.conn-section-title { margin: 0; font: 600 var(--fs-14)/20px var(--font-sans); color: var(--text); }
+.conn-section-title:focus-visible { box-shadow: var(--focus); }
+/* The options and Connect via blocks bring their own frame; inside a section they sit flush. */
+.conn-section > div > section, .conn-section > [role="group"] { border-top: 0; padding-left: 0; padding-right: 0; padding-top: 0; }
+
+.proto-cards { margin: 0; padding: 0; border: 0; min-width: 0; }
+.proto-cards-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.proto-card {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px;
+  border: 1px solid var(--border-input); border-radius: var(--r-m); background: var(--surface); color: var(--text);
+  font: 500 var(--fs-13)/1 var(--font-sans); cursor: default;
+}
+.proto-card input { position: absolute; inset: 0; margin: 0; opacity: 0; }
+.proto-card:hover { background: var(--surface-2); }
+.proto-card[data-checked] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-subtle); }
+.proto-card:has(input:focus-visible) { box-shadow: var(--focus); }
+.proto-cards:disabled .proto-card { opacity: 0.6; }
+
+.field-error { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--fs-12); line-height: 16px; color: var(--danger); }
+
+.conn-footer { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.conn-footer-msg { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-13); color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-summary { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border: 0; background: transparent; color: var(--danger); font: 500 var(--fs-13)/20px var(--font-sans); text-decoration: underline; text-underline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .conn-layout { grid-template-columns: 1fr; height: 64vh; }
+  .conn-nav { display: none; }
+}

@@ -24,7 +24,10 @@ export function Modal({
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const first = ref.current?.querySelector<HTMLElement>("[autofocus], input, select, textarea, button");
+    // `data-autofocus` wins over document order (a long form whose section nav comes first).
+    const first =
+      ref.current?.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)") ??
+      ref.current?.querySelector<HTMLElement>("[autofocus], input, select, textarea, button");
     first?.focus();
     return () => { previous?.focus(); };
   }, []);

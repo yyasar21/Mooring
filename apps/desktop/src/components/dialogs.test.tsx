@@ -96,7 +96,13 @@ describe("editor dialogs", () => {
     fireEvent.change(within(dlg).getByLabelText("Name"), { target: { value: "stage-db" } });
     fireEvent.change(within(dlg).getByLabelText("Host"), { target: { value: "db.stage.example.test" } });
     fireEvent.change(within(dlg).getByLabelText("Port"), { target: { value: "70000" } });
-    expect(within(dlg).getByRole("button", { name: "Create connection" })).toBeDisabled();
+    // L1: the error shows at the field; Create stays enabled and a click lists what to fix.
+    expect(within(dlg).getByLabelText("Port")).toHaveAccessibleDescription("Port must be 1 to 65535.");
+    fireEvent.click(within(dlg).getByRole("button", { name: "Create connection" }));
+    await settle();
+    expect(useTree.getState().connections.some((x) => x.name === "stage-db")).toBe(false);
+    expect(within(dlg).getByRole("alert")).toHaveTextContent("Fix 1 field to continue");
+    expect(within(dlg).getByLabelText("Port")).toHaveFocus();
     fireEvent.change(within(dlg).getByLabelText("Port"), { target: { value: "" } });
     fireEvent.click(within(dlg).getByRole("button", { name: "Create connection" }));
     await settle();

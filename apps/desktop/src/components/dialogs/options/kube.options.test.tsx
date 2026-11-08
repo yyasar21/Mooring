@@ -56,16 +56,18 @@ describe("connection form · Kubernetes and vCenter options", () => {
     expect(within(section).queryByLabelText("Context")).toBeNull();
     expect(within(section).getByText("A token credential needs the API server URL.")).toBeInTheDocument();
     const save = screen.getByRole("button", { name: "Save connection" });
-    expect(save).toBeDisabled();
+    fireEvent.click(save); // L1: blocked, with the footer summary
+    expect(document.querySelector(".conn-footer-msg")).toHaveTextContent(/^Fix \d+ fields? to continue$/);
     fireEvent.change(within(section).getByLabelText("API server"), { target: { value: "http://k8s.example.test" } });
     expect(within(section).getByText("The API server must use https://.")).toBeInTheDocument();
     fireEvent.change(within(section).getByLabelText("API server"), { target: { value: "https://k8s.example.test:6443" } });
     fireEvent.change(within(section).getByLabelText("Cluster CA (PEM)"), { target: { value: PEM } });
     fireEvent.change(within(section).getByLabelText("Log tail lines"), { target: { value: "20000" } });
     expect(within(section).getByText("Use 1 to 10 000 lines.")).toBeInTheDocument();
-    expect(save).toBeDisabled();
+    fireEvent.click(save); // L1: blocked, with the footer summary
+    expect(document.querySelector(".conn-footer-msg")).toHaveTextContent(/^Fix \d+ fields? to continue$/);
     fireEvent.change(within(section).getByLabelText("Log tail lines"), { target: { value: "2000" } });
-    expect(save).toBeEnabled();
+    expect(document.querySelector(".conn-footer-msg")).toHaveTextContent(/^$/);
   });
 
   it("vCenter: refresh range, power actions opt-in with the warning, VMRC opt-in", async () => {

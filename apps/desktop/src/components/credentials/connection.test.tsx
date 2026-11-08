@@ -32,7 +32,7 @@ describe("connection credential picker", () => {
     expect(within(dlg).getByRole("button", { name: /^RD Gateway credential/ })).toBeInTheDocument();
     expect(within(dlg).queryByRole("button", { name: /^Become/ })).toBeNull();
     expect(within(dlg).getByLabelText(/^Username override/)).toHaveValue("dc-admin");
-    fireEvent.change(within(dlg).getByLabelText("Protocol"), { target: { value: "ssh" } });
+    fireEvent.click(within(dlg).getByRole("radio", { name: "SSH" }));
     expect(within(dlg).queryByRole("button", { name: /^RD Gateway/ })).toBeNull();
     expect(within(dlg).getByRole("button", { name: /^Become/ })).toBeInTheDocument();
   });

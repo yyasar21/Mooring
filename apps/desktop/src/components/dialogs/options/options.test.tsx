@@ -55,9 +55,10 @@ describe("connection form · protocol options", () => {
     const pem = screen.getByLabelText("CA certificates (PEM)");
     fireEvent.change(pem, { target: { value: "-----BEGIN RSA PRIVATE KEY-----" } });
     expect(screen.getByText("Paste certificates only, never a private key.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save connection" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" })); // L1: blocked, with the footer summary
+    expect(document.querySelector(".conn-footer-msg")).toHaveTextContent(/^Fix \d+ fields? to continue$/);
     fireEvent.change(pem, { target: { value: PEM } });
-    expect(screen.getByRole("button", { name: "Save connection" })).toBeEnabled();
+    expect(document.querySelector(".conn-footer-msg")).toHaveTextContent(/^$/);
   });
 
   it("VNC: plaintext warning, view-only default, encodings read-only", async () => {
@@ -103,7 +104,8 @@ describe("connection form · protocol options", () => {
     const url = within(section).getByLabelText("Start URL");
     fireEvent.change(url, { target: { value: "http://lb.example.test" } });
     expect(within(section).getByText(/uses http:\/\//)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save connection" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" })); // L1: blocked, with the footer summary
+    expect(document.querySelector(".conn-footer-msg")).toHaveTextContent(/^Fix \d+ fields? to continue$/);
     fireEvent.click(sw(/^Allow http:\/\//));
     expect(within(section).getByText(/can be read and changed by anyone/)).toBeInTheDocument();
     fireEvent.click(sw(/^Allow http:\/\//));
@@ -140,7 +142,7 @@ describe("connection form · protocol options", () => {
     await settle();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "ts02" } });
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "ts02.example.test" } });
-    fireEvent.change(screen.getByLabelText("Protocol"), { target: { value: "rdp" } });
+    fireEvent.click(screen.getByRole("radio", { name: "RDP" }));
     fireEvent.click(screen.getByRole("radio", { name: "60 fps" }));
     fireEvent.click(screen.getByRole("button", { name: "Create connection" }));
     await settle();
@@ -150,10 +152,10 @@ describe("connection form · protocol options", () => {
 
   it("switching protocol starts from that protocol's defaults; SSH has no section", async () => {
     await edit("c-kiosk", "f-desk");
-    fireEvent.change(screen.getByLabelText("Protocol"), { target: { value: "rdp" } });
+    fireEvent.click(screen.getByRole("radio", { name: "RDP" }));
     expect(screen.getByRole("region", { name: "RDP options" })).toBeInTheDocument();
     expect(screen.getByLabelText("Keyboard layout")).toHaveValue(String(0x0409));
-    fireEvent.change(screen.getByLabelText("Protocol"), { target: { value: "ssh" } });
+    fireEvent.click(screen.getByRole("radio", { name: "SSH" }));
     expect(screen.queryByRole("region", { name: /options$/ })).toBeNull();
   });
 
@@ -163,7 +165,7 @@ describe("connection form · protocol options", () => {
     await settle();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "ts03" } });
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "ts03.example.test" } });
-    fireEvent.change(screen.getByLabelText("Protocol"), { target: { value: "vnc" } });
+    fireEvent.click(screen.getByRole("radio", { name: "VNC" }));
     fireEvent.click(screen.getByRole("button", { name: "Create connection" }));
     await settle();
     expect(screen.getByText(/its VNC options were not: The vault is locked/)).toBeInTheDocument();

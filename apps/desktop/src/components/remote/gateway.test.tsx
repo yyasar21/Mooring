@@ -126,7 +126,8 @@ describe("RD Gateway section of the RDP form", () => {
     expect(within(section).queryByLabelText("Gateway host")).toBeNull();
     fireEvent.click(within(section).getByRole("switch", { name: /^Connect through an RD Gateway/ }));
     const host = within(section).getByLabelText("Gateway host");
-    expect(within(dlg).getByRole("button", { name: "Save connection" })).toBeDisabled();
+    fireEvent.click(within(dlg).getByRole("button", { name: "Save connection" })); // L1: blocked, with the footer summary
+    expect(within(dlg).getByText(/^Fix \d+ fields? to continue$/)).toBeInTheDocument();
     expect(section).toHaveTextContent("Enter the RD Gateway's host name or IP address.");
     fireEvent.change(host, { target: { value: "https://gw" } });
     expect(section).toHaveTextContent("without https://");
