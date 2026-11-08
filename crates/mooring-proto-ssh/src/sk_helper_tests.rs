@@ -77,7 +77,8 @@ fn signer_preconditions_fail_closed() {
     assert_eq!(err(&login(Some(&handle)), &o), Some(SkFailure::HelperDisabled));
     o.helper = Some(PathBuf::from("relative/ssh-sk-helper"));
     assert_eq!(err(&login(Some(&handle)), &o), Some(SkFailure::HelperMissing));
-    let exe = std::env::current_exe().expect("exe");
+    // Test-only: any existing absolute file stands in for the helper binary.
+    let exe = std::env::current_exe().expect("exe"); // nosemgrep
     o.helper = Some(exe);
     assert_eq!(err(&login(None), &o), Some(SkFailure::BadKey), "helper needs the handle");
     let other = sk_key_handle_pem(&sk_ed25519_public([8; 32], "ssh:"), 0x01, b"h");

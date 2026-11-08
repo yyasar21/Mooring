@@ -58,6 +58,8 @@ jobs:
           d = json.load(open("semgrep.sarif"))
           for run in d.get("runs", []):
               for r in run.get("results", []):
+                  if r.get("suppressions"):
+                      continue
                   loc = r["locations"][0]["physicalLocation"]
                   print("::error file=%s,line=%s::%s: %s" % (loc["artifactLocation"]["uri"], loc["region"]["startLine"], r["ruleId"].split(".")[-1], r["message"]["text"][:200].replace("\n", " ")))
           PY
