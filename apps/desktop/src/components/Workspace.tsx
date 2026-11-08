@@ -11,7 +11,8 @@ import { PromptModal } from "./terminal/PromptModal";
 import { HopStrip } from "./terminal/HopStrip";
 import { SK_CLOSE, TouchBanner } from "./terminal/TouchBanner";
 import { CLOSE_TEXT } from "./remote/ConnectionBanner";
-import { SessionToolbar, type SessionTool } from "./SessionToolbar";
+import { DisconnectButton, SessionToolbar, type SessionTool } from "./SessionToolbar";
+import { useForwardCount } from "../stores/forwardCounts";
 import { SessionHeader } from "./SessionHeader";
 import { StatusStrip } from "./StatusStrip";
 import { ForwardsPanel } from "./forwards/ForwardsPanel";
@@ -58,6 +59,7 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
   const web = (c?.protocol ?? tab.protocol) === "web";
   const [tool, setTool] = useState<SessionTool>("terminal");
   const liveSession = tab.state === "connected" ? tab.sessionId : null;
+  const forwardCount = useForwardCount(ssh ? liveSession : null, active);
   const detached = tab.state === "detached";
   const onData = useCallback((d: Uint8Array) => void useSessions.getState().send(tab.id, d), [tab.id]);
   const onResize = useCallback((size: Size) => void useSessions.getState().resize(tab.id, size), [tab.id]);
@@ -110,7 +112,8 @@ function SessionPanel({ tab, active }: { tab: Tab; active: boolean }) {
       {ssh ? (
         <div className="session-frame">
           <SessionHeader tab={tab} connection={c}>
-            <SessionToolbar tool={tool} onTool={setTool} onDetach={canDetach(tab.protocol) && liveSession ? () => void useSessions.getState().detach(tab.id) : null} />
+            <SessionToolbar tool={tool} onTool={setTool} forwards={forwardCount} onDetach={canDetach(tab.protocol) && liveSession ? () => void useSessions.getState().detach(tab.id) : null} />
+            <DisconnectButton tab={tab} />
           </SessionHeader>
           {strip}
           <div className="session-body">

@@ -63,3 +63,4 @@
 .dropped-hint { color: var(--text-2); font-size: var(--fs-12); line-height: 16px; }
 .inspector-head { padding: var(--s4) var(--s4) var(--s3); }
 .inspector-path { font: 400 var(--fs-12)/16px var(--font-sans); color: var(--text-2); }
+.seg-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--neutral-bg); color: var(--text-2); font: 500 var(--fs-11)/1 var(--font-sans); }

@@ -4,6 +4,7 @@ import { ipc, isPodTarget, type ForwardInfo, type ForwardOpen, type PodForwardOp
 /** What a form submits: an SSH forward or (on a cluster session) a pod forward, without the session. */
 export type ForwardDraft = Omit<ForwardOpen, "sessionId"> | Omit<PodForwardOpen, "sessionId">;
 import { describeError } from "../../stores/errors";
+import { useForwardCounts } from "../../stores/forwardCounts";
 
 /** How often the list refreshes while the panel is open (connection counts change). */
 export const FORWARD_POLL_MS = 5000;
@@ -26,6 +27,11 @@ export function useForwards(sessionId: string | null): ForwardsState {
   const [error, setError] = useState<string | null>(null);
   const current = useRef(sessionId);
   current.current = sessionId;
+
+  // The header's "Forwards" count follows this list as soon as it changes.
+  useEffect(() => {
+    if (sessionId && !loading) useForwardCounts.getState().setCount(sessionId, items.length);
+  }, [sessionId, items, loading]);
 
   const refresh = useCallback(async () => {
     if (!sessionId) return;

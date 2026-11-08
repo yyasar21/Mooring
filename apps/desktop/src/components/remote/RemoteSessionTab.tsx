@@ -6,7 +6,7 @@ import { RemoteCanvas } from "./RemoteCanvas";
 import { cancelReconnect } from "../../stores/sessions.reconnect";
 import { useConnOptions } from "../../stores/connOptions";
 import { SessionHeader } from "../SessionHeader";
-import { DetachButton } from "../SessionToolbar";
+import { DetachButton, DisconnectButton } from "../SessionToolbar";
 
 /** `Connected.security` → badge text and whether it is a plaintext warning (ADR-0012 owner decision 4). */
 export function securityBadge(security: string | null): { text: string; hot: boolean } | null {
@@ -155,6 +155,7 @@ export function RemoteSessionTab({ tab, active, connection }: { tab: Tab; active
         </button>
         <DetachButton onDetach={connected && tab.sessionId ? () => void detach(tab.id) : null} />
       </div>
+      <DisconnectButton tab={tab} />
       </SessionHeader>
       <div className="session-body remote-body">
         <div className="term-bezel m-hud" data-active={active && connected ? true : undefined}>
