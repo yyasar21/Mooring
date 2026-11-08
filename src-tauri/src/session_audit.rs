@@ -51,10 +51,10 @@ pub fn audit_session(
             // ADR-0010: every forward open (with its exposure) and close is audited.
             SessionAudit::ForwardOpened { id, kind, bind, target, exposure } => {
                 let (kind, exposure) = (kind.to_owned(), exposure.to_owned());
-                AuditEvent::ForwardOpened { connection: conn(), id, kind, bind, target, exposure }
+                AuditEvent::ForwardOpened { connection: conn(), id, kind, bind, target, exposure, reason: None }
             }
             SessionAudit::ForwardClosed { id, kind, bind, target } => {
-                AuditEvent::ForwardClosed { connection: conn(), id, kind: kind.to_owned(), bind, target }
+                AuditEvent::ForwardClosed { connection: conn(), id, kind: kind.to_owned(), bind, target, reason: None }
             }
             // ADR-0011 trust.cert.*
             SessionAudit::CertAdded { host: h, port, fingerprint, stored } => {

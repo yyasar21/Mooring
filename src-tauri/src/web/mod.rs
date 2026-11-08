@@ -7,6 +7,7 @@
 pub mod policy;
 pub mod refusals;
 pub mod sweep;
+pub mod via;
 pub mod window;
 
 use std::collections::HashMap;
@@ -80,6 +81,8 @@ pub struct WebEntry {
     pub sink: WebSink,
     /// Audited-refusal budget (N-43).
     pub refusals: Arc<refusals::RefusalBudget>,
+    /// ADR-0025 §3: the jump-host chain and SOCKS forward the window browses through.
+    pub via: Option<Arc<via::WebVia>>,
 }
 
 impl std::fmt::Debug for WebEntry {
@@ -111,6 +114,9 @@ pub struct WebWindowInfo {
     pub persistent: bool,
     /// RFC 3339.
     pub opened_at: String,
+    /// ADR-0025 §3: jump hosts the window browses through (absent: direct).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via_hops: Option<u8>,
 }
 
 /// How the window stores cookies and site data.
@@ -179,6 +185,10 @@ pub struct WebPlan {
     pub storage: Storage,
     /// The user asked for persistence but the window is ephemeral, and why.
     pub persistent_refused: Option<StorageFallback>,
+    /// ADR-0025 §3: the connection has jump hosts; `web_open` opens the chain first.
+    pub via: bool,
+    /// The SOCKS forward of the chain (`proxy_url`), set once the chain is up.
+    pub proxy: Option<Url>,
 }
 
 /// Why a persistent profile was downgraded to ephemeral.
@@ -263,20 +273,17 @@ pub fn plan(
     dev_url: Option<Url>,
 ) -> IpcResult<WebPlan> {
     let id = dto::connection_id("connectionId", connection_id)?;
-    let (name, options) = state.with_ready(|_, store| {
+    let (name, options, has_via) = state.with_ready(|_, store| {
         let c = store.get_connection(id)?;
         if c.protocol != Protocol::Web {
             return Err(IpcError::invalid("connectionId", "not a web connection"));
         }
-        // ADR-0025 §3 (SOCKS forward on the last hop) is wave R6; until then a web
-        // connection with `via` must never open directly, around the chain.
+        // ADR-0025 §3: a web connection with `via` never opens directly, around the chain;
+        // where the WebView cannot take a proxy it does not open at all.
         if !c.via.is_empty() {
-            return Err(IpcError::new(
-                "web.via_unsupported",
-                "web pages through jump hosts are not available in this version",
-            ));
+            via::supported(os)?;
         }
-        Ok((c.name, store.connection_options(id)?))
+        Ok((c.name, store.connection_options(id)?, !c.via.is_empty()))
     })?;
     let ProtocolOptions::Web(opts) = options else {
         return Err(IpcError::invalid("connectionId", "not a web connection"));
@@ -306,6 +313,8 @@ pub fn plan(
         policy,
         storage,
         persistent_refused,
+        via: has_via,
+        proxy: None,
     })
 }
 
@@ -337,6 +346,7 @@ pub fn list(state: &AppState) -> IpcResult<Vec<WebWindowInfo>> {
             title: e.title.clone(),
             persistent: e.persistent,
             opened_at: e.opened_at.clone(),
+            via_hops: e.via.as_ref().map(|v| v.hops()),
         })
         .collect();
     rows.sort_by(|a, b| a.opened_at.cmp(&b.opened_at).then(a.connection_id.cmp(&b.connection_id)));

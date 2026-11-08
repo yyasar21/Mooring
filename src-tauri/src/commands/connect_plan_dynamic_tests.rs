@@ -57,6 +57,11 @@ async fn database_lease_belongs_to_the_session() {
     assert!(plan.params.username.as_deref().is_some_and(|u| u.starts_with("v-mooring-")));
     let status = st.secrets.lease_status("sess-1");
     assert_eq!((status.len(), status[0].state), (1, "active"));
+    // The wire row carries the full TTL next to the time left (U4 "renews in").
+    let wire = serde_json::to_value(crate::commands::sessions::LeaseInfoDto::from(&status[0]))
+        .expect("json");
+    assert_eq!(wire["ttlSeconds"], 3600);
+    assert!(wire["expiresInSeconds"].as_u64().is_some_and(|s| s <= 3600));
     assert_eq!(v.srv.live_leases(), 1);
     // A reconnect resolves a new lease and revokes the old one first.
     super::plan(&st.ready(), &conn, SIZE, "sess-1").await.expect("reconnect");

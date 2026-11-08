@@ -13,6 +13,7 @@ use time::OffsetDateTime;
 use crate::dto;
 use crate::error::{IpcError, IpcResult};
 use crate::state::AppState;
+use crate::web::via::WebVia;
 use crate::web::{self, Storage, StorageOs, WebEntry, WebEvent, WebPlan, WebSink, WebWindowInfo};
 
 /// `web_zoom` range.
@@ -24,6 +25,9 @@ pub const ZOOM_RANGE: std::ops::RangeInclusive<f64> = 0.25..=5.0;
 pub struct WindowOpened {
     /// Label of the new (or already open) window.
     pub window_label: String,
+    /// ADR-0025 §3: jump hosts the window browses through (absent: direct).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via_hops: Option<u8>,
 }
 
 fn not_open() -> IpcError {
@@ -54,6 +58,16 @@ pub fn reopen(state: &AppState, connection_id: &str, sink: WebSink) -> IpcResult
 
 /// Register a freshly built window and audit `web_opened`.
 pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()> {
+    register_with(state, plan, sink, None)
+}
+
+/// [`register`] with the window's jump-host chain (ADR-0025 §3), closed with the entry.
+pub fn register_with(
+    state: &AppState,
+    plan: &WebPlan,
+    sink: WebSink,
+    via: Option<Arc<WebVia>>,
+) -> IpcResult<()> {
     let persistent = plan.persistent();
     let entry = WebEntry {
         label: plan.label.clone(),
@@ -64,6 +78,7 @@ pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()
         opened_at: dto::ts(OffsetDateTime::now_utc()),
         sink,
         refusals: Arc::default(),
+        via,
     };
     state.web.lock().map_err(|_| IpcError::poisoned())?.insert(plan.connection_id.clone(), entry);
     state.audit(AuditEvent::WebOpened {
@@ -79,6 +94,9 @@ pub fn register(state: &AppState, plan: &WebPlan, sink: WebSink) -> IpcResult<()
 /// caller can remove its ephemeral profile once the OS window is destroyed (L-29).
 pub fn closed_entry(state: &AppState, connection_id: &str) -> Option<WebEntry> {
     let entry = web::forget(state, connection_id)?;
+    if let Some(via) = &entry.via {
+        Arc::clone(via).shutdown_later(Arc::clone(&state.audit), "closed");
+    }
     let suppressed = entry.refusals.suppressed();
     if suppressed > 0 {
         state.audit(AuditEvent::WebNavigationBlockedSuppressed {
@@ -233,7 +251,7 @@ pub async fn web_open<R: Runtime>(
     connection_id: String,
     on_event: Channel<WebEvent>,
 ) -> IpcResult<WindowOpened> {
-    let plan = web::plan(&state, &connection_id, StorageOs::current(), dev_url(&app))?;
+    let mut plan = web::plan(&state, &connection_id, StorageOs::current(), dev_url(&app))?;
     let sink: WebSink = Arc::new(move |e| on_event.send(e).is_ok());
     if let Some(label) = reopen(&state, &plan.connection_id, Arc::clone(&sink))? {
         if let Some(w) = app.get_webview_window(&label) {
@@ -241,10 +259,60 @@ pub async fn web_open<R: Runtime>(
             // 6b N-48: the vault may have locked after `plan` passed; the lock observer
             // shows the window again after the unlock.
             post_open(&state, || w.hide().map_err(|e| e.to_string()));
-            return Ok(WindowOpened { window_label: label });
+            let via_hops = via_hops(&state, &plan.connection_id);
+            return Ok(WindowOpened { window_label: label, via_hops });
         }
-        web::forget(&state, &plan.connection_id);
+        // The window is gone without its `Destroyed` event: drop the entry (and its chain).
+        if let Some(via) = web::forget(&state, &plan.connection_id).and_then(|e| e.via) {
+            via.shutdown_later(Arc::clone(&state.audit), "closed");
+        }
     }
+    // ADR-0025 §3: the chain and its SOCKS forward exist before the window does.
+    let via = if plan.via {
+        Some(Arc::new(web::via::open(&state, &plan.connection_id, &plan.url).await?))
+    } else {
+        None
+    };
+    let built = match &via {
+        Some(v) => v.proxy_url().map(|u| plan.proxy = Some(u)),
+        None => Ok(()),
+    }
+    .and_then(|()| build_and_register(&app, &state, &plan, sink, via.clone()));
+    match built {
+        Ok(window) => {
+            if let Some(via) = &via {
+                let (handle, label) = (app.clone(), plan.label.clone());
+                web::via::watch(via, Arc::clone(&state.audit), move || {
+                    if let Some(w) = handle.get_webview_window(&label) {
+                        let _ = w.destroy();
+                    }
+                });
+            }
+            post_open(&state, || window.hide().map_err(|e| e.to_string()));
+            Ok(WindowOpened { window_label: plan.label, via_hops: via.map(|v| v.hops()) })
+        }
+        Err(e) => {
+            if let Some(via) = via {
+                via.shutdown(&state.audit, "closed").await;
+            }
+            Err(e)
+        }
+    }
+}
+
+fn via_hops(state: &AppState, connection_id: &str) -> Option<u8> {
+    let map = state.web.lock().ok()?;
+    map.get(connection_id).and_then(|e| e.via.as_ref()).map(|v| v.hops())
+}
+
+/// The build half of `web_open`: store directory, window, registry entry, `Destroyed` hook.
+fn build_and_register<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    plan: &WebPlan,
+    sink: WebSink,
+    via: Option<Arc<WebVia>>,
+) -> IpcResult<WebviewWindow<R>> {
     if let Storage::Directory(dir) | Storage::EphemeralDirectory(dir) = &plan.storage {
         crate::create_private_dir(dir).map_err(|e| {
             tracing::warn!(kind = ?e.kind(), "web store directory");
@@ -255,14 +323,14 @@ pub async fn web_open<R: Runtime>(
         tracing::warn!(reason = why.reason(), "persistent web storage unavailable; this window is ephemeral");
     }
     let window = web::window::build(
-        &app,
-        &plan,
+        app,
+        plan,
         Arc::clone(&state.audit),
         Arc::clone(&state.web),
         Arc::clone(&sink),
     )
     .map_err(|e| window_failed(&e))?;
-    register(&state, &plan, sink)?;
+    register_with(state, plan, sink, via)?;
     let handle = app.clone();
     let connection = plan.connection_id.clone();
     window.on_window_event(move |event| {
@@ -272,8 +340,7 @@ pub async fn web_open<R: Runtime>(
             }
         }
     });
-    post_open(&state, || window.hide().map_err(|e| e.to_string()));
-    Ok(WindowOpened { window_label: plan.label })
+    Ok(window)
 }
 
 /// N-30 / N-39 / N-48 post-check of both `web_open` paths (build and reopen): the vault may

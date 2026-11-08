@@ -61,6 +61,9 @@ pub enum ManualReason {
     Portable,
     /// A development build (ADR-0028 §1): no updater, the user builds the next one.
     DevBuild,
+    /// A Windows install made by winget (ADR-0018 A2): `winget upgrade` keeps winget's view
+    /// of the installed version consistent.
+    Winget,
 }
 
 impl ManualReason {
@@ -72,7 +75,8 @@ impl ManualReason {
             | Self::Homebrew
             | Self::NotBundled
             | Self::Portable
-            | Self::DevBuild => {
+            | Self::DevBuild
+            | Self::Winget => {
                 "update.manual_only"
             }
         }
@@ -87,6 +91,7 @@ impl ManualReason {
             Self::NotBundled => "not an installed bundle",
             Self::Portable => "portable build: download the new zip and replace the folder",
             Self::DevBuild => "development build: updates come from your own builds",
+            Self::Winget => "installed by winget: run `winget upgrade yyasar21.Mooring`",
         }
     }
 }
@@ -119,6 +124,8 @@ pub struct InstallFacts {
     pub portable: bool,
     /// A development build (ADR-0028, `Channel::Dev`): checked before everything else.
     pub dev_build: bool,
+    /// A winget install (ADR-0018 A2, [`winget_marker`]): read for NSIS only.
+    pub winget: bool,
 }
 
 /// Homebrew Caskroom roots (Apple silicon and Intel prefixes). Review 7 N-55: a cask
@@ -148,6 +155,29 @@ pub(crate) fn cask_present_in(roots: &[&Path], token: &str) -> bool {
     roots.iter().any(|r| r.join(token).is_dir())
 }
 
+/// Marker file next to the executable of a NSIS install (ADR-0018 A2). winget runs the same
+/// per-user NSIS installer as a direct download, so no install path tells them apart; the
+/// installer is to write this file with the content `winget` when winget runs it. No
+/// installer writes it yet (inert by design; release-engineer contract in
+/// `docs/handoff/a5-rust-core-r6.md`).
+pub const INSTALL_SOURCE_FILE: &str = "install-source";
+/// Largest marker read; anything bigger is not a marker.
+pub const INSTALL_SOURCE_MAX: u64 = 64;
+
+/// Whether `dir/install-source` exists and its trimmed content is exactly `winget`. Read with
+/// a [`INSTALL_SOURCE_MAX`] cap; a missing, oversized, non-UTF-8 or different file is `false`.
+pub fn winget_marker(dir: &Path) -> bool {
+    use std::io::Read as _;
+    let Ok(file) = std::fs::File::open(dir.join(INSTALL_SOURCE_FILE)) else { return false };
+    let mut buf = Vec::new();
+    if file.take(INSTALL_SOURCE_MAX + 1).read_to_end(&mut buf).is_err()
+        || buf.len() as u64 > INSTALL_SOURCE_MAX
+    {
+        return false;
+    }
+    std::str::from_utf8(&buf).is_ok_and(|t| t.trim() == "winget")
+}
+
 /// The matrix (ADR-0018 §3). Pure.
 pub fn decide(facts: &InstallFacts) -> InstallMode {
     use ManualReason as R;
@@ -156,6 +186,10 @@ pub fn decide(facts: &InstallFacts) -> InstallMode {
     }
     if facts.portable {
         return InstallMode::Manual(R::Portable);
+    }
+    // After portable, before writability (orchestrator decision): NSIS only.
+    if facts.winget && facts.bundle == Bundle::Nsis {
+        return InstallMode::Manual(R::Winget);
     }
     match facts.bundle {
         Bundle::Deb | Bundle::Rpm | Bundle::Msi => InstallMode::Manual(R::PackageManager),
@@ -234,7 +268,17 @@ impl InstallProbe for OsProbe {
             Bundle::MacApp | Bundle::Nsis => dir_writable(Some(&resolved)) && dir_writable(resolved.parent()),
             _ => false,
         };
-        Some(InstallFacts { bundle, install_path: resolved, writable, cask_present, portable: self.portable, dev_build: self.dev_build })
+        // NSIS: `install_path` is `exe.parent()`, where the installer would put the marker.
+        let winget = bundle == Bundle::Nsis && winget_marker(&install_path);
+        Some(InstallFacts {
+            bundle,
+            install_path: resolved,
+            writable,
+            cask_present,
+            portable: self.portable,
+            dev_build: self.dev_build,
+            winget,
+        })
     }
 }
 
@@ -255,3 +299,7 @@ pub(crate) fn dir_writable(dir: Option<&Path>) -> bool {
     }
     ok
 }
+
+#[cfg(test)]
+#[path = "winget_tests.rs"]
+mod winget_tests;

@@ -75,6 +75,8 @@ pub struct LeaseStatus {
     pub engine: VaultEngine,
     /// Time left (`None`: the lease reports no TTL).
     pub expires_in: Option<Duration>,
+    /// The lease's current TTL (since issue or the last renewal; `None`: no TTL reported).
+    pub ttl: Option<Duration>,
     /// Renewable.
     pub renewable: bool,
     /// `active` | `renew_failed` | `expired`.
@@ -231,7 +233,14 @@ impl LeaseRegistry {
                     _ if l.failed => "renew_failed",
                     _ => "active",
                 };
-                LeaseStatus { engine: l.engine, expires_in: left, renewable: l.renewable, state }
+                let ttl = (!l.ttl.is_zero()).then_some(l.ttl);
+                LeaseStatus {
+                    engine: l.engine,
+                    expires_in: left,
+                    ttl,
+                    renewable: l.renewable,
+                    state,
+                }
             })
             .collect()
     }
@@ -352,6 +361,11 @@ mod tests {
         clock.advance(Duration::from_secs(61));
         assert_eq!(reg.status("d")[0].state, "expired");
         assert_eq!(reg.status("d")[0].expires_in, Some(Duration::ZERO));
+        assert_eq!(
+            reg.status("d")[0].ttl,
+            Some(Duration::from_secs(60)),
+            "TTL stays the full lease"
+        );
         assert!(reg.status("nobody").is_empty());
     }
 

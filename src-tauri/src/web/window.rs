@@ -121,6 +121,13 @@ pub fn build<R: Runtime>(
         Storage::Directory(dir) => builder.data_directory(dir.clone()),
         Storage::Identifier(id) => builder.data_store_identifier(*id),
     };
+    // ADR-0025 §3: every request of the page goes through the chain's SOCKS forward.
+    if let Some(proxy) = &plan.proxy {
+        builder = builder.proxy_url(proxy.clone());
+    } else if plan.via {
+        // Fail closed: a chain without its forward never yields a direct window.
+        return Err(tauri::Error::InvalidWebviewUrl("web window with jump hosts but no proxy"));
+    }
     let nav = ctx.clone();
     let popup = ctx.clone();
     let download = ctx.clone();

@@ -194,6 +194,7 @@ impl UpdateRuntime {
             cask_present: false,
             portable: false,
             dev_build: false,
+            winget: false,
         });
         facts.dev_build |= self.dev_build;
         install_mode::decide(&facts)

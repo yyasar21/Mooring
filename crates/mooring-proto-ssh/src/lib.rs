@@ -24,6 +24,7 @@ pub mod algos;
 pub mod audit;
 mod auth;
 mod become_;
+mod chain_proxy;
 mod channel;
 mod control;
 mod driver;
@@ -47,6 +48,7 @@ pub mod socks;
 mod via_session;
 
 pub use audit::{AuditLog, AuthMethod, TrustEvent};
+pub use chain_proxy::ChainProxy;
 pub use channel::{MAX_CHUNK, TERM};
 pub use control::SshControl;
 pub use forward::{Exposure, ForwardId, ForwardInfo, ForwardKind};

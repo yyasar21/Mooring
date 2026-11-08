@@ -76,6 +76,8 @@ pub struct LeaseInfoDto {
     pub engine: &'static str,
     /// Seconds left (`None`: no TTL reported).
     pub expires_in_seconds: Option<u64>,
+    /// The lease's full TTL in seconds, since issue or the last renewal (`None`: no TTL).
+    pub ttl_seconds: Option<u64>,
     /// Renewed automatically at 2/3 of its TTL.
     pub renewable: bool,
     /// `active` | `renew_failed` | `expired`.
@@ -87,6 +89,7 @@ impl From<&mooring_secrets::LeaseStatus> for LeaseInfoDto {
         Self {
             engine: l.engine.name(),
             expires_in_seconds: l.expires_in.map(|d| d.as_secs()),
+            ttl_seconds: l.ttl.map(|d| d.as_secs()),
             renewable: l.renewable,
             state: l.state,
         }
