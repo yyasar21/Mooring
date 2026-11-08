@@ -180,8 +180,9 @@ pub fn request(
     connection_id: &str,
     authorization: Option<&str>,
 ) -> Zeroizing<Vec<u8>> {
-    let host_header =
-        if port == 443 { host.to_owned() } else { crate::gateway::host_port(host, port) };
+    // RFC 7230 §5.4: IPv6 literals in brackets, the default port omitted (review 9 N-73).
+    let full = crate::gateway::host_port(host, port);
+    let host_header = if port == 443 { full.strip_suffix(":443").unwrap_or(&full) } else { &full };
     let mut s = Zeroizing::new(format!(
         "GET {PATH} HTTP/1.1\r\nHost: {host_header}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\
          Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {ws_key}\r\nCache-Control: no-cache\r\n\
@@ -336,5 +337,11 @@ Content-Length: 3\r\n\r\n";
         assert!(t.ends_with("Authorization: NTLM Zm9v\r\n\r\n"));
         let r = request("gw.example.test", 8443, "a2V5", "{0}", None);
         assert!(std::str::from_utf8(&r).expect("utf8").contains("Host: gw.example.test:8443\r\n"));
+        for (port, want) in
+            [(443, "Host: [2001:db8::1]\r\n"), (8443, "Host: [2001:db8::1]:8443\r\n")]
+        {
+            let r = request("2001:db8::1", port, "a2V5", "{0}", None);
+            assert!(std::str::from_utf8(&r).expect("utf8").contains(want), "{port}");
+        }
     }
 }

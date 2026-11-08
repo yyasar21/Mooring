@@ -258,14 +258,14 @@ fn basic_header(a: &GatewayAccount) -> Zeroizing<String> {
     Zeroizing::new(format!("Basic {}", encode_base64(plain.as_bytes())))
 }
 
-fn guid() -> String {
-    let b: [u8; 16] = random();
+fn guid() -> Result<String, End> {
+    let b: [u8; 16] = random().map_err(wire)?;
     let h = b.iter().fold(String::with_capacity(32), |mut s, x| {
         use std::fmt::Write as _;
         let _ = write!(s, "{x:02X}");
         s
     });
-    format!("{{{}-{}-{}-{}-{}}}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+    Ok(format!("{{{}-{}-{}-{}-{}}}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..]))
 }
 
 async fn upgrade(
@@ -277,14 +277,22 @@ async fn upgrade(
     auth: &mut &'static str,
 ) -> Result<Upgrade, End> {
     let (host, port) = (gw.opts.host.as_str(), gw.opts.port);
-    let key = encode_base64(&random::<16>());
-    let id = guid();
+    let key = encode_base64(&random::<16>().map_err(wire)?);
+    let id = guid()?;
     let spn = format!("HTTP/{host}");
     let mut ntlm = None;
     let mut header = if let Some(h) = basic {
         h
     } else {
-        let mut n = NtlmClient::new(account)
+        let leaf = conn
+            .io
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(<[_]>::first)
+            .map(|c| c.as_ref().to_vec())
+            .ok_or_else(|| end(CloseCode::ProtocolError, "TLS handshake without a certificate"))?;
+        let mut n = NtlmClient::new(account, &leaf)
             .map_err(|_| auth_failed("the gateway user name cannot be used for NTLM"))?;
         let t1 = n.negotiate(&spn).map_err(|_| auth_failed("NTLM could not start"))?;
         ntlm = Some(n);
