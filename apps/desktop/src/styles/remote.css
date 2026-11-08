@@ -23,18 +23,21 @@
 .link-banner {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; width: min(440px, calc(100% - 32px));
   display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; font-size: var(--fs-s);
-  background: var(--surface); border-radius: var(--r-m); box-shadow: var(--e2);
-  animation: pop-in var(--dur-mid) var(--ease-out);
+  background: var(--surface); border-radius: var(--r-m); box-shadow: var(--e2); border-left: 3px solid var(--border-strong);
 }
+.link-banner[data-tone="danger"] { border-left-color: var(--danger); }
+.link-title { font: 600 var(--fs-13)/20px var(--font-sans); color: var(--text); }
+.link-banner[data-tone="danger"] .link-title { color: var(--danger); }
+.link-detail { font-size: var(--fs-12); line-height: 16px; color: var(--text-2); }
 .link-banner .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.link-countdown { font: 600 var(--fs-xl)/1 var(--font-sans); color: var(--accent); }
-.link-banner[data-tone="hot"] .link-countdown { color: var(--hot); }
+.link-countdown { font: 600 var(--fs-20)/1 var(--font-sans); color: var(--accent); font-variant-numeric: tabular-nums; }
+.link-banner[data-tone="danger"] .link-countdown { color: var(--danger); }
 .link-attempts { display: flex; gap: 4px; margin: 0 0 6px; padding: 0; list-style: none; }
-.link-attempts li { width: 14px; height: 4px; background: var(--line-strong); }
-.link-attempts li[data-state="spent"] { background: var(--hot-line); }
-.link-attempts li[data-state="now"] { background: var(--hot); box-shadow: var(--glow-hot); }
-.link-progress { height: 2px; background: var(--line); overflow: hidden; }
-.link-progress span { display: block; height: 100%; background: var(--hot); transform-origin: left; transition: transform 250ms linear; }
+.link-attempts li { width: 14px; height: 4px; border-radius: 2px; background: var(--border-strong); }
+.link-attempts li[data-state="spent"] { background: var(--danger-border); }
+.link-attempts li[data-state="now"] { background: var(--danger); }
+.link-progress { height: 2px; background: var(--border); overflow: hidden; }
+.link-progress span { display: block; height: 100%; background: var(--danger); transform-origin: left; transition: transform 250ms linear; }
 @media (prefers-reduced-motion: reduce) { .link-progress span { transition: none; } }
 
 .cert-details { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: var(--fs-xs); }

@@ -196,7 +196,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
     }
     setBusy(false);
     revealConnection(saved.id, saved.folderId);
-    useToasts.getState().push(existing ? "Connection saved" : "Connection created");
+    useToasts.getState().push(existing ? "Connection saved" : "Connection created", { detail: saved.name });
     onClose();
   }
 

@@ -53,7 +53,7 @@ export function CredentialsView() {
   };
   const saved = (m: CredentialMeta) => {
     setDraft(null);
-    useToasts.getState().push("Credential saved");
+    useToasts.getState().push("Credential saved", { detail: m.name });
     if (returnTo) useUi.getState().resumeConnectionDialog(returnTo, m.id);
     else show({ mode: "view", id: m.id });
   };

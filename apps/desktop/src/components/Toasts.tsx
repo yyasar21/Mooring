@@ -1,10 +1,13 @@
 import { createPortal } from "react-dom";
-import { useToasts } from "../stores/toast";
+import { Icon, type IconName } from "@mooring/ui";
+import { useToasts, type ToastTone } from "../stores/toast";
+
+const ICON: Record<ToastTone, IconName> = { success: "check-circle", info: "info", warning: "alert" };
 
 /**
- * Bottom-right confirmations ("Credential saved"). One polite live region, so a screen reader
- * hears each message once; each toast can be dismissed early with its button. Errors never go
- * here: they stay next to the control that failed.
+ * Bottom-right confirmations ("Credential saved"): a status icon, a title and an optional second
+ * line, and a dismiss button. One polite live region, so a screen reader hears each message once.
+ * Errors never go here: they stay next to the control that failed.
  */
 export function Toasts() {
   const toasts = useToasts((s) => s.toasts);
@@ -14,13 +17,16 @@ export function Toasts() {
   return createPortal(
     <div className="toast-stack" aria-live="polite" aria-atomic="false" data-testid="toasts">
       {toasts.map((t) => (
-        <div key={t.id} className="toast m-hud" data-active>
-          <span aria-hidden className="state-dot" data-state="connected" />
-          <span className="min-w-0 flex-1 truncate">{t.text}</span>
+        <div key={t.id} className="toast" data-tone={t.tone}>
+          <span className="toast-icon" aria-hidden>
+            <Icon name={ICON[t.tone]} />
+          </span>
+          <span className="toast-body">
+            <span className="toast-title">{t.text}</span>
+            {t.detail && <span className="toast-detail">{t.detail}</span>}
+          </span>
           <button type="button" className="icon-btn" aria-label={`Dismiss: ${t.text}`} onClick={() => { dismiss(t.id); }}>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-              <path d="M2 2l6 6M8 2l-6 6" />
-            </svg>
+            <Icon name="x" size={14} />
           </button>
         </div>
       ))}

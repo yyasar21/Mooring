@@ -199,7 +199,7 @@ export function SecretSourcesCard() {
           onSaved={(s) => {
             setEditing(null);
             setSelected(s.id);
-            useToasts.getState().push("Secret source saved");
+            useToasts.getState().push("Secret source saved", { detail: s.name });
             forget(s.id);
             setStatus(editing.source ? `Saved ${s.name}. The cached token was forgotten.` : `Added ${s.name}.`);
             void reload();

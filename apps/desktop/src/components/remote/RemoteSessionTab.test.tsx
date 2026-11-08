@@ -69,7 +69,7 @@ describe("RemoteSessionTab", () => {
     mock.reconnectDelaysMs = [4000, 8000];
     act(() => { mock.dropLink(tab()?.sessionId ?? "", 1); });
     await settle(1);
-    expect(screen.getByText(/^Link lost · reconnecting to /)).toBeInTheDocument();
+    expect(screen.getByText(/^Connection lost · reconnecting to /)).toBeInTheDocument();
     expect(screen.getByText(/Attempt 1 of 6/)).toBeInTheDocument();
     expect(screen.getByLabelText("Next attempt in 4 seconds")).toHaveTextContent("4 s");
     expect(screen.getByRole("list", { name: "Attempt 1 of 6" }).children).toHaveLength(6);

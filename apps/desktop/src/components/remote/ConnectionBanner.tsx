@@ -121,9 +121,9 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
 
   if (tab.state === "connecting" && !tab.prompt) {
     return (
-      <div className="link-banner m-hud" role="status" aria-live="polite">
-        <span className="m-micro">Connecting</span>
-        <span className="text-text-muted">Opening a session to {host}…</span>
+      <div className="link-banner" role="status" aria-live="polite">
+        <span className="link-title">Connecting</span>
+        <span className="link-detail">Opening a session to {host}…</span>
         {tab.gateway && (
           <span className="gw-step" data-state={tab.gateway.state}>
             {GATEWAY_STEP[tab.gateway.state]} <span className="mono">{tab.gateway.host}</span>
@@ -138,8 +138,8 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
     const { secs, fraction } = backoffProgress(r, now);
     const attempt = Math.min(Math.max(1, r.attempt), RECONNECT_MAX_ATTEMPTS);
     return (
-      <div className="link-banner m-hud" data-tone="hot" role="status" aria-live="polite" aria-label="Reconnecting">
-        <span className="m-micro" style={{ color: "var(--hot)" }}>Link lost · reconnecting to {host}</span>
+      <div className="link-banner" data-tone="danger" role="status" aria-live="polite" aria-label="Reconnecting">
+        <span className="link-title">Connection lost · reconnecting to {host}</span>
         <div className="flex items-end justify-between gap-3">
           <span className="link-countdown" aria-label={`Next attempt in ${String(secs)} seconds`}>
             {secs > 0 ? `${String(secs)} s` : "now"}
@@ -153,7 +153,7 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
         <div className="link-progress" aria-hidden>
           <span style={{ transform: `scaleX(${fraction.toFixed(3)})` }} />
         </div>
-        <span className="text-text-muted">
+        <span className="link-detail">
           Attempt {attempt} of {RECONNECT_MAX_ATTEMPTS}. Mooring signs in again with the stored credential; it never retries after a
           sign-in or certificate failure.
         </span>
@@ -172,10 +172,10 @@ export function ConnectionBanner({ tab, host, onReconnect, onClose, onCancelReco
   if (tab.state === "closed") {
     const t = closeTextFor(tab);
     return (
-      <div className="link-banner m-hud" data-tone={t.hot ? "hot" : undefined} role="alert">
-        <span className="m-micro" style={t.hot ? { color: "var(--hot)" } : undefined}>{t.title}</span>
+      <div className="link-banner" data-tone={t.hot ? "danger" : undefined} role="alert">
+        <span className="link-title">{t.title}</span>
         <span className="text-text">{tab.reason ?? "The session ended."}</span>
-        {t.hint && <span className="text-[length:var(--fs-xs)] text-text-muted">{t.hint}</span>}
+        {t.hint && <span className="link-detail">{t.hint}</span>}
         <div className="actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             Close tab

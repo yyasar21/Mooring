@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { ipc, type AppInfo, type LockReason, type SessionInfo, type VaultStatus } from "../lib/ipc";
 import { describeError, errorText } from "./errors";
-import { suspendedText, useBiometric } from "./biometric";
+import { biometricName, suspendedText, useBiometric } from "./biometric";
 import { useToasts } from "./toast";
 import { useTree } from "./tree";
 import { useCredentials } from "./credentials";
@@ -64,7 +64,7 @@ async function noticeSuspended(): Promise<void> {
   const text = s ? suspendedText(s) : null;
   if (!s?.suspendedReason || !text || suspendShown.has(s.suspendedReason)) return;
   suspendShown.add(s.suspendedReason);
-  useToasts.getState().push(`${text} See Settings → Security.`);
+  useToasts.getState().push(`${biometricName(s)} unlock turned off`, { detail: `${text} See Settings → Security.`, tone: "warning" });
 }
 
 /** Forget every piece of vault-derived state held in this window. */
