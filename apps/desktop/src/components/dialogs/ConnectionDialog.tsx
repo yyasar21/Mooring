@@ -10,7 +10,7 @@ import { useCredentials } from "../../stores/credentials";
 import { useSessions } from "../../stores/sessions";
 import { useToasts } from "../../stores/toast";
 import { useUi, type ConnectionDraft } from "../../stores/ui";
-import { CredentialPicker, pickerOptions } from "../credentials/CredentialPicker";
+import { CredentialPicker, gatewayPickerOptions, pickerOptions } from "../credentials/CredentialPicker";
 import { DialogFooter, Modal } from "./Modal";
 import { ProtocolOptionsSection, useOptionsDraft } from "./options/ProtocolOptionsSection";
 import { useConnOptions } from "../../stores/connOptions";
@@ -107,7 +107,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
     [creds, kinds, protocol, inherited, inheritedOk],
   );
   const gatewayOptions = useMemo(
-    () => pickerOptions(creds, kinds, protocol, "gateway", "Same as the session credential", "the RD Gateway gets the sign-in above"),
+    () => gatewayPickerOptions(pickerOptions(creds, kinds, protocol, "gateway", "Same as sign-in", "the RD Gateway gets the sign-in above")),
     [creds, kinds, protocol],
   );
   const becomeOptions = useMemo(
@@ -135,6 +135,19 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
   const fit = protocol === "kubernetes" ? kubeCredentialFit(options.value as KubeConnOptions, effective?.kind) : {};
   const fitOk = Object.keys(fit).length === 0;
   const valid = name.trim() !== "" && host.trim() !== "" && !portBad && options.valid && fitOk && !options.loading;
+
+  // ADR-0027: the existing gateway role. The RD Gateway options (host, port, Basic) are in the RDP options section.
+  const gatewayPicker = (
+    <div className="flex items-start gap-2">
+      <div className="min-w-0 flex-1">
+        <CredentialPicker label="RD Gateway credential" value={gw} options={gatewayOptions} kinds={kinds} onChange={setGateway}
+          hint="Same as sign-in sends this connection's sign-in to the gateway too. Only a user and password or a Windows domain account can sign in to a gateway." />
+      </div>
+      <button type="button" className="btn mt-[18px]" aria-label="New RD Gateway credential…" onClick={() => { newCredential("gateway"); }}>
+        New…
+      </button>
+    </div>
+  );
 
   async function submit() {
     setBusy(true);
@@ -317,16 +330,7 @@ export function ConnectionDialog({ id, folderId, onClose }: { id?: string; folde
             </div>
           </div>
           <p className="field-hint">Overrides replace the account for this connection only. The stored secret is shared.</p>
-          {protocol === "rdp" && (
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <CredentialPicker label="RD Gateway credential" value={gw} options={gatewayOptions} kinds={kinds} onChange={setGateway} />
-              </div>
-              <button type="button" className="btn mt-[18px]" aria-label="New RD Gateway credential…" onClick={() => { newCredential("gateway"); }}>
-                New…
-              </button>
-            </div>
-          )}
+          {protocol === "rdp" && gatewayPicker}
           {protocol === "ssh" && (
             <CredentialPicker
               label="Become (sudo)"

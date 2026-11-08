@@ -43,7 +43,7 @@ describe("connection form · protocol options", () => {
     await settle();
     expect(setSpy).toHaveBeenCalledWith({
       connectionId: "c-dc",
-      options: { keyboardLayout: 0x041f, clipboard: "to_remote", allowTlsWithoutNla: true, caPem: null, maxFps: 60 },
+      options: { keyboardLayout: 0x041f, clipboard: "to_remote", allowTlsWithoutNla: true, caPem: null, maxFps: 60, gateway: null },
     });
     expect(useConnOptions.getState().byId["c-dc"]).toMatchObject({ allowTlsWithoutNla: true });
     expect(onClose).toHaveBeenCalled();

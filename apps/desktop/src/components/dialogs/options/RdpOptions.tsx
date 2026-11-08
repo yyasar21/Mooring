@@ -2,6 +2,7 @@ import { KEYBOARD_LAYOUTS, type KeyboardLayout, type RdpConnOptions } from "../.
 import { KEYBOARD_LAYOUT_NAMES, type OptionErrors } from "../../../lib/validate.options";
 import { Toggle } from "../../settings/Toggle";
 import { CaPemField, ClipboardSelect, FpsSeg, ReadOnly, Warn } from "./controls";
+import { RdpGatewaySection } from "./RdpGatewaySection";
 
 const klid = (k: number) => `0x${k.toString(16).padStart(4, "0").toUpperCase()}`;
 
@@ -45,6 +46,7 @@ export function RdpOptions({ value, errors, onChange }: { value: RdpConnOptions;
         )}
       </div>
       <CaPemField id="rdp-ca" value={value.caPem} error={errors.caPem} onChange={(caPem) => { set({ caPem }); }} />
+      <RdpGatewaySection value={value.gateway ?? null} errors={errors} onChange={(gateway) => { set({ gateway }); }} />
     </div>
   );
 }

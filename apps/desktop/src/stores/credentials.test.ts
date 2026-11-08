@@ -10,7 +10,7 @@ describe("credentials store", () => {
     await useCredentials.getState().load();
     const { items, kinds } = useCredentials.getState();
     expect(items.length).toBeGreaterThan(3);
-    expect(kinds).toHaveLength(19);
+    expect(kinds).toHaveLength(20);
     for (const c of items) {
       expect(Object.keys(c).sort()).toEqual(["createdAt", "fields", "fingerprint", "id", "kind", "name", "secretNames", "updatedAt"]);
     }

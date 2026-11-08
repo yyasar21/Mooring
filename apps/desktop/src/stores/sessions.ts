@@ -89,7 +89,11 @@ interface SessionState {
 }
 
 /** A `session_open` refusal that is a trust decision keeps its close code, so the banner can say why (6b: `trust_conflict` too). */
-const OPEN_FAILURE_CODES: Readonly<Record<string, CloseCode>> = { "session.trust_mismatch": "trust_mismatch", "session.trust_rejected": "trust_rejected", "http.trust_conflict": "trust_conflict" };
+const OPEN_FAILURE_CODES: Readonly<Record<string, CloseCode>> = {
+  "session.trust_mismatch": "trust_mismatch", "session.trust_rejected": "trust_rejected", "http.trust_conflict": "trust_conflict",
+  // ADR-0027: the plan refuses the gateway credential before any I/O; the banner says it is the gateway.
+  "rdp.gateway_auth": "gateway_auth", "rdp.gateway_refused": "gateway_refused", "rdp.gateway_unsupported": "gateway_unsupported",
+};
 function openFailureCode(e: unknown): CloseCode | null {
   return (isIpcError(e) && OPEN_FAILURE_CODES[e.code]) || null;
 }
@@ -139,6 +143,9 @@ export const useSessions = create<SessionState>((set, get) => {
         patch(tabId, {
           prompt: { id: ev.id, message: ev.message, secret: ev.secret, purpose: ev.purpose, account: ev.account, certificate: ev.certificate, hop: ev.hop ?? null },
         });
+        break;
+      case "gateway_status":
+        patch(tabId, { gateway: { host: ev.host, state: ev.state, peerIdentity: ev.peerIdentity } });
         break;
       case "hop_status":
         patch(tabId, { hops: withHop(tabOf(tabId)?.hops ?? [], ev) });
@@ -373,7 +380,7 @@ export const useSessions = create<SessionState>((set, get) => {
     reconnect: async (tabId) => {
       const tab = tabOf(tabId);
       if (!tab || tab.state !== "closed") return;
-      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null, hops: [], touch: null, openError: null });
+      patch(tabId, { state: "connecting", reason: null, closeCode: null, peerIdentity: null, security: null, hops: [], touch: null, openError: null, gateway: null });
       await begin(tabId, tab.connectionId, tab.protocol, tab.desktop ?? initialSize(tab.protocol));
     },
 

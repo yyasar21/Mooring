@@ -116,7 +116,7 @@ describe("RemoteSessionTab", () => {
     expect(securityBadge("tls")?.hot).toBe(true);
     expect(securityBadge("none")).toEqual({ text: "Unencrypted", hot: true });
     expect(securityBadge(null)).toBeNull();
-    expect(Object.keys(CLOSE_TEXT).sort()).toEqual(["auth_failed", "hop_failed", "hop_lost", "network", "protocol_error", "server_ended", "trust_conflict", "trust_mismatch", "trust_rejected", "unknown", "user", "vault_locked"]);
+    expect(Object.keys(CLOSE_TEXT).sort()).toEqual(["auth_failed", "gateway_auth", "gateway_refused", "gateway_unsupported", "hop_failed", "hop_lost", "network", "protocol_error", "server_ended", "trust_conflict", "trust_mismatch", "trust_rejected", "unknown", "user", "vault_locked"]);
     expect(CLOSE_TEXT.trust_conflict).toMatchObject({ title: "Conflicting certificates", hot: true });
     expect(CLOSE_TEXT.trust_conflict.hint).toMatch(/Settings → Trust/);
     expect(CLOSE_TEXT.hop_failed.hint).toMatch(/never contacted the target/);

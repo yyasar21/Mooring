@@ -7,7 +7,7 @@ import { useUi } from "../../stores/ui";
 
 const PAGE = 200;
 
-const EVENT_LABEL: Record<string, string> = {
+export const EVENT_LABEL: Record<string, string> = {
   vault_created: "Vault created",
   vault_unlocked: "Vault unlocked",
   vault_locked: "Vault locked",
@@ -30,6 +30,10 @@ const EVENT_LABEL: Record<string, string> = {
   // ADR-0024: FIDO2 security keys (fingerprint and backend only).
   "credential.sk_converted": "SSH key converted to a security-key credential",
   "session.auth_sk": "Security-key sign-in",
+  // ADR-0027: RD Gateway and smart cards (host, auth method and outcome; never a PIN).
+  "session.rdp.gateway": "RD Gateway sign-in",
+  "session.rdp.gateway_basic": "RD Gateway used Basic authentication",
+  "credential.pin_prompted": "Smart card PIN asked",
   "portable.acl_unavailable": "Portable data folder: owner-only ACL could not be applied (FAT/exFAT or policy)",
 };
 

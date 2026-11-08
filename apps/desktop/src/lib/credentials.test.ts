@@ -66,6 +66,7 @@ describe("compatibility matrix", () => {
     ssh_key: ["ssh"],
     ssh_agent: ["ssh"],
     ssh_sk_key: ["ssh"],
+    smart_card: ["ssh"],
     x509: ["web", "kubernetes"],
     api_token: ["web"],
     oauth_client: ["web"],

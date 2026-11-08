@@ -313,4 +313,20 @@ export const KIND_SCHEMAS: KindSchema[] = [
     supportsOtp: false,
     fields: [secret("access_token", "Access token", 4 * KIB, "text", { required: true })],
   },
+  // ADR-0027 §2: a PIV / smart-card key. Nothing is sealed: the PIN is asked at connect and never
+  // stored; `fingerprint` is derived from `public_key`. SSH only (RDP needs Kerberos PKINIT).
+  {
+    kind: "smart_card",
+    label: "Smart card / PIV",
+    group: "Smart card",
+    protocols: [P("ssh")],
+    supportsOtp: false,
+    fields: [
+      field("username", "Username", 256, "text", { placeholder: "alice (hint)" }),
+      field("domain", "Domain", 253, "text", { placeholder: "optional" }),
+      field("reader_hint", "Reader", 128, "text", { placeholder: "Yubico YubiKey (optional)" }),
+      field("public_key", "Public key", 16 * KIB, "text", { multiline: true, placeholder: "ecdsa-sha2-nistp256 AAAA… (from ssh-keygen -D <module>)" }),
+      field("pkcs11_module", "PKCS#11 module", 16, "enum", { options: ["opensc", "ykcs11", "cryptoapi"] }),
+    ],
+  },
 ];

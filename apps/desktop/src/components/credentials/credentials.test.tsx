@@ -242,6 +242,6 @@ describe("schema-driven credential form", () => {
     const ops = within(list).getByText("ops on-call").closest("li");
     expect(ops).toHaveTextContent(/1used/); // default of folder Production
     const ad = within(list).getByText("domain admin").closest("li");
-    expect(ad).toHaveTextContent(/2used/); // default of Desktops + RD Gateway of dc01
+    expect(ad).toHaveTextContent(/3used/); // default of Desktops + RD Gateway of dc01 + sign-in of finance-desk
   });
 });

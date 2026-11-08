@@ -1,4 +1,5 @@
 import { isIpcError } from "../lib/ipc";
+import { SMART_CARD_RDP } from "../lib/credentials";
 
 /** Message safe to show; IpcError messages are already scrubbed by Rust (ADR-0003). */
 export function errorText(e: unknown): string {
@@ -169,6 +170,14 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
   "ssh.sk_helper_disabled":
     "This credential signs with ssh-sk-helper, which is turned off. Switch the credential's signing to ssh-agent and add the key to your agent.",
   "ssh.sk_helper_missing": "ssh-sk-helper was not found at its fixed path on this system. Sign through ssh-agent instead.",
+  // ADR-0027 (R5): RD Gateway and smart cards.
+  "rdp.gateway_auth":
+    "The RD Gateway refused the credentials. Check the RD Gateway credential of this connection (a user and password or a Windows domain account), or choose Same as sign-in.",
+  "rdp.gateway_refused": "The RD Gateway refused the tunnel or the channel to this computer. Ask the gateway's administrator whether you may reach it through the gateway.",
+  "rdp.gateway_unsupported": "No RD Gateway WebSocket endpoint (RPC over HTTP gateways are not supported). The gateway needs Windows Server 2016 or later.",
+  "rdp.smart_card_unsupported": SMART_CARD_RDP,
+  "ssh.piv_key_not_in_agent":
+    "The smart card key is not in your ssh-agent, and Mooring cannot load it without a PKCS#11 module. Load the card with ssh-add -s <module>, or choose the module in the credential so Mooring asks the PIN.",
   "credential.incompatible":"That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
 };
@@ -189,5 +198,7 @@ const MESSAGE_WINS: ReadonlySet<string> = new Set(["update.manual_only"]);
 export function describeError(e: unknown): string {
   if (!isIpcError(e)) return "unexpected error";
   if (MESSAGE_WINS.has(e.code) && e.message.trim() !== "") return e.message;
+  // ADR-0027: the matrix refuses a smart card on RDP as `credential.incompatible` with the PKINIT sentence.
+  if (e.code === "credential.incompatible" && /PKINIT/.test(e.message)) return SMART_CARD_RDP;
   return FRIENDLY[e.code] ?? e.message;
 }

@@ -252,11 +252,15 @@ export const PROTOCOL_LABEL: Record<Protocol, string> = {
 
 const ROLE_LABEL: Record<CredentialRole, string> = { primary: "sign-in", gateway: "RD Gateway", become: "become / sudo", certificate: "certificate" };
 
+/** ADR-0027 §2: the matrix footnote for smart-card material on RDP (Rust serves the same sentence). */
+export const SMART_CARD_RDP = "Smart-card logon over RDP needs Kerberos PKINIT (planned).";
+
 /** Footnotes of the ADR matrix: why an obvious-looking pairing is refused. */
 const FOOTNOTE: Partial<Record<CredentialKind, Partial<Record<Protocol, string>>>> = {
   user_password: { kubernetes: "Kubernetes removed static basic auth." },
   domain_user: { kubernetes: "Kubernetes removed static basic auth." },
-  x509: { rdp: "Smart-card RDP is planned for later.", vnc: "VeNCrypt X.509 is planned for later." },
+  x509: { rdp: SMART_CARD_RDP, vnc: "VeNCrypt X.509 is planned for later." },
+  smart_card: { rdp: SMART_CARD_RDP },
 };
 
 export type Compat = { ok: true } | { ok: false; reason: string };

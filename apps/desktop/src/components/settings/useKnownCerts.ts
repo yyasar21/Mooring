@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { ipc, type KnownCert } from "../../lib/ipc";
+import { ipc, type KnownCert, type KnownCertProtocol } from "../../lib/ipc";
 import { hostKey, plainHost } from "../../lib/hostHash";
 import { describeError } from "../../stores/errors";
 import { useTree } from "../../stores/tree";
 
-export type CertProtocol = "rdp" | "vnc";
-const DEFAULT_PORT: Record<CertProtocol, number> = { rdp: 3389, vnc: 5900 };
+/** `rdg` (ADR-0027): RD Gateway pins, listed hashed until Rust names them from connection options. */
+export type CertProtocol = KnownCertProtocol;
+export const DEFAULT_PORT: Record<CertProtocol, number> = { rdp: 3389, vnc: 5900, rdg: 443 };
+/** What the card calls each store. */
+export const STORE_LABEL: Record<CertProtocol, string> = { rdp: "RDP", vnc: "VNC", rdg: "RD Gateway" };
 
 /** One stored pin, labelled with the connections whose host:port it belongs to (if any). */
 export interface PinRow extends KnownCert {

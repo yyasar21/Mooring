@@ -44,6 +44,16 @@ export function pickerOptions(
   return [empty, ...rows];
 }
 
+/** R5 `connect_plan::gateway_of`: there is no second sign-in form, so a `prompt` credential is refused for the gateway. */
+export const GATEWAY_PROMPT_REASON = "A credential that asks at connect cannot sign in to the gateway. Choose Same as sign-in instead.";
+
+/** ADR-0027: only `user_password` / `domain_user` sign in to an RD Gateway; `prompt` stays visible, disabled. */
+export function gatewayPickerOptions(options: PickerOption[]): PickerOption[] {
+  const out = options.map((o): PickerOption => (o.meta?.kind === "prompt" && !o.disabledReason ? { ...o, disabledReason: GATEWAY_PROMPT_REASON, group: "Not usable here" } : o));
+  const order = ["", "Ask at connect", "Stored", "Not usable here"];
+  return out.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group));
+}
+
 /**
  * Listbox for choosing a credential by reference. Incompatible credentials stay visible, disabled,
  * with the matrix reason underneath, so a user can see why their key is not offered for RDP.

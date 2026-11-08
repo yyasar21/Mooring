@@ -66,4 +66,9 @@ export const SK_CLOSE: Readonly<Record<string, { title: string; hint: string }>>
   "ssh.sk_key_not_in_agent": { title: "Security key not in ssh-agent", hint: "ssh-add -K loads a resident key from the security key; ssh-add <handle file> loads the others. Then press Reconnect." },
   "ssh.sk_helper_disabled": { title: "Direct security-key signing is off", hint: "Edit the credential and choose Through your ssh-agent, then press Reconnect." },
   "ssh.sk_helper_missing": { title: "ssh-sk-helper not found", hint: "Edit the credential and choose Through your ssh-agent, then press Reconnect." },
+  // ADR-0027: a smart-card key the agent lacks, with no module to load it with the PIN.
+  "ssh.piv_key_not_in_agent": {
+    title: "Smart card key not in ssh-agent",
+    hint: "Load the card into ssh-agent with ssh-add -s <module>, or choose the module so Mooring asks the PIN. Then press Reconnect.",
+  },
 };

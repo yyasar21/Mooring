@@ -24,6 +24,7 @@ import { AccountField, DerivedReadout, KindBadge, MatrixStrip, OtpSection, Plain
 import { ExternalRefSection } from "./ExternalRefSection";
 import { SkKeySection } from "./SkKeySection";
 import { UseSkKindNote } from "./UseSkKindNote";
+import { SmartCardNote } from "./SmartCard";
 import { KIND_BLURB } from "./kindMeta";
 import { usePublicKeyFingerprint } from "./usePublicKeyFingerprint";
 
@@ -304,6 +305,8 @@ export function CredentialEditor({
             ))}
           </div>
         </section>}
+
+        {schema.kind === "smart_card" && <SmartCardNote meta={meta} />}
 
         {secretFields(schema).length > 0 && (
           <section className="space-y-3">

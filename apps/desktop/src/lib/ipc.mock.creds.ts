@@ -16,6 +16,7 @@ import { KIND_SCHEMAS } from "./ipc.kinds";
 import { OTP_SEED_SCHEMA, isAccountError, parseAccount, previewKubeContexts, validateField } from "./credentials";
 import { validateExternalRef } from "./validate.secrets";
 import { deriveSk, refuseSkInSshKey } from "./ipc.mock.sk";
+import { derivePiv } from "./ipc.mock.piv";
 
 const OTP_FIELD = "otp";
 // eslint-disable-next-line no-control-regex
@@ -197,6 +198,7 @@ export class MockCredentials {
     refuseSkInSshKey(a.kind, a.fields, a.secrets);
     let fields = checkFields(schema, a.fields, contexts);
     if (a.kind === "ssh_sk_key") fields = deriveSk(fields);
+    if (a.kind === "smart_card") fields = derivePiv(fields);
     for (const [k, v] of Object.entries(a.secrets)) if (v !== "") checkSecret(schema, k, v);
     const present = Object.keys(a.secrets).filter((k) => a.secrets[k] !== "");
     for (const f of schema.fields) {
@@ -226,6 +228,10 @@ export class MockCredentials {
     let next = checkFields(schemaOf(m.kind), fields, contexts);
     if (m.kind === "ssh_sk_key") {
       next = deriveSk(next);
+      m.fingerprint = typeof next.fingerprint === "string" ? next.fingerprint : null;
+    }
+    if (m.kind === "smart_card") {
+      next = derivePiv(next);
       m.fingerprint = typeof next.fingerprint === "string" ? next.fingerprint : null;
     }
     if (m.kind === "kubeconfig") next.contexts = contexts;

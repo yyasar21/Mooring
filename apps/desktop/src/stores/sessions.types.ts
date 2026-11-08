@@ -1,6 +1,6 @@
 // Tab and prompt shapes of the session store, split out of `sessions.ts` (re-exported there).
 import type { LineState } from "@mooring/ui";
-import type { CertificateInfo, CloseCode, HopStatus, PromptAccount, PromptPurpose, Protocol, Size } from "../lib/ipc";
+import type { CertificateInfo, CloseCode, GatewayStatus, HopStatus, PromptAccount, PromptPurpose, Protocol, Size } from "../lib/ipc";
 import type { KubeTab } from "./kube";
 
 export type TabState = "connecting" | "connected" | "reconnecting" | "detached" | "closed";
@@ -12,7 +12,7 @@ export interface PendingPrompt {
   purpose: PromptPurpose;
   /** Only for `purpose: "credential"`: what to ask and the pre-fills. */
   account?: PromptAccount | null;
-  /** Only for `purpose: "certificate_trust"`: the leaf to decide on. */
+  /** Only for `purpose: "certificate_trust"` / `"gateway_certificate_trust"`: the leaf to decide on. */
   certificate?: CertificateInfo | null;
   /** ADR-0025: the 0-based jump host that asks; null/absent = the target. */
   hop?: number | null;
@@ -68,6 +68,8 @@ export interface Tab {
   hops?: HopStatus[];
   /** ADR-0024: the touch banner (null = none). Kept after a timeout so the banner can offer Retry. */
   touch?: TouchState | null;
+  /** ADR-0027: the latest `gateway_status` (null = no RD Gateway, or not reported yet). */
+  gateway?: GatewayStatus | null;
   /** The IpcError code when `session_open` refused (pre-flight), for a readable close reason. */
   openError?: string | null;
 }

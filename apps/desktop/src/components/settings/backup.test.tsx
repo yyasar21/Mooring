@@ -52,7 +52,7 @@ describe("Settings → Backup export (ADR-0023)", () => {
     fireEvent.click(within(dlg).getByRole("button", { name: "Choose file and export…" }));
     await settle();
     const done = dialog("Backup saved");
-    expect(within(done).getByRole("status")).toHaveTextContent(/Saved mooring-backup\.age .*: 13 connections, 16 credentials and 6 folders\./);
+    expect(within(done).getByRole("status")).toHaveTextContent(/Saved mooring-backup\.age .*: 14 connections, 17 credentials and 6 folders\./);
     expect(mock.exports).toHaveLength(1);
   });
 

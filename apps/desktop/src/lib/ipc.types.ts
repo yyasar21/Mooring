@@ -10,6 +10,7 @@ import type { UpdateIpc } from "./ipc.types.update";
 import type { NetIpc } from "./ipc.types.net";
 import type { ImportIpc } from "./ipc.types.import";
 import type { A5Ipc, BuildChannel, HopStatus } from "./ipc.types.a5";
+import type { GatewayStatus } from "./ipc.types.rdg";
 
 export * from "./ipc.types.exit";
 export * from "./ipc.types.remote";
@@ -20,6 +21,7 @@ export * from "./ipc.types.update";
 export * from "./ipc.types.net";
 export * from "./ipc.types.import";
 export * from "./ipc.types.a5";
+export * from "./ipc.types.rdg";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -135,10 +137,12 @@ export const CREDENTIAL_KINDS = [
   "ssh_sk_key",
   // ADR-0026 §4: the `bws` source login.
   "bitwarden_access_token",
+  // ADR-0027 §2: a PIV / smart-card key held by ssh-agent; the PIN is never stored.
+  "smart_card",
 ] as const;
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
 
-export type KindGroup = "Windows" | "SSH" | "VNC" | "Web/API" | "Kubernetes" | "vSphere" | "Other" | "Secret sources" | "Sync";
+export type KindGroup = "Windows" | "SSH" | "VNC" | "Web/API" | "Kubernetes" | "vSphere" | "Other" | "Secret sources" | "Sync" | "Smart card";
 /** ADR-0016/0017: non-protocol uses of a credential (a Vault login, the sync access key). */
 export type KindConsumer = "secret_source" | "sync";
 export type CredentialRole = "primary" | "gateway" | "become" | "certificate";
@@ -243,7 +247,16 @@ export interface Size {
 }
 
 /** Why a prompt was raised; set by Rust, never derived from server text (review 2, L-2). */
-export type PromptPurpose = "host_key_trust" | "certificate_trust" | "keyboard_interactive" | "credential" | "other";
+export type PromptPurpose =
+  | "host_key_trust"
+  | "certificate_trust"
+  | "keyboard_interactive"
+  | "credential"
+  /** ADR-0027: an unknown RD Gateway certificate (`known_rdg_certs`); `certificate` is set. */
+  | "gateway_certificate_trust"
+  /** ADR-0027: the PIN of a smart card. Secret, used once, never stored; an empty answer cancels. */
+  | "smart_card_pin"
+  | "other";
 
 /**
  * `purpose: "credential"` only (ADR-0009 `prompt` kind): what the connect-time form should ask.
@@ -278,6 +291,8 @@ export type SessionEvent =
       hop?: number | null;
     }
   | ({ kind: "hop_status" } & HopStatus)
+  /** ADR-0027: progress of the RD Gateway in front of an RDP target (before the target's `connected`). */
+  | ({ kind: "gateway_status" } & GatewayStatus)
   /** ADR-0024: a FIDO2 key is about to sign. Informational: nothing is answered. */
   | { kind: "touch_required"; id: number; fingerprint: string; timeoutSeconds: number; hop?: number | null }
   | { kind: "touch_cleared"; id: number; hop?: number | null }
