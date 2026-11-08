@@ -2,7 +2,10 @@
 //! holds the card's key (`ssh-add -s <module>`), Mooring pins it by its blob, and when the
 //! agent lacks it and the credential names a PKCS#11 module, the PIN is asked through the
 //! prompt channel (`purpose: smart_card_pin`, secret, never stored) and handed to the agent
-//! with `SSH_AGENTC_ADD_SMARTCARD_KEY`. The module path comes from a fixed per-OS list, never
+//! with `SSH_AGENTC_ADD_SMARTCARD_KEY_CONSTRAINED` and a [`CARD_LIFETIME_SECS`] lifetime
+//! (review 9 L-49: the unlocked card leaves the agent on its own instead of staying usable
+//! through `SSH_AUTH_SOCK` until the agent exits). The module path comes from a fixed per-OS
+//! list, never
 //! from input. No `cryptoki`, no FFI. Never followed by a password attempt.
 
 use std::path::{Path, PathBuf};
@@ -21,6 +24,12 @@ use crate::auth::AuthError;
 use crate::handler::ClientHandler;
 use crate::shared::Shared;
 use crate::sk_agent::{find, Held, SkAgent};
+
+/// How long the agent keeps a card it loaded with our PIN (1 h). Long enough for a reconnect
+/// in the same work session without a second PIN, short enough that one unlock does not
+/// outlive it by much; `REMOVE_SMARTCARD_KEY` needs the PIN again, so the lifetime is the
+/// practical bound. The PIN dialog should state it ("stays loaded in ssh-agent for 60 min").
+pub const CARD_LIFETIME_SECS: u32 = 3600;
 
 /// Longest PIN accepted from the dialog (PIV PINs are 6–8 characters; PUK-like codes longer).
 pub const MAX_PIN: usize = 64;
@@ -203,7 +212,7 @@ async fn load_card(
         return Err(PivFailure::PinCancelled);
     };
     let provider = module.to_string_lossy();
-    match agent.add_smartcard(&provider, pin.expose_secret().as_bytes()).await {
+    match agent.add_smartcard(&provider, pin.expose_secret().as_bytes(), CARD_LIFETIME_SECS).await {
         Ok(true) => Ok(()),
         _ => Err(PivFailure::CardRefused),
     }

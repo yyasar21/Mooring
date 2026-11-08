@@ -10,8 +10,9 @@ use std::path::Path;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::agent_wire::{
-    parse_identities, parse_sign_response, put_string, Identity, WireError, ADD_SMARTCARD_KEY,
-    MAX_AGENT_MESSAGE, REQUEST_IDENTITIES, SIGN_REQUEST, SUCCESS,
+    parse_identities, parse_sign_response, put_string, Identity, WireError,
+    ADD_SMARTCARD_KEY_CONSTRAINED, CONSTRAIN_LIFETIME, MAX_AGENT_MESSAGE, REQUEST_IDENTITIES,
+    SIGN_REQUEST, SUCCESS,
 };
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send + Sync {}
@@ -64,7 +65,7 @@ impl SkAgent {
     }
 
     async fn request(&mut self, msg: &[u8]) -> Result<Vec<u8>, AgentError> {
-        // Zeroized: an ADD_SMARTCARD_KEY request carries the PIN.
+        // Zeroized: an ADD_SMARTCARD_KEY_CONSTRAINED request carries the PIN.
         let mut frame = zeroize::Zeroizing::new(Vec::with_capacity(msg.len() + 4));
         put_string(&mut frame, msg);
         self.io.write_all(&frame).await?;
@@ -107,16 +108,20 @@ impl SkAgent {
         Ok(parse_sign_response(&reply)?)
     }
 
-    /// `SSH_AGENTC_ADD_SMARTCARD_KEY` (ADR-0027 §2): the agent loads `provider` with `pin`.
+    /// `SSH_AGENTC_ADD_SMARTCARD_KEY_CONSTRAINED` (ADR-0027 §2, review 9 L-49): the agent
+    /// loads `provider` with `pin` and drops the card's keys after `lifetime_secs`.
     /// `true` on `SSH_AGENT_SUCCESS`. The request buffer is zeroized.
     pub(crate) async fn add_smartcard(
         &mut self,
         provider: &str,
         pin: &[u8],
+        lifetime_secs: u32,
     ) -> Result<bool, AgentError> {
-        let mut msg = zeroize::Zeroizing::new(vec![ADD_SMARTCARD_KEY]);
+        let mut msg = zeroize::Zeroizing::new(vec![ADD_SMARTCARD_KEY_CONSTRAINED]);
         put_string(&mut msg, provider.as_bytes());
         put_string(&mut msg, pin);
+        msg.push(CONSTRAIN_LIFETIME);
+        msg.extend_from_slice(&lifetime_secs.to_be_bytes());
         let reply = self.request(&msg).await?;
         Ok(reply.as_slice() == [SUCCESS])
     }

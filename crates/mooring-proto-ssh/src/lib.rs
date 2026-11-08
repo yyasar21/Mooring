@@ -63,7 +63,7 @@ pub use via_session::{TargetFuture, ViaSession};
 
 pub use agent_wire::fuzz_agent_identities;
 pub use piv_auth::{
-    module_candidates as piv_module_candidates, module_path as piv_module_path,
+    module_candidates as piv_module_candidates, module_path as piv_module_path, CARD_LIFETIME_SECS,
     MAX_PIN,
 };
 pub use sk_agent::{agent_holds, agent_holds_key};
