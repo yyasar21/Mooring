@@ -80,3 +80,6 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-03 | A1 | rust-core | [a1-rust-core-store.md](a1-rust-core-store.md) — mooring-store crate (ADR-0005) |
 | 2026-11-03 | A1 | rust-core | [a1-rust-core-vault.md](a1-rust-core-vault.md) — vault lifecycle (ADR-0006) |
 | 2026-11-03 | A0 | orchestrator | [a0-orchestrator.md](a0-orchestrator.md) — skeleton, crates, UI shell, gates, team |
+| 2026-11-08 | A5 | rust-core | [a5-rust-core-r5.md](a5-rust-core-r5.md) — RD Gateway (own MS-TSGU over WebSocket, pinned gateway certs, NTLM, Accept verified), `smart_card` kind (PIV via ssh-agent, PIN never stored), migration 0011 |
+| 2026-11-08 | A5 | ui-engineer | [a5-ui-u5.md](a5-ui-u5.md) — security-key SSH form, touch banner, `use_sk_kind` conversion, Settings SSH card |
+| 2026-11-08 | A5 | release-engineer | [a5-release-a5.md](a5-release-a5.md) — inert `sign-macos`/`sign-windows` jobs (vars-gated, `release` env), winget manifests + secret-gated submit; winget self-update allowed (marker contract only) |
