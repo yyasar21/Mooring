@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import type { Exposure, PodForwardOpen, PodTarget } from "../../lib/ipc";
 import { isLoopbackHost } from "../../lib/validate.exit";
 import { hasErrors, validatePodForward } from "../../lib/validate.kube";
-import { Modal } from "../dialogs/Modal";
+import { ConfirmDialog } from "../dialogs/TrustDialog";
 import { formatHostPort } from "./useForwards";
 
 type Draft = Omit<PodForwardOpen, "sessionId">;
@@ -116,20 +116,20 @@ export function PodForwardForm({ pods, preset, onSubmit, onCancel, busy }: {
       </div>
 
       {confirming && (
-        <Modal title="Expose this forward?" onClose={() => { setConfirming(null); }} width={460}>
-          <div className="px-4 py-3.5">
-            <p className="fw-confirm-addr mono">
-              {confirming.bind.port === 0 ? `${confirming.bind.host}, any free port` : formatHostPort(confirming.bind)}
-            </p>
-            <p className="mt-3 text-text-muted">
-              Any machine that can reach this address can use the forward to reach {confirming.target.namespace}/{confirming.target.pod} port {confirming.target.port}. Mooring records this in the audit log.
-            </p>
-          </div>
-          <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
-            <button type="button" className="btn btn-ghost" onClick={() => { setConfirming(null); }}>Cancel</button>
-            <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void submit(confirming)}>Expose to network</button>
-          </div>
-        </Modal>
+        <ConfirmDialog
+          title="Expose this forward?"
+          tone="danger"
+          well={{ label: "Listening on", value: confirming.bind.port === 0 ? `${confirming.bind.host}, any free port` : formatHostPort(confirming.bind) }}
+          confirmLabel="Expose to network"
+          danger
+          busy={busy}
+          onConfirm={() => void submit(confirming)}
+          onCancel={() => { setConfirming(null); }}
+        >
+          <p className="m-0">
+            Any machine that can reach this address can use the forward to reach {confirming.target.namespace}/{confirming.target.pod} port {confirming.target.port}. Mooring records this in the audit log.
+          </p>
+        </ConfirmDialog>
       )}
     </form>
   );

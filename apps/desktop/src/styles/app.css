@@ -16,6 +16,7 @@
 @import "./a5-sk.css" layer(components);
 @import "./a5-rdg.css" layer(components);
 @import "./session.css" layer(components);
+@import "./decision.css" layer(components);
 
 @theme {
   /* Harbor names (design review 2026-11) */

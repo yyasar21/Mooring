@@ -1,5 +1,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "@mooring/ui";
+import type { DecisionTone } from "./TrustDialog";
+
+const TONE_ICON = { info: "info", warning: "shield", danger: "alert" } as const;
 
 /** Modal shell: focus moves in on open, Tab is trapped, Escape closes, focus returns on close. */
 export function Modal({
@@ -7,11 +11,14 @@ export function Modal({
   onClose,
   children,
   width = 440,
+  tone,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   width?: number;
+  /** M8: a confirmation gets the decision header (tone icon + title). */
+  tone?: DecisionTone;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -54,12 +61,16 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         onKeyDown={trap}
-        className="pop m-hud fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-y-auto"
-        data-active
+        className="modal fixed left-1/2 top-[14vh] z-50 max-h-[76vh] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-y-auto"
+        data-tone={tone}
         style={{ width }}
       >
-        <h2 className="m-display flex items-center gap-3 border-b border-line px-4 py-3.5 text-[length:var(--fs-l)]">
-          <span aria-hidden className="state-dot" data-state="connected" />
+        <h2 className="modal-title">
+          {tone && (
+            <span className="decision-icon" data-tone={tone} aria-hidden>
+              <Icon name={TONE_ICON[tone]} size={20} />
+            </span>
+          )}
           {title}
         </h2>
         {children}
@@ -72,8 +83,8 @@ export function Modal({
 /** Footer row with the error line on the left and actions on the right. */
 export function DialogFooter({ error, children }: { error: string | null; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 border-t border-line px-4 py-3">
-      <p role="alert" className="min-w-0 flex-1 truncate text-[length:var(--fs-s)] text-danger">
+    <div className="flex items-center gap-2 border-t border-[var(--border)] px-4 py-3">
+      <p role="alert" className="min-w-0 flex-1 truncate text-[length:var(--fs-13)] text-danger">
         {error}
       </p>
       {children}

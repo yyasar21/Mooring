@@ -4,7 +4,7 @@ import { fmtBytes, fmtDate, fmtStamp } from "../../lib/format";
 import { useApp } from "../../stores/app";
 import { useSessions } from "../../stores/sessions";
 import { useUpdate } from "../../stores/update";
-import { Modal } from "../dialogs/Modal";
+import { ConfirmDialog } from "../dialogs/TrustDialog";
 import { PORTABLE_UPDATE_TEXT, PortableLine } from "./PortableLine";
 import { SettingsCard, Toggle } from "./Toggle";
 
@@ -99,20 +99,21 @@ function Available({ info, onInstall, busy }: { info: UpdateInfo; onInstall: () 
 /** The in-UI confirmation (not a native dialog): what restarts and which sessions close. */
 function ConfirmInstall({ version, sessions, onClose, onConfirm }: { version: string; sessions: number; onClose: () => void; onConfirm: () => void }) {
   return (
-    <Modal title={`Install ${version} and restart?`} onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        <p className="m-0">
-          Mooring downloads the update, verifies its signature, replaces itself and restarts.
-          {sessions > 0
-            ? ` ${String(sessions)} open session${sessions === 1 ? "" : "s"} will be closed first; unsaved work in them is lost. Port forwards and web windows end with the restart.`
-            : " No sessions are open."}
-        </p>
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={onConfirm}>{sessions > 0 ? "Close sessions, install and restart" : "Install and restart"}</button>
-        </div>
-      </div>
-    </Modal>
+    <ConfirmDialog
+      title={`Install ${version} and restart?`}
+      tone="info"
+      well={{ label: "Version", value: `Mooring ${version}` }}
+      confirmLabel={sessions > 0 ? "Close sessions, install and restart" : "Install and restart"}
+      onConfirm={onConfirm}
+      onCancel={onClose}
+    >
+      <p className="m-0">
+        Mooring downloads the update, verifies its signature, replaces itself and restarts.
+        {sessions > 0
+          ? ` ${String(sessions)} open session${sessions === 1 ? "" : "s"} will be closed first; unsaved work in them is lost. Port forwards and web windows end with the restart.`
+          : " No sessions are open."}
+      </p>
+    </ConfirmDialog>
   );
 }
 

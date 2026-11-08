@@ -1,0 +1,41 @@
+/* Harbor W2, M8: one pattern for confirmation and trust questions. Solid surface, e3, 8 px
+   radius; a tone icon and the title; a mono well for what must be compared; the safe action
+   first in the footer. */
+
+/* ---------- modal shell (dialogs/Modal.tsx) ---------- */
+.modal { background: var(--surface); color: var(--text); border-radius: var(--r-l); box-shadow: var(--e3); animation: pop-in var(--t-mid) var(--ease); }
+.modal-title {
+  display: flex; align-items: center; gap: var(--s3); margin: 0; padding: var(--s4) var(--s4) var(--s3);
+  font: 600 var(--fs-16)/24px var(--font-sans); color: var(--text); border-bottom: 1px solid var(--border);
+}
+.modal[data-tone] .modal-title { border-bottom: 0; padding-bottom: 0; }
+
+/* ---------- header: icon + title ---------- */
+.decision-head { display: flex; align-items: center; gap: var(--s3); }
+.decision-title { margin: 0; font: 600 var(--fs-16)/24px var(--font-sans); color: var(--text); }
+.decision-icon {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--r-m);
+  background: var(--info-bg); color: var(--info);
+}
+.decision-head[data-tone="warning"] .decision-icon, .decision-icon[data-tone="warning"] { background: var(--warning-bg); color: var(--warning); }
+.decision-head[data-tone="danger"] .decision-icon, .decision-icon[data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
+
+/* ---------- in-session trust dialog ---------- */
+.decision-dialog {
+  display: flex; flex-direction: column; gap: var(--s3); padding: var(--s5);
+  background: var(--surface); color: var(--text); border-radius: var(--r-l); box-shadow: var(--e3);
+  animation: pop-in var(--t-mid) var(--ease);
+}
+.decision-dialog:focus { outline: none; }
+.decision-text { margin: 0; font-size: var(--fs-13); line-height: 20px; color: var(--text-2); }
+.decision-note { margin: 0; font-size: var(--fs-12); line-height: 16px; color: var(--text-2); }
+.decision-body { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s3) var(--s4) var(--s4); font-size: var(--fs-13); line-height: 20px; color: var(--text-2); }
+.decision-form { display: flex; gap: var(--s2); }
+.decision-actions { display: flex; justify-content: flex-end; gap: var(--s2); padding-top: var(--s1); }
+.modal .decision-actions { padding: var(--s3) var(--s4); border-top: 1px solid var(--border); }
+
+/* ---------- the mono well ---------- */
+.fp-well { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s3); border-radius: var(--r-m); background: var(--surface-2); border: 1px solid var(--border); }
+.fp-well-label { font: 500 var(--fs-12)/16px var(--font-sans); color: var(--text-2); }
+.fp-well-value { font: 400 12.5px/20px var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
+.fp-well .cert-fp { color: var(--text); }

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CertificateProblem } from "../../lib/ipc";
 import { useSessions, type PendingPrompt } from "../../stores/sessions";
 import { useTree } from "../../stores/tree";
-import { CertificateDetails, PROBLEM } from "./CertificateDetails";
+import { CertificateDetails, CertificateFingerprint, PROBLEM } from "./CertificateDetails";
+import { DecisionActions, FingerprintWell, TrustDialog } from "../dialogs/TrustDialog";
 
 /**
  * The answers `graphical_task::Gate` accepts: `yes` pins the leaf and reconnects; anything else
@@ -26,7 +27,6 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
   const tab = useSessions((s) => s.tabs.find((t) => t.id === tabId));
   const conn = useTree((s) => s.connections.find((c) => c.id === tab?.connectionId));
   const rejectRef = useRef<HTMLButtonElement>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
   const [checked, setChecked] = useState(false);
   const [sent, setSent] = useState(false);
   const cert = prompt.certificate ?? null;
@@ -45,7 +45,6 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
   useEffect(() => {
     setChecked(false);
     setSent(false);
-    rejectRef.current?.focus();
   }, [prompt.id]);
 
   function send(text: string) {
@@ -54,97 +53,77 @@ export function CertificateTrustDialog({ tabId, prompt }: { tabId: string; promp
     void answer(tabId, text);
   }
 
-  function onKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      send(CERT_ANSWER.reject);
-      return;
-    }
-    if (e.key !== "Tab" || !boxRef.current) return;
-    const items = [...boxRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
-    const first = items[0];
-    const last = items.at(-1);
-    if (!first || !last) return;
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
   return (
-    <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto py-4" style={{ background: "var(--scrim)" }}>
-      <div
-        ref={boxRef}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={headingId}
-        aria-describedby={bodyId}
-        className="pop m-hud cert-dialog w-[560px] max-w-[calc(100%-32px)] p-5"
-        data-tone={hot ? "hot" : undefined}
-        onKeyDown={onKeyDown}
-      >
-        <p aria-hidden className="m-micro mb-2" style={{ color: hot ? "var(--hot)" : "var(--accent)" }}>
-          {hot ? "Untrusted certificate" : "New certificate"}
-        </p>
-        <h2 id={headingId} className="m-display flex items-center gap-2.5 text-[length:var(--fs-l)]">
-          <span aria-hidden className={hot ? "tab-attn" : undefined} />
-          {gateway ? "RD Gateway certificate" : "Verify server certificate"}
-        </h2>
-        <p className="cert-target mono mt-2">
-          <span className="chip">{gateway ? "RD Gateway" : protocol.toUpperCase()}</span>
-          <span className="select-text">{target}</span>
-        </p>
-        <p id={bodyId} className="mt-3 text-[length:var(--fs-s)] text-text-muted">
-          {gateway && `Before it reaches ${conn?.name ?? "the computer"}, Mooring connects through this RD Gateway. `}
-          Mooring has no stored certificate for this {who}{hot ? ", and no trusted authority vouches for this one" : ""}. Compare
-          the SHA-256 fingerprint with one you got from the server owner before you trust it.
-        </p>
+    <TrustDialog
+      headingId={headingId}
+      bodyId={bodyId}
+      tone={hot ? "danger" : "warning"}
+      icon="certificate"
+      title={gateway ? "RD Gateway certificate" : "Verify server certificate"}
+      safeRef={rejectRef}
+      focusKey={prompt.id}
+      onReject={() => { send(CERT_ANSWER.reject); }}
+      width={560}
+      className="cert-dialog"
+    >
+      <p className="cert-target mono">
+        <span className="badge">{gateway ? "RD Gateway" : protocol.toUpperCase()}</span>
+        <span className="select-text">{target}</span>
+      </p>
+      <p id={bodyId} className="decision-text">
+        {gateway && `Before it reaches ${conn?.name ?? "the computer"}, Mooring connects through this RD Gateway. `}
+        Mooring has no stored certificate for this {who}{hot ? ", and no trusted authority vouches for this one" : ""}. Compare
+        the SHA-256 fingerprint with one you got from the server owner before you trust it.
+      </p>
 
-        {problems.length > 0 && (
-          <ul className="cert-problems mt-3" aria-label="Problems">
-            {problems.map((p) => (
-              <li key={p}>
-                <span className="chip" data-tone="hot">{PROBLEM[p].label}</span>
-                <span>{PROBLEM[p].detail}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+      {problems.length > 0 && (
+        <ul className="cert-problems" aria-label="Problems">
+          {problems.map((p) => (
+            <li key={p}>
+              <span className="chip" data-tone="danger">{PROBLEM[p].label}</span>
+              <span>{PROBLEM[p].detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
-        {cert ? <CertificateDetails cert={cert} /> : <p className="field-hint field-problem mt-3">The server sent no certificate details.</p>}
+      {cert ? (
+        <>
+          <FingerprintWell label="SHA-256 fingerprint"><CertificateFingerprint cert={cert} /></FingerprintWell>
+          <CertificateDetails cert={cert} fingerprint={false} />
+        </>
+      ) : (
+        <p className="field-hint field-problem">The server sent no certificate details.</p>
+      )}
 
-        <p className="mt-3 text-[length:var(--fs-xs)] text-text-muted">
-          Trust and remember stores this fingerprint for {target} and connects again.{gateway && " Trust once uses it for this connection only and stores nothing."}{" "}
-          If the certificate changes later, the connection stops until you remove the stored one in Settings → Trust.
-        </p>
-        {serious && (
-          <label className="cert-ack mt-3">
-            <input type="checkbox" checked={checked} onChange={(e) => { setChecked(e.target.checked); }} />
-            <span>I compared the fingerprint with the server owner and still want to trust this certificate.</span>
-          </label>
-        )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button ref={rejectRef} type="button" className="btn" disabled={sent} onClick={() => { send(CERT_ANSWER.reject); }}>
-            Reject
+      <p className="decision-note">
+        Trust and remember stores this fingerprint for {target} and connects again.{gateway && " Trust once uses it for this connection only and stores nothing."}{" "}
+        If the certificate changes later, the connection stops until you remove the stored one in Settings → Trust.
+      </p>
+      {serious && (
+        <label className="cert-ack">
+          <input type="checkbox" checked={checked} onChange={(e) => { setChecked(e.target.checked); }} />
+          <span>I compared the fingerprint with the server owner and still want to trust this certificate.</span>
+        </label>
+      )}
+      <DecisionActions>
+        <button ref={rejectRef} type="button" className="btn" disabled={sent} onClick={() => { send(CERT_ANSWER.reject); }}>
+          Reject
+        </button>
+        {gateway && (
+          <button type="button" className="btn" disabled={sent || !cert || (serious && !checked)} onClick={() => { send(CERT_ANSWER.once); }}>
+            Trust once
           </button>
-          {gateway && (
-            <button type="button" className="btn" disabled={sent || !cert || (serious && !checked)} onClick={() => { send(CERT_ANSWER.once); }}>
-              Trust once
-            </button>
-          )}
-          <button
-            type="button"
-            className={hot ? "btn btn-danger" : "btn btn-primary"}
-            disabled={sent || !cert || (serious && !checked)}
-            onClick={() => { send(CERT_ANSWER.trust); }}
-          >
-            Trust and remember
-          </button>
-        </div>
-      </div>
-    </div>
+        )}
+        <button
+          type="button"
+          className={hot ? "btn btn-danger" : "btn btn-primary"}
+          disabled={sent || !cert || (serious && !checked)}
+          onClick={() => { send(CERT_ANSWER.trust); }}
+        >
+          Trust and remember
+        </button>
+      </DecisionActions>
+    </TrustDialog>
   );
 }

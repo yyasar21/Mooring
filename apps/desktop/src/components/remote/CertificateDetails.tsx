@@ -42,7 +42,7 @@ function shortDate(iso: string): string {
  * The leaf of a `certificate_trust` prompt. Subject, issuer and names are server-controlled text,
  * shown as plain text only; the decision itself never depends on them.
  */
-export function CertificateDetails({ cert, now = Date.now() }: { cert: CertificateInfo; now?: number }) {
+export function CertificateDetails({ cert, now = Date.now(), fingerprint = true }: { cert: CertificateInfo; now?: number; fingerprint?: boolean }) {
   const validity = validityAt(cert, now);
   const groups = fingerprintGroups(cert.sha256);
   return (
@@ -72,10 +72,21 @@ export function CertificateDetails({ cert, now = Date.now() }: { cert: Certifica
           </dd>
         </>
       )}
-      <dt>SHA-256</dt>
-      <dd className="cert-fp" aria-label={`SHA-256 fingerprint ${formatFingerprint(cert.sha256)}`}>
-        {groups.length === 0 ? "(missing)" : groups.map((g, i) => <span key={i}>{g}</span>)}
-      </dd>
+      {fingerprint && (
+        <>
+          <dt>SHA-256</dt>
+          <dd><CertificateFingerprint cert={cert} groups={groups} /></dd>
+        </>
+      )}
     </dl>
+  );
+}
+
+/** The SHA-256 fingerprint in groups of four bytes; its accessible name reads it out in full. */
+export function CertificateFingerprint({ cert, groups = fingerprintGroups(cert.sha256) }: { cert: Pick<CertificateInfo, "sha256">; groups?: string[] }) {
+  return (
+    <span className="cert-fp" aria-label={`SHA-256 fingerprint ${formatFingerprint(cert.sha256)}`}>
+      {groups.length === 0 ? "(missing)" : groups.map((g, i) => <span key={i}>{g}</span>)}
+    </span>
   );
 }

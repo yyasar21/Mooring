@@ -55,7 +55,7 @@ describe("certificate trust dialog", () => {
     expect(dialog).toHaveTextContent("192.0.2.10");
     expect(dialog).toHaveTextContent("same as subject");
     expect(within(dialog).getByRole("list", { name: "Problems" })).toHaveTextContent(/Self-signed.*signs itself/);
-    expect(dialog).toHaveAttribute("data-tone", "hot");
+    expect(dialog).toHaveAttribute("data-tone", "danger");
     expect(screen.getByLabelText(/^SHA-256 fingerprint A1:B2:C3/)).toHaveTextContent("A1:B2:C3:D4E5:F6:07:18");
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Reject" }));
     expect(within(dialog).queryByRole("button", { name: /once/i })).toBeNull();
