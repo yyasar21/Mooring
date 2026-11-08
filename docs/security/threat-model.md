@@ -1,7 +1,10 @@
-# Threat model — Mooring (v1, Phases A1–A4, 0.1.1)
+# Threat model — Mooring (v1, Phases A1–A5, 0.2.0)
 
 Owner: security-reviewer. Updated at every phase exit and whenever the attack surface changes.
-Last change: 0.1.1 (ADR-0021): portable mode (marker-resolved data root, Windows ACL, portable
+Last change: A5 / 0.2.0 (ADR-0022..0028, ADR-0018 A1–A2): jump hosts, biometric unlock, backup
+export/import, dynamic secrets, 1Password Connect, Bitwarden `bws`, FIDO2 keys, RD Gateway,
+smart cards, build identity and Move to Applications, platform signing jobs and winget. See
+review [a5-review-9.md](a5-review-9.md). Before that: 0.1.1 (ADR-0021): portable mode (marker-resolved data root, Windows ACL, portable
 zips). See review [a4-1-review-8.md](a4-1-review-8.md). Before that: A4 (ADR-0018..0020): the
 v0.1.0 release pipeline and the in-app updater, the file
 importers and the LDAPS directory importer, and the OS network tools. See review
@@ -54,6 +57,47 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | T5 | Compromised WebView (XSS, malicious remote page in A2) | Runs JS inside the app, calls any exposed IPC command |
 | T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
 | T7 | Sync storage operator (S3 provider, bucket admin, anyone with the bucket keys) (A3) | Reads, replays, withholds, deletes or replaces any object, serves an old generation, logs request URLs; cannot forge MSY1 without the DEK |
+| T8 | Compromised jump host or RD Gateway (A5) | Sees and alters the plaintext of protocols it relays when they carry no end-to-end protection (VNC `none`, HTTP in a web-via window), sees target names and timing, can drop or delay; cannot pass the target's own SSH / TLS / NLA pin. A gateway terminating TLS also receives the gateway sign-in (NTLM, or Basic when allowed) |
+
+## Trust boundaries added in A5 (ADR-0022..0028, ADR-0018 A1–A2) — review 9
+
+- **T-BIO, App → OS biometric store.** macOS: `WrapKey` in a data-protection keychain item
+  (`BiometryCurrentSet`, `WhenUnlockedThisDeviceOnly`), Developer-ID builds only. Windows:
+  `WrapKey = HKDF(Hello signature over a fixed per-vault challenge)`, key in the TPM/KSP. Linux:
+  not offered. No process reads the key without a gesture. **R-BIO-PROMPT** (accepted,
+  opt-in): a T2 process can *trigger* the OS prompt (on Windows, an unpackaged app's
+  `KeyCredentialManager` key is reachable by any same-user process) and a user who approves it
+  hands over a wrap key that stays valid until re-enrolment (the challenge is fixed).
+  3 failures in 10 min, password change, biometry change and vault rotation suspend and delete
+  the OS item.
+- **Jump hosts (T8).** Each hop: own TOFU, own credential, own keepalive; failures end before
+  the target is contacted. No listener for SSH / SFTP / RDP / VNC / kube. **R-WEB-VIA**
+  (accepted with review 9 L-47 / L-48): a web window behind hops uses an unauthenticated SOCKS5
+  port on `127.0.0.1` for its lifetime; any local process can use it; the engine bypasses it for
+  loopback and (WebView2) WebRTC UDP. macOS refuses web-via in this build.
+- **RD Gateway (T3, T8).** Own MS-TSGU WebSocket transport, bounded parsers with fuzz targets,
+  `known_rdg_certs` TOFU with mismatch hard stop. NTLM without channel binding until review 9
+  M-19 lands (relay by a first-contact impostor; EPA gateways refuse); Basic only per
+  connection, audited. Kerberos unsupported.
+- **External tools (R-SEC-CLI, R-SK-HELPER).** `bws` (fixed paths, cleared env, token in the
+  child env only, own TLS without our pins, change detection per process — review 9 L-50);
+  `ssh-sk-helper` off by default. A T2 writer of the tool path receives the token: same class as
+  T2 everywhere else.
+- **Agents (R-PIV-AGENT).** FIDO2 and PIV signing go through the user's ssh-agent; Mooring
+  verifies every signature against the pinned key and the FIDO2 UP flag. A PIN-unlocked card
+  stays loaded in the agent until review 9 L-49 adds a lifetime; any same-user process can use
+  the agent socket (as with OpenSSH).
+- **Backups (T1, T4).** `age` v2 documents: caps before reading, scrypt ceiling, header floor
+  before any KDF, whole-file refusal. **R-IMPORT-TRUST**: importing a file is trusting it;
+  `merge` unions trust stores (review 9 L-52 narrows that to hosts not pinned locally).
+- **Dynamic secrets.** Leases in memory only, renewed at 2/3 TTL, revoked on close / lock /
+  exit with the issuing token; a crash leaves them to Vault's TTL.
+- **Install hygiene (ADR-0028).** Dev and release identities never share a data dir, updater
+  or identifier; Move to Applications uses fixed-path tools, never elevates, never strips
+  quarantine. Writers of `/Applications` (admin = the user) can race the swap: no privilege
+  boundary is crossed.
+- **Release (T6).** Platform signing only in `environment: release` jobs; `build` holds no
+  platform secret; winget submission token: review 9 L-54.
 
 ## Trust boundaries added in 0.1.1 (ADR-0021, portable mode) — T-PORT
 
