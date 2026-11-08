@@ -48,12 +48,14 @@ an accepted risk (R-INV in the threat model); protect your device with full-disk
 
 ## Locking
 
-The vault locks when you select **Lock** or press `Ctrl+Shift+L` (`⌘⇧L`). Automatic locking on
-idle time, screen lock and sleep is designed (default: 15 minutes idle) and is being wired to
-the operating system signals. When the vault locks:
+The vault locks when you select **Lock** or press `Ctrl+Shift+L` (`⌘⇧L`), and automatically
+after the idle time you set (Settings → Auto-lock), on screen lock, on sleep and, if you choose,
+when the window is hidden. When the vault locks:
 
 - the data key is removed from memory;
 - a password you copied is cleared from the clipboard;
+- port forwards that listen beyond loopback are closed, and secret-manager tokens and leases
+  are revoked;
 - open sessions continue; new sessions, credential changes and the audit view need an unlock.
 
 ## Clipboard
@@ -83,14 +85,30 @@ typing nothing at all and letting Mooring log in for you.
 
 ## Backups
 
-An `age`-compatible encrypted export, readable with the standard `age` tool and a separate
-export passphrase, is implemented in the vault library and will be exposed in the app. Until
-then, back up the application data directory (vault header, `mooring.db`) as a whole while
-Mooring is closed.
+**Settings → Backup** exports the vault to an `age`-encrypted file protected by a separate
+backup passphrase, and imports such a file with a merge or a full replace. See
+[Backup and restore](backup-and-restore.md).
 
 ## Biometric unlock
 
-"Unlock with Touch ID / Windows Hello" is planned as an opt-in convenience. It will never
-replace the master password for creating the vault, changing the password or exporting. It
-is held back until each platform can protect the stored key with a biometric or user-presence
-check; on Linux it will stay off by default.
+**Settings → Security → Unlock with Touch ID / Windows Hello** lets you unlock with a
+fingerprint, face or device PIN instead of typing the master password. It is off until you
+turn it on, and turning it on or off asks for the master password. The decision record is
+[ADR-0022](../adr/0022-biometric-unlock.md).
+
+- The key that unlocks the vault is held by the operating system behind a **fresh biometric
+  check** (macOS keychain with "current biometry set"; on Windows it is derived from a Windows
+  Hello signature). No process, Mooring included, can read it without your gesture.
+- The unlock screen shows **Unlock with Touch ID** or **Unlock with Windows Hello** only when it
+  is enabled; Mooring never starts the prompt by itself.
+- It is **turned off automatically** after three failed or cancelled attempts within 10
+  minutes, when you change the master password, when the enrolled fingers or faces change, and
+  when the vault is replaced by another vault. After the next password unlock Mooring tells you
+  why; turn it on again in Settings → Security.
+- The master password is still needed to create the vault, change the password, export a
+  backup and turn biometric unlock on or off.
+- **macOS:** Touch ID needs a Developer-ID-signed build of Mooring. Builds without that
+  signature say "Touch ID needs a signed build" and keep the switch off.
+- **Windows:** Windows Hello needs to be set up in Windows settings.
+- **Linux:** not offered, because Linux has no biometric access control for stored keys.
+- It cannot be turned on while vault sync is configured.

@@ -10,14 +10,34 @@ has the per-OS install steps and the verification commands.
 | OS | Recommended | Alternatives |
 | --- | --- | --- |
 | macOS 11 or later | `brew install --cask yyasar21/mooring/mooring` | `.dmg` or `.pkg` (universal) |
-| Windows 10/11 | `.exe` installer | `.msi`; winget after v0.1.0 |
+| Windows 10/11 | `.exe` installer | `.msi`; [winget](#windows-winget) once listed |
 | Debian, Ubuntu | `.deb` | AppImage |
 | Fedora, RHEL | `.rpm` | AppImage |
 
+### Windows: winget
+
+From 0.2.0 every stable release comes with validated winget manifests for the package
+`yyasar21.Mooring`. They are submitted to the community repository (`winget-pkgs`) only once
+the Windows installers are Authenticode-signed, so check whether the package is listed before
+you rely on it:
+
+```powershell
+winget search yyasar21.Mooring
+winget install --id yyasar21.Mooring --scope user      # per-user installer (.exe)
+winget install --id yyasar21.Mooring --scope machine   # per-machine MSI (needs admin)
+winget upgrade yyasar21.Mooring
+```
+
+Mooring is prepared to recognise a winget install and then show "Installed with winget — update
+with winget upgrade yyasar21.Mooring" in Settings → Updates instead of installing in-app. The
+installer change that marks such an install is not in 0.2.0 yet, so for now a winget install
+behaves like the matching `.exe` or `.msi` install (see
+[Updates](updates.md#in-app-or-manual-per-install)).
+
 ### Installing an unsigned build
 
-v0.1.0 ships without an Apple Developer ID or a Windows code-signing certificate: macOS builds
-are ad-hoc signed and not notarized, Windows builds are unsigned. Gatekeeper and SmartScreen
+v0.1.x and 0.2.0 ship without an Apple Developer ID or a Windows code-signing certificate:
+macOS builds are ad-hoc signed and not notarized, Windows builds are unsigned. Gatekeeper and SmartScreen
 will therefore warn. Treat the warning as a prompt to **verify the download first**, then
 override it:
 
@@ -40,6 +60,15 @@ cd Mooring
 make setup
 make dev
 ```
+
+### macOS: Move to Applications
+
+When you start a release of Mooring straight from the disk image or from your Downloads folder,
+it offers to **move itself to Applications** (or to `~/Applications` if you cannot write to
+`/Applications`), restarts from there and ejects the disk image. **Not now** remembers your
+answer for this version. Mooring never asks for an administrator password and never removes
+the quarantine flag. Builds you make yourself are called **Mooring Dev**, keep their own data
+and never offer this.
 
 ### Portable build (no installer, no admin)
 
@@ -102,21 +131,29 @@ stays available under Settings → **Import**.
 
 ## 3. Build your tree
 
-The left pane is the **connection tree**. *All connections* is the root folder.
+The **navigation rail** on the far left switches between **Hosts**, **Credentials**, **Audit**
+and **Settings** (`mod 1` to `mod 4`). In Hosts, the **Connections** pane shows your tree;
+*All connections* is the root folder.
 
-- **New folder**: folder icon above the tree. Folders nest without limit.
-- **New connection**: plus icon above the tree. Pick the protocol, host, port, folder,
-  credential and tags.
+- **New folder**: the folder icon next to **New**. Folders nest without limit.
+- **New connection**: **New**. Pick the protocol, then fill in name, host, port, folder,
+  sign-in and tags; the dialog's section list jumps between General, Sign-in, Gateway and the
+  protocol's options, and marks sections with errors. **Create and connect** saves and opens
+  the session.
 - **Rename**: select a row and press `F2`.
 - **Move**: drag a row onto a folder.
 
 ## 4. Add a credential
 
-Select the key icon above the tree to open **Credentials**, then add one:
+Select **Credentials** in the rail, then **New credential** and a kind, for example:
 
-- **Password** — username and password.
+- **Username and password**.
 - **SSH key** — username, private key (OpenSSH format) and optional passphrase.
-- **Certificate** — certificate and private key (stored for later protocols).
+- **SSH security key (FIDO2)** or **Smart card / PIV** — see
+  [Security keys and smart cards](security-keys-and-smart-cards.md).
+
+The editor opens as a side sheet. After saving, the credential's detail page shows what it is,
+which connections use it (**Used by**) and its **Audit** entries.
 
 Secrets are write-only: after saving, Mooring never displays them again. You can replace them.
 
@@ -125,8 +162,11 @@ or to a single **connection**. See [Connections and credentials](connections-and
 
 ## 5. Connect
 
-1. Press `Ctrl+K` (`⌘K` on macOS) and type part of the name, host or a tag.
-2. Press `Enter` to open the connection in a tab, `Ctrl+Enter` / `⌘Enter` for a new tab.
+1. Select a connection in the tree: the middle pane shows a **ready to connect** page with its
+   host, folder, sign-in and route. Press **Connect**. Or:
+2. Press `Ctrl+K` (`⌘K` on macOS), type part of the name, host or a tag and press `Enter`
+   (`Ctrl+Enter` / `⌘Enter` for a new tab). The palette also lists recent connections, actions
+   and settings pages.
 3. The first time you connect to a host, Mooring shows its key fingerprint. Compare it with
    the fingerprint your administrator gave you, for example from
    `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server, then select
@@ -134,7 +174,7 @@ or to a single **connection**. See [Connections and credentials](connections-and
 
 ## 6. Lock
 
-Select **Lock** in the top bar or press `Ctrl+Shift+L` (`⌘⇧L`). Locking:
+Select **Lock** in the title bar or press `Ctrl+Shift+L` (`⌘⇧L`). Locking:
 
 - removes the decryption key from memory,
 - clears a password you copied to the clipboard,

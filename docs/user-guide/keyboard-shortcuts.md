@@ -12,8 +12,9 @@ and Linux.
 | `Ctrl Tab` / `Ctrl Shift Tab` | Next / previous tab |
 | `mod I` | Show or hide the details pane (inspector) |
 | `mod Shift L` | Lock the vault |
+| `mod 1` … `mod 4` | Hosts, Credentials, Audit, Settings (the navigation rail) |
 | `mod Shift Y` | Open the audit log |
-| `mod Shift D` | Detach tab to a window (planned for Phase A2) |
+| `mod Shift D` | Detach the tab to its own window |
 
 **Inside a terminal on Windows and Linux**, `Ctrl+K`, `Ctrl+W` and `Ctrl+I` belong to the
 remote shell (kill line, delete word, tab completion). There, use `Ctrl+Shift+K`,

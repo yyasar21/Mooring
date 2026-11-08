@@ -10,8 +10,10 @@ crypto backend. The specification is [ADR-0007](../adr/0007-ssh-trust-and-algori
 - Keepalive every 30 seconds; after three missed replies the session is reported as lost.
 - Clicking hyperlinks printed by the server (OSC 8) does nothing on purpose: a server cannot
   make Mooring open a web page or navigate the app.
-- Several sessions run side by side in tabs. Detaching a tab into its own window is planned
-  for Phase A2.
+- Several sessions run side by side in tabs; `mod Shift D` detaches a tab into its own window.
+- The session header shows the folder, the host, a status pill with the time connected, the
+  **Terminal / Forwards / Files** switch (Forwards shows the number of open forwards) and
+  **Disconnect**, which closes the session but keeps the tab for **Reconnect**.
 
 ## Host-key verification (TOFU)
 
@@ -63,7 +65,12 @@ Notes:
 - **Agent forwarding is never requested**, and channels the server tries to open towards
   Mooring (X11, agent, sessions, forwarded sockets) are refused.
 - Ed25519 keys are recommended. RSA keys work with `rsa-sha2-256/512` signatures.
-- FIDO2 security-key (`sk-*`) keys are not supported yet.
+- FIDO2 security keys (`sk-*`) and PIV smart cards sign through ssh-agent with their own
+  credential kinds; see [Security keys and smart cards](security-keys-and-smart-cards.md).
+- SSH certificates: an SSH key credential can carry an OpenSSH certificate, certificates held by
+  your agent are used for every key type, and a Vault SSH CA can sign your key at connect time
+  (see [External secrets](external-secrets.md#dynamic-vault-engines)).
+- To reach a host through a bastion, see [Jump hosts](jump-hosts.md).
 
 ## Algorithms
 
@@ -80,7 +87,7 @@ negotiate; a per-connection, audited legacy option is planned for Phase A2.
 
 ## Port forwarding
 
-*Implemented in the SSH core; the interface to start forwards from the app is in progress.*
+Open the **Forwards** view of an SSH session and choose **New forward**.
 
 | Kind | Equivalent | Notes |
 | --- | --- | --- |
@@ -100,7 +107,8 @@ Safety defaults:
 
 ## SFTP
 
-*Implemented in the SSH core; the file panel is in progress.*
+Open the **Files** view of an SSH session. The remote listing is a sortable table; local files
+are always picked in the system dialog, never by the interface.
 
 - Browse, create folders, rename and delete (directories only when empty; never recursive).
 - Upload and download with progress, streamed in blocks — large files are never loaded into

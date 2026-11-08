@@ -8,6 +8,114 @@ minor version may contain breaking changes; they are called out under **Changed*
 
 ## [Unreleased]
 
+Planned as **0.2.0** (Phase A5: unlock factors, hardware keys, jump hosts, dynamic secrets,
+RD Gateway, and the "Harbor" interface). The tag waits for the per-OS manual gates listed in
+the [roadmap](docs/roadmap.md).
+
+### Added
+
+- **Jump hosts.** A connection can go through up to three SSH jump hosts ("Connect via" in the
+  connection dialog). Works for SSH, SFTP, port forwards, RDP, VNC and Kubernetes. Each hop has
+  its own host-key check and its own credential, the tree shows "via bastion01", and a chip
+  per hop shows its progress. Nothing listens on your machine for these chains; a hop that
+  fails stops the session before the target is contacted
+  ([ADR-0025](docs/adr/0025-jump-hosts.md), [guide](docs/user-guide/jump-hosts.md)).
+- **Web sessions through jump hosts** on Windows and Linux: the web window uses a loopback
+  SOCKS proxy on the last hop, limited to the start page's host and the connection's allowed
+  origins. Not available on macOS in this release (opening is refused, never bypassed).
+- **Unlock with Touch ID or Windows Hello** (opt-in, Settings → Security). The OS keeps the
+  unlock key behind a fresh biometric check; it is turned off automatically after three failed
+  attempts, a master-password change, a change of enrolled fingers or faces, or a vault
+  replacement. Touch ID needs a Developer-ID-signed build; Linux is not offered
+  ([ADR-0022](docs/adr/0022-biometric-unlock.md)).
+- **Backup export and import** (Settings → Backup): an `age`-encrypted backup of folders,
+  connections, credentials and trusted keys, protected by a separate passphrase. Import shows
+  what the file holds first, then **merges** (both copies kept when an item changed on both
+  sides) or **replaces** after you type `REPLACE`; backups of another vault need that vault's
+  master password ([ADR-0023](docs/adr/0023-vault-export-import-ui.md),
+  [guide](docs/user-guide/backup-and-restore.md)).
+- **Dynamic Vault secrets**: Secret manager references can use the Vault `database`,
+  `ssh` (sign and OTP) and `pki` engines. Leases are renewed while the session is open and
+  revoked when it closes or the vault locks; a session tab shows the lease state. An SSH
+  connection can have its key signed by a Vault SSH CA at connect time ("Certificate (Vault SSH
+  CA)") ([ADR-0026](docs/adr/0026-dynamic-secrets-1password-bitwarden.md)).
+- **1Password Connect and Bitwarden Secrets Manager** as secret sources, next to HashiCorp
+  Vault and OpenBao. 1Password is read through your Connect server (`op://vault/item/field`);
+  Bitwarden through the `bws` CLI from a fixed location, with a cleared environment and its
+  checksum pinned ([guide](docs/user-guide/external-secrets.md)).
+- **SSH security keys (FIDO2)**: a new credential kind for `sk-ssh-ed25519` and
+  `sk-ecdsa-sha2-nistp256` keys, signed through your ssh-agent. Mooring shows "Touch your
+  security key" with a countdown and never falls back to a password. Existing SSH key
+  credentials that hold a security key are converted after unlock; SSH certificates in the
+  agent now work for every key type ([ADR-0024](docs/adr/0024-fido2-ssh-keys.md),
+  [guide](docs/user-guide/security-keys-and-smart-cards.md)).
+- **Smart cards (PIV) for SSH**: a "Smart card / PIV" credential kind. Mooring asks for the PIN
+  when you connect, hands it to ssh-agent once to load the card for 60 minutes, and never
+  stores it ([ADR-0027](docs/adr/0027-rd-gateway-and-smart-card.md)).
+- **RD Gateway** for RDP: Mooring's own MS-TSGU WebSocket transport, NTLM with channel binding
+  (works with gateways that require Extended Protection), Basic only when you allow it, a
+  separate certificate trust store with a hard stop on change, and "only when the computer is
+  unreachable" mode. An RD Gateway also works behind a jump host chain
+  ([guide](docs/user-guide/rd-gateway.md)).
+- **winget manifests** for `yyasar21.Mooring` are generated and validated for every stable
+  release; submission to `winget-pkgs` starts once Windows builds are Authenticode-signed.
+- **Signing hooks** for notarization (`notarytool`) and Authenticode (Azure Trusted Signing),
+  in their own protected release jobs. They stay switched off until certificates exist.
+- **Mooring Dev and Move to Applications**
+  ([ADR-0028](docs/adr/0028-build-identity-and-macos-install-hygiene.md)): every build that is
+  not an official release is called "Mooring Dev", with its own identifier, data folder,
+  keychain items and a DEV icon, and it never updates itself. A release started
+  from the disk image or Downloads on macOS offers to move itself into Applications and ejects
+  the disk image afterwards. The DMG has a drag-to-Applications layout.
+- **Audit log filters**: filter by text, event type, connection and time, and open any entry in
+  a side panel with local and UTC time, resolved names and the previous hash.
+- Settings → SSH card; Settings → Known certificates lists RD Gateway pins; the import summary
+  reports trust lines that were added or kept.
+
+### Changed
+
+- **New interface ("Harbor").** A calm, corporate look replaces the sci-fi "bridge console":
+  IBM Plex Sans in sentence case, neutral light and dark surfaces, one blue accent, status
+  shown with a colour and a label, and every text pair checked for WCAG AA contrast in both
+  themes. A navigation rail (Hosts, Credentials, Audit, Settings; `mod 1`–`4`), a session
+  header with breadcrumb, status and Disconnect, inspector tabs (Properties, Network, History),
+  a "ready to connect" page, sortable data tables, a credentials list with a detail page and
+  an editor sheet, a connection dialog with section navigation and inline validation, Settings
+  with section navigation and search, and a command palette with recent connections, actions
+  and settings pages. Chakra Petch is no longer shipped.
+- **Kubernetes** tabs, `exec` shells and log streams now call the backend with its actual
+  command names and arguments, so the cluster browser works in installed builds; jump-host
+  prompts are answered in the cluster tab. The pod list refreshes every 15 seconds and on
+  Refresh (there is no live watch).
+- The credential model has 20 kinds (was 17): `ssh_sk_key`, `bitwarden_access_token` and
+  `smart_card` are new. A security key pasted into an "SSH key" credential is refused with a
+  pointer to the new kind.
+- The `keyring` crate and its D-Bus dependencies are removed; a legacy keyring unlock wrap
+  from 0.1.x is dropped on the next password unlock (audited).
+- Release builds no longer carry platform signing secrets in the build job.
+
+### Fixed
+
+- A web window whose tab was closed while it was still opening stayed open without a tab.
+- An unknown web-window event no longer closes the tab.
+
+### Security
+
+- Security review 9 ([docs/security/a5-review-9.md](docs/security/a5-review-9.md)): pass with
+  conditions; the findings below are fixed. RD Gateway NTLM is bound to the gateway's TLS
+  certificate (M-19, RFC 5929 `tls-server-end-point`); the web-via SOCKS proxy refuses targets
+  outside the start host and allowed origins (L-48) and WebView2 keeps WebRTC on the proxy
+  (L-47); smart-card keys are added to ssh-agent with a one-hour lifetime (L-49); the `bws`
+  checksum pin persists across restarts and a changed binary is refused until you test the
+  source again (L-50); backup files are written to a fresh, private temporary file (L-51); an
+  import never adds trust for a host this device already pins (L-52); backup passwords never
+  enter React state (L-53); the update manifest download is capped (L-40); the winget token is
+  only available to the protected release job (L-54); plus N-72..N-75 and N-77.
+- Threat model extended for biometric unlock (T-BIO), jump-host operators (T8), CLI-based
+  secret sources (R-SEC-CLI) and RD Gateway. 66 fuzz targets (12 new: security-key and agent
+  parsers, backup documents, dynamic-secret, 1Password and Bitwarden responses, RD Gateway
+  packets and HTTP heads).
+
 ## [0.1.2] - 2026-11-07
 
 ### Fixed
@@ -99,7 +207,7 @@ are under [0.1.0-rc.1] below; the sections here are per phase.
 - **vSphere inventory sync**: import datacenters, clusters, hosts and VMs into a read-only
   synced folder with scheduled refresh, VM power state and opt-in power actions behind a native
   confirmation, vSphere Client window and opt-in VMRC hand-off
-  ([ADR-0015](docs/adr/0015-vsphere-sync.md)).
+  ([ADR-0015](docs/adr/0015-vsphere-integration.md)).
 - **External secret sources**: HashiCorp Vault / OpenBao KV v2 with token, AppRole or OIDC
   sign-in (isolated sign-in window), `external_ref` credentials resolved at connect time,
   short-lived tokens renewed in memory and revoked on lock, root tokens refused

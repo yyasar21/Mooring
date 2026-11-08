@@ -7,9 +7,9 @@ and up to 50 tags. Names are limited to 120 characters and hosts to 2048. Names,
 tags refuse control characters and invisible or right-to-left override characters, which
 could otherwise disguise one host as another.
 
-Protocols you can store today: SSH, RDP, VNC, web. Only **SSH** sessions open in the current
-version; the others return "sessions are not available in this version" until their phase
-lands (see the [roadmap](../roadmap.md)).
+Protocols: SSH, RDP, VNC, web, Kubernetes and vSphere (vCenter). A connection can reach its
+host through up to three SSH [jump hosts](jump-hosts.md), and an RDP connection through an
+[RD Gateway](rd-gateway.md).
 
 ## Folders and inheritance
 
@@ -40,26 +40,21 @@ The inspector on the right shows which credential a connection uses and where it
 The command palette (`Ctrl+K` / `⌘K`) searches connection names, hosts and tags with a
 full-text index. Type a few letters of any of them.
 
-## Credentials today
+## Credentials
 
-The current version stores three kinds of credential:
-
-| Kind | Fields | Secrets |
-| --- | --- | --- |
-| Password | username | password |
-| SSH key | username | private key, optional passphrase |
-| Certificate | username | certificate, private key |
+Credentials live under **Credentials** in the navigation rail: a sortable table with a filter
+and kind chips, a detail page per credential (Overview, **Used by**, Audit) and an editor that
+opens as a side sheet.
 
 Secrets are write-only in the interface: you can set or replace them, never read them back.
-For password credentials, **Copy password** in the inspector places the password on the
-clipboard for 30 seconds (see [Vault and security](vault-and-security.md#clipboard)).
+**Copy secret** in the details pane places a password on the clipboard for 30 seconds (see
+[Vault and security](vault-and-security.md#clipboard)).
 
-## Typed credentials (planned)
+## Credential kinds
 
-[ADR-0009](../adr/0009-credential-model.md) replaces the three kinds with **15 typed kinds**,
-so Mooring can express domains, agents, tokens and cluster credentials precisely. Existing
-credentials migrate automatically (password → user/password, SSH key → SSH key,
-certificate → X.509).
+[ADR-0009](../adr/0009-credential-model.md) defines typed kinds, so Mooring can express domains,
+agents, tokens and cluster credentials precisely. The 15 original kinds are below; the newer
+ones are listed after the protocol table.
 
 | Kind | What it stores | Typical use |
 | --- | --- | --- |
@@ -76,12 +71,12 @@ certificate → X.509).
 | VNC password | password (up to 8 bytes, the protocol's limit) | VNC |
 | VNC user and password | username; password | Apple Remote Desktop, VeNCrypt |
 | Prompt on connect | optional username and domain; nothing stored | Any protocol where you type the password each time |
-| External reference | provider and reference (HashiCorp Vault/OpenBao, 1Password, Bitwarden) | Secrets that stay in another manager (resolved from Phase A3) |
+| Secret manager reference | provider and reference (HashiCorp Vault/OpenBao, 1Password, Bitwarden) | Secrets that stay in another manager, see [External secrets](external-secrets.md) |
 | Privilege escalation (`sudo`/`su`/`doas`) | method, target user; optional password | Secondary role on SSH |
 
 **One-time passwords**: a TOTP seed can be attached to the interactive kinds (user/password,
 domain user, SSH key, vSphere user). Storing the second factor beside the password means
-"whoever opens the vault has both"; Mooring will warn you when you do it.
+"whoever opens the vault has both".
 
 **Overrides without copying secrets**: a connection can override just the username or
 domain of an inherited credential. One shared domain password can then serve different admin
@@ -91,7 +86,7 @@ accounts per server.
 (`exec`, `auth-provider`) or point to files on disk, because opening such a file would let it
 run code or read files on your machine.
 
-## Which credential works with which protocol (planned)
+## Which credential works with which protocol
 
 ✓ = valid as the main credential · R = valid in a secondary role · — = rejected
 
@@ -118,5 +113,11 @@ Secondary roles are set per connection: **gateway** is the RD Gateway credential
 SSH login. A credential that does not fit the protocol is refused with a clear message, also
 when it is inherited from a folder; the tree marks such connections.
 
-Jump hosts are not a credential: they will be modelled as a separate connection that another
-connection goes *through*.
+Jump hosts are not a credential: a jump host is a separate SSH connection that another
+connection goes *through*, with its own credential. See [Jump hosts](jump-hosts.md).
+
+Newer kinds, not in the table above: **SSH security key (FIDO2)** and **Smart card / PIV** (SSH
+primary only, see [Security keys and smart cards](security-keys-and-smart-cards.md)), **Vault
+AppRole**, **S3 access key** and **Bitwarden access token** (used by secret sources and vault
+sync, not by connections). A Secret manager reference with the Vault SSH sign engine fills the
+SSH **certificate** role.

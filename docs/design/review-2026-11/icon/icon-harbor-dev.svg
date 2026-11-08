@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mooring Dev app icon, Harbor proposal (1024x1024 master): icon-harbor.svg plus the
+     orange DEV ribbon of packaging/icon-dev.svg (ADR-0028). Original artwork for this project
+     (MIT, see LICENSE). Same bollard-and-line silhouette as packaging/icon-mono.svg and the
+     in-app BrandMark, drawn flat in the Harbor accent (#1a5fb4) on a quiet light plate with a
+     hairline edge. No gradients, glows, filters, raster or fonts.
+     Proposal only: src-tauri/icons is unchanged until the owner decides (docs/handoff/a5-docs-refresh.md). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Mooring</title>
+  <defs>
+    <!-- knocks a clear band out of the post where the front half of the loop crosses it -->
+    <mask id="gap">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path d="M322 584 A190 66 0 0 0 702 584" fill="none" stroke="#000" stroke-width="104" stroke-linecap="round"/>
+    </mask>
+    <clipPath id="plate">
+      <rect x="32" y="32" width="960" height="960" rx="224"/>
+    </clipPath>
+  </defs>
+
+  <!-- plate: Harbor surface with a hairline border -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#ffffff"/>
+  <rect x="34" y="34" width="956" height="956" rx="222" fill="none" stroke="#c9ced4" stroke-width="4"/>
+
+  <!-- the line from the quay and the back half of the loop -->
+  <g fill="none" stroke="#1a5fb4" stroke-linecap="round" stroke-width="64">
+    <path d="M330 590 C 262 624, 210 714, 168 812"/>
+    <path d="M322 584 A190 66 0 0 1 702 584"/>
+  </g>
+  <!-- the bollard: cap and post, with the gap for the loop -->
+  <g fill="#1a5fb4" mask="url(#gap)">
+    <path d="M296 380 v-52 a216 112 0 0 1 432 0 v52 a24 24 0 0 1 -24 24 h-384 a24 24 0 0 1 -24 -24 z"/>
+    <path d="M432 394 h160 l8 300 c2 30 18 40 44 44 h8 a22 22 0 0 1 22 22 v22 a22 22 0 0 1 -22 22 h-280 a22 22 0 0 1 -22 -22 v-22 a22 22 0 0 1 22 -22 h8 c26 -4 42 -14 44 -44 z"/>
+  </g>
+  <!-- front half of the loop -->
+  <path d="M322 584 A190 66 0 0 0 702 584" fill="none" stroke="#1a5fb4" stroke-width="64" stroke-linecap="round"/>
+
+  <!-- DEV ribbon: a band at 45 degrees through the top-right corner, clipped to the plate -->
+  <g clip-path="url(#plate)">
+    <g transform="translate(800 224) rotate(45)">
+      <rect x="-460" y="-84" width="920" height="168" fill="#b85a00"/>
+      <rect x="-460" y="-74" width="920" height="148" fill="#ff8a1f"/>
+      <g transform="translate(6 0)" fill="none" stroke="#1a0d00" stroke-width="24"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M-133 -45 h30 a45 45 0 0 1 0 90 h-30 z"/>
+        <path d="M24 -45 h-52 v90 h52 M-28 0 h40"/>
+        <path d="M52 -45 L87 45 L122 -45"/>
+      </g>
+    </g>
+  </g>
+</svg>

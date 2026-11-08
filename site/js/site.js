@@ -115,9 +115,9 @@
     var status = $("#dl-status");
     var tm = $("#tm-release");
     if (!rel) {
-      status.textContent = "No release has been published yet. The first one will be v0.1.0. Until then, build from source with the build guide below.";
-      tm.textContent = "none yet, pre-release";
-      tm.setAttribute("data-tone", "hot");
+      status.textContent = "No release was found on GitHub. Build from source with the build guide below, or check the Releases page later.";
+      tm.textContent = "none found";
+      tm.setAttribute("data-tone", "warn");
       return;
     }
     var label = rel.tag_name + (rel.prerelease ? " (pre-release)" : "");
@@ -134,7 +134,7 @@
       (rel.prerelease ? " This is a pre-release: expect rough edges and keep your current tool alongside it." : "")
     ));
     tm.textContent = label;
-    if (rel.prerelease) tm.setAttribute("data-tone", "hot");
+    if (rel.prerelease) tm.setAttribute("data-tone", "warn");
 
     var assets = rel.assets || [];
     KINDS.forEach(function (k) {
@@ -205,11 +205,17 @@
   var dlg = $("#lightbox");
   var shots = $$("#gallery button");
   var current = 0;
+  var darkQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  // Screenshots follow the visitor's theme, like the thumbnails' <picture> sources.
+  function fullFor(b) {
+    var dark = b.getAttribute("data-full-dark");
+    return dark && darkQuery && darkQuery.matches ? dark : b.getAttribute("data-full");
+  }
   function show(i) {
     current = (i + shots.length) % shots.length;
     var b = shots[current];
     var img = $("img", b);
-    $("#lightbox-img").src = b.getAttribute("data-full");
+    $("#lightbox-img").src = fullFor(b);
     $("#lightbox-img").alt = img.alt;
     $("#lightbox-cap").textContent = b.parentNode.querySelector("p").textContent + " (" + (current + 1) + " of " + shots.length + ")";
   }
@@ -230,7 +236,7 @@
   } else {
     // no <dialog>: open the full image directly
     shots.forEach(function (b) {
-      b.addEventListener("click", function () { window.location.href = b.getAttribute("data-full"); });
+      b.addEventListener("click", function () { window.location.href = fullFor(b); });
     });
   }
 })();

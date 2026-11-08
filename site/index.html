@@ -6,33 +6,32 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Mooring – secure remote access manager for SSH, RDP, VNC, Kubernetes and vSphere</title>
-<meta name="description" content="Mooring is an open source, security-first remote access manager for macOS, Windows and Linux: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes and vSphere in one encrypted vault, with HashiCorp Vault / OpenBao secret references, encrypted vault sync and a hash-chained audit log. Built in Rust and Tauri; v0.1.0 released.">
+<meta name="description" content="Mooring is an open source, security-first remote access manager for macOS, Windows and Linux: SSH with jump hosts, security keys and smart cards, RDP with RD Gateway, VNC, isolated web sessions, read-only Kubernetes and vSphere in one encrypted vault, with Vault, OpenBao, 1Password and Bitwarden secret references and a hash-chained audit log. Built in Rust and Tauri.">
 <link rel="canonical" href="https://yyasar21.github.io/Mooring/">
-<meta name="theme-color" content="#03070a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f2f6f7" media="(prefers-color-scheme: light)">
-<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#1b1c1f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="light dark">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mooring">
 <meta property="og:title" content="Mooring – secure remote access manager">
-<meta property="og:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Encrypted vault, Vault / OpenBao secret references, encrypted sync, tamper-evident audit log, Rust core. v0.1.0 released.">
+<meta property="og:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Jump hosts, RD Gateway, security keys, encrypted vault, external secret managers, tamper-evident audit log, Rust core.">
 <meta property="og:url" content="https://yyasar21.github.io/Mooring/">
 <meta property="og:image" content="https://yyasar21.github.io/Mooring/assets/og.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
-<meta property="og:image:alt" content="Mooring wordmark beside the app window with an SSH session open">
+<meta property="og:image:alt" content="The Mooring mark and wordmark beside the app window with an SSH session and its port forwards open">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Mooring – secure remote access manager">
-<meta name="twitter:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Encrypted vault, Vault / OpenBao secret references, encrypted sync, tamper-evident audit log, Rust core. v0.1.0 released.">
+<meta name="twitter:description" content="Open source remote access manager for SSH, RDP, VNC, web consoles, read-only Kubernetes and vSphere. Jump hosts, RD Gateway, security keys, encrypted vault, external secret managers, tamper-evident audit log, Rust core.">
 <meta name="twitter:image" content="https://yyasar21.github.io/Mooring/assets/og.png">
-<meta name="twitter:image:alt" content="Mooring wordmark beside the app window with an SSH session open">
+<meta name="twitter:image:alt" content="The Mooring mark and wordmark beside the app window with an SSH session and its port forwards open">
 
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="preload" href="fonts/chakra-petch-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="assets/hero.webp" as="image" type="image/webp" fetchpriority="high">
+<link rel="preload" href="fonts/ibm-plex-sans-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/site.css">
 <script src="js/site.js" defer></script>
 <script type="application/ld+json">
@@ -43,11 +42,11 @@
   "applicationCategory": "UtilitiesApplication",
   "applicationSubCategory": "Remote access manager",
   "operatingSystem": "macOS, Windows, Linux",
-  "description": "Open source, security-first remote access manager for SSH, RDP, VNC, isolated web sessions, read-only Kubernetes and vSphere, with an Argon2id + XChaCha20-Poly1305 vault, HashiCorp Vault / OpenBao secret references, encrypted vault sync and a hash-chained audit log.",
+  "description": "Open source, security-first remote access manager for SSH, RDP, VNC, isolated web sessions, read-only Kubernetes and vSphere, with jump hosts, RD Gateway, FIDO2 security keys and smart cards, an Argon2id + XChaCha20-Poly1305 vault, external secret managers and a hash-chained audit log.",
   "url": "https://yyasar21.github.io/Mooring/",
   "downloadUrl": "https://github.com/yyasar21/Mooring/releases",
   "image": "https://yyasar21.github.io/Mooring/assets/og.png",
-  "screenshot": "https://yyasar21.github.io/Mooring/assets/hero.webp",
+  "screenshot": "https://yyasar21.github.io/Mooring/assets/hero-light.webp",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -63,7 +62,12 @@
 <header class="nav" id="top">
   <div class="wrap nav-row">
     <a class="wordmark" href="./" aria-label="Mooring home">
-      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
+        <defs><mask id="mark-gap"><rect width="1024" height="1024" fill="#fff"/><path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="#000" stroke-width="170" stroke-linecap="round"/></mask></defs>
+        <g fill="none" stroke="currentColor" stroke-width="84" stroke-linecap="round"><path d="M330 566 C 262 600, 200 700, 130 830"/><path d="M322 560 A190 66 0 0 1 702 560"/></g>
+        <g fill="currentColor" mask="url(#mark-gap)"><path d="M296 356 v-52 a216 112 0 0 1 432 0 v52 a24 24 0 0 1 -24 24 h-384 a24 24 0 0 1 -24 -24 z"/><path d="M432 370 h160 l8 300 c2 30 18 40 44 44 h8 a22 22 0 0 1 22 22 v22 a22 22 0 0 1 -22 22 h-280 a22 22 0 0 1 -22 -22 v-22 a22 22 0 0 1 22 -22 h8 c26 -4 42 -14 44 -44 z"/></g>
+        <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="currentColor" stroke-width="84" stroke-linecap="round"/>
+      </svg>
       <span>Mooring</span>
     </a>
     <nav aria-label="Primary">
@@ -93,23 +97,23 @@
         <a class="btn btn-primary" id="cta-download" href="#download">Download for your OS</a>
         <a class="btn btn-ghost" href="https://github.com/yyasar21/Mooring">View on GitHub</a>
       </div>
-      <p class="status-note" id="hero-status"><strong>v0.1.0 released.</strong> Phase A is complete: SSH, RDP, VNC, isolated web sessions, read-only Kubernetes, vSphere sync with power and consoles, Vault / OpenBao secret references, encrypted vault sync, importers, network tools and the in-app updater, after seven security reviews. Installers carry Sigstore-signed checksums and build provenance; they are not notarized or Authenticode-signed yet. <a href="#roadmap">What comes next</a>.</p>
+      <p class="status-note" id="hero-status"><strong>Version 0.2.0 is in release.</strong> It adds jump hosts, RD Gateway, FIDO2 security keys and smart cards for SSH, Touch ID and Windows Hello unlock, encrypted backups, dynamic Vault secrets, 1Password and Bitwarden, and a new, calmer interface, after nine security reviews. Installers carry Sigstore-signed checksums and build provenance; they are not notarized or Authenticode-signed yet. <a href="#roadmap">See the roadmap</a>.</p>
     </div>
     <div class="wrap wrap-wide">
-      <figure class="bezel">
+      <figure class="shot-frame">
         <picture>
-          <source media="(prefers-color-scheme: light)" srcset="assets/shots/05-shell-ssh-light.webp">
-          <img src="assets/hero.webp" width="1440" height="860" fetchpriority="high" decoding="async"
-               alt="Mooring with two SSH sessions open: the connection tree on the left, a terminal on web01.example.test in the middle, host details and the linked credential on the right">
+          <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.webp">
+          <img src="assets/hero-light.webp" width="1440" height="900" fetchpriority="high" decoding="async"
+               alt="Mooring with an SSH session to web01.example.test: the navigation rail and connection tree on the left, the session header with two open port forwards in the middle, host details and the linked SSH key credential on the right">
         </picture>
       </figure>
-      <dl class="telemetry" aria-label="Project status">
+      <dl class="facts" aria-label="Project facts">
         <div><dt>Release</dt><dd id="tm-release">checking</dd></div>
         <div><dt>Stars</dt><dd id="tm-stars">checking</dd></div>
         <div><dt>License</dt><dd>MIT</dd></div>
         <div><dt>Platforms</dt><dd>macOS, Windows, Linux</dd></div>
         <div><dt>Core</dt><dd>Rust, <code>forbid(unsafe)</code></dd></div>
-        <div><dt>Reviews</dt><dd><a href="https://github.com/yyasar21/Mooring/tree/main/docs/security">6 published</a></dd></div>
+        <div><dt>Reviews</dt><dd><a href="https://github.com/yyasar21/Mooring/tree/main/docs/security">9 published</a></dd></div>
       </dl>
     </div>
   </section>
@@ -118,33 +122,37 @@
     <div class="wrap split">
       <div class="split-head">
         <h2 id="security-title">Why Mooring</h2>
-        <p>A remote access manager holds the keys to everything you run. Mooring treats that as the design constraint. Each point below works on <code>main</code> today, is backed by a public decision record and has passed <a class="link" href="https://github.com/yyasar21/Mooring/tree/main/docs/security">six published security reviews</a>.</p>
+        <p>A remote access manager holds the keys to everything you run. Mooring treats that as the design constraint. Each point below is backed by a public decision record and has passed <a class="link" href="https://github.com/yyasar21/Mooring/tree/main/docs/security">nine published security reviews</a>.</p>
         <p><a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/security/threat-model.md">Read the threat model</a></p>
       </div>
       <ul class="pillars">
         <li>
           <h3>Argon2id + XChaCha20-Poly1305 vault, sealed field by field</h3>
-          <p>Your master password is stretched with Argon2id, calibrated to about 500 ms on your machine. The derived key wraps a random data key, and every secret field is sealed on its own, bound to its record and field name: a value copied into another row or column fails to decrypt instead of leaking. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0002-vault-cryptography.md">ADR-0002</a></p>
+          <p>Your master password is stretched with Argon2id, calibrated to about 500 ms on your machine. The derived key wraps a random data key, and every secret field is sealed on its own, bound to its record and field name. Optional Touch ID or Windows Hello unlock keeps the key behind a fresh biometric check; encrypted backups use a separate passphrase. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0002-vault-cryptography.md">ADR-0002</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0022-biometric-unlock.md">ADR-0022</a></p>
         </li>
         <li>
-          <h3>Bring your own secret manager (Vault / OpenBao)</h3>
-          <p>Point a credential at HashiCorp Vault or OpenBao KV v2 and Mooring fetches the password, SSH key or kubeconfig at connect time, holds it only for the handshake and never writes it to disk. Sign in with a token, AppRole or OIDC; short-lived tokens are renewed in memory and revoked on lock, root tokens are refused. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/user-guide/external-secrets.md">Setup guide</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0016-external-secrets.md">ADR-0016</a></p>
+          <h3>Bring your own secret manager</h3>
+          <p>Point a credential at HashiCorp Vault, OpenBao, 1Password Connect or Bitwarden Secrets Manager and Mooring fetches the password, key or kubeconfig at connect time, holds it only for the handshake and never writes it to disk. Vault can issue short-lived database credentials and SSH certificates per session; leases are revoked when the session closes or the vault locks. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/user-guide/external-secrets.md">Setup guide</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0026-dynamic-secrets-1password-bitwarden.md">ADR-0026</a></p>
+        </li>
+        <li>
+          <h3>Hardware-backed sign-in</h3>
+          <p>FIDO2 security keys and PIV smart cards sign through your ssh-agent. Mooring asks you to touch the key or enter the card's PIN, verifies the signature before it is sent, never stores the PIN and never falls back to a password. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/user-guide/security-keys-and-smart-cards.md">Guide</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0024-fido2-ssh-keys.md">ADR-0024</a></p>
+        </li>
+        <li>
+          <h3>Trust on first use, with a hard stop on change</h3>
+          <p>SSH offers only modern key exchange, ciphers and MACs: no SHA-1, no CBC, no <code>ssh-rsa</code>, Terrapin strict-kex on. New SSH host keys, RDP and RD Gateway certificates, and every jump host in a chain need your approval with the SHA-256 fingerprint. A changed key or certificate ends the connection, with no "continue anyway". <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0007-ssh-trust-and-algorithms.md">ADR-0007</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0025-jump-hosts.md">ADR-0025</a></p>
         </li>
         <li>
           <h3>Hash-chained audit log</h3>
-          <p>Unlocks, credential use, password copies, host-key and certificate decisions, sessions and power actions go into a SHA-256 chain you can verify in the app and mirror to syslog. A deleted or edited entry breaks the chain visibly.</p>
-        </li>
-        <li class="hot">
-          <h3>Trust on first use, with a hard stop on change</h3>
-          <p>SSH offers only modern key exchange, ciphers and MACs: no SHA-1, no CBC, no <code>ssh-rsa</code>, Terrapin strict-kex on. New SSH host keys and RDP or VNC server certificates need your approval with the SHA-256 fingerprint. A changed key or certificate ends the connection, with no "continue anyway". <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0007-ssh-trust-and-algorithms.md">ADR-0007</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0011-rdp-session.md">ADR-0011</a></p>
+          <p>Unlocks, credential use, password copies, trust decisions, sessions, jump hops, gateway sign-ins and power actions go into a SHA-256 chain you can filter, verify in the app and mirror to syslog. A deleted or edited entry breaks the chain visibly.</p>
         </li>
         <li>
           <h3>Read-only by construction (Kubernetes, vSphere inventory)</h3>
-          <p>The Kubernetes client has a closed route list: list, watch, logs, exec and port-forward are the only requests it can make, so no request that creates, changes or deletes an API object ever leaves your machine. vSphere inventory lands in a read-only synced folder; the only writes are the VM power actions you opt into, each behind a native confirmation. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0014-kubernetes-sessions.md">ADR-0014</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0015-vsphere-integration.md">ADR-0015</a></p>
+          <p>The Kubernetes client has a closed route list: list, logs, exec and port-forward are the only requests it can make, so nothing that creates, changes or deletes an API object leaves your machine. vSphere inventory lands in a read-only synced folder; the only writes are the VM power actions you opt into, each behind a native confirmation. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0014-kubernetes-sessions.md">ADR-0014</a>, <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0015-vsphere-integration.md">ADR-0015</a></p>
         </li>
         <li>
-          <h3>Memory-safe core; secrets never reach the UI</h3>
-          <p>Every crate is built with <code>#![forbid(unsafe_code)]</code>, cryptography comes only from RustCrypto and <code>ring</code>, and parsers for untrusted input are size-capped, property-tested and fuzzed. Keys and decrypted values live in zeroizing memory and are dropped on lock; the interface only ever handles credential IDs, so secrets stay out of the WebView, logs and error messages. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0003-trust-boundaries.md">ADR-0003</a></p>
+          <h3>Memory-safe core; secrets never reach the interface</h3>
+          <p>Every crate is built with <code>#![forbid(unsafe_code)]</code>, cryptography comes only from RustCrypto and <code>ring</code>, and parsers for untrusted input are size-capped, property-tested and fuzzed (66 targets). The interface only handles credential IDs, so secrets stay out of the WebView, logs and error messages. <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0003-trust-boundaries.md">ADR-0003</a></p>
         </li>
         <li>
           <h3>Open source, MIT licensed</h3>
@@ -158,68 +166,64 @@
     <div class="wrap">
       <div class="section-head">
         <h2 id="features-title">Features</h2>
-        <p>Status is taken from the project README and changes as work lands. Everything marked available is on <code>main</code>; nothing marked planned works yet.</p>
+        <p>Status follows the project README. "New in 0.2" marks what version 0.2.0 adds; nothing marked planned works yet.</p>
       </div>
       <div class="filter" role="group" aria-label="Filter features by status">
         <button type="button" aria-pressed="true" data-filter="all">All</button>
-        <button type="button" aria-pressed="false" data-filter="available">Available</button>
-        <button type="button" aria-pressed="false" data-filter="progress">In progress</button>
+        <button type="button" aria-pressed="false" data-filter="new">New in 0.2</button>
+        <button type="button" aria-pressed="false" data-filter="available">Since 0.1</button>
         <button type="button" aria-pressed="false" data-filter="planned">Planned</button>
       </div>
       <div class="feature-groups" id="feature-groups">
         <section class="fgroup" aria-labelledby="fg-vault"><h3 id="fg-vault">Vault</h3><ul>
-          <li data-status="available"><span>Create, unlock, lock and change the master password</span></li>
-          <li data-status="available"><span>Argon2id cost calibrated to the host, parameters authenticated in the header</span></li>
-          <li data-status="available"><span>Auto-lock on idle, sleep, screen lock and hidden window; forwards and tokens dropped on lock</span></li>
-          <li data-status="available"><span>Encrypted sync to S3-compatible storage: three-way merge, fork and rollback hard stops</span></li>
-          <li data-status="available"><span>Join a synced vault from a new device with the same master password</span></li>
-          <li data-status="progress"><span>Unlock with Touch ID or Windows Hello (opt-in)</span></li>
-          <li data-status="progress"><span>Portable backup readable with the <code>age</code> CLI</span></li>
-        </ul></section>
-        <section class="fgroup" aria-labelledby="fg-org"><h3 id="fg-org">Organise</h3><ul>
-          <li data-status="available"><span>Folder tree with drag and drop, tags and full-text search</span></li>
-          <li data-status="available"><span>Credential inheritance down the tree, per-connection override</span></li>
-          <li data-status="available"><span>Command palette: open any connection by name, host or tag</span></li>
-          <li data-status="available"><span>Tabs, three-pane layout, dark and light themes, keyboard-first</span></li>
-          <li data-status="available"><span>Detach any session tab into its own window</span></li>
-          <li data-status="available"><span>Import from Royal TS, Remote Desktop Manager, Termius, mRemoteNG, PuTTY and <code>~/.ssh/config</code> into a dry-run plan</span></li>
-          <li data-status="available"><span>Directory import: Active Directory / OpenLDAP computers over LDAPS, folders mirroring the OU tree</span></li>
+          <li data-status="available"><span>Create, unlock, lock and change the master password; Argon2id cost calibrated to the host</span></li>
+          <li data-status="available"><span>Auto-lock on idle, sleep, screen lock and hidden window; forwards, tokens and leases dropped on lock</span></li>
+          <li data-status="new"><span>Unlock with Touch ID or Windows Hello (opt-in; Touch ID needs a Developer-ID-signed build)</span></li>
+          <li data-status="new"><span>Encrypted backup export and import: <code>age</code> file, separate passphrase, merge or replace</span></li>
+          <li data-status="available"><span>Encrypted sync to S3-compatible storage: three-way merge, fork and rollback hard stops, join flow</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-ssh"><h3 id="fg-ssh">SSH</h3><ul>
-          <li data-status="available"><span>Terminal with WebGL rendering, resize and streaming</span></li>
-          <li data-status="available"><span>Password, public key, keyboard-interactive and ssh-agent auth</span></li>
+          <li data-status="available"><span>Terminal with WebGL; password, public key, keyboard-interactive, ssh-agent and certificates</span></li>
           <li data-status="available"><span>Host-key TOFU, OpenSSH <code>known_hosts</code> compatible, mismatch hard stop</span></li>
-          <li data-status="available"><span>Local, remote and SOCKS5 port forwarding with audited exposure</span></li>
-          <li data-status="available"><span>SFTP browser with streaming transfers; local paths picked in Rust, never by the WebView</span></li>
-          <li data-status="available"><span>Network tools: TCP port check, ping, traceroute and read-only WireGuard status from the inspector</span></li>
-        </ul></section>
-        <section class="fgroup" aria-labelledby="fg-cred"><h3 id="fg-cred">Credentials and audit</h3><ul>
-          <li data-status="available"><span>Typed model with 17 credential kinds, each declaring which protocols accept it</span></li>
-          <li data-status="available"><span>Secret references resolved from HashiCorp Vault / OpenBao at connect time; token, AppRole or OIDC sign-in</span></li>
-          <li data-status="available"><span>Copy password, cleared after 30 s and on lock, audited</span></li>
-          <li data-status="available"><span>Audit log viewer with chain verification</span></li>
-          <li data-status="available"><span>RFC 5424 syslog mirror over UDP, TCP or TLS with chain hash and heartbeat</span></li>
+          <li data-status="available"><span>Local, remote and SOCKS5 port forwarding with audited exposure; SFTP browser</span></li>
+          <li data-status="new"><span>FIDO2 security keys (<code>sk-*</code>) through ssh-agent with a touch prompt</span></li>
+          <li data-status="new"><span>PIV smart cards: PIN asked at connect, never stored</span></li>
+          <li data-status="new"><span>Jump hosts: up to three hops, each with its own trust and credential</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-proto"><h3 id="fg-proto">Desktops and web</h3><ul>
-          <li data-status="available"><span>RDP via IronRDP: NLA/CredSSP, certificate TOFU, dynamic resolution, text clipboard both ways</span></li>
+          <li data-status="available"><span>RDP via IronRDP: NLA/CredSSP, certificate TOFU, dynamic resolution, clipboard</span></li>
+          <li data-status="new"><span>RD Gateway: MS-TSGU over WebSocket, NTLM with channel binding, its own certificate pins</span></li>
           <li data-status="available"><span>VNC: RFB 3.8, Tight/ZRLE, VeNCrypt TLS, view-only mode</span></li>
           <li data-status="available"><span>Isolated web sessions per connection: own window, partitioned storage, navigation policy</span></li>
-          <li data-status="available"><span>Reconnect with backoff, screenshot to clipboard, fullscreen, known-certificates manager</span></li>
+          <li data-status="new"><span>RDP, VNC and (on Windows and Linux) web sessions through jump hosts</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-infra"><h3 id="fg-infra">Infrastructure</h3><ul>
-          <li data-status="available"><span>vSphere: import datacenters, clusters, hosts and VMs into a read-only synced folder with scheduled refresh</span></li>
-          <li data-status="available"><span>vSphere: VM power state, opt-in power actions behind a native confirmation, vSphere Client and VMRC consoles</span></li>
-          <li data-status="available"><span>Kubernetes: contexts from kubeconfig or token, pod browser with live watch, RBAC self-review</span></li>
-          <li data-status="available"><span>Kubernetes: <code>exec</code> shells, log streaming and port-forward on a closed read-only route list</span></li>
+          <li data-status="available"><span>vSphere: inventory sync into a read-only folder, VM power state, opt-in power actions, consoles</span></li>
+          <li data-status="available"><span>Kubernetes: contexts from kubeconfig or token, pods, RBAC self-review, <code>exec</code>, logs, port-forward</span></li>
+          <li data-status="new"><span>Kubernetes through jump hosts</span></li>
+          <li data-status="available"><span>Network tools: TCP port check, ping, traceroute, WireGuard status</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-cred"><h3 id="fg-cred">Credentials and secrets</h3><ul>
+          <li data-status="available"><span>HashiCorp Vault / OpenBao KV v2 at connect time; token, AppRole or OIDC sign-in</span></li>
+          <li data-status="new"><span>Dynamic Vault engines: database, SSH sign and OTP, PKI, with lease renew and revoke</span></li>
+          <li data-status="new"><span>1Password Connect and Bitwarden Secrets Manager</span></li>
+          <li data-status="available"><span>Copy password, cleared after 30 s and on lock, audited</span></li>
+          <li data-status="available"><span>Import from Royal TS, RDM, Termius, mRemoteNG, PuTTY, <code>~/.ssh/config</code> and LDAPS</span></li>
+        </ul></section>
+        <section class="fgroup" aria-labelledby="fg-ui"><h3 id="fg-ui">Interface and audit</h3><ul>
+          <li data-status="new"><span>Navigation rail, session header, inspector tabs and sortable tables; light and dark themes checked for WCAG AA</span></li>
+          <li data-status="new"><span>Command palette with recent connections, actions and settings pages</span></li>
+          <li data-status="new"><span>Audit log filters by text, event, connection and time, with an entry detail panel</span></li>
+          <li data-status="available"><span>Hash-chained audit log with verification; RFC 5424 syslog mirror</span></li>
+          <li data-status="available"><span>Tabs, detach to a window, keyboard-first</span></li>
         </ul></section>
         <section class="fgroup" aria-labelledby="fg-release"><h3 id="fg-release">Release</h3><ul>
-          <li data-status="available"><span>dmg/pkg, exe/msi, deb/rpm/AppImage with cosign-signed <code>SHA256SUMS</code>, SBOM, SLSA provenance and a reproducible-build check</span></li>
-          <li data-status="available"><span>55 fuzz targets for protocol parsers, API responses, import formats and LDAP, run nightly</span></li>
-          <li data-status="planned"><span>Notarized / Authenticode-signed installers (after v0.1.0, once certificates exist)</span></li>
-          <li data-status="available"><span>Portable builds for Windows and macOS: no installer, no admin, all data in <code>Mooring Data/</code> next to the app</span></li>
-          <li data-status="available"><span>In-app updater: update packages signed with the project key and verified before install; never installs by itself</span></li>
+          <li data-status="available"><span>dmg/pkg, exe/msi, deb/rpm/AppImage and portable zips with cosign-signed <code>SHA256SUMS</code>, SBOM and SLSA provenance</span></li>
+          <li data-status="available"><span>In-app updater: packages signed with the project key and verified before install</span></li>
           <li data-status="available"><span>Homebrew tap (<code>brew install --cask yyasar21/mooring/mooring</code>)</span></li>
-          <li data-status="planned"><span>winget</span></li>
+          <li data-status="new"><span>Local builds run as "Mooring Dev" with separate data; macOS "Move to Applications"</span></li>
+          <li data-status="planned"><span>Notarized and Authenticode-signed installers, once certificates exist</span></li>
+          <li data-status="planned"><span>winget listing (manifests are ready; submission waits for signed installers)</span></li>
         </ul></section>
       </div>
     </div>
@@ -229,21 +233,19 @@
     <div class="wrap">
       <div class="section-head">
         <h2 id="shots-title">Screenshots</h2>
-        <p>Taken against the app's mock backend with demo data and <code>example.test</code> hosts. Select one to enlarge.</p>
+        <p>Taken against the app's mock backend with demo data and <code>example.test</code> hosts. They follow your light or dark setting. Select one to enlarge.</p>
       </div>
       <ul class="gallery" id="gallery">
-        <li><button type="button" data-full="assets/shots/11-rdp-cert-trust-dark.webp"><img src="assets/shots/11-rdp-cert-trust-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Verify server certificate dialog for an RDP host: the self-signed certificate is flagged, its SHA-256 fingerprint is shown, with Reject and Trust and remember buttons"></button><p>RDP certificate trust on first use</p></li>
-        <li><button type="button" data-full="assets/shots/12-vnc-view-only-dark.webp"><img src="assets/shots/12-vnc-view-only-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="VNC session tab marked unencrypted and view-only, showing the mock server's colour test pattern, with host and credential details on the right"></button><p>VNC session in view-only mode</p></li>
-        <li><button type="button" data-full="assets/shots/13-web-session-dark.webp"><img src="assets/shots/13-web-session-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Web session tab for an edge-lb console that opened in its own window, with a blocked download and a blocked navigation listed"></button><p>Isolated web session with navigation policy</p></li>
-        <li><button type="button" data-full="assets/shots/14-kube-pods-dark.webp"><img src="assets/shots/14-kube-pods-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Kubernetes pod browser for the stage-cluster context with a read-only banner, namespaces, token permissions, a pod table and exec and logs buttons per container"></button><p>Kubernetes pods, read-only</p></li>
-        <li><button type="button" data-full="assets/shots/15-kube-logs-dark.webp"><img src="assets/shots/15-kube-logs-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Streaming container logs for a payments pod with level and follow controls"></button><p>Kubernetes container logs</p></li>
-        <li><button type="button" data-full="assets/shots/16-vsphere-import-dark.webp"><img src="assets/shots/16-vsphere-import-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Import vCenter inventory wizard on the final step: five objects added into the stage-vcenter folder, with the datacenter tree synced on the left"></button><p>vSphere inventory import</p></li>
-        <li><button type="button" data-full="assets/shots/17-vsphere-vm-power-dark.webp"><img src="assets/shots/17-vsphere-vm-power-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Inspector for a synced virtual machine with the power menu open: shut down guest, reboot guest, power off and reset, two of them marked as able to lose data"></button><p>VM power actions and consoles</p></li>
-        <li><button type="button" data-full="assets/shots/18-secret-sources-dark.webp"><img src="assets/shots/18-secret-sources-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Settings page listing two secret sources, an AppRole Vault and an OIDC Vault, above the vault sync panel with its S3 bucket and schedule"></button><p>Secret sources and vault sync</p></li>
-        <li><button type="button" data-full="assets/shots/19-sync-fork-banner-dark.webp"><img src="assets/shots/19-sync-fork-banner-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Magenta banner across the top of the window: sync fork detected, two devices published generation 2, sync paused until you choose which history to keep"></button><p>Sync fork hard stop</p></li>
-        <li><button type="button" data-full="assets/shots/04-tofu-prompt-dark.webp"><img src="assets/shots/04-tofu-prompt-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Host-key verification dialog showing the SHA-256 fingerprint of an unknown SSH host"></button><p>SSH host-key verification</p></li>
-        <li><button type="button" data-full="assets/shots/03-palette-dark.webp"><img src="assets/shots/03-palette-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Command palette searching connections by name"></button><p>Command palette</p></li>
-        <li><button type="button" data-full="assets/shots/07-audit-dark.webp"><img src="assets/shots/07-audit-dark-720.webp" width="720" height="430" loading="lazy" decoding="async" alt="Audit log view with an intact hash chain"></button><p>Audit log with chain verification</p></li>
+        <li><button type="button" data-full="assets/shots/07-ready-page-light.webp" data-full-dark="assets/shots/07-ready-page-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/07-ready-page-dark-720.webp"><img src="assets/shots/07-ready-page-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="A selected SSH connection, pg-primary, shown as a ready to connect page with its host, folder, sign-in and tags, and Connect and Edit connection buttons"></picture></button><p>Ready to connect</p></li>
+        <li><button type="button" data-full="assets/shots/01-host-key-light.webp" data-full-dark="assets/shots/01-host-key-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/01-host-key-dark-720.webp"><img src="assets/shots/01-host-key-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Verify host identity dialog for an unknown SSH host, with its SHA-256 fingerprint and Reject and disconnect as the first action"></picture></button><p>Host-key verification</p></li>
+        <li><button type="button" data-full="assets/shots/05b-edit-connection-gateway-light.webp" data-full-dark="assets/shots/05b-edit-connection-gateway-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/05b-edit-connection-gateway-dark-720.webp"><img src="assets/shots/05b-edit-connection-gateway-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Edit connection dialog for an RDP host with section navigation, the RD Gateway credential picker and the Connect via jump host picker"></picture></button><p>RD Gateway and jump hosts</p></li>
+        <li><button type="button" data-full="assets/shots/11-smart-card-pin-light.webp" data-full-dark="assets/shots/11-smart-card-pin-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/11-smart-card-pin-dark-720.webp"><img src="assets/shots/11-smart-card-pin-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Smart card PIN dialog over an SSH session, explaining that the PIN is handed to ssh-agent once and never stored"></picture></button><p>Smart card PIN</p></li>
+        <li><button type="button" data-full="assets/shots/12-rdp-session-light.webp" data-full-dark="assets/shots/12-rdp-session-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/12-rdp-session-dark-720.webp"><img src="assets/shots/12-rdp-session-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="RDP session to a demo desktop with the session header, security badge and Disconnect"></picture></button><p>RDP session</p></li>
+        <li><button type="button" data-full="assets/shots/09-kube-pods-grid-light.webp" data-full-dark="assets/shots/09-kube-pods-grid-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/09-kube-pods-grid-dark-720.webp"><img src="assets/shots/09-kube-pods-grid-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Kubernetes cluster browser with a sortable table of pods, their status and exec and logs actions"></picture></button><p>Kubernetes pods, read-only</p></li>
+        <li><button type="button" data-full="assets/shots/10-sftp-files-grid-light.webp" data-full-dark="assets/shots/10-sftp-files-grid-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/10-sftp-files-grid-dark-720.webp"><img src="assets/shots/10-sftp-files-grid-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="SFTP files view of an SSH session with a sortable table of remote files"></picture></button><p>SFTP files</p></li>
+        <li><button type="button" data-full="assets/shots/01-credentials-detail-light.webp" data-full-dark="assets/shots/01-credentials-detail-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/01-credentials-detail-dark-720.webp"><img src="assets/shots/01-credentials-detail-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Credentials table with demo credentials of many kinds and the detail page of one, listing the protocols it signs in to"></picture></button><p>Credentials</p></li>
+        <li><button type="button" data-full="assets/shots/04-audit-filters-drawer-light.webp" data-full-dark="assets/shots/04-audit-filters-drawer-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/04-audit-filters-drawer-dark-720.webp"><img src="assets/shots/04-audit-filters-drawer-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Audit log with filters for text, event, connection and time, and one entry open in a side panel"></picture></button><p>Audit log filters</p></li>
+        <li><button type="button" data-full="assets/shots/06-palette-hub-light.webp" data-full-dark="assets/shots/06-palette-hub-dark.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/shots/06-palette-hub-dark-720.webp"><img src="assets/shots/06-palette-hub-light-720.webp" width="720" height="450" loading="lazy" decoding="async" alt="Command palette with groups for recent connections, connections and actions, each action showing its shortcut"></picture></button><p>Command palette</p></li>
       </ul>
     </div>
     <dialog class="lightbox" id="lightbox" aria-label="Screenshot viewer">
@@ -260,16 +262,16 @@
   <section class="section" id="credentials" aria-labelledby="cred-title">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="cred-title">Seventeen credential kinds, one vault</h2>
-        <p>Every kind in the typed credential model (<a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0009-credential-model.md">ADR-0009</a>) is in the vault today. Each declares which protocols accept it, so a VNC password can never be sent to an SSH server, and each secret field is sealed separately. TOTP attaches to any interactive kind as a second factor.</p>
+        <h2 id="cred-title">Twenty credential kinds, one vault</h2>
+        <p>Every kind in the typed credential model (<a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/adr/0009-credential-model.md">ADR-0009</a>) declares which protocols accept it, so a VNC password can never be sent to an SSH server, and each secret field is sealed separately. TOTP attaches to any interactive kind as a second factor. Highlighted kinds are new in 0.2.</p>
       </div>
       <ul class="kinds" aria-label="Credential kinds">
-        <li data-now>user_password</li><li data-now>domain_user</li><li data-now>ssh_key</li><li data-now>ssh_agent</li><li data-now>x509</li>
-        <li data-now>api_token</li><li data-now>oauth_client</li><li data-now>kubeconfig</li><li data-now>kube_token</li><li data-now>vsphere_user</li>
-        <li data-now>vnc_password</li><li data-now>vnc_user_password</li><li data-now>prompt</li><li data-now>external_ref</li><li data-now>sudo_become</li>
-        <li data-now>vault_approle</li><li data-now>s3_access_key</li>
+        <li>user_password</li><li>domain_user</li><li>ssh_key</li><li>ssh_agent</li><li data-new>ssh_sk_key</li>
+        <li data-new>smart_card</li><li>x509</li><li>api_token</li><li>oauth_client</li><li>kubeconfig</li>
+        <li>kube_token</li><li>vsphere_user</li><li>vnc_password</li><li>vnc_user_password</li><li>prompt</li>
+        <li>external_ref</li><li>sudo_become</li><li>vault_approle</li><li>s3_access_key</li><li data-new>bitwarden_access_token</li>
       </ul>
-      <p class="fine"><code>external_ref</code> points at a secret in HashiCorp Vault or OpenBao; <code>vault_approle</code> signs in to it and <code>s3_access_key</code> unlocks vault sync. Neither the reference nor the fetched secret is ever written to disk.</p>
+      <p class="fine"><code>external_ref</code> points at a secret in HashiCorp Vault, OpenBao, 1Password or Bitwarden; <code>vault_approle</code> and <code>bitwarden_access_token</code> sign in to them and <code>s3_access_key</code> unlocks vault sync. Fetched secrets are never written to disk.</p>
     </div>
   </section>
 
@@ -278,10 +280,10 @@
       <div class="section-head">
         <h2 id="dl-title">Download</h2>
         <p id="dl-status" role="status">Checking GitHub for the latest release.</p>
-        <p class="status-note">Installers are not notarized or Authenticode-signed yet (no certificates): macOS shows the Gatekeeper warning once (right-click → Open), Windows SmartScreen asks once (More info → Run anyway). Verify the cosign signature on <code>SHA256SUMS</code> before you install; <code>scripts/release/verify-release.sh</code> does it end to end.</p>
+        <p class="status-note">Installers are not notarized or Authenticode-signed yet (no certificates): macOS shows the Gatekeeper warning once, Windows SmartScreen asks once (More info, then Run anyway). Verify the cosign signature on <code>SHA256SUMS</code> before you install; <code>scripts/release/verify-release.sh</code> does it end to end.</p>
       </div>
       <div class="platforms">
-        <section class="platform hud" id="os-macos" aria-labelledby="pl-mac">
+        <section class="platform" id="os-macos" aria-labelledby="pl-mac">
           <h3 id="pl-mac">macOS</h3>
           <p class="req">macOS 11 or later, Apple silicon and Intel</p>
           <ul class="assets" data-os="macos">
@@ -292,7 +294,7 @@
           <p class="cmd-label">Homebrew</p>
           <pre class="cmd"><code>brew install --cask yyasar21/mooring/mooring</code></pre>
         </section>
-        <section class="platform hud" id="os-windows" aria-labelledby="pl-win">
+        <section class="platform" id="os-windows" aria-labelledby="pl-win">
           <h3 id="pl-win">Windows</h3>
           <p class="req">Windows 10 1809 or later, x64</p>
           <ul class="assets" data-os="windows">
@@ -300,10 +302,11 @@
             <li data-kind="msi"><span>MSI, per machine</span><code>.msi</code></li>
             <li data-kind="portable-win"><span>Portable, no install, no admin (needs the WebView2 runtime)</span><code>.zip</code></li>
           </ul>
-          <p class="cmd-label">winget</p>
-          <p class="fine">Planned after v0.1.0.</p>
+          <p class="cmd-label">winget, once the package is listed</p>
+          <pre class="cmd"><code>winget install --id yyasar21.Mooring</code></pre>
+          <p class="fine">Manifests are built for every release; submission to winget-pkgs waits for signed installers.</p>
         </section>
-        <section class="platform hud" id="os-linux" aria-labelledby="pl-linux">
+        <section class="platform" id="os-linux" aria-labelledby="pl-linux">
           <h3 id="pl-linux">Linux</h3>
           <p class="req">glibc 2.35+, x86_64 and arm64</p>
           <ul class="assets" data-os="linux">
@@ -313,7 +316,7 @@
           </ul>
         </section>
       </div>
-      <p class="fine">Each release ships <code>SHA256SUMS</code> signed with Sigstore (cosign keyless), SLSA provenance and a CycloneDX SBOM: <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/release.md">how to verify a download</a>. Notarized and Authenticode-signed installers follow after v0.1.0, once the certificates exist; until then verify downloads with cosign and the checksums. Prefer to build it yourself? Follow the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/building.md">build guide</a>.</p>
+      <p class="fine">Each release ships <code>SHA256SUMS</code> signed with Sigstore (cosign keyless), SLSA provenance and a CycloneDX SBOM: <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/release.md">how to verify a download</a>. Prefer to build it yourself? Follow the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/developer-guide/building.md">build guide</a>; local builds run as "Mooring Dev" with their own data.</p>
     </div>
   </section>
 
@@ -334,7 +337,9 @@
             <tr><th scope="row">Linux</th><td class="us">Yes</td><td>No</td><td>Yes</td><td>No</td><td>Yes</td></tr>
             <tr><th scope="row">Mobile</th><td class="us">No</td><td>Yes</td><td>Yes</td><td>No</td><td>Yes</td></tr>
             <tr><th scope="row">SSH</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+            <tr><th scope="row">SSH jump hosts</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>No</td><td>Yes</td></tr>
             <tr><th scope="row">RDP and VNC</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+            <tr><th scope="row">RD Gateway</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
             <tr><th scope="row">vSphere console</th><td class="us">Yes</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
             <tr><th scope="row">Team sharing</th><td class="us">Encrypted multi-device sync (S3)</td><td>Yes</td><td>Yes</td><td>Shared file</td><td>Yes</td></tr>
             <tr><th scope="row">Public source code</th><td class="us">Yes</td><td>No</td><td>No</td><td>Yes</td><td>No</td></tr>
@@ -353,19 +358,17 @@
         <p><a class="link" href="https://github.com/yyasar21/Mooring/blob/main/docs/roadmap.md">Full roadmap</a></p>
       </div>
       <ol class="timeline">
-        <li data-state="done"><h3>A0 <span>Foundation</span></h3><p class="state">Done</p><p>Workspace, Tauri shell with strict CSP, vault cryptography, audit log, CI on three operating systems.</p></li>
-        <li data-state="done"><h3>A1 <span>Vault, connection tree and SSH</span></h3><p class="state">Done, exit 2026-11-04</p><p>Vault with auto-lock, folder tree with inheritance, 15 typed credential kinds, SSH with TOFU, port forwarding and SFTP, audit viewer and syslog mirror. Reviews 1 to 4.</p></li>
-        <li data-state="done"><h3>A2 <span>RDP, VNC and web sessions</span></h3><p class="state">Done, exit 2026-11-04</p><p>IronRDP with NLA and certificate TOFU, an own RFB 3.8 client with VeNCrypt, isolated web sessions, detachable tabs, reconnect and screenshots. Review 5.</p></li>
-        <li data-state="done"><h3>A3 <span>Infrastructure integrations</span></h3><p class="state">Done, exit 2026-11-05</p><p>vSphere inventory sync with power actions and consoles, read-only Kubernetes sessions, Vault / OpenBao secret references, encrypted vault sync with a join flow. Review 6.</p></li>
-        <li data-state="done"><h3>A4 <span>Release v0.1.0</span></h3><p class="state">Done, released 2026-11-07</p>
+        <li data-state="done"><h3>A0 to A3 <span>Foundation, connection manager, integrations</span></h3><p class="state">Done, 2026-11-05</p><p>Vault, connection tree with inheritance, typed credentials, SSH with forwarding and SFTP, RDP, VNC, isolated web sessions, vSphere, read-only Kubernetes, Vault / OpenBao references and encrypted sync. Reviews 1 to 6.</p></li>
+        <li data-state="done"><h3>A4 <span>Release v0.1.0</span></h3><p class="state">Done, released 2026-11-07</p><p>Installers with signed checksums, SBOMs and provenance, in-app updater, importers, network tools, portable builds. Reviews 7 and 8.</p></li>
+        <li data-state="now"><h3>A5 <span>Version 0.2.0</span></h3><p class="state">In release</p>
           <ul class="bullets">
-            <li>Installers for macOS, Windows and Linux with cosign-signed checksums, SBOMs and build provenance (notarization and Authenticode follow once certificates exist)</li>
-            <li>In-app updater: packages signed with the project key and verified before install; checks only when you ask (background check is opt-in)</li>
-            <li>Importers for Royal TS, RDM, Termius, mRemoteNG, PuTTY, OpenSSH config and LDAPS directories</li>
-            <li>Network tools: TCP port check, ping, traceroute, WireGuard status</li>
-            <li>Security review 7 (approve with nits), 55 fuzz targets, reproducible-build check</li>
+            <li>Jump hosts for SSH, RDP, VNC, Kubernetes and web sessions</li>
+            <li>RD Gateway with NTLM channel binding; smart cards and FIDO2 security keys for SSH</li>
+            <li>Touch ID / Windows Hello unlock and encrypted backup export and import</li>
+            <li>Dynamic Vault secrets, 1Password Connect and Bitwarden Secrets Manager</li>
+            <li>The Harbor interface; security review 9; per-OS manual gates before the tag</li>
           </ul></li>
-        <li data-state="now"><h3>Next <span>0.1.x and unlock factors</span></h3><p class="state">Planned</p><p>FIDO2 <code>hmac-secret</code> and biometric unlock factors, jump hosts as connections, dynamic Vault secret engines (database, SSH OTP, PKI), winget.</p></li>
+        <li><h3>After A5 <span>Carried items</span></h3><p class="state">Planned</p><p>Kerberos (and with it RDP smart-card logon), H.264 for RDP, VeNCrypt X.509, data-key rotation, SFTP drag and drop, signed installers and the winget listing.</p></li>
         <li><h3>B <span>Agent and relay</span></h3><p class="state">Planned</p><p>Mooring's own remote-desktop agent and an end-to-end encrypted relay.</p></li>
       </ol>
     </div>
@@ -376,12 +379,13 @@
       <h2 id="faq-title">Questions</h2>
       <div class="faq">
         <details><summary>Is Mooring free?</summary><p>Yes. It is open source under the MIT License. There is no paid tier, no account and no telemetry.</p></details>
-        <details><summary>Is it ready for production use?</summary><p>v0.1.0 is the first release: everything in Phase A has passed seven security reviews and ships with signed checksums, provenance and an updater. It is still a 0.x: installers are not notarized or Authenticode-signed yet, and the established tools do more. Keep your existing tool alongside it until you trust it.</p></details>
-        <details><summary>Does Mooring send my data anywhere?</summary><p>No. The vault, database, audit log and trusted host keys stay on your machine, and Mooring connects only to the hosts and services you open — plus the GitHub release page when you check for updates. Vault sync is off until you configure a bucket; when on, it uploads one blob encrypted on your device, and the secrets fetched from Vault or OpenBao are never written to disk.</p></details>
-        <details><summary>What if I forget my master password?</summary><p>Your secrets cannot be recovered, by you or by the developers. Names, hosts and tags remain readable so you can rebuild the tree, but passwords and keys are gone. Keep the master password in a password manager or a safe written copy.</p></details>
-        <details><summary>Can I use my existing SSH keys and known_hosts?</summary><p>Paste a private key into an SSH key credential, or use your ssh-agent. Mooring reads the OpenSSH <code>known_hosts</code> format. Import your <code>~/.ssh/config</code> hosts with the importer (Connections → Import).</p></details>
-        <details><summary>Can Mooring change my cluster or my VMs?</summary><p>Not the cluster. The Kubernetes client can only list, watch, read logs, exec and port-forward; everything else is rejected before it leaves your machine, whatever your token allows. On vSphere the inventory is read-only; the only writes are the VM power actions you turn on per connection, each confirmed in a native dialog and written to the audit log.</p></details>
-        <details><summary>Which tools can I import from?</summary><p>Importers for Royal TS, Termius, mRemoteNG, PuTTY and <code>~/.ssh/config</code> are part of v0.1.0 and are not in a build yet. Follow progress on the <a class="link" href="#roadmap">roadmap</a>.</p></details>
+        <details><summary>Is it ready for production use?</summary><p>It is a 0.x: everything listed as available has passed nine security reviews and ships with signed checksums, provenance and an updater, but installers are not notarized or Authenticode-signed yet and the established tools do more. Keep your existing tool alongside it until you trust it.</p></details>
+        <details><summary>Does Mooring send my data anywhere?</summary><p>No. The vault, database, audit log and trusted keys stay on your machine, and Mooring connects only to the hosts and secret managers you configure, plus the GitHub release page when you check for updates. Vault sync is off until you configure a bucket; when on, it uploads one blob encrypted on your device.</p></details>
+        <details><summary>What if I forget my master password?</summary><p>Your secrets cannot be recovered, by you or by the developers. Biometric unlock does not replace the password for changing it or exporting. Names, hosts and tags remain readable so you can rebuild the tree, but passwords and keys are gone. Keep the master password in a password manager or a safe written copy.</p></details>
+        <details><summary>Can I reach hosts behind a bastion or an RD Gateway?</summary><p>Yes. Any SSH, RDP, VNC or Kubernetes connection can go through up to three SSH jump hosts, each with its own host-key check and credential; web sessions can too on Windows and Linux. RDP connections can use an RD Gateway, also behind a jump host.</p></details>
+        <details><summary>Can I use my YubiKey or smart card?</summary><p>For SSH, yes: FIDO2 security keys and PIV smart cards sign through your ssh-agent. Mooring shows a touch prompt or asks for the PIN, never stores the PIN and never falls back to a password. Smart-card logon over RDP needs Kerberos and is planned.</p></details>
+        <details><summary>Can Mooring change my cluster or my VMs?</summary><p>Not the cluster. The Kubernetes client can only list, read logs, exec and port-forward; everything else is rejected before it leaves your machine, whatever your token allows. On vSphere the inventory is read-only; the only writes are the VM power actions you turn on per connection, each confirmed in a native dialog and written to the audit log.</p></details>
+        <details><summary>Which tools can I import from?</summary><p>Royal TS, Remote Desktop Manager, Termius, mRemoteNG, PuTTY, OpenSSH <code>~/.ssh/config</code>, and Active Directory or OpenLDAP computers over LDAPS, all into a dry-run plan you review first.</p></details>
         <details><summary>How do I report a security problem?</summary><p>Privately, through GitHub Security Advisories, as described in the <a class="link" href="https://github.com/yyasar21/Mooring/blob/main/SECURITY.md">security policy</a>. Please do not open a public issue.</p></details>
       </div>
     </div>

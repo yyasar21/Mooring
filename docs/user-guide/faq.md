@@ -7,17 +7,20 @@ account and no telemetry.
 
 ## Is it ready for production use?
 
-v0.1.0 is the first release: everything in Phase A (vault, SSH, RDP, VNC, web sessions,
-Kubernetes, vSphere, Vault / OpenBao references, sync, importers, updater) has passed seven
-security reviews and ships with Sigstore-signed checksums and build provenance. It is still a
-0.x: installers are not notarized or Authenticode-signed yet, and the established tools do
-more. Keep your existing tool alongside it until you trust it.
+v0.1.0 was the first release (Phase A: vault, SSH, RDP, VNC, web sessions, Kubernetes,
+vSphere, Vault / OpenBao references, sync, importers, updater). 0.2.0 adds jump hosts, RD
+Gateway, security keys and smart cards, biometric unlock, backups, dynamic secrets, 1Password
+and Bitwarden, and a new interface, after a ninth security review. Releases ship with
+Sigstore-signed checksums and build provenance. It is still a 0.x: installers are not notarized
+or Authenticode-signed yet, and the established tools do more. Keep your existing tool
+alongside it until you trust it.
 
 ## Does Mooring send my data anywhere?
 
 No. The vault, database, audit log and trusted host keys stay on your machine. Mooring makes
-network connections only to the hosts you connect to. Optional encrypted sync to storage you
-choose is planned for Phase A3; it will encrypt on your device before uploading.
+network connections only to the hosts and secret managers you configure, and to the GitHub
+release page when you check for updates. Optional vault sync to S3-compatible storage you
+choose encrypts on your device before uploading. There is no telemetry.
 
 ## What happens if I forget my master password?
 
@@ -41,23 +44,28 @@ Use full-disk encryption on your device.
 
 ## Can I use my existing `~/.ssh` keys and `known_hosts`?
 
-Keys: paste the private key into an SSH key credential, or rely on your ssh-agent. Importing
-from `~/.ssh` with a file picker is planned. `known_hosts`: Mooring reads the OpenSSH format,
+Keys: paste the private key into an SSH key credential, or rely on your ssh-agent; FIDO2
+security keys and PIV smart cards work through the agent too
+([guide](security-keys-and-smart-cards.md)). The `~/.ssh/config` importer brings your hosts
+and, from your own `~/.ssh`, their key files. `known_hosts`: Mooring reads the OpenSSH format,
 so you can copy entries into its own `known_hosts` file while it is closed.
 
 ## Can I import from Royal TS, mRemoteNG, Termius or PuTTY?
 
-Importers are planned for v0.1.0 (Phase A4).
+Yes, and from Remote Desktop Manager, `~/.ssh/config` and LDAPS directories. See
+[Importing connections](importing.md).
 
-## When will RDP, VNC, Kubernetes and vSphere work?
+## Can I reach hosts behind a bastion or an RD Gateway?
 
-RDP, VNC and web sessions are Phase A2; vSphere and Kubernetes are Phase A3. See the
-[roadmap](../roadmap.md).
+Yes. Any connection can go through up to three SSH [jump hosts](jump-hosts.md), and RDP
+connections can use an [RD Gateway](rd-gateway.md).
 
 ## Does Mooring support teams or shared vaults?
 
-Not yet. Mooring is a single-user, local-first tool today. Sync and external secret
-references (HashiCorp Vault, OpenBao, 1Password, Bitwarden) are planned.
+Mooring is a single-user, local-first tool. Encrypted vault sync lets several devices share one
+vault, and [external secret references](external-secrets.md) (HashiCorp Vault, OpenBao,
+1Password Connect, Bitwarden Secrets Manager) let a team keep shared secrets in its own secret
+manager.
 
 ## Why is the app built with AI agents?
 

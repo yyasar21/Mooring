@@ -31,14 +31,11 @@ Optional extras if you want to use the remaining four slots: `sftp`, `terminal`,
 Settings → General → **Social preview** → upload an image.
 
 - Size **1280 × 640 px** (2:1), PNG, under 1 MB.
-- Start from `docs/assets/hero.png` (1440 × 860): crop to the tree and terminal area, or scale
-  it to 1280 px wide and place it on a 1280 × 640 canvas in the dark background colour
-  `#03070a`.
-- Leave a 40 px safe margin; add the wordmark "Mooring" and one line such as
-  "Secure remote access manager — SSH · RDP · VNC · Kubernetes · vSphere" in large type, so it
-  reads at small sizes on social sites.
-- Use only demo data (`example.test` hosts). Save the file as
-  `docs/assets/social-preview.png` so it can be updated later.
+- Upload `site/assets/og.png`: the site's Open Graph image, already 1280 × 640 in the Harbor
+  style (light canvas `#f6f7f9`, the mark, the wordmark, one line of copy and the app window
+  from `docs/assets/screenshots/hero-light.jpg`), with a 40 px safe margin.
+- To redo it, start from `docs/assets/screenshots/hero-light.jpg` (1280 × 800) and keep to demo
+  data (`example.test` hosts).
 
 ## 3. Features
 
@@ -109,7 +106,7 @@ One-time setup:
    **Website** (§1) and tick *Use your GitHub Pages website*.
 
 Path rules: the site is served under `/Mooring/`, not at the domain root. Every link in
-`site/index.html` is relative (`css/site.css`, `assets/hero.webp`, `#download`), so it works
+`site/index.html` is relative (`css/site.css`, `assets/hero-light.webp`, `#download`), so it works
 under that prefix and from a local file. The exception is `site/404.html`, which GitHub serves
 at any missing path, so it uses absolute `/Mooring/...` URLs. Absolute URLs that must stay
 absolute: `canonical`, `og:url`, `og:image`, JSON-LD, `robots.txt` and `sitemap.xml`, which

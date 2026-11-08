@@ -61,9 +61,10 @@ is installed." There is no progress bar.
 | macOS, installed with Homebrew (`brew install --cask yyasar21/mooring/mooring`) | manual (*Homebrew*) | Run `brew upgrade` |
 | Windows `.exe` installer, **per-user** install | in-app | The NSIS installer re-runs silently and relaunches |
 | Windows `.exe` per-machine install, or `.msi` | manual | Per-machine installs need elevation; MSI is a package manager |
+| Windows, installed with winget and marked as such | manual (*winget*) | Run `winget upgrade yyasar21.Mooring` (the note has a copy button). The installer change that writes the mark is not in 0.2.0 yet |
+| A build you made yourself (**Mooring Dev**) | manual (*development build*) | Updates are disabled; install a release from the Releases page |
 | Linux AppImage in a writable directory | in-app | The file is replaced in place |
 | Linux `.deb`, `.rpm` | manual (*package manager*) | Update with `apt` / `dnf`, or download the new package |
-| A build you made yourself | manual (*not bundled*), or *unconfigured* | There is nothing packaged to replace |
 
 The manual note shows the release page, `github.com/yyasar21/Mooring/releases/latest`, with a
 **Copy** button (Mooring's main window opens no external links). Never install an update from
