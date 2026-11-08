@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useState } from "react";
-import { Kbd } from "@mooring/ui";
+import { Icon, Kbd } from "@mooring/ui";
 import { canDetach, isGraphical, useSessions, type Tab } from "../stores/sessions";
 import type { Size } from "../lib/ipc";
 import { RemoteSessionTab } from "./remote/RemoteSessionTab";
@@ -162,15 +162,11 @@ function EmptyState() {
   }
   return (
     <div className="panel-note">
-      <svg className="reticle absolute" width="260" height="260" viewBox="0 0 260 260" fill="none" stroke="currentColor" aria-hidden>
-        <circle cx="130" cy="130" r="120" strokeDasharray="2 6" />
-        <circle cx="130" cy="130" r="72" />
-        <path d="M130 0v40M130 220v40M0 130h40M220 130h40" />
-      </svg>
-      <div className="relative text-center">
-        <p className="m-display text-[length:var(--fs-xl)]">Nothing open yet</p>
-        <p className="mt-3 text-text-muted">
-          Press <Kbd>mod K</Kbd> and type a host, a name or a tag.
+      <div className="empty-state">
+        <span className="empty-icon" aria-hidden><Icon name="hosts" size={24} /></span>
+        <p className="empty-title">Nothing open yet</p>
+        <p className="empty-text">
+          Double-click a connection in the tree, or press <Kbd>mod K</Kbd> and type a host, a name or a tag.
         </p>
       </div>
     </div>

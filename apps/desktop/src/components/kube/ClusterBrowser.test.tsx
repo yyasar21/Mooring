@@ -55,8 +55,8 @@ describe("ClusterBrowser", () => {
 
   it("shows status badges, restarts and the RBAC pre-flight; denied actions are disabled", async () => {
     await openCluster();
-    expect(within(row("worker-5b8f7c9d4")).getByText("Restarting")).toHaveAttribute("data-tone", "hot");
-    expect(within(row("api-7f9c8d6b5-2kqzt")).getByText("Running")).toHaveAttribute("data-tone", "ok");
+    expect(within(row("worker-5b8f7c9d4")).getByText("Restarting")).toHaveAttribute("data-tone", "warning");
+    expect(within(row("api-7f9c8d6b5-2kqzt")).getByText("Running")).toHaveAttribute("data-tone", "success");
     expect(within(row("migrate-29c41")).getByText("Completed")).toBeInTheDocument();
     const rbac = screen.getByRole("list", { name: "Permissions in payments" });
     expect(within(rbac).getAllByText("Allowed")).toHaveLength(5);
@@ -182,8 +182,10 @@ describe("ClusterBrowser", () => {
 describe("pod helpers", () => {
   const p = { name: "a", phase: "Running" as const, node: "n1", createdAt: "", containers: [{ name: "c", image: "registry.example.test/x:1", ready: true, restarts: 0, ports: [] }] };
   it("badges and search", () => {
-    expect(podStatus(p)).toEqual({ label: "Running", tone: "ok" });
-    expect(podStatus({ ...p, phase: "Unknown" }).tone).toBe("hot");
+    expect(podStatus(p)).toEqual({ label: "Running", tone: "success" });
+    expect(podStatus({ ...p, phase: "Unknown" }).tone).toBe("warning");
+    expect(podStatus({ ...p, phase: "Failed" }).tone).toBe("danger");
+    expect(podStatus({ ...p, phase: "Pending" }).tone).toBeUndefined();
     expect(matchesPod(p, "n1 x:1")).toBe(true);
     expect(matchesPod(p, "n2")).toBe(false);
   });

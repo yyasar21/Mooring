@@ -1,23 +1,27 @@
 import type { KubeAccess, PodSummary } from "../../lib/ipc";
 
-export type Tone = "ok" | "hot" | undefined;
+/** Status vocabulary (design review 2026-11, Q4); undefined is the neutral chip. */
+export type Tone = "success" | "warning" | "danger" | undefined;
 
-/** The badge for a pod: phase plus readiness (Running but not ready is not "Running"). */
+/**
+ * The badge for a pod: phase plus readiness (Running but not ready is not "Running"). Healthy is
+ * success; a pod that needs a look (restarting, not ready, unknown) is warning; failed is danger.
+ */
 export function podStatus(p: PodSummary): { label: string; tone: Tone } {
   const restarts = p.containers.reduce((n, c) => n + c.restarts, 0);
   const ready = p.containers.every((c) => c.ready);
   switch (p.phase) {
     case "Running":
-      if (ready) return { label: "Running", tone: "ok" };
-      return restarts >= 3 ? { label: "Restarting", tone: "hot" } : { label: "Not ready", tone: undefined };
+      if (ready) return { label: "Running", tone: "success" };
+      return restarts >= 3 ? { label: "Restarting", tone: "warning" } : { label: "Not ready", tone: "warning" };
     case "Failed":
-      return { label: "Failed", tone: "hot" };
+      return { label: "Failed", tone: "danger" };
     case "Succeeded":
       return { label: "Completed", tone: undefined };
     case "Pending":
       return { label: "Pending", tone: undefined };
     default:
-      return { label: "Unknown", tone: "hot" };
+      return { label: "Unknown", tone: "warning" };
   }
 }
 

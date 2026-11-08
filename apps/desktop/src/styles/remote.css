@@ -1,16 +1,16 @@
 /* ---------- remote desktop (RDP / VNC) ---------- */
 .remote-host { position: absolute; inset: 0; overflow: hidden; background: var(--term-bg); }
 .remote-canvas { position: absolute; display: block; touch-action: none; outline: none; }
-.remote-host:focus-within .remote-canvas { box-shadow: 0 0 0 1px var(--accent-line), 0 0 18px -6px rgba(41, 230, 242, 0.45); }
+.remote-host:focus-within .remote-canvas { box-shadow: 0 0 0 2px var(--accent); }
 .remote-sink {
   position: absolute; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0;
   resize: none; overflow: hidden; pointer-events: none; caret-color: transparent;
 }
 .remote-stats {
   position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 12px; padding: 6px 10px; pointer-events: none;
-  font: 500 var(--fs-2xs)/1 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
-  background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
-  border: 1px solid var(--accent-line); box-shadow: var(--glow-accent);
+  font: 500 var(--fs-2xs)/1 var(--font-sans); color: var(--accent);
+  background: var(--surface); border-radius: var(--r-m); box-shadow: var(--e2);
+  border: 1px solid var(--border);
 }
 .remote-stats [data-tone="hot"] { color: var(--hot); }
 
@@ -23,11 +23,11 @@
 .link-banner {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; width: min(440px, calc(100% - 32px));
   display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; font-size: var(--fs-s);
-  background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  background: var(--surface); border-radius: var(--r-m); box-shadow: var(--e2);
   animation: pop-in var(--dur-mid) var(--ease-out);
 }
 .link-banner .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.link-countdown { font: 600 var(--fs-xl)/1 var(--font-display); letter-spacing: 0.06em; color: var(--accent); text-shadow: var(--text-glow); }
+.link-countdown { font: 600 var(--fs-xl)/1 var(--font-sans); color: var(--accent); }
 .link-banner[data-tone="hot"] .link-countdown { color: var(--hot); }
 .link-attempts { display: flex; gap: 4px; margin: 0 0 6px; padding: 0; list-style: none; }
 .link-attempts li { width: 14px; height: 4px; background: var(--line-strong); }
@@ -38,12 +38,12 @@
 @media (prefers-reduced-motion: reduce) { .link-progress span { transition: none; } }
 
 .cert-details { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: var(--fs-xs); }
-.cert-details dt { color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em; font: 500 var(--fs-2xs)/1.6 var(--font-display); }
+.cert-details dt { color: var(--text-faint); font: 500 var(--fs-2xs)/1.6 var(--font-sans); }
 .cert-details dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-.cert-fp { color: var(--accent); display: grid; grid-template-columns: repeat(4, max-content); gap: 2px 10px; letter-spacing: 0.04em; }
+.cert-fp { color: var(--accent); display: grid; grid-template-columns: repeat(4, max-content); gap: 2px 10px; }
 .cert-dialog[data-tone="hot"] .cert-fp { color: var(--text); }
 .cert-details dd[data-tone="hot"], .cert-details span[data-tone="hot"] { color: var(--hot); }
-.cert-flag { margin-left: 8px; padding: 0 5px; border: 1px solid var(--hot-line); color: var(--hot); font: 600 var(--fs-2xs)/1.6 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
+.cert-flag { margin-left: 8px; padding: 0 5px; border: 1px solid var(--hot-line); color: var(--hot); font: 600 var(--fs-2xs)/1.6 var(--font-sans); }
 .cert-note { color: var(--text-faint); }
 .cert-san { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .cert-target { display: flex; align-items: center; gap: 8px; font-size: var(--fs-s); color: var(--text); }

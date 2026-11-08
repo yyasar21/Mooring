@@ -19,9 +19,8 @@ export function lockReasonText(reason: LockReason | "unknown" | null): string | 
 }
 
 /**
- * The airlock: onboarding (no vault yet) and unlock (vault locked). Both are one field, the master
- * password. Visual drama lives in CSS (`airlock.css`): one sweep on arrival, a pressure bar while
- * the key is derived, nothing looping at rest.
+ * Vault create and unlock. Both are one field, the master password, on a plain card (Harbor:
+ * no rings, sweep or brackets). The only motion is a progress bar while the key is derived.
  */
 export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
   const createVault = useApp((s) => s.createVault);
@@ -62,22 +61,18 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
 
   return (
     <main className="airlock">
-      <Rings />
-      <div aria-hidden className="airlock-sweep" />
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
-        className="airlock-hatch m-hud"
-        data-active
+        className="airlock-hatch"
       >
         <div className="airlock-kicker">
-          <span className="m-micro airlock-brand">
-            <BrandMark size={16} />
-            Mooring vault
+          <span className="airlock-brand">
+            <BrandMark size={28} />
+            Mooring
           </span>
-          <span className="m-micro">{mode === "create" ? "Not initialised" : "Sealed"}</span>
         </div>
         {mode === "unlock" && reason && (
           <p role="status" className="airlock-reason">
@@ -140,39 +135,14 @@ export function VaultGate({ mode }: { mode: "create" | "unlock" }) {
         )}
 
         <div className="airlock-foot">
-          <span className="m-micro">Argon2id · XChaCha20-Poly1305</span>
+          <span className="airlock-crypto">Encrypted with Argon2id and XChaCha20-Poly1305</span>
           {mode === "create" ? (
             <button type="button" className="airlock-link" onClick={() => { setJoin(true); }}>Join a synced vault instead</button>
           ) : (
-            <span className="m-micro">Local only</span>
+            <span className="airlock-crypto">Stored on this device</span>
           )}
         </div>
       </form>
     </main>
-  );
-}
-
-/** Static range rings and bearing ticks behind the hatch. Drawn once; never animated. */
-function Rings() {
-  const ticks = Array.from({ length: 72 }, (_, i) => i * 5);
-  return (
-    <svg className="airlock-rings" viewBox="-410 -410 820 820" aria-hidden fill="none" stroke="currentColor">
-      <circle r="400" strokeWidth="1" />
-      <circle r="330" strokeWidth="1" strokeDasharray="2 6" />
-      <circle r="260" strokeWidth="1" />
-      {ticks.map((a) => (
-        <line
-          key={a}
-          className={a % 45 === 0 ? "tick" : undefined}
-          x1="0"
-          y1={a % 45 === 0 ? -372 : -388}
-          x2="0"
-          y2="-400"
-          strokeWidth={a % 45 === 0 ? 2 : 1}
-          transform={`rotate(${a})`}
-        />
-      ))}
-      <path d="M-410 0h140M270 0h140M0 -410v140M0 270v140" strokeWidth="1" strokeDasharray="1 4" />
-    </svg>
   );
 }

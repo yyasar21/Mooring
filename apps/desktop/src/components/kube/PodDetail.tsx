@@ -54,7 +54,7 @@ export function PodDetail({ pod, access, forwardOff, command, onCommand, actions
             <div className="flex items-center gap-2">
               <span aria-hidden className="kube-dot" data-ready={c.ready || undefined} />
               <span className="mono min-w-0 flex-1 truncate">{c.name}</span>
-              {c.restarts > 0 && <span className="chip tnum" data-tone={c.restarts >= 3 ? "hot" : undefined} title="Restarts">↻ {c.restarts}</span>}
+              {c.restarts > 0 && <span className="chip tnum" data-tone={c.restarts >= 3 ? "warning" : undefined} title="Restarts">↻ {c.restarts}</span>}
             </div>
             <p className="kube-image mono truncate" title={c.image}>{c.image}</p>
             <div className="kube-actions">

@@ -35,7 +35,7 @@ export function DetachedApp({ sessionId }: { sessionId: string }) {
       <div role="toolbar" aria-label="Detached session" className="detached-bar">
         {st.protocol && <ProtocolPip protocol={st.protocol} live={connected} />}
         <span className="m-micro">{label} · separate window</span>
-        <span className="chip" data-tone={connected ? "ok" : st.state === "reconnecting" ? "hot" : undefined}>
+        <span className="chip" data-tone={connected ? "success" : st.state === "reconnecting" ? "warning" : undefined}>
           {live ? st.state : st.phase}
         </span>
         <span className="spacer" />

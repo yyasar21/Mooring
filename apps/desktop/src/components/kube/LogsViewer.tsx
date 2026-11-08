@@ -102,7 +102,7 @@ export function LogsViewer({ tab, target, connection, active }: { tab: Tab; targ
       </div>
 
       <div className="kube-logs-foot" role="status">
-        <span className="chip" data-tone={stream.running ? "ok" : undefined}>{stream.running ? (follow ? "Following" : "Reading") : stream.ended ? "Ended" : "Stopped"}</span>
+        <span className="chip" data-tone={stream.running ? "success" : undefined}>{stream.running ? (follow ? "Following" : "Reading") : stream.ended ? "Ended" : "Stopped"}</span>
         <span className="mono tnum">{stream.lines.length.toLocaleString("en-US")} lines · {formatBytes(stream.bytes)} of {formatBytes(options.maxLogBytes)}</span>
         {stream.ended?.reason && <span className="text-text-muted">{stream.ended.reason}</span>}
         {visible.length === RENDER_LINES && <span className="text-text-faint">Showing the last {RENDER_LINES.toLocaleString("en-US")} lines.</span>}
