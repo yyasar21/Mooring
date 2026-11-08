@@ -76,7 +76,7 @@ export function bannerText(s: SyncStatus): string {
  * Settings view, then the named card's heading gets focus so its controls are one Tab away.
  * `intent` is something the card does on mount (U0: open "Add source…" for a chosen AppRole).
  */
-export function openSettingsCard(headingId: "sync-title" | "trust-title" | "updates-title" | "sources-title", intent?: SettingsIntent): void {
+export function openSettingsCard(headingId: string, intent?: SettingsIntent): void {
   useUi.getState().showSettings(intent);
   requestAnimationFrame(() => {
     const h = document.getElementById(headingId);
