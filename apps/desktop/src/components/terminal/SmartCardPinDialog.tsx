@@ -5,6 +5,9 @@ import { useSessions } from "../../stores/sessions";
 /** The answer Rust reads as "cancel": the sign-in closes with `user` ("smart card PIN cancelled"). */
 export const PIN_CANCEL = "";
 
+/** L-49: Rust loads the card with an ssh-agent lifetime constraint (`CARD_LIFETIME_SECS` = 3600). */
+export const CARD_LIFETIME_MINUTES = 60;
+
 /**
  * ADR-0027: the PIN of a smart card (`purpose: "smart_card_pin"`), asked when ssh-agent does not
  * hold the card's key yet. Rust hands it to the agent once (`ADD_SMARTCARD_KEY`) and never stores it.
@@ -89,6 +92,10 @@ export function SmartCardPinDialog({ tabId, prompt, hop }: { tabId: string; prom
             />
             <p className="field-hint">
               Mooring hands the PIN to your ssh-agent once to load the card and never stores it. Too many wrong PINs can lock the card.
+            </p>
+            <p className="field-hint" data-testid="pin-lifetime">
+              The card then stays loaded in ssh-agent for {CARD_LIFETIME_MINUTES} minutes, so a reconnect in that time does not ask
+              again. After that the agent forgets it and Mooring asks for the PIN on the next sign-in.
             </p>
           </div>
           <div className="flex justify-end gap-2">

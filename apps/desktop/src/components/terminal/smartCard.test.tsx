@@ -7,6 +7,7 @@ import { useUi } from "../../stores/ui";
 import { useCredentials } from "../../stores/credentials";
 import { freshBackend, settle } from "../../test/harness";
 import { PIN_NOTE, SSH_ADD_HINT } from "../credentials/SmartCard";
+import { CARD_LIFETIME_MINUTES } from "./SmartCardPinDialog";
 
 async function boot() {
   render(<App />);
@@ -41,6 +42,9 @@ describe("smart card PIN at connect (ADR-0027)", () => {
     expect(pin).toHaveAttribute("type", "password");
     expect(pin).toHaveAttribute("autocomplete", "off");
     expect(document.activeElement).toBe(pin);
+    // L-49: the agent keeps the card for CARD_LIFETIME_SECS (3600 s) after the PIN
+    expect(within(dlg).getByTestId("pin-lifetime")).toHaveTextContent(`stays loaded in ssh-agent for ${String(CARD_LIFETIME_MINUTES)} minutes`);
+    expect(CARD_LIFETIME_MINUTES * 60).toBe(3600);
     const unlock = within(dlg).getByRole("button", { name: "Unlock card" });
     expect(unlock).toBeDisabled();
     const send = vi.spyOn(mock, "sessionSend");
