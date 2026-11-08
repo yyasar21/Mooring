@@ -221,3 +221,57 @@ async fn v1_backups_are_refused_and_holds_die_with_the_lock() {
     crate::commands::vault::unlock(&f.state, s(MASTER)).expect("unlock");
     assert_eq!(apply(&f.state, input(&id, "merge", None, None)).expect_err("gone").code, "input.invalid");
 }
+
+/// Review 9 L-52: a crafted backup carrying an ECDSA key for a host pinned here with Ed25519
+/// (and a second certificate pin for it) adds nothing for that host; the drop is reported as
+/// a `trust` conflict and only the line for an unpinned host is added.
+#[tokio::test]
+async fn merge_import_never_adds_trust_for_a_pinned_host() {
+    use mooring_core::known_certs::{CertProtocol, KnownCerts};
+    use mooring_proto_ssh::{KnownHosts, TrustDecision};
+    use russh::keys::ssh_key::private::Ed25519Keypair;
+    use russh::keys::{PrivateKey, PublicKey};
+    const ATTACKER: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJgrXpqaMSFp2gv+iwMloeVMxCGz9/S/RAjpVclIxY+yrNaQXXIJHOQR+gBIGkkIxZR1mb1KMu7gM2jJk0S3YSw=";
+    let ed = |seed| PrivateKey::from(Ed25519Keypair::from_seed(&[seed; 32])).public_key().clone();
+    let attacker = PublicKey::from_openssh(ATTACKER).expect("ecdsa");
+    let f = testing::unlocked();
+    seed(&f); // ssh `web.example.test` (port 22)
+    let kh_path = f.state.known_hosts_path();
+    let certs = f.state.data_dir.join(CertProtocol::Rdp.file_name());
+    let now = time::OffsetDateTime::now_utc();
+    let mut theirs = KnownHosts::new();
+    theirs.add_hashed("web.example.test", 22, &attacker).expect("add");
+    theirs.add_hashed("new.example.test", 22, &ed(2)).expect("add");
+    theirs.save(&kh_path).expect("save");
+    let mut their_pin = KnownCerts::new();
+    their_pin.add("web.example.test", 22, &[0xbb; 32], now);
+    their_pin.save(&certs).expect("save");
+    let (_out, path) = backup(&f).await;
+
+    let mut ours = KnownHosts::new();
+    ours.add_hashed("web.example.test", 22, &ed(1)).expect("add");
+    ours.save(&kh_path).expect("save");
+    let mut our_pin = KnownCerts::new();
+    our_pin.add("web.example.test", 22, &[0xaa; 32], now);
+    our_pin.save(&certs).expect("save");
+    let id = picked(&f, &path).await;
+    inspect(&f.state, &id, &s(PASSPHRASE)).expect("inspect");
+    let r = apply(&f.state, input(&id, "merge", None, None)).expect("merge");
+
+    for file in ["known_hosts", "known_rdp_certs"] {
+        let want = ImportConflict {
+            kind: "trust",
+            id: "web.example.test:22".into(),
+            name: file.into(),
+            resolution: "kept_local",
+        };
+        assert!(r.conflicts.contains(&want), "{file}: {:?}", r.conflicts);
+    }
+    assert_eq!(r.trust_added, 1, "only the unpinned host's key");
+    let after = KnownHosts::load(&kh_path).expect("load");
+    assert_eq!(after.check("web.example.test", 22, &ed(1)), TrustDecision::Known);
+    assert!(matches!(after.check("web.example.test", 22, &attacker), TrustDecision::Mismatch { .. }));
+    assert_eq!(after.check("new.example.test", 22, &ed(2)), TrustDecision::Known);
+    let pins = KnownCerts::load(&certs).expect("load");
+    assert_eq!(pins.distinct_pins("web.example.test", 22), 1, "no trust_conflict from an import");
+}

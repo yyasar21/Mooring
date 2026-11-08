@@ -69,6 +69,7 @@ pub mod vault_biometric;
 pub mod vault_export;
 pub mod vault_import;
 pub mod vault_import_hold;
+pub(crate) mod vault_import_trust;
 
 /// Run `f` on Tokio's blocking pool and await it: a command whose work is CPU- or file-bound
 /// (a 16 MiB import parse, 2 000 seals, a large kubeconfig) must never run on the thread that
