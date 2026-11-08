@@ -113,3 +113,28 @@ fn security_key_events_have_stable_wire_names() {
         assert_eq!(back, e);
     }
 }
+
+/// ADR-0025 §3: the web window's SOCKS forward carries `reason: web_via`; forwards the user
+/// opened keep their old shape (no `reason` key), so earlier rows read back unchanged.
+#[test]
+fn web_via_forward_rows_carry_their_reason() {
+    let s = |v: &str| v.to_owned();
+    let open = AuditEvent::ForwardOpened {
+        connection: s("c"),
+        id: s("web-via"),
+        kind: s("dynamic"),
+        bind: s("127.0.0.1:40000"),
+        target: s("socks5"),
+        exposure: s("loopback"),
+        reason: Some(s("web_via")),
+    };
+    let v = serde_json::to_value(&open).expect("json");
+    assert_eq!(v["event"], "forward_opened");
+    assert_eq!(v["reason"], "web_via");
+    assert_eq!(serde_json::from_value::<AuditEvent>(v).expect("back"), open);
+    let old = serde_json::json!({"event": "forward_closed", "connection": "c", "id": "fwd-1",
+                                 "kind": "local", "bind": "127.0.0.1:1", "target": "h:1"});
+    let back: AuditEvent = serde_json::from_value(old.clone()).expect("old row");
+    assert!(matches!(&back, AuditEvent::ForwardClosed { reason: None, .. }));
+    assert_eq!(serde_json::to_value(&back).expect("json"), old, "byte-identical shape");
+}

@@ -110,6 +110,7 @@ fn probe(bundle: Bundle, path: &str, writable: bool) -> Arc<Probe> {
         cask_present: false,
         portable: false,
         dev_build: false,
+        winget: false,
     }))
 }
 

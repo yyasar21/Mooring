@@ -391,6 +391,11 @@ impl HopChain {
         self.hops.is_empty()
     }
 
+    /// The last hop's connection, while it is up (the web SOCKS forward, ADR-0025 §3).
+    pub(crate) fn last_handle(&self) -> Option<Arc<Handle<ClientHandler>>> {
+        self.hops.last().filter(|h| !h.handle.is_closed()).map(|h| Arc::clone(&h.handle))
+    }
+
     /// The first hop whose SSH connection has gone away, if any (ADR-0025 `hop_lost`).
     #[must_use]
     pub fn lost_hop(&self) -> Option<u8> {

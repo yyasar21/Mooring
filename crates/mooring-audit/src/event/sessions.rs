@@ -37,6 +37,10 @@ macro_rules! sessions_variants {
             target: String,
             /// `loopback` | `external`.
             exposure: String,
+            /// Why Mooring opened it itself: `web_via` for the SOCKS forward of a web window
+            /// behind jump hosts (ADR-0025 §3); absent for forwards the user opened.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            reason: Option<String>,
         },
         /// A port forward stopped (closed by the user or with its session).
         ForwardClosed {
@@ -50,6 +54,9 @@ macro_rules! sessions_variants {
             bind: String,
             /// Target `host:port`, or `socks5`.
             target: String,
+            /// As in `forward_opened` (`web_via`), absent otherwise.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            reason: Option<String>,
         },
         /// An SFTP transfer ended (ADR-0010 `session.sftp.transfer`). Never file contents.
         SftpTransfer {

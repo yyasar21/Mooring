@@ -142,6 +142,7 @@ fn list_and_forget() {
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink,
         refusals: Arc::default(),
+        via: None,
     };
     f.state.web.lock().expect("m").insert("a".into(), entry);
     let rows = list(&f.state).expect("list");
@@ -233,6 +234,7 @@ fn start_sweeps_remove_orphans_only() {
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink: Arc::new(|_| true),
         refusals: Arc::default(),
+        via: None,
     };
     f.state.web.lock().expect("m").insert(keep.clone(), entry);
     assert_eq!(sweep::ephemeral_profiles(&f.state), 1);
@@ -290,6 +292,7 @@ fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink: Arc::new(|_| true),
         refusals: Arc::default(),
+        via: None,
     };
     f.state.web.lock().expect("m").insert("a".into(), entry);
     assert!(!refusal_audited(&f.state.web, "nope"), "6b N-43: a window without an entry is not audited");
@@ -315,6 +318,7 @@ fn refused_navigations_are_capped_per_window_and_summarised_on_close() {
         opened_at: "2026-11-04T10:00:00Z".into(),
         sink: Arc::new(|_| true),
         refusals: Arc::default(),
+        via: None,
     };
     f.state.web.lock().expect("m").insert("b".into(), entry);
     assert!(refusal_audited(&f.state.web, "b"));

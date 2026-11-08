@@ -118,6 +118,7 @@ impl InstallProbe for PortableProbe {
             cask_present: false,
             portable: true,
             dev_build: false,
+            winget: false,
         })
     }
 }

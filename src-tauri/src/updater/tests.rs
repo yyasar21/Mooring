@@ -94,7 +94,7 @@ impl InstallProbe for FakeProbe {
 }
 
 pub fn facts(bundle: Bundle, path: &str, writable: bool) -> InstallFacts {
-    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false, portable: false, dev_build: false }
+    InstallFacts { bundle, install_path: PathBuf::from(path), writable, cask_present: false, portable: false, dev_build: false, winget: false }
 }
 
 /// An in-app `AppImage` install at a writable path.
