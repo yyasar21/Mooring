@@ -69,10 +69,12 @@ export type ImportMode = "merge" | "replace";
 /** The word `vault_import_age` needs as `confirm` for `replace`. */
 export const REPLACE_CONFIRM = "REPLACE";
 
-export type ImportConflictResolution = "kept_both" | "last_writer_wins" | "kept_edit";
+/** `kept_local` (L-52): an imported trust line for a host this device already pins was dropped. */
+export type ImportConflictResolution = "kept_both" | "last_writer_wins" | "kept_edit" | "kept_local";
 
 export interface ImportConflict {
-  kind: "folder" | "connection" | "credential";
+  /** `trust` (L-52): `id` is the `host:port`, `name` the trust file (`known_hosts`, `known_rdp_certs`, ...). */
+  kind: "folder" | "connection" | "credential" | "trust";
   id: string;
   name: string;
   resolution: ImportConflictResolution;
@@ -84,6 +86,8 @@ export interface ImportResult {
   updated: number;
   conflicts: ImportConflict[];
   skipped: number;
+  /** L-52: trusted host keys and certificate pins the import added (absent from a backend before the fix). */
+  trustAdded?: number;
 }
 
 // ---------- ADR-0028 build channel ----------

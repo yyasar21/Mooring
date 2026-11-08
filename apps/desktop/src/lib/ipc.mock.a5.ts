@@ -236,7 +236,7 @@ export abstract class MockA5Base extends MockImportBase implements A5Ipc {
     this.backupPicks.delete(pickId); // single use
     const c = held.counts;
     const result: ImportResult = mode === "replace"
-      ? { mode, added: c.folders + c.connections + c.credentials, updated: 0, conflicts: [], skipped: 0 }
+      ? { mode, added: c.folders + c.connections + c.credentials, updated: 0, conflicts: [], skipped: 0, trustAdded: c.trust }
       : {
           mode,
           added: 4,
@@ -244,8 +244,11 @@ export abstract class MockA5Base extends MockImportBase implements A5Ipc {
           conflicts: [
             { kind: "connection", id: "c-web01-imported", name: "web01 (imported 2026-11-08)", resolution: "kept_both" },
             { kind: "folder", id: "f-prod", name: "Production", resolution: "last_writer_wins" },
+            // L-52: the backup carries another key type for a host this device already pins.
+            { kind: "trust", id: "web01.example.test:22", name: "known_hosts", resolution: "kept_local" },
           ],
           skipped: 0,
+          trustAdded: 2,
         };
     if (mode === "replace" && held.needsSourcePassword) this.suspendBiometric("vault_rotated");
     this.record("vault.import", { mode, foreign: String(held.needsSourcePassword), counts: JSON.stringify(c) });

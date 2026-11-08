@@ -124,7 +124,10 @@ describe("Settings → Backup import (ADR-0023)", () => {
     expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "web01 (imported 2026-11-08) (connection) — changed on both sides: both copies kept",
       "Production (folder) — changed on both sides: the newer one kept",
+      // L-52: a pin for a host this device already trusts is never added
+      "web01.example.test:22 (trust, known_hosts) — already trusted on this device: the local entry kept, the imported one dropped",
     ]);
+    expect(done).toHaveTextContent("2 trusted host keys or certificates added.");
   });
 
   it("Replace stays disabled until REPLACE is typed and offers an export first", async () => {
@@ -144,6 +147,7 @@ describe("Settings → Backup import (ADR-0023)", () => {
     fireEvent.click(go);
     await settle();
     expect(dialog("Backup imported")).toHaveTextContent("The vault now holds exactly what the backup held.");
+    expect(dialog("Backup imported")).toHaveTextContent("3 trusted host keys or certificates added.");
     expect(mock.audit.find((a) => a.event === "vault.import")?.details.mode).toBe("replace");
   });
 
@@ -180,5 +184,27 @@ describe("Settings → Backup import (ADR-0023)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import backup…" }));
     await settle();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("an older backend without trustAdded shows no trust line; zero says so", async () => {
+    const base = { mode: "merge" as const, added: 1, updated: 0, conflicts: [], skipped: 0 };
+    const spy = vi.spyOn(mock, "vaultImportAge").mockResolvedValueOnce(base);
+    let dlg = await openFile();
+    await unlockFile(dlg);
+    type(dlg, "Master password of this vault", MASTER);
+    fireEvent.click(within(dlg).getByRole("button", { name: "Merge into this vault" }));
+    await settle();
+    expect(dialog("Backup imported")).not.toHaveTextContent(/trusted host key/);
+    fireEvent.click(within(dialog("Backup imported")).getByRole("button", { name: "Close" }));
+
+    spy.mockResolvedValueOnce({ ...base, trustAdded: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Import backup…" }));
+    await settle();
+    dlg = dialog("Import a backup");
+    await unlockFile(dlg);
+    type(dlg, "Master password of this vault", MASTER);
+    fireEvent.click(within(dlg).getByRole("button", { name: "Merge into this vault" }));
+    await settle();
+    expect(dialog("Backup imported")).toHaveTextContent("No trusted host keys or certificates were added.");
   });
 });

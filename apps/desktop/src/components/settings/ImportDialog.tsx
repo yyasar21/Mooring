@@ -11,7 +11,14 @@ const RESOLUTION: Record<ImportConflict["resolution"], string> = {
   kept_both: "changed on both sides: both copies kept",
   last_writer_wins: "changed on both sides: the newer one kept",
   kept_edit: "your edit kept",
+  kept_local: "already trusted on this device: the local entry kept, the imported one dropped",
 };
+
+/** One conflict line. A trust conflict names the host and the trust file instead of a row. */
+function conflictText(c: ImportConflict): string {
+  if (c.kind === "trust") return `${c.id} (trust, ${c.name}) — ${RESOLUTION[c.resolution]}`;
+  return `${c.name} (${c.kind}) — ${RESOLUTION[c.resolution]}`;
+}
 
 /** A pick Rust forgot (third wrong passphrase, or it expired): the file must be chosen again. */
 const pickGone = (e: unknown) => isIpcError(e) && e.code === "input.invalid" && /pick/.test(e.message);
@@ -96,12 +103,19 @@ export function ImportDialog({ pick, onClose, onExportFirst }: { pick: ImportPic
             {result.mode === "replace" ? "The vault now holds exactly what the backup held." : "The backup was merged into this vault."}{" "}
             Added {result.added}, updated {result.updated}{result.skipped > 0 ? `, skipped ${String(result.skipped)}` : ""}.
           </p>
+          {result.trustAdded !== undefined && (
+            <p className="m-0">
+              {result.trustAdded === 0
+                ? "No trusted host keys or certificates were added."
+                : `${String(result.trustAdded)} trusted host key${result.trustAdded === 1 ? "" : "s"} or certificate${result.trustAdded === 1 ? "" : "s"} added.`}
+            </p>
+          )}
           {result.conflicts.length > 0 ? (
             <>
               <p className="m-0 text-[length:var(--fs-13)] text-text-muted">{result.conflicts.length} conflict{result.conflicts.length === 1 ? "" : "s"}:</p>
               <ul className="backup-conflicts" aria-label="Conflicts">
                 {result.conflicts.map((c) => (
-                  <li key={`${c.kind}-${c.id}`}><span className="text-text">{c.name}</span> ({c.kind}) — {RESOLUTION[c.resolution]}</li>
+                  <li key={`${c.kind}-${c.id}`}>{conflictText(c)}</li>
                 ))}
               </ul>
             </>
