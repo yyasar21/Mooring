@@ -83,3 +83,6 @@ Format of a note: **Done / Left open / Decision needed / Test evidence**.
 | 2026-11-08 | A5 | rust-core | [a5-rust-core-r5.md](a5-rust-core-r5.md) — RD Gateway (own MS-TSGU over WebSocket, pinned gateway certs, NTLM, Accept verified), `smart_card` kind (PIV via ssh-agent, PIN never stored), migration 0011 |
 | 2026-11-08 | A5 | ui-engineer | [a5-ui-u5.md](a5-ui-u5.md) — security-key SSH form, touch banner, `use_sk_kind` conversion, Settings SSH card |
 | 2026-11-08 | A5 | release-engineer | [a5-release-a5.md](a5-release-a5.md) — inert `sign-macos`/`sign-windows` jobs (vars-gated, `release` env), winget manifests + secret-gated submit; winget self-update allowed (marker contract only) |
+| 2026-11-08 | A5 | rust-core | [a5-rust-core-r6.md](a5-rust-core-r6.md) — web via jump hosts (local SOCKS on last hop; macOS refused), `ManualReason::Winget` (marker only, inert), lease `ttlSeconds` |
+| 2026-11-08 | A5 | ui-engineer | [a5-ui-u6.md](a5-ui-u6.md), [a5-ui-u7.md](a5-ui-u7.md) — RD Gateway + smart card UI; web-via spinner, kube hop prompts, Kubernetes IPC aligned to K4 + command-name guard test |
+| 2026-11-08 | A5 | qa-engineer | [a5-qa.md](a5-qa.md) — 12 new fuzz targets (66), nightly-matrix gate, E2E RD Gateway + smart card PIN, winget update row |
