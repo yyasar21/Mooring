@@ -429,3 +429,90 @@ path = "fuzz_targets/framebuffer_ops.rs"
 test = false
 doc = false
 bench = false
+
+# A5 (ADR-0023 / 0024 / 0026 / 0027, W4 qa): backup document v2, dynamic-secret / Connect / bws
+# bodies, op/bws references, security-key material and agent / helper replies, RD Gateway.
+
+[[bin]]
+name = "export_document_json"
+path = "fuzz_targets/export_document_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_db_creds"
+path = "fuzz_targets/vault_db_creds.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_ssh_sign"
+path = "fuzz_targets/vault_ssh_sign.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_pki_issue"
+path = "fuzz_targets/vault_pki_issue.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "connect_item_json"
+path = "fuzz_targets/connect_item_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bws_secret_json"
+path = "fuzz_targets/bws_secret_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "op_reference_parse"
+path = "fuzz_targets/op_reference_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sk_key_parse"
+path = "fuzz_targets/sk_key_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "agent_identities"
+path = "fuzz_targets/agent_identities.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sk_helper_reply"
+path = "fuzz_targets/sk_helper_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdg_pdu"
+path = "fuzz_targets/rdg_pdu.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rdg_http_response"
+path = "fuzz_targets/rdg_http_response.rs"
+test = false
+doc = false
+bench = false

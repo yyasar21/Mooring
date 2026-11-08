@@ -1,6 +1,9 @@
-//! Stable replay of the sync fuzz corpora (`sync_blob_parse`, `sync_snapshot_json`) and crash
-//! regressions through the same entry points the cargo-fuzz targets use (docs/qa/fuzzing.md).
+//! Stable replay of the sync fuzz corpora (`sync_blob_parse`, `sync_snapshot_json`,
+//! `export_document_json`) and crash regressions through the same entry points the cargo-fuzz
+//! targets use (docs/qa/fuzzing.md).
 
+#[path = "../../../fuzz/entries/export_document_json.rs"]
+mod export_document_json;
 #[path = "../../../fuzz/entries/replay.rs"]
 mod replay;
 #[path = "../../../fuzz/entries/sync_blob_parse.rs"]
@@ -47,4 +50,33 @@ fn snapshot_seeds_split_accept_and_refuse() {
         Snapshot::decode(&seed("sync_snapshot_json", "wrong-vault"), id),
         Err(SyncError::WrongVault)
     ));
+}
+
+#[test]
+fn export_document_json_corpus() {
+    assert!(replay::replay("export_document_json", export_document_json::run) >= 6);
+}
+
+/// The v2 seed must keep parsing (or the fuzzer only explores refusals), and each hostile seed
+/// must be refused for its own reason alone (every one is otherwise the valid document).
+#[test]
+fn export_document_seeds_split_accept_and_refuse() {
+    use mooring_sync::export::parse_document_json;
+    use mooring_sync::ExportError;
+    let doc = parse_document_json(&seed("export_document_json", "v2-document")).expect("v2 seed");
+    assert_eq!((doc.version, doc.app_version.as_str()), (2, "0.2.0"));
+    assert_eq!((doc.snapshot.folders.len(), doc.snapshot.connections.len()), (2, 1));
+    assert_eq!(doc.snapshot.credentials.len(), 1);
+    for (name, want) in [
+        ("folder-cycle", ExportError::Format("folder cycle")),
+        ("version-3", ExportError::Version(3)),
+        ("vault-id-mismatch", ExportError::Format("vault id")),
+        ("duplicate-key", ExportError::Format("document")),
+    ] {
+        assert_eq!(parse_document_json(&seed("export_document_json", name)), Err(want), "{name}");
+    }
+    assert!(
+        parse_document_json(&seed("export_document_json", "dangling-credential")).is_err(),
+        "a connection naming a missing credential is refused"
+    );
 }

@@ -3,7 +3,8 @@
 // target's own prompt after it), the "Connect via" picker saving a chain, Windows Hello unlock
 // turned on in Settings → Security and used on the unlock screen, a backup exported and merged
 // back, the Dev badge of a Mooring Dev build, and (U4, ADR-0026) a Vault database reference whose
-// session tab shows its lease chip, and (U5, ADR-0024) the touch banner of a security-key sign-in.
+// session tab shows its lease chip, (U5, ADR-0024) the touch banner of a security-key sign-in, and
+// (U6, ADR-0027) an RDP session through an RD Gateway trusted once plus a smart card PIN dialog.
 // Run: `node --test --test-concurrency=1 apps/desktop/e2e/a5.e2e.mjs` (after `pnpm install`).
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -187,4 +188,85 @@ test("security key: the touch banner shows while the key signs, then the session
     assert.deepEqual(kinds, ["touch_required", "touch_cleared", "connected"]);
     await banner.waitFor({ state: "detached" });
     assert.ok(events(snap).includes("session.auth_sk"));
+  }));
+
+// A5 U6 (ADR-0027): the seeded "finance-desk" signs in through RD Gateway gw01.example.test. The
+// gateway certificate is asked first (with Trust once, which pins nothing), then the server's
+// (no Trust once there), then the session is up with NLA over the gateway and the chip names it.
+test("RD Gateway: Trust once for the gateway, Trust and remember for the server, the via chip", (t) =>
+  flow(t, async (page) => {
+    await createVault(page);
+    await tree(page).getByRole("treeitem", { name: /^finance-desk,/ }).dblclick();
+    const gw = page.getByRole("alertdialog", { name: "RD Gateway certificate" });
+    await gw.waitFor();
+    assert.match(await gw.innerText(), /gw01\.example\.test:443/);
+    assert.match(await gw.innerText(), /Trust once uses it for this connection only/);
+    await gw.getByRole("button", { name: "Trust once" }).click();
+    const server = page.getByRole("alertdialog", { name: "Verify server certificate" });
+    await server.waitFor();
+    assert.equal(await server.getByRole("button", { name: "Trust once" }).count(), 0, "no Trust once for the server");
+    await server.getByRole("button", { name: "Trust and remember" }).click();
+    const snap = await waitForProbe(page, (s) => s.events.includes("connected"), "the RDP session to connect");
+    const kinds = snap.events.filter((k) => k === "gateway_status" || k === "prompt" || k === "connected");
+    assert.equal(kinds[0], "gateway_status", "the gateway is reported before anything else");
+    assert.ok(kinds.indexOf("connected") > kinds.lastIndexOf("prompt"), "connected after both prompts");
+    const tools = page.getByRole("toolbar", { name: "Remote desktop tools" });
+    await tools.getByText("via RD Gateway gw01.example.test").waitFor();
+    assert.match(await tools.innerText(), /NLA/);
+    assert.ok(snap.audit.some((e) => e.event === "trust_decision" && e.details.protocol === "rdg" && e.details.decision === "trusted_once"));
+    assert.ok(snap.audit.some((e) => e.event === "session.rdp.gateway" && e.details.outcome === "ok"));
+    const pinned = await page.evaluate(() => window.__mooringE2E.transport.knownCerts.has("rdg|gw01.example.test:443"));
+    assert.equal(pinned, false, "Trust once stores nothing for the gateway");
+  }));
+
+// A5 U6 (ADR-0027): web01 is pointed at the seeded "piv badge" smart card in the editor. Opening
+// it asks the host key, then the card PIN in a masked dialog; the answer connects. The second
+// open asks the PIN again (it is never stored) and Escape closes the session as the user's.
+test("smart card: the PIN dialog connects; reopening asks again and Escape cancels", (t) =>
+  flow(t, async (page) => {
+    await createVault(page);
+    await tree(page).getByRole("treeitem", { name: /^web01,/ }).click();
+    await page.getByRole("complementary", { name: "Details" }).getByRole("button", { name: "Edit" }).click();
+    const dlg = page.getByRole("dialog", { name: "Edit connection" });
+    await dlg.getByRole("button", { name: /^Credential/ }).click();
+    await dlg.getByRole("listbox", { name: "Credential" }).getByRole("option").filter({ hasText: "piv badge" }).click();
+    await dlg.getByRole("button", { name: "Save connection" }).click();
+    await dlg.waitFor({ state: "detached" });
+
+    const row = tree(page).getByRole("treeitem", { name: /^web01,/ });
+    const hostKey = await openSession(page, row);
+    await hostKey.getByRole("button", { name: "Trust and connect" }).click();
+    const pinDlg = page.getByRole("alertdialog", { name: "Smart card PIN" });
+    await pinDlg.waitFor();
+    assert.match(await pinDlg.innerText(), /Enter the PIN of the smart card \(Yubico YubiKey\)/);
+    const pin = pinDlg.getByLabel("PIN");
+    assert.equal(await pin.getAttribute("type"), "password");
+    const unlock = pinDlg.getByRole("button", { name: "Unlock card" });
+    assert.equal(await unlock.isDisabled(), true, "Unlock is disabled while the PIN is empty");
+    await pin.fill("123456");
+    await unlock.click();
+    let snap = await waitForProbe(page, (s) => s.events.includes("connected"), "the card to unlock");
+    await pinDlg.waitFor({ state: "detached" });
+    assert.ok(snap.audit.some((e) => e.event === "credential.pin_prompted" && e.details.outcome === "entered"));
+    assert.ok(snap.audit.some((e) => e.event === "session.auth_sk" && e.details.backend === "piv" && e.details.outcome === "ok"));
+    assert.doesNotMatch(JSON.stringify(snap.audit), /123456/, "the PIN is in no audit row");
+    assert.doesNotMatch(await page.content(), /123456/, "the PIN is not left in the DOM");
+
+    await page.getByRole("tab", { name: /^web01, connected/ }).getByRole("button", { name: "Close web01" }).click();
+    await waitForProbe(page, (s) => s.sessions === 0, "the first session to close");
+    await row.dblclick(); // the host is trusted now: the PIN is the first question
+    await pinDlg.waitFor();
+    await pinDlg.getByLabel("PIN").fill("99");
+    await page.keyboard.press("Escape");
+    await pinDlg.waitFor({ state: "detached" });
+    snap = await waitForProbe(
+      page,
+      (s) =>
+        s.audit.some((e) => e.event === "credential.pin_prompted" && e.details.outcome === "cancelled") &&
+        s.events.lastIndexOf("closed") > s.events.lastIndexOf("prompt"),
+      "the PIN prompt to be cancelled and the session to close",
+    );
+    assert.equal(snap.events.filter((k) => k === "connected").length, 1, "Escape never connects");
+    await page.getByText("smart card PIN cancelled").first().waitFor();
+    assert.doesNotMatch(JSON.stringify(snap.audit), /"99"/);
   }));

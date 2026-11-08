@@ -2691,6 +2691,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "secrecy",
+ "sha1",
  "socket2",
  "time",
  "tokio",
