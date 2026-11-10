@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "../App";
 import { copyKey, useCredentials } from "../stores/credentials";
 import { useSessions } from "../stores/sessions";
@@ -170,9 +170,9 @@ describe("audit viewer", () => {
     expect(items[0]).toHaveTextContent("domain admin");
     expect(screen.getByRole("status")).toHaveTextContent(/Chain intact/);
 
+    // Rust searches the details (`reason=closed by user`) once typing pauses.
     fireEvent.change(screen.getByLabelText("Filter audit entries"), { target: { value: "closed" } });
-    const filtered = within(list).getAllByRole("row").slice(1);
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]).toHaveTextContent("Session closed");
+    await waitFor(() => { expect(within(list).getAllByRole("row").slice(1)).toHaveLength(1); });
+    expect(within(list).getAllByRole("row")[1]).toHaveTextContent("Session closed");
   });
 });

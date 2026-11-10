@@ -1,4 +1,4 @@
-// Mock web-session windows (ADR-0013), plus the audit commands. In the browser there is no second
+// Mock web-session windows (ADR-0013), plus the audit commands (filters and export: ipc.mock.audit.ts). In the browser there is no second
 // window: web_open only records the window and replays the events a real WebviewWindow sends
 // (navigated, title, and with `webDemo` a refused navigation and a refused download).
 // Methods stay `async` to mirror the IPC signature even when they do not await.
@@ -8,6 +8,8 @@ import { WEB_ZOOM } from "./ipc.types.remote";
 import { IpcError } from "./ipc.error";
 import { MockRemoteBase, type RemoteTarget } from "./ipc.mock.remote";
 import type { MockHop, MockHopChain } from "./ipc.mock.hops";
+import { AUDIT_SCAN_CAP } from "./ipc.types.audit";
+import { auditMatches, auditSaveName, compileAuditFilter, isEmptyFilter, redactEntry, renderAuditExport, scanAuditPage, type MockAuditFile } from "./ipc.mock.audit";
 
 /** R6 `web::via::supported` on macOS (the `macos-proxy` feature is off in this build). */
 export const WEB_VIA_MACOS_TEXT = "web pages through jump hosts need macOS 14 and a build with proxy support";
@@ -173,6 +175,18 @@ export abstract class MockWebBase extends MockRemoteBase {
 
   // ---------- audit ----------
 
+  /** Names the next `audit_export` save dialogs return, in order; `null` = the user cancels. */
+  auditSaves: (string | null)[] = [];
+  /** Files `audit_export` wrote (tests read them; the UI never sees a path or the text). */
+  auditFiles: MockAuditFile[] = [];
+  /** Set to make the next export fail while writing (`audit.export`, nothing written). */
+  failAuditExport = false;
+  /** Rust `SCAN_CAP`; tests lower it to page through a "large" log. */
+  auditScanCap = AUDIT_SCAN_CAP;
+
+  /** `is_known_event`: the mock knows the events it records, plus its own export row. */
+  private knownEvent = (name: string) => name === "audit.exported" || this.audit.some((e) => e.event === name);
+
   auditTail: Ipc["auditTail"] = async ({ limit, before }) => {
     const capped = Math.max(1, Math.min(limit, 500));
     return this.audit
@@ -180,7 +194,34 @@ export abstract class MockWebBase extends MockRemoteBase {
       .slice()
       .reverse()
       .slice(0, capped)
-      .map((e) => ({ ...e, details: { ...e.details } }));
+      .map(redactEntry);
+  };
+
+  auditSearch: Ipc["auditSearch"] = async ({ limit, before, filter }) => {
+    await this.unlocked();
+    const f = compileAuditFilter(filter, this.knownEvent);
+    return scanAuditPage(this.audit, f, Math.max(1, Math.min(limit, 500)), before, this.auditScanCap);
+  };
+
+  auditExport: Ipc["auditExport"] = async ({ format, filter }) => {
+    await this.unlocked();
+    const wire: string = format; // the wire may carry anything
+    if (wire !== "csv" && wire !== "jsonl") throw new IpcError("input.invalid", "invalid format: csv or jsonl");
+    // The filter is checked before the dialog opens.
+    const f = compileAuditFilter(filter, this.knownEvent);
+    const name = auditSaveName(this.auditSaves, format);
+    if (name === null) return { count: 0, cancelled: true };
+    await this.unlocked(); // the vault may have locked while the dialog was open
+    if (this.failAuditExport) {
+      this.failAuditExport = false;
+      throw new IpcError("audit.export", "the audit export could not be written");
+    }
+    const rows = this.audit.map(redactEntry).filter((e) => auditMatches(e, f));
+    const chain = await this.auditVerify();
+    const text = renderAuditExport(format, rows, chain, !isEmptyFilter(f), new Date().toISOString());
+    this.auditFiles.push({ name, format, text, count: rows.length });
+    this.record("audit.exported", { format, count: String(rows.length) });
+    return { count: rows.length, cancelled: false };
   };
 
   auditVerify: Ipc["auditVerify"] = async () => ({ ok: true, entries: this.audit.length, brokenAt: null });

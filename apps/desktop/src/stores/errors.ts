@@ -183,6 +183,9 @@ export const FRIENDLY: Readonly<Record<string, string>> = {
     "The smart card key is not in your ssh-agent, and Mooring cannot load it without a PKCS#11 module. Load the card with ssh-add -s <module>, or choose the module in the credential so Mooring asks the PIN.",
   "credential.incompatible":"That credential cannot be used here. Pick a Windows domain or a user and password credential.",
   "credential.not_found": "That credential no longer exists. Pick another one.",
+  // Harbor W3: the filtered audit log and its export. Messages name no path.
+  "audit.io": "The audit log could not be read. Check the chain status, then try again.",
+  "audit.export": "The audit export could not be written there. Nothing was saved; choose another location.",
 };
 
 /** L-50: the heading and next step where a reference refused because bws changed. */

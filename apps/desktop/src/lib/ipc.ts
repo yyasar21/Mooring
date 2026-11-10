@@ -5,7 +5,7 @@
 // byte payloads as base64 strings.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AuditEntry, FrameHandler, Ipc, LogChunkHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
+import type { AuditEntry, AuditExportResult, AuditTailPage, FrameHandler, Ipc, LogChunkHandler, ProgressHandler, SessionEventHandler } from "./ipc.types";
 import { IpcError } from "./ipc.error";
 import { decodeEntry, decodeForward, decodeListing, decodeLockReason, decodePick, decodeProgress } from "./ipc.decode.exit";
 import { decodeAccess, decodeClusterEvent, decodeLogChunk, decodeNamespaces, decodePodList } from "./ipc.decode.kube";
@@ -51,6 +51,19 @@ export function decodeAuditEntry(raw: unknown): AuditEntry {
     details[k] = typeof v === "string" ? v : JSON.stringify(v);
   }
   return { seq: num(w.seq), at: str(w.at), prev: str(w.prev), event: str(w.event), details };
+}
+
+/** The filtered `audit_tail` answer. A bad shape reads as an empty, finished page. */
+export function decodeAuditPage(raw: unknown): AuditTailPage {
+  const w = (typeof raw === "object" && raw !== null ? raw : {}) as WireRecord;
+  const entries = Array.isArray(w.entries) ? w.entries.map(decodeAuditEntry) : [];
+  const scannedTo = typeof w.scannedTo === "number" ? w.scannedTo : null;
+  return { entries, scannedTo, done: w.done !== false || scannedTo === null };
+}
+
+function decodeExportResult(raw: unknown): AuditExportResult {
+  const w = (typeof raw === "object" && raw !== null ? raw : {}) as WireRecord;
+  return { count: num(w.count), cancelled: w.cancelled === true };
 }
 
 /**
@@ -125,6 +138,9 @@ export class TauriTransport implements Ipc {
     return raw.map(decodeAuditEntry);
   };
   auditVerify: Ipc["auditVerify"] = () => call("audit_verify");
+  // With a filter `audit_tail` answers `{ entries, scannedTo, done }` instead of the bare array.
+  auditSearch: Ipc["auditSearch"] = async (a) => decodeAuditPage(await call<unknown>("audit_tail", { ...a }));
+  auditExport: Ipc["auditExport"] = async (a) => decodeExportResult(await call<unknown>("audit_export", { ...a }));
 
   windowDetach: Ipc["windowDetach"] = (a) => call("window_detach", { ...a });
   windowAttach: Ipc["windowAttach"] = (a) => call("window_attach", { ...a });

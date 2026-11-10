@@ -1,86 +1,64 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DataTable, type DataColumn } from "@mooring/ui";
-import { ipc, type AuditEntry, type AuditVerify } from "../../lib/ipc";
-import { errorText } from "../../stores/errors";
+import { ipc, MAX_FILTER_TEXT, type AuditEntry, type AuditVerify } from "../../lib/ipc";
+import { describeError } from "../../stores/errors";
 import { useTree } from "../../stores/tree";
 import { useCredentials } from "../../stores/credentials";
 import { AuditDrawer } from "./AuditDrawer";
-import { NO_FILTER, SPAN_LABEL, auditFacets, filterAudit, isFiltered, type AuditFilter, type AuditSpan } from "./auditFilter";
+import { AuditExportMenu } from "./AuditExportMenu";
+import { EVENT_LABEL, formatTime } from "./auditLabels";
+import { NO_FACETS, NO_FILTER, SPAN_LABEL, isFiltered, mergeFacets, toFilterInput, type AuditFilter, type AuditSpan } from "./auditFilter";
+import { searchedCount, useAuditLog, type AuditLog } from "./useAuditLog";
 
-const PAGE = 200;
+export { EVENT_LABEL, formatTime } from "./auditLabels";
 
-export const EVENT_LABEL: Record<string, string> = {
-  vault_created: "Vault created",
-  vault_unlocked: "Vault unlocked",
-  vault_locked: "Vault locked",
-  password_changed: "Master password changed",
-  credential_used: "Credential used",
-  credential_copied: "Secret copied",
-  credential_otp_attached: "TOTP seed attached",
-  credential_prompted: "Asked for sign-in",
-  session_opened: "Session opened",
-  session_closed: "Session closed",
-  vault_exported: "Vault exported",
-  trust_decision: "Host trust decision",
-  "vault.lock": "Vault locked",
-  "vault.policy_changed": "Auto-lock policy changed",
-  "session.forward.open": "Forward opened",
-  "session.forward.close": "Forward closed",
-  "session.sftp.transfer": "File transfer",
-  "audit.syslog_changed": "Syslog mirror changed",
-  "app.start": "Application started",
-  // ADR-0024: FIDO2 security keys (fingerprint and backend only).
-  "credential.sk_converted": "SSH key converted to a security-key credential",
-  "session.auth_sk": "Security-key sign-in",
-  // ADR-0027: RD Gateway and smart cards (host, auth method and outcome; never a PIN).
-  "session.rdp.gateway": "RD Gateway sign-in",
-  "session.rdp.gateway_basic": "RD Gateway used Basic authentication",
-  "credential.pin_prompted": "Smart card PIN asked",
-  // L-50: the bws binary no longer matched its pin and was not run.
-  "secret.tool_changed": "bws binary changed: refused until the source is tested",
-  // L-48: the web-via proxy refused a destination outside the start host and allowed origins.
-  forward_refused: "Web proxy refused a destination outside the allowed origins",
-  "portable.acl_unavailable": "Portable data folder: owner-only ACL could not be applied (FAT/exFAT or policy)",
-};
+/** The free text goes to Rust once typing pauses. */
+export const TEXT_DEBOUNCE_MS = 300;
 
 /**
- * Audit log viewer: newest first, paged with `before`, chain verification, filters by text, event
- * type, connection and time (L4), and a drawer with the structured fields of the picked row.
- * Export needs a Rust command first (see the W3 handoff); there is no export button until then.
+ * Audit log viewer: newest first, chain verification, filters by event type, connection, time and
+ * detail text, and a drawer with the structured fields of the picked row. Without a filter it
+ * pages the log with `before`; with one, Rust filters the whole log (`audit_tail` with `filter`)
+ * and the list pages with its `scannedTo` cursor. "Export…" writes the filtered rows (Rust dialog).
  */
 export function AuditView() {
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [verify, setVerify] = useState<AuditVerify | null>(null);
   const [filter, setFilter] = useState<AuditFilter>(NO_FILTER);
+  // The filter Rust runs: the selects apply at once, the text when typing pauses.
+  const [applied, setApplied] = useState<AuditFilter>(NO_FILTER);
   const [picked, setPicked] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [more, setMore] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [facets, setFacets] = useState(NO_FACETS);
   const connections = useTree((s) => s.connections);
   const creds = useCredentials((s) => s.items);
 
-  const load = useCallback(async (before: number | null) => {
-    try {
-      const page = await ipc.auditTail({ limit: PAGE, before });
-      setEntries((cur) => (before === null ? page : [...cur, ...page]));
-      setMore(page.length === PAGE);
-      setError(null);
-    } catch (e: unknown) {
-      setError(errorText(e));
+  useEffect(() => {
+    if (filter.text === applied.text) {
+      if (filter !== applied) setApplied(filter);
+      return;
     }
-  }, []);
+    const t = setTimeout(() => { setApplied(filter); }, TEXT_DEBOUNCE_MS);
+    return () => { clearTimeout(t); };
+  }, [filter, applied]);
+
+  // `since` is fixed when the filter is applied, so "Load more" pages the same window.
+  const input = useMemo(() => toFilterInput(applied), [applied]);
+  const log = useAuditLog(input);
+  const entries = log.entries;
+  useEffect(() => { setFacets((f) => mergeFacets(f, entries)); }, [entries]);
 
   const runVerify = useCallback(async () => {
     try {
       setVerify(await ipc.auditVerify());
+      setVerifyError(null);
     } catch (e: unknown) {
-      setError(errorText(e));
+      setVerifyError(describeError(e));
     }
   }, []);
 
-  useEffect(() => {
-    void load(null);
-    void runVerify();
-  }, [load, runVerify]);
+  useEffect(() => { void runVerify(); }, [runVerify]);
+  const refresh = () => { void log.reload(); void runVerify(); };
 
   const connName = useCallback((id: string | undefined) => (id ? connections.find((c) => c.id === id)?.name : undefined), [connections]);
   const credName = useCallback((id: string | undefined) => (id ? creds.find((c) => c.id === id)?.name : undefined), [creds]);
@@ -103,11 +81,8 @@ export function AuditView() {
     [connName, credName],
   );
 
-  const facets = useMemo(() => auditFacets(entries), [entries]);
-  const shown = useMemo(
-    () => filterAudit(entries, filter, (e) => [e.event, EVENT_LABEL[e.event] ?? "", describe(e), String(e.seq)]),
-    [entries, filter, describe],
-  );
+  const filtered = input !== null;
+  const error = log.error ?? exportError ?? verifyError;
   const entry = picked === null ? undefined : entries.find((e) => e.seq === picked);
   const set = (patch: Partial<AuditFilter>) => { setFilter((f) => ({ ...f, ...patch })); };
   const label = (code: string) => EVENT_LABEL[code] ?? code;
@@ -127,27 +102,29 @@ export function AuditView() {
       <header className="audit-head">
         <h1 className="t-page whitespace-nowrap">Audit log</h1>
         <VerifyBadge v={verify} />
-        <button type="button" className="btn ml-auto flex-none" onClick={() => { void load(null); void runVerify(); }}>
+        <button type="button" className="btn ml-auto flex-none" onClick={refresh}>
           Refresh
         </button>
       </header>
       <div role="group" aria-label="Filters" className="audit-filters">
         <input
           aria-label="Filter audit entries"
-          placeholder="Filter by event, host, credential"
+          placeholder="Search details: host, credential, reason"
+          title="Searches the entry details (never the hidden secret values)"
+          maxLength={MAX_FILTER_TEXT}
           className="field audit-filter-text"
           value={filter.text}
           onChange={(e) => { set({ text: e.target.value }); }}
         />
         <select aria-label="Event type" className="field" value={filter.event} onChange={(e) => { set({ event: e.target.value }); }}>
           <option value="">All events</option>
-          {facets.events.map((code) => ({ code, text: label(code) })).sort((a, b) => a.text.localeCompare(b.text)).map((o) => (
+          {withPick(facets.events, filter.event).map((code) => ({ code, text: label(code) })).sort((a, b) => a.text.localeCompare(b.text)).map((o) => (
             <option key={o.code} value={o.code}>{o.text}</option>
           ))}
         </select>
         <select aria-label="Connection" className="field" value={filter.connection} onChange={(e) => { set({ connection: e.target.value }); }}>
           <option value="">All connections</option>
-          {facets.connections.map((id) => ({ id, text: connName(id) ?? id })).sort((a, b) => a.text.localeCompare(b.text)).map((o) => (
+          {withPick(facets.connections, filter.connection).map((id) => ({ id, text: connName(id) ?? id })).sort((a, b) => a.text.localeCompare(b.text)).map((o) => (
             <option key={o.id} value={o.id}>{o.text}</option>
           ))}
         </select>
@@ -155,9 +132,10 @@ export function AuditView() {
           {(Object.keys(SPAN_LABEL) as AuditSpan[]).map((s) => <option key={s} value={s}>{SPAN_LABEL[s]}</option>)}
         </select>
         {isFiltered(filter) && (
-          <button type="button" className="btn btn-subtle" onClick={() => { setFilter(NO_FILTER); }}>Clear filters</button>
+          <button type="button" className="btn btn-subtle" onClick={() => { setFilter(NO_FILTER); setApplied(NO_FILTER); }}>Clear filters</button>
         )}
-        <span className="audit-count tnum" aria-live="polite">{shown.length} of {entries.length} loaded entries</span>
+        <span className="audit-count tnum" aria-live="polite">{countText(entries.length, filtered, log.cursor.kind !== "none")}</span>
+        <AuditExportMenu filter={input} onExported={refresh} onError={setExportError} />
       </div>
       {error && <p role="alert" className="bg-danger-soft px-4 py-1.5 text-danger">{error}</p>}
       <div className="audit-body">
@@ -165,19 +143,13 @@ export function AuditView() {
           label="Entries, newest first"
           className="audit-table"
           columns={columns}
-          rows={shown}
+          rows={entries}
           rowKey={(e) => String(e.seq)}
           selected={picked === null ? null : String(picked)}
           onSelect={(k) => { setPicked(Number(k)); }}
           defaultSort={{ column: "seq", dir: "descending" }}
-          empty={isFiltered(filter) ? "No entry matches the filters." : "No entries yet."}
-          footer={more && (
-            <div className="px-4 py-3">
-              <button type="button" className="btn" onClick={() => void load(entries.at(-1)?.seq ?? null)}>
-                Load older entries
-              </button>
-            </div>
-          )}
+          empty={emptyText(log, filtered)}
+          footer={<MoreFooter log={log} />}
         />
         {entry && (
           <AuditDrawer
@@ -210,9 +182,35 @@ function VerifyBadge({ v }: { v: AuditVerify | null }) {
   );
 }
 
-export function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+/** The current pick stays an option even before a page shows it. */
+const withPick = (values: string[], pick: string) => (pick && !values.includes(pick) ? [...values, pick] : values);
+
+function countText(n: number, filtered: boolean, more: boolean): string {
+  if (!filtered) return `${n.toLocaleString("en-US")} loaded ${n === 1 ? "entry" : "entries"}`;
+  return `${n.toLocaleString("en-US")} ${n === 1 ? "match" : "matches"}${more ? " so far" : ""}`;
+}
+
+function emptyText(log: AuditLog, filtered: boolean): string {
+  if (log.loading && log.entries.length === 0) return "Loading…";
+  if (!filtered) return "No entries yet.";
+  return log.cursor.kind === "scan" ? "No match in the entries searched so far." : "No entry matches the filters.";
+}
+
+/** "Load older entries" (unfiltered), "Load more" (a full filtered page) or "Continue search" (scan cap). */
+function MoreFooter({ log }: { log: AuditLog }) {
+  const c = log.cursor;
+  if (c.kind === "none") return null;
+  const n = c.kind === "scan" ? searchedCount(log.newest, c.before) : null;
+  return (
+    <div className="flex items-center gap-3 px-4 py-3">
+      {c.kind === "scan" && (
+        <span className="text-text-muted">
+          {n === null ? `Searched back to entry ${String(c.before)}.` : `Searched the newest ${n.toLocaleString("en-US")} entries.`}
+        </span>
+      )}
+      <button type="button" className="btn" disabled={log.loading} onClick={() => void log.more()}>
+        {c.kind === "older" ? "Load older entries" : c.kind === "page" ? "Load more" : "Continue search"}
+      </button>
+    </div>
+  );
 }
