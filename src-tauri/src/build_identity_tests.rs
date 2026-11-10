@@ -134,3 +134,13 @@ fn channels_never_share_a_directory() {
     assert_eq!(Dirs::ROOT, Dirs::root_name(Channel::CURRENT));
     assert_eq!(Dirs::MARKER, "portable", "the marker name is shared");
 }
+
+/// A release build on Windows must not open a console window beside the app.
+#[test]
+fn release_binary_uses_the_windows_gui_subsystem() {
+    let main = include_str!("main.rs");
+    assert!(
+        main.contains(r#"#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]"#),
+        "src-tauri/src/main.rs lost the windows_subsystem attribute"
+    );
+}
