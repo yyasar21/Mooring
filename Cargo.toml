@@ -38,7 +38,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.0-rc.2"
+version = "0.2.0-rc.3"
 edition = "2021"
 rust-version = "1.95"  # sysinfo 0.40 floor; rusqlite 0.41 needs ≥ 1.89
 license = "MIT"
