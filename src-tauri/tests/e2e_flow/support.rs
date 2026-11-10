@@ -177,6 +177,20 @@ async fn vault_gated_codes_a5_vault(st: &AppState) -> Vec<(&'static str, &'stati
         ("vault_import_pick", code(vault_import::pick(st, &picker, None).await)),
         ("vault_import_inspect", code(vault_import::inspect(st, &pick, &passphrase))),
         ("vault_import_age", code(vault_import::apply(st, import))),
+        // A5 Harbor W3: refused before the save dialog (a cancelling picker would answer Ok).
+        (
+            "audit_export",
+            code(
+                crate::commands::audit_export::export(
+                    st,
+                    &picker,
+                    None,
+                    crate::commands::audit_export::ExportFormat::Csv,
+                    None,
+                )
+                .await,
+            ),
+        ),
     ]
 }
 

@@ -47,6 +47,7 @@ permissions = [
   "allow-connection-options-set",
   "allow-audit-tail",
   "allow-audit-verify",
+  "allow-audit-export",
   "allow-forward-open",
   "allow-forward-close",
   "allow-forward-list",

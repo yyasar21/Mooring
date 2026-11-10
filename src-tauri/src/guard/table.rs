@@ -57,6 +57,7 @@ pub const COMMANDS: &[(&str, Scope)] = &[
     ("connection_options_set", Scope::Main),
     ("audit_tail", Scope::Main),
     ("audit_verify", Scope::Main),
+    ("audit_export", Scope::Main),
     ("forward_open", Scope::Main),
     ("forward_close", Scope::Main),
     ("forward_list", Scope::Main),

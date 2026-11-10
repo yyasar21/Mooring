@@ -3,6 +3,7 @@
   "app.biometric_suspended",
   "app.build_identity",
   "app.data_dir",
+  "audit.export",
   "audit.io",
   "biometric.cancelled",
   "biometric.failed",

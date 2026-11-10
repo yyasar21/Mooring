@@ -58,6 +58,15 @@ macro_rules! a5_variants {
             /// Folders in the file.
             folders: u64,
         },
+        /// The audit log itself was exported (`audit_export`): `csv` | `jsonl` and the number
+        /// of entries written. No path, no filter text.
+        #[serde(rename = "audit.exported")]
+        AuditExported {
+            /// `csv` | `jsonl`.
+            format: String,
+            /// Entries written.
+            count: u64,
+        },
         /// A backup file was applied (`vault_import_age`): `mode` is `merge` | `replace`
         /// (`replace` is the warning row of ADR-0023 §2), `foreign` whether the source vault
         /// differed from ours (secrets re-sealed).

@@ -127,13 +127,24 @@ pub fn check_export_passphrase(passphrase: &SecretString, master: &SecretString)
 /// Validate a save target from the dialog: an existing directory outside the app data dir, a
 /// UTF-8 file name (`.age` appended when missing), not an existing non-file.
 fn check_target(state: &AppState, raw: &Path) -> IpcResult<(PathBuf, String)> {
+    check_save_target(state, raw, EXTENSION)
+}
+
+/// [`check_target`] for any save dialog: `.<extension>` appended when missing (also used by
+/// `audit_export`).
+pub(crate) fn check_save_target(
+    state: &AppState,
+    raw: &Path,
+    extension: &str,
+) -> IpcResult<(PathBuf, String)> {
     let name = raw.file_name().ok_or_else(|| bad("names no file"))?;
     let mut name = name.to_str().ok_or_else(|| bad("file name is not UTF-8"))?.to_owned();
     if name.starts_with('.') || name.chars().any(char::is_control) {
         return Err(bad("unsupported file name"));
     }
-    if !Path::new(&name).extension().is_some_and(|e| e.eq_ignore_ascii_case(EXTENSION)) {
-        name.push_str(".age");
+    if !Path::new(&name).extension().is_some_and(|e| e.eq_ignore_ascii_case(extension)) {
+        name.push('.');
+        name.push_str(extension);
     }
     let parent = raw.parent().ok_or_else(|| bad("names no file"))?;
     let path = dialog_dir(state, "pick", parent)?.join(&name);

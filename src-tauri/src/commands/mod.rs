@@ -9,6 +9,8 @@
 #![allow(clippy::needless_pass_by_value)]
 
 pub mod audit;
+pub mod audit_export;
+pub mod audit_query;
 pub(crate) mod connect_plan;
 pub mod conn_options;
 pub mod known_certs;
