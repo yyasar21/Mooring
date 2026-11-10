@@ -1,78 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Mooring app icon, 1024x1024 master. Original artwork for this project (MIT, see LICENSE).
-     A bollard, seen from the quay, with the line made fast around its neck: the loop is drawn
-     as a live signal ring (the design tokens' electric cyan), so the mark reads as both
-     "secured" and "connected". Flat vector, no filters, no raster, no fonts.
-     Regenerate the platform icons with scripts/release/gen-icons.sh. -->
+<!-- Mooring app icon, Harbor alternative (1024x1024 master): the same flat mark in white on a
+     plate in the Harbor accent (#1a5fb4). Original artwork for this project (MIT, see LICENSE).
+     No gradients, glows, filters, raster or fonts. Chosen by the owner 2026-11-10. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>Mooring</title>
   <defs>
-    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#10212c"/>
-      <stop offset="0.55" stop-color="#070f15"/>
-      <stop offset="1" stop-color="#03070a"/>
-    </linearGradient>
-    <radialGradient id="haze" cx="0.5" cy="0.62" r="0.5">
-      <stop offset="0" stop-color="#29e6f2" stop-opacity="0.2"/>
-      <stop offset="0.6" stop-color="#29e6f2" stop-opacity="0.04"/>
-      <stop offset="1" stop-color="#29e6f2" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#eef9fa"/>
-      <stop offset="1" stop-color="#a9c8cf"/>
-    </linearGradient>
-    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#0fb7cc"/>
-      <stop offset="0.5" stop-color="#4ff0fa"/>
-      <stop offset="1" stop-color="#0fb7cc"/>
-    </linearGradient>
-    <linearGradient id="tail" gradientUnits="userSpaceOnUse" x1="330" y1="570" x2="60" y2="900">
-      <stop offset="0" stop-color="#29e6f2"/>
-      <stop offset="0.55" stop-color="#1ab9cc"/>
-      <stop offset="1" stop-color="#0fb7cc" stop-opacity="0"/>
-    </linearGradient>
-    <clipPath id="plate">
-      <rect x="32" y="32" width="960" height="960" rx="224"/>
-    </clipPath>
+    <mask id="gap">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <path d="M322 584 A190 66 0 0 0 702 584" fill="none" stroke="#000" stroke-width="104" stroke-linecap="round"/>
+    </mask>
   </defs>
 
-  <!-- plate -->
-  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#ground)"/>
-  <g clip-path="url(#plate)">
-    <rect x="32" y="32" width="960" height="960" fill="url(#haze)"/>
-    <!-- range rings: the console's static bearing marks, barely there -->
-    <g fill="none" stroke="#29e6f2">
-      <circle cx="512" cy="540" r="392" stroke-width="3" stroke-opacity="0.09"/>
-      <circle cx="512" cy="540" r="318" stroke-width="3" stroke-opacity="0.06" stroke-dasharray="4 14"/>
-    </g>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#1a5fb4"/>
 
-    <!-- the line: comes in from the quay (lower left), fades out past the plate -->
-    <path d="M330 566 C 262 600, 200 700, 110 860" fill="none" stroke="url(#tail)" stroke-width="44"
-          stroke-linecap="round"/>
-
-    <!-- back half of the loop, behind the post -->
-    <path d="M322 560 A190 66 0 0 1 702 560" fill="none" stroke="#29e6f2" stroke-opacity="0.12" stroke-width="118" stroke-linecap="round"/>
-    <path d="M322 560 A190 66 0 0 1 702 560" fill="none" stroke="url(#signal)" stroke-width="44" stroke-linecap="round"/>
+  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="64">
+    <path d="M330 590 C 262 624, 210 714, 168 812"/>
+    <path d="M322 584 A190 66 0 0 1 702 584"/>
   </g>
-
-  <!-- the bollard: cap, post, foot -->
-  <g fill="url(#ink)">
-    <!-- cap: a dome with a thick rim -->
-    <path d="M296 356 v-52 a216 112 0 0 1 432 0 v52 a24 24 0 0 1 -24 24 h-384 a24 24 0 0 1 -24 -24 z"/>
-    <!-- underside of the cap -->
-    <path d="M320 380 h384 v10 a10 10 0 0 1 -10 10 h-364 a10 10 0 0 1 -10 -10 z" fill="#03070a" fill-opacity="0.35"/>
-    <!-- post, flaring out into the foot -->
-    <path d="M432 370 h160 l8 300 c2 30 18 40 44 44 h8 a22 22 0 0 1 22 22 v22 a22 22 0 0 1 -22 22 h-280 a22 22 0 0 1 -22 -22 v-22 a22 22 0 0 1 22 -22 h8 c26 -4 42 -14 44 -44 z"/>
+  <g fill="#ffffff" mask="url(#gap)">
+    <path d="M296 380 v-52 a216 112 0 0 1 432 0 v52 a24 24 0 0 1 -24 24 h-384 a24 24 0 0 1 -24 -24 z"/>
+    <path d="M432 394 h160 l8 300 c2 30 18 40 44 44 h8 a22 22 0 0 1 22 22 v22 a22 22 0 0 1 -22 22 h-280 a22 22 0 0 1 -22 -22 v-22 a22 22 0 0 1 22 -22 h8 c26 -4 42 -14 44 -44 z"/>
   </g>
-  <!-- shadow of the loop on the post, so it sits in front -->
-  <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="#03070a" stroke-opacity="0.55" stroke-width="72" stroke-linecap="round"/>
-
-  <!-- front half of the loop: the live ring -->
-  <g clip-path="url(#plate)">
-    <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="#29e6f2" stroke-opacity="0.16" stroke-width="118" stroke-linecap="round"/>
-    <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="#29e6f2" stroke-opacity="0.28" stroke-width="74" stroke-linecap="round"/>
-    <path d="M322 560 A190 66 0 0 0 702 560" fill="none" stroke="url(#signal)" stroke-width="44" stroke-linecap="round"/>
-    <!-- hot core of the ring -->
-    <path d="M400 612 A190 66 0 0 0 624 612" fill="none" stroke="#eafdff" stroke-width="12" stroke-linecap="round"/>
-  </g>
+  <path d="M322 584 A190 66 0 0 0 702 584" fill="none" stroke="#ffffff" stroke-width="64" stroke-linecap="round"/>
 </svg>
