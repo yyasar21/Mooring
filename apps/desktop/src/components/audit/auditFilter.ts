@@ -1,4 +1,4 @@
-import type { AuditEntry } from "../../lib/ipc";
+import { MAX_FILTER_TEXT, type AuditEntry, type AuditFilterInput } from "../../lib/ipc";
 
 /** Time windows of the audit filter bar (L4). */
 export type AuditSpan = "any" | "hour" | "day" | "week" | "month";
@@ -25,30 +25,40 @@ export const NO_FILTER: AuditFilter = { text: "", event: "", connection: "", spa
 export const isFiltered = (f: AuditFilter): boolean => f.text.trim() !== "" || f.event !== "" || f.connection !== "" || f.span !== "any";
 
 /**
- * Which loaded rows a filter keeps. `haystack` is what the free-text field searches (the label,
- * the described details, the sequence number). The time window counts back from `now`.
+ * The filter Rust runs (`audit_tail` / `audit_export`), or null for the unfiltered log. The time
+ * window counts back from `now` in Unix milliseconds; the text is trimmed and cut to 128
+ * characters, and Rust matches it against the redacted `key=value` details only.
  */
-export function filterAudit(entries: readonly AuditEntry[], f: AuditFilter, haystack: (e: AuditEntry) => string[], now = Date.now()): AuditEntry[] {
-  const q = f.text.trim().toLowerCase();
-  const since = f.span === "any" ? null : now - SPAN_MS[f.span];
-  return entries.filter((e) => {
-    if (f.event && e.event !== f.event) return false;
-    if (f.connection && e.details.connection !== f.connection) return false;
-    if (since !== null) {
-      const t = Date.parse(e.at);
-      if (!Number.isFinite(t) || t < since) return false;
-    }
-    return !q || haystack(e).some((s) => s.toLowerCase().includes(q));
-  });
+export function toFilterInput(f: AuditFilter, now = Date.now()): AuditFilterInput | null {
+  if (!isFiltered(f)) return null;
+  const out: AuditFilterInput = {};
+  if (f.event) out.events = [f.event];
+  if (f.connection) out.connection = f.connection;
+  if (f.span !== "any") out.since = Math.max(0, Math.floor(now - SPAN_MS[f.span]));
+  // Rust counts characters (code points), not UTF-16 units.
+  const text = Array.from(f.text.trim()).slice(0, MAX_FILTER_TEXT).join("").trim();
+  if (text) out.text = text;
+  return out;
 }
 
-/** Distinct values of the loaded rows, for the select options: event codes and connection ids. */
-export function auditFacets(entries: readonly AuditEntry[]): { events: string[]; connections: string[] } {
-  const events = new Set<string>();
-  const connections = new Set<string>();
+export interface AuditFacets {
+  events: string[];
+  connections: string[];
+}
+
+export const NO_FACETS: AuditFacets = { events: [], connections: [] };
+
+/**
+ * The select options: event codes and connection ids seen in any page loaded so far (filtered or
+ * not), so narrowing the list never removes the choices. Returns `prev` when nothing is new.
+ */
+export function mergeFacets(prev: AuditFacets, entries: readonly AuditEntry[]): AuditFacets {
+  const events = new Set(prev.events);
+  const connections = new Set(prev.connections);
   for (const e of entries) {
     events.add(e.event);
     if (e.details.connection) connections.add(e.details.connection);
   }
+  if (events.size === prev.events.length && connections.size === prev.connections.length) return prev;
   return { events: [...events], connections: [...connections] };
 }

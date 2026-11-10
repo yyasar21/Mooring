@@ -11,6 +11,7 @@ import type { NetIpc } from "./ipc.types.net";
 import type { ImportIpc } from "./ipc.types.import";
 import type { A5Ipc, BuildChannel, HopStatus } from "./ipc.types.a5";
 import type { GatewayStatus } from "./ipc.types.rdg";
+import type { AuditIpc } from "./ipc.types.audit";
 
 export * from "./ipc.types.exit";
 export * from "./ipc.types.remote";
@@ -22,6 +23,7 @@ export * from "./ipc.types.net";
 export * from "./ipc.types.import";
 export * from "./ipc.types.a5";
 export * from "./ipc.types.rdg";
+export * from "./ipc.types.audit";
 
 export type Protocol = ProtocolName;
 export type VaultStatus = "missing" | "locked" | "unlocked";
@@ -354,7 +356,7 @@ export interface AuditVerify {
 }
 
 /** Every command of ADR-0008 … ADR-0020 (plus the A0 vault/app commands). */
-export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, UpdateIpc, NetIpc, ImportIpc, A5Ipc {
+export interface Ipc extends ExitIpc, RemoteIpc, KubeIpc, VsphereIpc, SecretsIpc, SyncIpc, UpdateIpc, NetIpc, ImportIpc, A5Ipc, AuditIpc {
   appInfo(): Promise<AppInfo>;
   vaultStatus(): Promise<VaultStatus>;
   vaultCreate(password: string): Promise<VaultStatus>;

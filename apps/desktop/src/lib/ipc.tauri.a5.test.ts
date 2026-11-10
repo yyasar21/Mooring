@@ -59,3 +59,26 @@ describe("TauriTransport · A5", () => {
     for (const c of ["biometric_status", "biometric_unlock", "vault_import_inspect"]) expect(POLLED_COMMANDS).not.toContain(c);
   });
 });
+
+describe("TauriTransport · filtered audit and export", () => {
+  it("sends the filter to audit_tail and decodes the page", async () => {
+    const t = new TauriTransport();
+    reply = { entries: [{ seq: 7, at: "2026-11-08T10:00:00Z", prev: "h", event: "session_opened", connection: "c-1", note: null }], scannedTo: 7, done: false };
+    const page = await t.auditSearch({ limit: 200, before: null, filter: { events: ["session_opened"], since: 1 } });
+    expect(calls.at(-1)).toEqual({ cmd: "audit_tail", args: { limit: 200, before: null, filter: { events: ["session_opened"], since: 1 } } });
+    expect(page).toEqual({ entries: [{ seq: 7, at: "2026-11-08T10:00:00Z", prev: "h", event: "session_opened", details: { connection: "c-1" } }], scannedTo: 7, done: false });
+    reply = { entries: [], scannedTo: null, done: false };
+    expect(await t.auditSearch({ limit: 1, before: 3, filter: {} })).toEqual({ entries: [], scannedTo: null, done: true });
+  });
+
+  it("names audit_export with the format and optional filter", async () => {
+    const t = new TauriTransport();
+    reply = { count: 3, cancelled: false };
+    expect(await t.auditExport({ format: "csv", filter: { text: "web" } })).toEqual({ count: 3, cancelled: false });
+    expect(calls.at(-1)).toEqual({ cmd: "audit_export", args: { format: "csv", filter: { text: "web" } } });
+    reply = { count: 0, cancelled: true };
+    expect(await t.auditExport({ format: "jsonl" })).toEqual({ count: 0, cancelled: true });
+    expect(calls.at(-1)).toEqual({ cmd: "audit_export", args: { format: "jsonl" } });
+    expect(POLLED_COMMANDS).not.toContain("audit_export");
+  });
+});
