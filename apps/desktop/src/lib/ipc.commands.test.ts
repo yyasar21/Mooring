@@ -21,7 +21,7 @@ export function handlerCommands(libRs: string): string[] {
     .filter((n) => /^[a-z][a-z0-9_]*$/.test(n));
 }
 
-/** Command names the transport passes to `call(...)` / `invoke(...)` as string literals. */
+/** Command names the transport passes to `call` / Tauri invoke as string literals. */
 export function invokedCommands(ipcTs: string): string[] {
   const out = new Set<string>();
   for (const m of ipcTs.matchAll(/\b(?:call|invoke)(?:<[^;(]*>)?\(\s*"([a-z][a-z0-9_]*)"/g)) if (m[1]) out.add(m[1]);
