@@ -150,7 +150,7 @@ fi
 # overlay was not applied.
 DEV_RE='mooring[ _.-]dev'
 for f in "${LISTED[@]}"; do
-  if [[ "${f,,}" =~ $DEV_RE ]]; then
+  if [[ "$(printf '%s' "$f" | tr '[:upper:]' '[:lower:]')" =~ $DEV_RE ]]; then
     echo "error: $f is a development build (ADR-0028); release builds use the release overlay" >&2; exit 1
   fi
 done

@@ -87,7 +87,8 @@ if [[ -n "${APPLE_INSTALLER_CERTIFICATE:-}" && -n "${APPLE_INSTALLER_SIGNING_IDE
   printf '%s' "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode > "$WORK/installer.p12"
   security import "$WORK/installer.p12" -k "$KEYCHAIN" -P "${APPLE_INSTALLER_CERTIFICATE_PASSWORD:-}" -T /usr/bin/productbuild
   rm -f "$WORK/installer.p12"
-  mapfile -t EXISTING < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
+  EXISTING=() # macOS ships bash 3.2: no mapfile
+  while IFS= read -r kc; do EXISTING+=("$kc"); done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
   security list-keychains -d user -s "$KEYCHAIN" "${EXISTING[@]}"
   SIGN_ARGS=(--sign "$APPLE_INSTALLER_SIGNING_IDENTITY" --keychain "$KEYCHAIN" --timestamp)
 else

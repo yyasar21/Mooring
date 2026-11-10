@@ -308,6 +308,9 @@ jobs:
         env:
           PATHS: ${{ steps.tauri.outputs.artifactPaths }}
           TARGET: ${{ matrix.target }}
+          # Git Bash on Windows rewrites a leading-slash argument (the JSON pointer) into a path.
+          MSYS_NO_PATHCONV: "1"
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           set -euo pipefail
           want=$(python3 -I scripts/release/merge-config.py merge src-tauri/tauri.conf.json src-tauri/tauri.release.conf.json --get /identifier)
@@ -315,7 +318,8 @@ jobs:
           dev_re='mooring[ _.-]dev'
           while IFS= read -r f; do
             f="${f%$'\r'}"; f="${f//\\//}"; name="${f##*/}"
-            if [[ "${name,,}" =~ $dev_re ]]; then echo "::error::dev-identity artifact $name"; exit 1; fi
+            lower=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]') # macOS bash 3.2 has no ${x,,}
+            if [[ "$lower" =~ $dev_re ]]; then echo "::error::dev-identity artifact $name"; exit 1; fi
           done < <(python3 -I -c 'import json,os;[print(p) for p in json.loads(os.environ["PATHS"])]')
           shopt -s nullglob
           case "$RUNNER_OS" in
