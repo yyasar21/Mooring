@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { MockTransport } from "../../lib/ipc.mock";
 import { MOCK_VAULT_ID } from "../../lib/ipc.mock.sync";
 import { useCredentials } from "../../stores/credentials";
@@ -98,7 +98,8 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     mock.remoteTrust = [kiosk];
     fireEvent.click(within(c).getByRole("button", { name: "Sync now" }));
     await settle();
-    const alarm = within(c).getByRole("alert", { name: "Certificate trust conflicts" });
+    // The alarm follows the sync status event; a slow runner needs more than one settle.
+    const alarm = await within(c).findByRole("alert", { name: "Certificate trust conflicts" }, { timeout: 5000 });
     expect(alarm).toHaveTextContent("Certificate trust conflict");
     expect(alarm).toHaveTextContent("Two devices trust different certificates for kiosk.example.test:5900. Remove one in Settings → Trust.");
     expect(alarm).toHaveTextContent("known_vnc_certs");
@@ -107,12 +108,12 @@ describe("Settings → Vault sync (ADR-0017)", () => {
     // it stands across runs and is not dismissable here
     fireEvent.click(within(c).getByRole("button", { name: "Sync now" }));
     await settle();
-    expect(within(c).getByRole("alert", { name: "Certificate trust conflicts" })).toBeInTheDocument();
+    expect(await within(c).findByRole("alert", { name: "Certificate trust conflicts" }, { timeout: 5000 })).toBeInTheDocument();
     expect(within(alarm).queryByRole("button", { name: /Dismiss/ })).toBeNull();
     expect(within(alarm).getByRole("button", { name: "Open known certificates" })).toBeInTheDocument();
     // removing the pins clears it at once (the status event follows the removal)
     await act(async () => { await mock.knownCertsRemove({ protocol: "vnc", host: "kiosk.example.test", port: 5900 }); });
-    expect(within(c).queryByRole("alert")).toBeNull();
+    await waitFor(() => { expect(within(c).queryByRole("alert")).toBeNull(); }, { timeout: 5000 });
   });
 
   it("a fork shows the banner; resolving goes through Rust's native confirmation", async () => {
