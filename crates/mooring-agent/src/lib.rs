@@ -215,12 +215,24 @@ enum RelayMessage {
         signature: Vec<u8>,
     },
     /// Registration response from relay.
-    RegisterOk { session_token: String },
-    RegisterErr { message: String },
+    RegisterOk {
+        session_token: String,
+    },
+    RegisterErr {
+        message: String,
+    },
     /// Encrypted frame from relay.
-    Frame { session_id: String, nonce: Vec<u8>, ciphertext: Vec<u8> },
+    Frame {
+        session_id: String,
+        nonce: Vec<u8>,
+        ciphertext: Vec<u8>,
+    },
     /// Encrypted frame to relay.
-    OutgoingFrame { session_id: String, nonce: Vec<u8>, ciphertext: Vec<u8> },
+    OutgoingFrame {
+        session_id: String,
+        nonce: Vec<u8>,
+        ciphertext: Vec<u8>,
+    },
     /// Manager handshake initiation.
     Handshake {
         endpoint_id: String,
@@ -228,12 +240,21 @@ enum RelayMessage {
         session_id: String,
     },
     /// Key exchange response.
-    KeyExchangeOk { session_id: String },
-    KeyExchangeErr { session_id: String, message: String },
+    KeyExchangeOk {
+        session_id: String,
+    },
+    KeyExchangeErr {
+        session_id: String,
+        message: String,
+    },
 }
 
 /// Encrypt plaintext with ChaCha20-Poly1305 using the session AEAD key.
-fn encrypt_payload(key: &[u8; 32], nonce: &[u8; 12], plaintext: &[u8]) -> Result<Vec<u8>, AgentError> {
+fn encrypt_payload(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, AgentError> {
     let cipher = chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
         .map_err(|e| AgentError::FrameEncryptionFailed(e.to_string()))?;
     let mut buf = plaintext.to_vec();
@@ -247,7 +268,11 @@ fn encrypt_payload(key: &[u8; 32], nonce: &[u8; 12], plaintext: &[u8]) -> Result
 
 /// Decrypt ciphertext with ChaCha20-Poly1305 using the session AEAD key.
 #[allow(dead_code)]
-fn decrypt_payload(key: &[u8; 32], nonce: &[u8; 12], ciphertext: &[u8]) -> Result<Vec<u8>, AgentError> {
+fn decrypt_payload(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, AgentError> {
     if ciphertext.len() < 16 {
         return Err(AgentError::FrameDecryptionFailed("ciphertext too short".into()));
     }
@@ -298,9 +323,9 @@ pub async fn register_with_relay(
     );
 
     // Parse the Ed25519 signing key from the config (32-byte seed)
-    let seed: [u8; 32] = config.registration_key[..32].try_into().map_err(|_| {
-        RelayRegisterError::InvalidRegistrationKey
-    })?;
+    let seed: [u8; 32] = config.registration_key[..32]
+        .try_into()
+        .map_err(|_| RelayRegisterError::InvalidRegistrationKey)?;
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
     let signature = signing_key.sign(reg_data.as_bytes());
 
@@ -312,25 +337,21 @@ pub async fn register_with_relay(
         signature: signature.to_bytes().to_vec(),
     };
 
-    let msg_str = serde_json::to_string(&reg_msg).map_err(|_| RelayRegisterError::SerializationFailed)?;
-    ws.send(Message::Text(msg_str.into()))
-        .await
-        .map_err(|_| RelayRegisterError::ConnectionLost)?;
+    let msg_str =
+        serde_json::to_string(&reg_msg).map_err(|_| RelayRegisterError::SerializationFailed)?;
+    ws.send(Message::Text(msg_str.into())).await.map_err(|_| RelayRegisterError::ConnectionLost)?;
 
     // Wait for response
     if let Some(Ok(Message::Text(resp))) = ws.next().await {
-        let resp_msg: RelayMessage = serde_json::from_str(&resp).map_err(|e| {
-            RelayRegisterError::InvalidResponse(e.to_string())
-        })?;
+        let resp_msg: RelayMessage = serde_json::from_str(&resp)
+            .map_err(|e| RelayRegisterError::InvalidResponse(e.to_string()))?;
 
         match resp_msg {
             RelayMessage::RegisterOk { session_token } => {
                 info!("Registered with relay successfully");
                 Ok((session_token, e2e_keys))
             }
-            RelayMessage::RegisterErr { message } => {
-                Err(RelayRegisterError::Rejected(message))
-            }
+            RelayMessage::RegisterErr { message } => Err(RelayRegisterError::Rejected(message)),
             _ => Err(RelayRegisterError::InvalidResponse("unexpected response type".into())),
         }
     } else {
@@ -346,9 +367,8 @@ pub async fn start_loopback_proxy(
     state: Arc<AgentState>,
     config: Arc<AgentConfig>,
 ) -> Result<SocketAddr, AgentError> {
-    let listener = TcpListener::bind(config.listen_addr)
-        .await
-        .map_err(AgentError::ProxyListenerFailed)?;
+    let listener =
+        TcpListener::bind(config.listen_addr).await.map_err(AgentError::ProxyListenerFailed)?;
 
     let addr = listener.local_addr().map_err(AgentError::ProxyListenerFailed)?;
     *state.listen_addr.write().await = Some(addr);
@@ -400,7 +420,9 @@ async fn handle_proxy_connection(
     // Perform E2E key exchange
     {
         let e2e_keys = state.e2e_keys.read().await;
-        let e2e_keys = e2e_keys.as_ref().ok_or(AgentError::KeyExchangeFailed("no E2E keys available".into()))?;
+        let e2e_keys = e2e_keys
+            .as_ref()
+            .ok_or(AgentError::KeyExchangeFailed("no E2E keys available".into()))?;
 
         let shared_secret = e2e_keys.shared_secret(&manager_pub_key);
         let session_keys = SessionKeys::from_shared_secret(&shared_secret);
@@ -438,9 +460,9 @@ async fn bidirectional_forward(
             }
 
             let session_keys = state.session_keys.read().await;
-            let keys = session_keys.get(session_id_forward.as_str()).ok_or_else(|| {
-                AgentError::KeyExchangeFailed("no session keys".into())
-            })?;
+            let keys = session_keys
+                .get(session_id_forward.as_str())
+                .ok_or_else(|| AgentError::KeyExchangeFailed("no session keys".into()))?;
 
             let nonce = generate_nonce();
             let encrypted = encrypt_payload(&keys.aead_key, &nonce, &buf[..n])?;
@@ -451,9 +473,8 @@ async fn bidirectional_forward(
                 ciphertext: encrypted,
             };
 
-            let _frame_str = serde_json::to_string(&frame_msg).map_err(|_| {
-                AgentError::FrameEncryptionFailed("serialization failed".into())
-            })?;
+            let _frame_str = serde_json::to_string(&frame_msg)
+                .map_err(|_| AgentError::FrameEncryptionFailed("serialization failed".into()))?;
 
             // In a full implementation, we'd send this via the WebSocket
             // For now, we'd need to store the WebSocket in state

@@ -221,9 +221,7 @@ pub fn encrypt_frame(
     let mut buf = plaintext.to_vec();
     buf.resize(plaintext.len() + 16, 0); // AEAD appends 16-byte tag
     let nonce_arr: chacha20poly1305::Nonce = (*nonce).into();
-    cipher
-        .encrypt_in_place(&nonce_arr, &[], &mut buf)
-        .map_err(|_| RelayError::DecryptFailed)?;
+    cipher.encrypt_in_place(&nonce_arr, &[], &mut buf).map_err(|_| RelayError::DecryptFailed)?;
     Ok(buf)
 }
 
@@ -242,9 +240,7 @@ pub fn decrypt_frame(
         .map_err(|e| RelayError::KeyExchangeFailed(e.to_string()))?;
     let mut buf = ciphertext_with_tag.to_vec();
     let nonce_arr: chacha20poly1305::Nonce = (*nonce).into();
-    cipher
-        .decrypt_in_place(&nonce_arr, &[], &mut buf)
-        .map_err(|_| RelayError::DecryptFailed)?;
+    cipher.decrypt_in_place(&nonce_arr, &[], &mut buf).map_err(|_| RelayError::DecryptFailed)?;
     // Strip the 16-byte tag
     buf.truncate(buf.len() - 16);
     Ok(buf)
