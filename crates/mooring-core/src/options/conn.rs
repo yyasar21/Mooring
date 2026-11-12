@@ -430,7 +430,7 @@ impl KubeConnOptions {
 /// `RelayConnOptions = { relayUrl, endpointId }` (ADR-0029). The manager connects to an
 /// agent via a stateless relay: `relayUrl` is the WebSocket URL, `endpointId` is the
 /// agent's stable UUID v4 identifier.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RelayConnOptions {
     /// Relay WebSocket URL (`wss://…`). Required.
@@ -439,12 +439,6 @@ pub struct RelayConnOptions {
     /// Agent endpoint ID (UUID v4 string). Required.
     #[serde(default)]
     pub endpoint_id: String,
-}
-
-impl Default for RelayConnOptions {
-    fn default() -> Self {
-        Self { relay_url: String::new(), endpoint_id: String::new() }
-    }
 }
 
 impl RelayConnOptions {

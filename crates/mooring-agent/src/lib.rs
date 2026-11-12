@@ -67,6 +67,7 @@ impl E2EKeys {
 
 /// Agent runtime state: keys, relay connection, and proxy listener.
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct AgentState {
     /// E2E keys for this agent session (regenerated per manager handshake).
     e2e_keys: RwLock<Option<E2EKeys>>,
@@ -79,6 +80,7 @@ pub struct AgentState {
 /// A local session runner (SSH/RDP/VNC) managed by the agent.
 pub trait LocalSession {
     /// Run the session; blocks until disconnected.
+    #[allow(async_fn_in_trait)]
     async fn run(&mut self) -> Result<(), SessionError>;
     /// Return the protocol name being used.
     fn protocol_name(&self) -> &str;
@@ -116,7 +118,7 @@ pub async fn register_with_relay(
         "{}:{}:{}",
         config.endpoint_id,
         "0.0.0-unknown",
-        base64::engine::general_purpose::STANDARD.encode(&e2e_keys.public_key)
+        base64::engine::general_purpose::STANDARD.encode(e2e_keys.public_key)
     );
 
     // Parse the Ed25519 signing key from the config (32-byte seed)

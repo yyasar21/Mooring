@@ -160,7 +160,7 @@ pub fn resolve(state: &AppState, arg: &TargetArg) -> IpcResult<Resolved> {
             let (host, port) = match conn.protocol {
                 Protocol::Ssh | Protocol::Rdp | Protocol::Vnc => (conn.host.clone(), conn.effective_port()),
                 Protocol::Web => url_host(&conn.host)?,
-                Protocol::Kubernetes | Protocol::VsphereConsole => {
+                Protocol::Kubernetes | Protocol::VsphereConsole | Protocol::Relay => {
                     return Err(IpcError::new("net.invalid_host", "this connection has no network host"));
                 }
             };

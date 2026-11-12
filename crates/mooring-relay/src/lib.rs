@@ -24,8 +24,6 @@ use tokio::sync::RwLock;
 
 /// Maximum time an agent stays in the registry after last activity (30 min).
 const AGENT_TTL: Duration = Duration::from_secs(30 * 60);
-/// Maximum concurrent manager sessions per agent (default 1, configurable by policy).
-const MAX_MANAGER_SESSIONS: usize = 1;
 
 /// Endpoint ID type alias (UUID v4 string).
 pub type EndpointId = String;
@@ -106,7 +104,7 @@ impl RelayState {
         let op_key = self.operator_pub_key.read().await;
         let op_key = op_key.as_ref().ok_or(RelayError::OperatorKeyMissing)?;
 
-        if !validate_ed25519(op_key, &req.signature, &self.serialize_reg_data(req)) {
+        if !validate_ed25519(op_key, &req.signature, &RelayState::serialize_reg_data(req)) {
             return Err(RelayError::InvalidSignature);
         }
 
@@ -142,7 +140,7 @@ impl RelayState {
     }
 
     /// Serialize registration data for signature verification.
-    fn serialize_reg_data(&self, req: &RegistrationRequest) -> Vec<u8> {
+    fn serialize_reg_data(req: &RegistrationRequest) -> Vec<u8> {
         format!(
             "{}:{}:{}",
             req.endpoint_id,
