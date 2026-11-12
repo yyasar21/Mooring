@@ -121,7 +121,7 @@ impl SessionKeys {
 pub struct AgentState {
     /// E2E keys for this agent session (regenerated per manager handshake).
     e2e_keys: RwLock<Option<E2EKeys>>,
-    /// Derived AEAD session keys per manager session (session_id -> SessionKeys).
+    /// Derived AEAD session keys per manager session (`session_id` -> `SessionKeys`).
     session_keys: RwLock<HashMap<String, SessionKeys>>,
     /// Loopback proxy listener address (set after start).
     listen_addr: RwLock<Option<SocketAddr>>,
@@ -299,7 +299,12 @@ fn generate_nonce() -> [u8; 12] {
 
 /// Convert the first 16 bytes to a hex string for session identification.
 fn session_id_from_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
 
 /// Register this agent with the relay and return the session token.
