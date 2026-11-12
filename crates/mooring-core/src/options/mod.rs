@@ -19,9 +19,9 @@ use std::time::Duration;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub use conn::{
-    is_localhost_subdomain, ExecCommand, KubeConnOptions, RdpConnOptions, VncConnOptions,
-    VncSecurity, WebConnOptions, DEFAULT_KEYBOARD_LAYOUT, KEYBOARD_LAYOUTS, LOG_TAIL_LINES,
-    MAX_ALLOWED_NAMESPACES, MAX_ALLOWED_ORIGINS, MAX_LOG_BYTES, MAX_URL,
+    is_localhost_subdomain, ExecCommand, KubeConnOptions, RdpConnOptions, RelayConnOptions,
+    VncConnOptions, VncSecurity, WebConnOptions, DEFAULT_KEYBOARD_LAYOUT, KEYBOARD_LAYOUTS,
+    LOG_TAIL_LINES, MAX_ALLOWED_NAMESPACES, MAX_ALLOWED_ORIGINS, MAX_LOG_BYTES, MAX_URL,
 };
 pub use gateway::{GatewayUsage, RdGatewayOptions, MAX_GATEWAY_HOST};
 pub use vsphere::{
@@ -127,6 +127,8 @@ pub enum ProtocolOptions {
     Vsphere(VsphereConnOptions),
     /// SSH: `{}`.
     None(NoOptions),
+    /// Relay (ADR-0029).
+    Relay(RelayConnOptions),
 }
 
 impl ProtocolOptions {
@@ -140,6 +142,7 @@ impl ProtocolOptions {
             Protocol::Kubernetes => Self::Kube(KubeConnOptions::default()),
             Protocol::VsphereConsole => Self::Vsphere(VsphereConnOptions::default()),
             Protocol::Ssh => Self::None(NoOptions {}),
+            Protocol::Relay => Self::Relay(RelayConnOptions::default()),
         }
     }
 
@@ -155,6 +158,7 @@ impl ProtocolOptions {
             Protocol::Kubernetes => serde_json::from_value(value).map(Self::Kube),
             Protocol::VsphereConsole => serde_json::from_value(value).map(Self::Vsphere),
             Protocol::Ssh => serde_json::from_value(value).map(Self::None),
+            Protocol::Relay => serde_json::from_value(value).map(Self::Relay),
         }
         .map_err(|e| invalid(serde_reason(&e)))?;
         parsed.validate()?;
@@ -194,6 +198,7 @@ impl ProtocolOptions {
             Self::Kube(o) => o.validate(),
             Self::Vsphere(o) => o.validate(),
             Self::None(_) => Ok(()),
+            Self::Relay(o) => o.validate(),
         }
     }
 }

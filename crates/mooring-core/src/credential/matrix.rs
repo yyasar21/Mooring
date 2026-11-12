@@ -15,6 +15,7 @@ pub const fn protocol_label(p: Protocol) -> &'static str {
         Protocol::Web => "Web",
         Protocol::Kubernetes => "Kubernetes",
         Protocol::VsphereConsole => "vSphere console",
+        Protocol::Relay => "Relay",
     }
 }
 

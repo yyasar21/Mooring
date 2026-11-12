@@ -1,0 +1,66 @@
+[package]
+name = "mooring-relay"
+description = "Mooring stateless relay proxy: WebSocket frame routing with X25519 E2E keys (ADR-0029)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mooring-core = { path = "../mooring-core", version = "0.2.0-rc.3" }
+aead = { workspace = true, optional = true }
+argon2 = { workspace = true, optional = true }
+base64 = { version = "0.22", optional = true }
+chacha20poly1305 = { workspace = true, optional = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "alloc", "pkcs8"], optional = true }
+hkdf = { version = "0.13", optional = true }
+hyper = { version = "1", features = ["server"], optional = true }
+hyper-util = { version = "0.1.21", default-features = false, features = ["server-auto", "tokio"], optional = true }
+rand_core = { workspace = true, optional = true }
+ring = { version = "0.17", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
+tracing = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+x25519-dalek = { version = "2", default-features = false, features = ["alloc"], optional = true }
+zeroize = { workspace = true, optional = true }
+
+[dev-dependencies]
+mooring-core = { path = "../mooring-core", version = "0.2.0-rc.3" }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = ["server"]
+server = [
+  "dep:aead",
+  "dep:argon2",
+  "dep:base64",
+  "dep:chacha20poly1305",
+  "dep:ed25519-dalek",
+  "dep:hkdf",
+  "dep:hyper",
+  "dep:hyper-util",
+  "dep:rand_core",
+  "dep:ring",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:sha2",
+  "dep:thiserror",
+  "dep:tokio",
+  "dep:tokio-tungstenite",
+  "dep:tracing",
+  "dep:uuid",
+  "dep:x25519-dalek",
+  "dep:zeroize",
+]

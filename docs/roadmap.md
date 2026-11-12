@@ -104,8 +104,9 @@ table) to the released state.
 ## B — Mooring agent and relay 🗓
 
 Mooring's own remote-desktop agent and relay service, so machines without SSH, RDP or VNC
-exposure can be reached through an end-to-end encrypted relay. Scope and design will start
-with a dedicated ADR after v0.1.0.
+exposure can be reached through an end-to-end encrypted relay. [ADR-0029](adr/0029-mooring-agent-and-relay.md)
+defines the architecture, E2E key exchange, agent binary and stateless relay design.
+Phase B starts after A5 exit.
 
 ## Influencing the roadmap
 

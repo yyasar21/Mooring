@@ -74,6 +74,8 @@ pub enum Protocol {
     Kubernetes,
     /// vSphere `WebMKS` console.
     VsphereConsole,
+    /// Mooring agent relay (stateless WebSocket + E2E tunnel, ADR-0029).
+    Relay,
 }
 
 impl Protocol {
@@ -85,7 +87,7 @@ impl Protocol {
             Self::Rdp => Some(3389),
             Self::Vnc => Some(5900),
             Self::Web => Some(443),
-            Self::Kubernetes | Self::VsphereConsole => None,
+            Self::Kubernetes | Self::VsphereConsole | Self::Relay => None,
         }
     }
 
@@ -99,6 +101,7 @@ impl Protocol {
             Self::Web => "web",
             Self::Kubernetes => "kubernetes",
             Self::VsphereConsole => "vsphere-console",
+            Self::Relay => "relay",
         }
     }
 }

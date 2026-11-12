@@ -16,6 +16,8 @@ members = [
   "crates/mooring-net",     # A4 N1: TCP port check, OS ping / traceroute / wg show runners + hostile parsers (ADR-0020)
   "crates/mooring-import",  # A4 I1: file importers into a dry-run plan (ADR-0019)
   "crates/mooring-testsrv", # dev-only loopback RFB/RDP test servers (A2 Q2); never a product dependency
+  "crates/mooring-relay",   # B R1: stateless relay proxy with E2E tunnel (ADR-0029)
+  "crates/mooring-agent",   # B A1: loopback proxy + E2E tunnel + local session runner (ADR-0029)
   "src-tauri",
 ]
 # src-tauri needs the OS WebView toolchain; `cargo test --workspace --exclude mooring-app`
@@ -35,6 +37,8 @@ default-members = [
   "crates/mooring-secrets",
   "crates/mooring-net",
   "crates/mooring-import",
+  "crates/mooring-relay",  # B R1: relay server (ADR-0029)
+  "crates/mooring-agent",  # B A1: agent service (ADR-0029)
 ]
 
 [workspace.package]
@@ -47,14 +51,18 @@ repository = "https://github.com/yyasar21/Mooring"
 
 [workspace.dependencies]
 # crypto (RustCrypto only — see ADR-0002)
+aead = { version = "0.6", features = ["alloc"] }          # ADR-0029: AEAD trait for ChaCha20-Poly1305 frame encryption
 argon2 = { version = "0.5", features = ["std"] }
 chacha20poly1305 = { version = "0.10", features = ["std"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "alloc", "pkcs8"] } # ADR-0029: operator registration tokens
+hkdf = "0.13"                                             # ADR-0029: X25519 key derivation for E2E session keys
 sha2 = "0.11"
 rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = { version = "1.8", features = ["derive"] }
 secrecy = { version = "0.10", features = ["serde"] }
 age = { version = "0.12", features = ["armor"] }          # ADR-0006: age-compatible export (RustCrypto, pure Rust)
 sysinfo = { version = "0.40", default-features = false, features = ["system"] } # ADR-0006: RAM cap for Argon2 calibration
+x25519-dalek = { version = "2", default-features = false, features = ["alloc", "static_secrets"] } # ADR-0029: X25519 E2E key exchange
 # ssh (ADR-0007): ring backend only, aws-lc-rs off
 russh = { version = "0.65", default-features = false, features = ["ring", "rsa"] } # no flate2: compression is none only (review 5 N-35)
 russh-sftp = "3"

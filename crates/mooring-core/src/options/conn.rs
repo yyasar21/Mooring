@@ -426,3 +426,44 @@ impl KubeConnOptions {
         self.server.as_deref().and_then(|s| KubeServer::parse(s).ok())
     }
 }
+
+/// `RelayConnOptions = { relayUrl, endpointId }` (ADR-0029). The manager connects to an
+/// agent via a stateless relay: `relayUrl` is the WebSocket URL, `endpointId` is the
+/// agent's stable UUID v4 identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RelayConnOptions {
+    /// Relay WebSocket URL (`wss://…`). Required.
+    #[serde(default)]
+    pub relay_url: String,
+    /// Agent endpoint ID (UUID v4 string). Required.
+    #[serde(default)]
+    pub endpoint_id: String,
+}
+
+impl Default for RelayConnOptions {
+    fn default() -> Self {
+        Self { relay_url: String::new(), endpoint_id: String::new() }
+    }
+}
+
+impl RelayConnOptions {
+    /// `relayUrl` must be an absolute `wss://` URL; `endpointId` must parse as UUID v4.
+    pub fn validate(&self) -> Result<()> {
+        if self.relay_url.is_empty() {
+            return Err(invalid("relayUrl is required for a relay connection"));
+        }
+        check_url(&self.relay_url, false, false)?;
+        let scheme = split_url(&self.relay_url).map(|(s, _, _)| s.to_ascii_lowercase());
+        if scheme.as_deref() != Some("wss") {
+            return Err(invalid("relayUrl must use wss://"));
+        }
+        if self.endpoint_id.is_empty() {
+            return Err(invalid("endpointId is required for a relay connection"));
+        }
+        if uuid::Uuid::parse_str(&self.endpoint_id).is_err() {
+            return Err(invalid("endpointId must be a UUID v4 string"));
+        }
+        Ok(())
+    }
+}

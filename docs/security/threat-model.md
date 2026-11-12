@@ -58,8 +58,32 @@ ADR-0008 commands, UI, rename) in [a1-review-2.md](a1-review-2.md); A1 items 1�
 | T6 | Poisoned dependency (cargo/npm), GitHub Action or CI | Code execution at build time; inside the release workflow, access to that job's token, OIDC identity and signing secrets |
 | T7 | Sync storage operator (S3 provider, bucket admin, anyone with the bucket keys) (A3) | Reads, replays, withholds, deletes or replaces any object, serves an old generation, logs request URLs; cannot forge MSY1 without the DEK |
 | T8 | Compromised jump host or RD Gateway (A5) | Sees and alters the plaintext of protocols it relays when they carry no end-to-end protection (VNC `none`, HTTP in a web-via window), sees target names and timing, can drop or delay; cannot pass the target's own SSH / TLS / NLA pin. A gateway terminating TLS also receives the gateway sign-in (NTLM, or Basic when allowed) |
+| T9 | Compromised relay operator (B) | Runs or observes the WebSocket relay; sees only E2E ciphertext, endpoint IDs, connection timing and traffic volume |
 
-## Trust boundaries added in A5 (ADR-0022..0028, ADR-0018 A1–A2) — review 9
+## Trust boundaries added in B (ADR-0029, Mooring agent and relay)
+
+- **T-RELAY — Compromised relay.** The relay is a stateless WebSocket proxy that forwards E2E
+  encrypted blobs between the client and the agent. It terminates TLS, sees no E2E content,
+  and never stores session data. Capabilities: observe connection metadata (endpoint ids,
+  timing, traffic volume), drop or delay frames, and force reconnections. It **cannot** decrypt,
+  forge, or replay frames (AEAD tag validates integrity, monotonic nonces prevent replay within
+  a session). Recorded as a new attacker row.
+- **Relay ↔ operator key trust boundary.** The operator's Ed25519 signing key is the root of
+  trust for agent registration. Compromise of the private key allows forging registrations
+  (T6 → relay). Mitigations: short-lived tokens (72 h), public key baked into agents at compile
+  time, and a documented key rotation procedure. The relay serves no keys; it only routes blobs.
+  - **Operator key compromise scenario.** An attacker with the operator private key can sign
+    arbitrary agent registration tokens, register malicious agents into any vault, and establish
+    relay tunnels to capture encrypted desktop sessions. Mitigations: (1) operator key stored
+    in an HSM or hardware-backed keystore, never exported; (2) tokens have a short TTL
+    (72 h default, configurable ≤ 5 min for high-assurance deployments); (3) token revocation
+    via a relay-side in-memory deny list, pushed on key rotation; (4) every registration and
+    relay connect is audit-logged (`agent_registered`, `relay_connect`) so compromise is
+    detectable by timing analysis.
+- **Agent on target (T2).** The agent runs as the logged-in user and captures the real desktop.
+  A T2 process on the target can read the screen and inject input — equivalent to physical
+  access. The agent holds no secrets beyond the registration token and E2E keys in RAM
+  (zeroized on close).
 
 - **T-BIO, App → OS biometric store.** macOS: `WrapKey` in a data-protection keychain item
   (`BiometryCurrentSet`, `WhenUnlockedThisDeviceOnly`), Developer-ID builds only. Windows:
@@ -317,6 +341,7 @@ the IPC surface, the capabilities or the CSP. What changes is **who else can rea
 | Denial of service / disclosure: hostile import files (T4) | Caps before allocation (16 MiB input, gzip 64 MiB and 20:1, XML depth 64 / 200 000 elements / 4 KiB values, item caps); `DOCTYPE` refused; predefined + numeric entities only; ZIP refused; errors carry offsets, never content; one fuzz target per parser + `detect`; secrets only with the opt-in, never mRemoteNG; plan in Rust; one transaction | A4 (review 7 / 7b): L-41 ✓, N-53 ✓, N-59 ✓, N-60 ✓. R-IMPORT-SECRET |
 | Spoofing / disclosure: LDAPS directory (T3, T4, T5) | `ldaps://` only; our verifier + `known_ldap_certs` TOFU through the B-6 Gate; bind after a trusted handshake; four operations only; iterative BER pre-scan; caps on entries, pages, frames, values; referrals ignored; errors carry result codes only | A4 (review 7 / 7b): L-43 ✓ (sign-in confirmation; TLS probe before the dialog accepted), N-54 ✓; N-64 (`caPem` audit). R-LDAP-STR |
 | Elevation / probing: OS network tools (T5, T4) | Fixed absolute paths, explicit argv with `--` where accepted, `Target` never starts with `-`/`/`, `env_clear`, no shell, kill on cap/deadline, parsers capped and fuzzed, read-only `WgQuery`, ≤ 2 processes, 1 port check/s, vault-gated, no elevation | A4 (review 7 / 7b): N-52 ✓. R-NET-PROBE |
+| E2E protection through relay (T9, B) | X25519+HKDF key exchange (ADR-0029); relay forwards ciphertext only, never decrypts. Agent registration is operator-signed (Ed25519) | Phase B (ADR-0029) |
 | Tampering / disclosure: portable data root (T1, T2, T-PORT) | Regular-file marker checked with `symlink_metadata`; symlink / reparse point / directory → refusal, never "absent"; `Mooring Data`, `data`, `cache` refused when linked or not a directory before anything is created; `0700` + re-tighten on unix, `OWNER RIGHTS` ACL with inheritance removed on NTFS (fixed argv, `env_clear`, 10 s, non-fatal, audited when unavailable); no fallback to the OS dirs on any error (native box, exit 2, no window); `app.start { portable }` without a path; `app_info` is the only reader of the path | 0.1.1 (review 8): ✓ with **M-18** (macOS App Translocation → silent fallback, tag condition), L-44 (`$APPIMAGE`), L-45 (FAT on unix), L-46 (docs); N-65..N-68. R-PORT |
 | Tampering: portable zips vs the updater (T3, T6) | Zips are release assets only: `sign-updater` excludes `*_portable.zip` (lint-pinned), `updater-manifest.sh` refuses a `.zip` `.sig`, `verify-release.sh` fails on a `.zip.sig` or a `.zip` in `latest.json`; the client's matrix returns `Manual(Portable)` first; background check never installed, opt-in refused and audited | 0.1.1 (review 8): ✓; N-69 (symlink self-check), N-70 (lint quoting), N-71 (zip content check) |
 
@@ -712,6 +737,29 @@ logs are valid for 300 s (N-44).
 hyper, rustls, `HeaderValue`, `serde_json` scratch buffers, the rusty-s3 session token and the
 presigned path hold copies of tokens that we cannot zeroize. Our own copies are `Zeroizing`.
 
+### R-RELAY — operator key compromise and relay trust (accepted with conditions, ADR-0029)
+The relay is a stateless WebSocket proxy. It forwards E2E-encrypted payloads between agents and
+the connection manager but never decrypts them. The trust boundary is:
+- **Operator Ed25519 signing key** — signs agent registration tokens. Compromise lets the holder
+  forge tokens, register arbitrary agents, and inject agents into existing vaults. Must be stored
+  HSM-backed or in a hardware-backed keystore, rotated on suspicion.
+- **Stateless relay** — in-memory agent registry only; no persistent session data. Agent IDs are
+  validated against the operator signature on every connect.
+- **E2E key exchange** — X25519+HKDF (ADR-0029); agent and manager perform a unilateral Diffie–Hellman
+  per session. The relay observes only ciphertext and ephemeral DH public keys.
+
+Risk:
+- Operator key leak: an attacker signs a rogue agent, gains a relay tunnel into any vault it targets.
+- Relay log leakage: metadata (endpoint IDs, timing, volume) is visible to the operator.
+- DH key reuse: if an agent reuses its static X25519 key across sessions without forward secrecy, a
+  later DH private-key compromise breaks past sessions.
+
+Mitigations:
+- Operator key never leaves the HSM/keystore; only short-lived, revocable tokens are issued.
+- E2E session keys are ephemeral (DH private key zeroized after derive).
+- Agent registration tokens have a short TTL and are revocable via a relay-side deny list (in-memory).
+- Audit every agent registration and relay connect (`agent_registered`, `relay_connect`, `relay_disconnect`).
+
 ## Accepted risks (revisit)
 - `style-src 'unsafe-inline'` for Tailwind/Vite. No script vector; revisit with nonces.
 - No memory encryption while unlocked: an attacker with ptrace/debug rights on the same user
@@ -869,3 +917,20 @@ presigned path hold copies of tokens that we cannot zeroize. Our own copies are 
         and after a Finder move; read-only folder → `portable.unwritable`, exit 2, no OS
         app-data directory.
       - [ ] N-65..N-71 as scheduled. L-40 manifest cap still due for 0.1.1 (R-UPD).
+- [ ] **Phase B — ADR-0029 (agent and relay service):**
+      - [ ] T9 (compromised relay operator) accepted; T-RELAY trust boundary (B-RELAY) validated.
+      - [ ] M-RELAY (E2E through relay) wired: X25519+HKDF key exchange tested, relay forwards
+        ciphertext only.
+      - [ ] R-RELAY (operator key compromise) conditions met: operator Ed25519 key in HSM/keystore,
+        token TTL ≤ 5 min, revocation via in-memory deny list, audit entries for all relay connects.
+      - [ ] `Protocol::Relay` variant in `mooring-core` enum, `RelayConnOptions` in options module,
+        `Session` trait routes relay variant to `mooring-agent`.
+      - [ ] `mooring-agent` crate: operator token validation, X25519 key pair generation,
+        DH key exchange with manager, E2E session framing.
+      - [ ] `mooring-relay` crate: stateless WebSocket proxy, in-memory agent registry,
+        operator signature verification, per-connect audit.
+      - [ ] Fuzz targets: E2E key exchange message framing, relay handshake (hostile tokens,
+        malformed WebSocket frames).
+      - [ ] `deny.toml` / `cargo-audit` / `cargo-deny` clean for new crates.
+      - [ ] No `unsafe` in relay or agent unless documented with an ADR justification.
+      - [ ] `make check` green on macOS, Windows, Linux.
