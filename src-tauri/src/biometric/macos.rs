@@ -66,7 +66,7 @@ fn map(e: SecError, op: &'static str) -> BioError {
         ERR_SEC_USER_CANCELED => BioError::Cancelled,
         ERR_SEC_ITEM_NOT_FOUND | ERR_SEC_AUTH_FAILED => BioError::NotFound,
         ERR_SEC_MISSING_ENTITLEMENT => BioError::Unavailable(Unavailable::UnsignedBuild),
-        ERR_SEC_INTERACTION_NOT_ALLOWED => BioError::Unavailable(Unavailable::KeychainUnavailable),
+        ERR_SEC_INTERACTION_NOT_ALLOWED => BioError::Unavailable(Unavailable::KeychainUnavail),
         _ => BioError::Failed,
     }
 }
@@ -83,7 +83,7 @@ fn probe() -> Result<(), Unavailable> {
             ERR_SEC_MISSING_ENTITLEMENT => Err(Unavailable::UnsignedBuild),
             code => {
                 tracing::warn!(code, "keychain probe failed");
-                Err(Unavailable::KeychainUnavailable)
+                Err(Unavailable::KeychainUnavail)
             }
         },
     }

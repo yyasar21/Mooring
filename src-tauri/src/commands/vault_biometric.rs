@@ -50,7 +50,7 @@ fn unavailable(u: Unavailable) -> IpcError {
     let text = match u {
         Unavailable::NoAcl => "biometric unlock is not offered on this operating system",
         Unavailable::UnsignedBuild => "Touch ID needs a signed build",
-        Unavailable::KeychainUnavailable => "the OS biometric store is not available",
+        Unavailable::KeychainUnavail => "the OS biometric store is not available",
     };
     IpcError::new("biometric.unavailable", format!("{text} ({})", u.reason()))
 }

@@ -52,7 +52,7 @@ pub enum Unavailable {
     UnsignedBuild,
     /// The OS store or biometry is not set up (no Hello, no Touch ID sensor, keychain
     /// refused, item of another machine in portable mode).
-    KeychainUnavailable,
+    KeychainUnavail,
 }
 
 impl Unavailable {
@@ -61,7 +61,7 @@ impl Unavailable {
         match self {
             Self::NoAcl => "no_acl",
             Self::UnsignedBuild => "unsigned_build",
-            Self::KeychainUnavailable => "keychain_unavailable",
+            Self::KeychainUnavail => "keychain_unavail",
         }
     }
 }

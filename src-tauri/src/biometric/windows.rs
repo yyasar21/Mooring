@@ -46,7 +46,7 @@ fn status(s: KeyCredentialStatus, op: &'static str) -> Result<(), BioError> {
         KeyCredentialStatus::NotFound => Err(BioError::NotFound),
         KeyCredentialStatus::UserPrefersPassword | KeyCredentialStatus::SecurityDeviceLocked => {
             tracing::warn!(op, status = s.0, "windows hello refused");
-            Err(BioError::Unavailable(Unavailable::KeychainUnavailable))
+            Err(BioError::Unavailable(Unavailable::KeychainUnavail))
         }
         other => {
             tracing::warn!(op, status = other.0, "windows hello failed");
@@ -97,12 +97,12 @@ impl BiometricStore for HelloStore {
             .and_then(|op| op.join())
             .map_err(|e| {
                 tracing::warn!(hresult = e.code().0, "windows hello support query failed");
-                Unavailable::KeychainUnavailable
+                Unavailable::KeychainUnavail
             })?;
         if supported {
             Ok(())
         } else {
-            Err(Unavailable::KeychainUnavailable)
+            Err(Unavailable::KeychainUnavail)
         }
     }
 

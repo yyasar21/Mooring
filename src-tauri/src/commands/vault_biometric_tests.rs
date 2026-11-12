@@ -56,7 +56,7 @@ fn status_matrix_per_platform_and_signing_state() {
     assert!(json["suspendedReason"].is_null() && json["platform"] == "macos");
 
     let (f, bio) = fixture("windows");
-    bio.set_unavailable(Some(Unavailable::KeychainUnavailable));
+    bio.set_unavailable(Some(Unavailable::KeychainUnavail));
     assert_eq!(status(&f.state).expect("status").reason, "keychain_unavailable");
     // status is passive: it never prompts, locked or not
     locked(&f.state);
