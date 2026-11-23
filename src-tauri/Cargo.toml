@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 serde_json = { workspace = true } # ADR-0028 §1: build.rs re-derives the effective identifier (already in the tree)
 
 [dependencies]
-tauri = { version = "=2.12.5", features = [] }  # ADR-0013 / review 5 L-32: pinned to the reviewed release; bumps go through Dependabot + review
+tauri = { version = "=2.12.7", features = [] }  # ADR-0013 / review 5 L-32: pinned to the reviewed release; bumps go through Dependabot + review
 tauri-plugin-dialog = "2"  # ADR-0010 / review 4 B-4: native pickers opened from Rust only; the WebView gets no dialog:* permission
 # ADR-0018 §3 (A4 U0): in-app updates, Rust-side only (no `updater:*` permission in any capability);
 # registered only when `plugins.updater.pubkey` is set. `zip` (v1 bundles) dropped on purpose.
